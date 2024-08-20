@@ -11,6 +11,8 @@ pub enum MovementType {
 
 // TODO: update the internal type to be something that is has width exactly 1, since a char does not
 // correspond to the width of a single column on the terminal.
+/// A simple editable string type with a cursor indicating the current edit position, and various
+/// supported actions.
 #[derive(Debug, Default)]
 pub struct EditableString {
     /// The contents of the editable string.
@@ -30,11 +32,6 @@ impl EditableString {
     /// Is the cursor at the end of the string?
     pub fn cursor_at_end(&self) -> bool {
         self.cursor == self.contents.len()
-    }
-
-    /// The width of the string.
-    pub fn width(&self) -> usize {
-        self.contents.len()
     }
 
     /// Paste a string at the current cursor position and return whether or not the string was

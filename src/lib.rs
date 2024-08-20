@@ -1,17 +1,21 @@
 //! # A generic fuzzy item picker
-//! This is a generic picker implementation based on the [`nucleo`] fuzzy matching library.
+//! This is a generic picker implementation, which is essentially a wrapper around the [`nucleo`]
+//! fuzzy matching library.
 mod editable;
 mod event;
 
 use std::{
     cmp::min,
     io::{self, Stdout, Write},
-    sync::Arc,
+    sync::{
+        mpsc::{channel, Receiver},
+        Arc,
+    },
+    // std::sync::mpsc::Receiver
     thread::{available_parallelism, sleep, spawn},
     time::{Duration, Instant},
 };
 
-use crossbeam::channel::{unbounded, Receiver};
 use crossterm::{
     cursor,
     event::{
@@ -33,12 +37,13 @@ use nucleo::{Config, Injector, Nucleo, Utf32String};
 
 use crate::{
     editable::{EditableString, MovementType},
-    event::{process_events, EventOutcome},
+    event::{process_events, EventSummary},
 };
 
 pub use nucleo;
 
 /// A representation of the current state of the picker.
+#[derive(Debug)]
 struct PickerState {
     /// The width of the screen.
     width: u16,
@@ -77,14 +82,14 @@ impl PickerState {
     /// Increment the current item selection.
     pub fn incr_selection(&mut self) {
         self.needs_redraw = true;
-        self.selector_index = self.selector_index.map(|i| i + 1);
+        self.selector_index = self.selector_index.map(|i| i.saturating_add(1));
         self.clamp_selector_index();
     }
 
     /// Decrement the current item selection.
     pub fn decr_selection(&mut self) {
         self.needs_redraw = true;
-        self.selector_index = self.selector_index.map(|i| if i > 0 { i - 1 } else { 0 });
+        self.selector_index = self.selector_index.map(|i| i.saturating_sub(1));
         self.clamp_selector_index();
     }
 
@@ -96,9 +101,9 @@ impl PickerState {
     ) {
         if changed {
             self.needs_redraw = true;
-            self.draw_count = snapshot.matched_item_count().try_into().unwrap_or(u16::MAX);
             self.item_count = snapshot.item_count();
             self.matched_item_count = snapshot.matched_item_count();
+            self.draw_count = self.matched_item_count.try_into().unwrap_or(u16::MAX);
             self.clamp_draw_count();
             self.clamp_selector_index();
         }
@@ -280,7 +285,7 @@ impl<T: Send + Sync + 'static> Picker<T> {
 
         // read keyboard events from a separate thread to avoid 'read()' polling
         // and handle multiple keyboard events per frame
-        let (sender, receiver) = unbounded();
+        let (sender, receiver) = channel();
         spawn(move || loop {
             if let Ok(event) = read() {
                 if sender.send(event).is_err() {
@@ -289,80 +294,76 @@ impl<T: Send + Sync + 'static> Picker<T> {
             }
         });
 
-        pick_internal(
-            &mut self.matcher,
-            receiver,
-            Self::suggested_frame_interval(),
-        )
+        self.pick_inner(receiver, Self::suggested_frame_interval())
     }
-}
 
-// TODO: allow multiple selections, so the return type is `Vec<&T>` instead of `Option<&T>`.
-// We chould imitate the fzf picker style: every time an item is selected (using `TAB`), the
-// global matcher index is registered. Even if the query is changed, the old matches should
-// be preserved. The main question is how to associate the `match` index with the `global`
-// index in Nucleo so the previous matches can be rendered, even when the item drops out of the
-// match list.
-fn pick_internal<T: Send + Sync + 'static>(
-    matcher: &mut Nucleo<T>,
-    events: Receiver<Event>,
-    interval: Duration,
-) -> Result<Option<&T>, io::Error> {
-    let mut stdout = io::stdout();
-    let mut term = PickerState::new(size()?);
+    // TODO: allow multiple selections, so the return type is `Vec<&T>` instead of `Option<&T>`.
+    // We chould imitate the fzf picker style: every time an item is selected (using `TAB`), the
+    // global matcher index is registered. Even if the query is changed, the old matches should
+    // be preserved. The main question is how to associate the `match` index with the `global`
+    // index in Nucleo so the previous matches can be rendered, even when the item drops out of the
+    // match list.
+    fn pick_inner(
+        &mut self,
+        events: Receiver<Event>,
+        interval: Duration,
+    ) -> Result<Option<&T>, io::Error> {
+        let mut stdout = io::stdout();
+        let mut term = PickerState::new(size()?);
 
-    enable_raw_mode()?;
-    execute!(
-        stdout,
-        EnterAlternateScreen,
-        EnableBracketedPaste,
-        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
-    )?;
+        enable_raw_mode()?;
+        execute!(
+            stdout,
+            EnterAlternateScreen,
+            EnableBracketedPaste,
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        )?;
 
-    let selection = loop {
-        let deadline = Instant::now() + interval;
+        let selection = loop {
+            let deadline = Instant::now() + interval;
 
-        // process any queued keyboard events and reset query pattern if necessary
-        match process_events(&mut term, &events)? {
-            EventOutcome::Continue => {}
-            EventOutcome::UpdateQuery(append) => {
-                matcher.pattern.reparse(
-                    0,
-                    &term.query.to_string(),
-                    nucleo::pattern::CaseMatching::Smart,
-                    nucleo::pattern::Normalization::Smart,
-                    append,
-                );
-            }
-            EventOutcome::Select => {
-                break term
-                    .selector_index
-                    .and_then(|idx| matcher.snapshot().get_matched_item(idx as u32))
-                    .map(|it| it.data);
-            }
-            EventOutcome::Quit => {
-                break None;
-            }
+            // process any queued keyboard events and reset query pattern if necessary
+            match process_events(&mut term, &events)? {
+                EventSummary::Continue => {}
+                EventSummary::UpdateQuery(append) => {
+                    self.matcher.pattern.reparse(
+                        0,
+                        &term.query.to_string(),
+                        nucleo::pattern::CaseMatching::Smart,
+                        nucleo::pattern::Normalization::Smart,
+                        append,
+                    );
+                }
+                EventSummary::Select => {
+                    break term
+                        .selector_index
+                        .and_then(|idx| self.matcher.snapshot().get_matched_item(idx as u32))
+                        .map(|it| it.data);
+                }
+                EventSummary::Quit => {
+                    break None;
+                }
+            };
+
+            // redraw the screen
+            term.draw(&mut stdout, self.matcher.snapshot())?;
+
+            // increment the matcher and terminal state
+            let status = self.matcher.tick(10);
+            term.update_counts(status.changed, self.matcher.snapshot());
+
+            // wait before attempting redraw if the matcher finished earlier
+            sleep(deadline - Instant::now());
         };
 
-        // redraw the screen
-        term.draw(&mut stdout, matcher.snapshot())?;
-
-        // increment the matcher and terminal state
-        let status = matcher.tick(10);
-        term.update_counts(status.changed, matcher.snapshot());
-
-        // wait before attempting redraw if the matcher finished earlier
-        sleep(deadline - Instant::now());
-    };
-
-    drop(events);
-    disable_raw_mode()?;
-    execute!(
-        stdout,
-        PopKeyboardEnhancementFlags,
-        DisableBracketedPaste,
-        LeaveAlternateScreen
-    )?;
-    Ok(selection)
+        drop(events);
+        disable_raw_mode()?;
+        execute!(
+            stdout,
+            PopKeyboardEnhancementFlags,
+            DisableBracketedPaste,
+            LeaveAlternateScreen
+        )?;
+        Ok(selection)
+    }
 }

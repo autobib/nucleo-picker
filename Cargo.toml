@@ -6,8 +6,10 @@ edition = "2021"
 [[example]]
 name = "find"
 
+[[example]]
+name = "blocking"
+
 [dependencies]
-crossbeam = { version = "0.8", features = ["crossbeam-channel"] }
 crossterm = "0.28"
 nucleo = "0.5"
 

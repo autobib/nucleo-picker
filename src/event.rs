@@ -1,12 +1,9 @@
-use std::process::exit;
+use std::{io, process::exit, sync::mpsc::Receiver};
 
-use std::io;
-
-use crossbeam::channel::Receiver;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 /// The outcome after processing all of the events.
-pub enum EventOutcome {
+pub enum EventSummary {
     Continue,
     UpdateQuery(bool),
     Select,
@@ -19,7 +16,7 @@ use crate::{MovementType, PickerState};
 pub fn process_events(
     term: &mut PickerState,
     events: &Receiver<Event>,
-) -> Result<EventOutcome, io::Error> {
+) -> Result<EventSummary, io::Error> {
     let mut update_query = false;
     let mut append = true;
 
@@ -72,7 +69,7 @@ pub fn process_events(
                         append &= term.query.cursor_at_end();
                         term.insert_char(ch);
                     }
-                    KeyCode::Enter => return Ok(EventOutcome::Select),
+                    KeyCode::Enter => return Ok(EventSummary::Select),
                     KeyCode::Up => {
                         term.incr_selection();
                     }
@@ -91,7 +88,7 @@ pub fn process_events(
                         append = false;
                         term.delete_char();
                     }
-                    KeyCode::Esc => return Ok(EventOutcome::Quit),
+                    KeyCode::Esc => return Ok(EventSummary::Quit),
                     _ => {}
                 }
             }
@@ -107,8 +104,8 @@ pub fn process_events(
         }
     }
     Ok(if update_query {
-        EventOutcome::UpdateQuery(append)
+        EventSummary::UpdateQuery(append)
     } else {
-        EventOutcome::Continue
+        EventSummary::Continue
     })
 }
