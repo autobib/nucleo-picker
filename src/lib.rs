@@ -18,10 +18,7 @@ use std::{
 
 use crossterm::{
     cursor,
-    event::{
-        read, DisableBracketedPaste, EnableBracketedPaste, Event, KeyboardEnhancementFlags,
-        PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
-    },
+    event::{read, DisableBracketedPaste, EnableBracketedPaste, Event},
     execute,
     style::{
         Attribute, Color, Print, PrintStyledContent, ResetColor, SetAttribute, SetForegroundColor,
@@ -305,12 +302,7 @@ impl<T: Send + Sync + 'static> Picker<T> {
         let mut term = PickerState::new(size()?);
 
         enable_raw_mode()?;
-        execute!(
-            stdout,
-            EnterAlternateScreen,
-            EnableBracketedPaste,
-            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
-        )?;
+        execute!(stdout, EnterAlternateScreen, EnableBracketedPaste)?;
 
         let selection = loop {
             let deadline = Instant::now() + interval;
@@ -351,12 +343,7 @@ impl<T: Send + Sync + 'static> Picker<T> {
 
         drop(events);
         disable_raw_mode()?;
-        execute!(
-            stdout,
-            PopKeyboardEnhancementFlags,
-            DisableBracketedPaste,
-            LeaveAlternateScreen
-        )?;
+        execute!(stdout, DisableBracketedPaste, LeaveAlternateScreen)?;
         Ok(selection)
     }
 }
