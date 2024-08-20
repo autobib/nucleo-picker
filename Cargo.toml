@@ -2,12 +2,10 @@
 name = "nucleo-picker"
 version = "0.1.0"
 edition = "2021"
-
-[[example]]
-name = "find"
-
-[[example]]
-name = "blocking"
+authors = ["Alex Rutar <alex@rutar.org>"]
+description = "A fuzzy picker library based on nucleo."
+repository = "https://github.com/autobib/nucleo-picker"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 crossterm = "0.28"
@@ -15,3 +13,9 @@ nucleo = "0.5"
 
 [dev-dependencies]
 walkdir = "2.5"
+
+[[example]]
+name = "find"
+
+[[example]]
+name = "blocking"
