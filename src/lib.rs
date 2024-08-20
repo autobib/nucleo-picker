@@ -230,9 +230,7 @@ impl PickerState {
         self.clamp_selector_index();
     }
 }
-/// The core picker struct.
-///
-/// Internally, it holds a [`Nucleo`] instance which is created on initialization.
+/// # Core picker struct
 pub struct Picker<T: Send + Sync + 'static> {
     matcher: Nucleo<T>,
 }
@@ -258,17 +256,17 @@ impl<T: Send + Sync + 'static> Picker<T> {
         Duration::from_millis(16)
     }
 
-    /// Create a new [`Picker`] instance with the prescribed number of columns.
+    /// Create a new [`Picker`] instance with arguments passed to [`Nucleo`](Nucleo).
     pub fn new(config: Config, num_threads: Option<usize>, columns: u32) -> Self {
         Self {
             matcher: Nucleo::new(config, Arc::new(|| {}), num_threads, columns),
         }
     }
 
-    /// Create a new [`Picker`] instance with the prescribed number of columns.
-    pub fn new_with_config(columns: u32, config: Config) -> Self {
+    /// Create a new [`Picker`] instance with the given configuration.
+    pub fn with_config(config: Config) -> Self {
         Self {
-            matcher: Nucleo::new(config, Arc::new(|| {}), Self::suggested_threads(), columns),
+            matcher: Nucleo::new(config, Arc::new(|| {}), Self::suggested_threads(), 1),
         }
     }
 
@@ -277,7 +275,7 @@ impl<T: Send + Sync + 'static> Picker<T> {
         self.matcher.injector()
     }
 
-    /// Open the picker prompt and return the picked item, if any.
+    /// Open the picker prompt for user interaction and return the picked item, if any.
     pub fn pick(&mut self) -> Result<Option<&T>, io::Error> {
         if !std::io::stdin().is_tty() {
             return Err(io::Error::new(io::ErrorKind::Other, "is not interactive"));
@@ -297,12 +295,7 @@ impl<T: Send + Sync + 'static> Picker<T> {
         self.pick_inner(receiver, Self::suggested_frame_interval())
     }
 
-    // TODO: allow multiple selections, so the return type is `Vec<&T>` instead of `Option<&T>`.
-    // We chould imitate the fzf picker style: every time an item is selected (using `TAB`), the
-    // global matcher index is registered. Even if the query is changed, the old matches should
-    // be preserved. The main question is how to associate the `match` index with the `global`
-    // index in Nucleo so the previous matches can be rendered, even when the item drops out of the
-    // match list.
+    /// The actual picker implementation.
     fn pick_inner(
         &mut self,
         events: Receiver<Event>,

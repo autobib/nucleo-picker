@@ -9,8 +9,6 @@ pub enum MovementType {
     End,
 }
 
-// TODO: update the internal type to be something that is has width exactly 1, since a char does not
-// correspond to the width of a single column on the terminal.
 /// A simple editable string type with a cursor indicating the current edit position, and various
 /// supported actions.
 #[derive(Debug, Default)]
