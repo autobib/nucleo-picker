@@ -1,4 +1,4 @@
-//! # Non-blocking `find` re-implementation
+//! # Non-blocking `find`-style picker
 //!
 //! Iterate over directories to populate the picker, but do not block so that matching can be done
 //! while the picker is populated.
