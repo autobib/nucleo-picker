@@ -3,7 +3,7 @@ name = "nucleo-picker"
 version = "0.1.0"
 edition = "2021"
 authors = ["Alex Rutar <alex@rutar.org>"]
-description = "A fuzzy picker library based on nucleo."
+description = "A fuzzy picker tui library based on nucleo"
 repository = "https://github.com/autobib/nucleo-picker"
 license = "MIT OR Apache-2.0"
 
