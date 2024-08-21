@@ -1,6 +1,5 @@
 //! # A generic fuzzy item picker
-//! This is a generic picker implementation, which is essentially a wrapper around the [`nucleo`]
-//! fuzzy matching library.
+//! This is a generic picker implementation which wraps a [`nucleo::Nucleo`] matcher.
 mod bind;
 mod editable;
 pub mod fill;
@@ -9,24 +8,22 @@ use std::{
     cmp::min,
     io::{self, Stdout, Write},
     process::exit,
-    sync::{
-        mpsc::{channel, Receiver},
-        Arc,
-    },
-    thread::{available_parallelism, sleep, spawn},
+    sync::Arc,
+    thread::{available_parallelism, sleep},
     time::{Duration, Instant},
 };
 
 use crossterm::{
-    cursor,
-    event::{read, DisableBracketedPaste, EnableBracketedPaste},
+    cursor::{MoveTo, MoveToColumn, MoveUp},
+    event::{poll, read, DisableBracketedPaste, EnableBracketedPaste},
     execute,
     style::{
         Attribute, Color, Print, PrintStyledContent, ResetColor, SetAttribute, SetForegroundColor,
         Stylize,
     },
     terminal::{
-        self, disable_raw_mode, enable_raw_mode, size, EnterAlternateScreen, LeaveAlternateScreen,
+        disable_raw_mode, enable_raw_mode, size, Clear, ClearType, EnterAlternateScreen,
+        LeaveAlternateScreen,
     },
     tty::IsTty,
     QueueableCommand,
@@ -167,39 +164,42 @@ impl PickerState {
             .collect()
     }
 
-    fn handle(&mut self, events: &Receiver<Event>) -> Result<EventSummary, io::Error> {
+    /// Clear the queued events.
+    fn handle(&mut self) -> Result<EventSummary, io::Error> {
         let mut update_query = false;
         let mut append = true;
 
-        for event in events.try_iter() {
-            match event {
-                Event::Abort => exit(1),
-                Event::MoveToStart => self.shift(MovementType::Start),
-                Event::MoveToEnd => self.shift(MovementType::End),
-                Event::Insert(ch) => {
-                    update_query = true;
-                    // if the cursor is at the end, it means the character was appended
-                    append &= self.query.cursor_at_end();
-                    self.insert_char(ch);
-                }
-                Event::Select => return Ok(EventSummary::Select),
-                Event::MoveUp => self.incr_selection(),
-                Event::MoveDown => self.decr_selection(),
-                Event::MoveLeft => self.shift(MovementType::Left),
-                Event::MoveRight => self.shift(MovementType::Right),
-                Event::Delete => {
-                    update_query = true;
-                    append = false;
-                    self.delete_char();
-                }
-                Event::Quit => return Ok(EventSummary::Quit),
-                Event::Resize(width, height) => {
-                    self.resize(width, height);
-                }
-                Event::Paste(contents) => {
-                    update_query = true;
-                    append &= self.query.cursor_at_end();
-                    self.paste(&contents);
+        while poll(Duration::from_millis(5))? {
+            if let Some(event) = convert(read()?) {
+                match event {
+                    Event::Abort => exit(1),
+                    Event::MoveToStart => self.shift(MovementType::Start),
+                    Event::MoveToEnd => self.shift(MovementType::End),
+                    Event::Insert(ch) => {
+                        update_query = true;
+                        // if the cursor is at the end, it means the character was appended
+                        append &= self.query.cursor_at_end();
+                        self.insert_char(ch);
+                    }
+                    Event::Select => return Ok(EventSummary::Select),
+                    Event::MoveUp => self.incr_selection(),
+                    Event::MoveDown => self.decr_selection(),
+                    Event::MoveLeft => self.shift(MovementType::Left),
+                    Event::MoveRight => self.shift(MovementType::Right),
+                    Event::Delete => {
+                        update_query = true;
+                        append = false;
+                        self.delete_char();
+                    }
+                    Event::Quit => return Ok(EventSummary::Quit),
+                    Event::Resize(width, height) => {
+                        self.resize(width, height);
+                    }
+                    Event::Paste(contents) => {
+                        update_query = true;
+                        append &= self.query.cursor_at_end();
+                        self.paste(&contents);
+                    }
                 }
             }
         }
@@ -223,8 +223,8 @@ impl PickerState {
 
             // clear screen and set cursor position to bottom
             stdout
-                .queue(terminal::Clear(terminal::ClearType::All))?
-                .queue(cursor::MoveTo(0, self.height - 2))?;
+                .queue(Clear(ClearType::All))?
+                .queue(MoveTo(0, self.height - 2))?;
 
             // draw the match counts
             stdout
@@ -241,27 +241,24 @@ impl PickerState {
             for it in snapshot.matched_items(..self.draw_count as u32) {
                 let render = self.format_display(&it.matcher_columns[0]);
                 stdout
-                    .queue(cursor::MoveUp(1))?
-                    .queue(cursor::MoveToColumn(2))?
+                    .queue(MoveUp(1))?
+                    .queue(MoveToColumn(2))?
                     .queue(Print(render))?;
             }
 
             // draw the selection indicator
             if let Some(position) = self.selector_index {
                 stdout
-                    .queue(cursor::MoveTo(0, self.height - 3 - position))?
+                    .queue(MoveTo(0, self.height - 3 - position))?
                     .queue(PrintStyledContent("▌".with(Color::Magenta)))?;
             }
 
             // render the query string
             stdout
-                .queue(cursor::MoveTo(0, self.height - 1))?
+                .queue(MoveTo(0, self.height - 1))?
                 .queue(Print("> "))?
                 .queue(Print(&self.query))?
-                .queue(cursor::MoveTo(
-                    self.query.position() as u16 + 2,
-                    self.height - 1,
-                ))?;
+                .queue(MoveTo(self.query.position() as u16 + 2, self.height - 1))?;
 
             // flush to terminal
             stdout.flush()
@@ -330,24 +327,13 @@ impl<T: Send + Sync + 'static> Picker<T> {
             return Err(io::Error::new(io::ErrorKind::Other, "is not interactive"));
         }
 
-        // read keyboard events from a separate thread to avoid 'read()' polling
-        // and handle multiple keyboard events per frame
-        let (sender, receiver) = channel();
-        spawn(move || loop {
-            if let Some(event) = read().ok().and_then(convert) {
-                if sender.send(event).is_err() {
-                    break;
-                }
-            }
-        });
-
-        self.pick_inner(receiver, Self::suggested_frame_interval())
+        self.pick_inner(Self::suggested_frame_interval())
     }
 
     /// The actual picker implementation.
     fn pick_inner(
         &mut self,
-        events: Receiver<Event>,
+        // events: Receiver<Event>,
         interval: Duration,
     ) -> Result<Option<&T>, io::Error> {
         let mut stdout = io::stdout();
@@ -360,7 +346,7 @@ impl<T: Send + Sync + 'static> Picker<T> {
             let deadline = Instant::now() + interval;
 
             // process any queued keyboard events and reset query pattern if necessary
-            match term.handle(&events)? {
+            match term.handle()? {
                 EventSummary::Continue => {}
                 EventSummary::UpdateQuery(append) => {
                     self.matcher.pattern.reparse(
@@ -393,7 +379,6 @@ impl<T: Send + Sync + 'static> Picker<T> {
             sleep(deadline - Instant::now());
         };
 
-        drop(events);
         disable_raw_mode()?;
         execute!(stdout, DisableBracketedPaste, LeaveAlternateScreen)?;
         Ok(selection)
