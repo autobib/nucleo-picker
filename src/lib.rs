@@ -91,7 +91,7 @@ impl PickerState {
     }
 
     /// Update the draw count from a snapshot.
-    pub fn update_counts<T: Send + Sync + 'static>(
+    pub fn update<T: Send + Sync + 'static>(
         &mut self,
         changed: bool,
         snapshot: &nucleo::Snapshot<T>,
@@ -330,14 +330,14 @@ impl<T: Send + Sync + 'static> Picker<T> {
                 }
             };
 
+            // increment the matcher and update state
+            let status = self.matcher.tick(10);
+            term.update(status.changed, self.matcher.snapshot());
+
             // redraw the screen
             term.draw(&mut stdout, self.matcher.snapshot())?;
 
-            // increment the matcher and terminal state
-            let status = self.matcher.tick(10);
-            term.update_counts(status.changed, self.matcher.snapshot());
-
-            // wait before attempting redraw if the matcher finished earlier
+            // wait if frame rendering finishes early
             sleep(deadline - Instant::now());
         };
 
