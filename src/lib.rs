@@ -123,22 +123,22 @@ impl PickerState {
 
     /// Change the cursor position.
     pub fn shift(&mut self, st: MovementType) {
-        self.needs_redraw = self.query.shift(st);
+        self.needs_redraw &= self.query.shift(st);
     }
 
     /// Paste the contents of the string at the current cursor position.
     pub fn paste(&mut self, contents: &str) {
-        self.needs_redraw = self.query.paste(contents);
+        self.needs_redraw &= self.query.paste(contents);
     }
 
     /// Append a char to the query string.
     pub fn insert_char(&mut self, ch: char) {
-        self.needs_redraw = self.query.insert(ch);
+        self.needs_redraw &= self.query.insert(ch);
     }
 
     /// Delete a char from the query string.
     pub fn delete_char(&mut self) {
-        self.needs_redraw = self.query.delete();
+        self.needs_redraw &= self.query.delete();
     }
 
     /// Format a [`Utf32String`] for displaying. Currently:
