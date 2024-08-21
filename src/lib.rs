@@ -3,6 +3,7 @@
 //! fuzzy matching library.
 mod editable;
 mod event;
+pub mod fill;
 
 use std::{
     cmp::min,
