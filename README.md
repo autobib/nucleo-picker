@@ -16,7 +16,7 @@ Currently, we only directly load two dependencies:
 
 ## Related crates
 This crate mainly exists as a result of the author's annoyance with pretty much every fuzzy picker TUI in the rust ecosystem.
-- [skim](https://docs.rs/skim/latest/skim/)'s `Arc<dyn SkimItem>` API is very inconvenient.
+- [skim](https://docs.rs/skim/latest/skim/)'s `Arc<dyn SkimItem>` is very inconvenient since the original item cannot be recovered from the match.
   `skim` also contains a large amount of dependency baggage.
 - [fuzzypicker](https://docs.rs/fuzzypicker/latest/fuzzypicker/) is based on `skim` and inherits `skim`'s problems.
 - [nucleo-ui](https://docs.rs/nucleo-ui/latest/nucleo_ui/) only has a blocking API and only supports matching on `String`.
