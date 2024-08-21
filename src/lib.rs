@@ -11,7 +11,6 @@ use std::{
         mpsc::{channel, Receiver},
         Arc,
     },
-    // std::sync::mpsc::Receiver
     thread::{available_parallelism, sleep, spawn},
     time::{Duration, Instant},
 };
