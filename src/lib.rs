@@ -1,13 +1,14 @@
 //! # A generic fuzzy item picker
 //! This is a generic picker implementation, which is essentially a wrapper around the [`nucleo`]
 //! fuzzy matching library.
+mod bind;
 mod editable;
-mod event;
 pub mod fill;
 
 use std::{
     cmp::min,
     io::{self, Stdout, Write},
+    process::exit,
     sync::{
         mpsc::{channel, Receiver},
         Arc,
@@ -18,7 +19,7 @@ use std::{
 
 use crossterm::{
     cursor,
-    event::{read, DisableBracketedPaste, EnableBracketedPaste, Event},
+    event::{read, DisableBracketedPaste, EnableBracketedPaste},
     execute,
     style::{
         Attribute, Color, Print, PrintStyledContent, ResetColor, SetAttribute, SetForegroundColor,
@@ -33,11 +34,19 @@ use crossterm::{
 use nucleo::{Config, Injector, Nucleo, Utf32String};
 
 use crate::{
+    bind::{convert, Event},
     editable::{EditableString, MovementType},
-    event::{process_events, EventSummary},
 };
 
 pub use nucleo;
+
+/// The outcome after processing all of the events.
+pub enum EventSummary {
+    Continue,
+    UpdateQuery(bool),
+    Select,
+    Quit,
+}
 
 /// A representation of the current state of the picker.
 #[derive(Debug)]
@@ -156,6 +165,49 @@ impl PickerState {
                 s => s,
             })
             .collect()
+    }
+
+    fn handle(&mut self, events: &Receiver<Event>) -> Result<EventSummary, io::Error> {
+        let mut update_query = false;
+        let mut append = true;
+
+        for event in events.try_iter() {
+            match event {
+                Event::Abort => exit(1),
+                Event::MoveToStart => self.shift(MovementType::Start),
+                Event::MoveToEnd => self.shift(MovementType::End),
+                Event::Insert(ch) => {
+                    update_query = true;
+                    // if the cursor is at the end, it means the character was appended
+                    append &= self.query.cursor_at_end();
+                    self.insert_char(ch);
+                }
+                Event::Select => return Ok(EventSummary::Select),
+                Event::MoveUp => self.incr_selection(),
+                Event::MoveDown => self.decr_selection(),
+                Event::MoveLeft => self.shift(MovementType::Left),
+                Event::MoveRight => self.shift(MovementType::Right),
+                Event::Delete => {
+                    update_query = true;
+                    append = false;
+                    self.delete_char();
+                }
+                Event::Quit => return Ok(EventSummary::Quit),
+                Event::Resize(width, height) => {
+                    self.resize(width, height);
+                }
+                Event::Paste(contents) => {
+                    update_query = true;
+                    append &= self.query.cursor_at_end();
+                    self.paste(&contents);
+                }
+            }
+        }
+        Ok(if update_query {
+            EventSummary::UpdateQuery(append)
+        } else {
+            EventSummary::Continue
+        })
     }
 
     /// Draw the terminal to the screen. This assumes that the draw count has been updated and the
@@ -282,7 +334,7 @@ impl<T: Send + Sync + 'static> Picker<T> {
         // and handle multiple keyboard events per frame
         let (sender, receiver) = channel();
         spawn(move || loop {
-            if let Ok(event) = read() {
+            if let Some(event) = read().ok().and_then(convert) {
                 if sender.send(event).is_err() {
                     break;
                 }
@@ -308,7 +360,7 @@ impl<T: Send + Sync + 'static> Picker<T> {
             let deadline = Instant::now() + interval;
 
             // process any queued keyboard events and reset query pattern if necessary
-            match process_events(&mut term, &events)? {
+            match term.handle(&events)? {
                 EventSummary::Continue => {}
                 EventSummary::UpdateQuery(append) => {
                     self.matcher.pattern.reparse(
