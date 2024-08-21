@@ -238,12 +238,21 @@ impl PickerState {
                 .queue(ResetColor)?;
 
             // draw the matches
-            for it in snapshot.matched_items(..self.draw_count as u32) {
+            for (idx, it) in snapshot.matched_items(..self.draw_count as u32).enumerate() {
                 let render = self.format_display(&it.matcher_columns[0]);
-                stdout
-                    .queue(MoveUp(1))?
-                    .queue(MoveToColumn(2))?
-                    .queue(Print(render))?;
+                if Some(idx) == self.selector_index.map(|i| i as usize) {
+                    stdout
+                        .queue(SetAttribute(Attribute::Bold))?
+                        .queue(MoveUp(1))?
+                        .queue(MoveToColumn(2))?
+                        .queue(Print(render))?
+                        .queue(SetAttribute(Attribute::Reset))?;
+                } else {
+                    stdout
+                        .queue(MoveUp(1))?
+                        .queue(MoveToColumn(2))?
+                        .queue(Print(render))?;
+                }
             }
 
             // draw the selection indicator
