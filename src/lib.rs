@@ -1,7 +1,7 @@
 //! # A generic fuzzy item picker
 //! This is a generic picker implementation which wraps a [`nucleo::Nucleo`] matcher.
 mod bind;
-mod editable;
+pub mod component;
 pub mod fill;
 
 use std::{
@@ -32,7 +32,7 @@ use nucleo::{Config, Injector, Nucleo, Utf32String};
 
 use crate::{
     bind::{convert, Event},
-    editable::{EditableString, MovementType},
+    component::{Edit, EditableString},
 };
 
 pub use nucleo;
@@ -127,25 +127,25 @@ impl PickerState {
         }
     }
 
-    /// Change the cursor position.
-    pub fn shift(&mut self, st: MovementType) {
-        self.needs_redraw |= self.query.shift(st);
+    /// Perform the given edit action.
+    pub fn edit(&mut self, st: Edit) {
+        self.needs_redraw |= self.query.edit(st);
     }
 
-    /// Paste the contents of the string at the current cursor position.
-    pub fn paste(&mut self, contents: &str) {
-        self.needs_redraw |= self.query.paste(contents);
-    }
+    //     /// Paste the contents of the string at the current cursor position.
+    //     pub fn paste(&mut self, contents: String) {
+    //         self.needs_redraw |= self.query.edit(Edit::Paste(contents));
+    //     }
 
-    /// Append a char to the query string.
-    pub fn insert_char(&mut self, ch: char) {
-        self.needs_redraw |= self.query.insert(ch);
-    }
+    //     /// Append a char to the query string.
+    //     pub fn insert_char(&mut self, ch: char) {
+    //         self.needs_redraw |= self.query.edit(Edit::Insert(ch));
+    //     }
 
-    /// Delete a char from the query string.
-    pub fn delete_char(&mut self) {
-        self.needs_redraw |= self.query.delete();
-    }
+    //     /// Delete a char from the query string.
+    //     pub fn delete_char(&mut self) {
+    //         self.needs_redraw |= self.query.edit(Edit::Delete);
+    //     }
 
     /// Format a [`Utf32String`] for displaying. Currently:
     /// - Delete control characters.
@@ -173,23 +173,23 @@ impl PickerState {
             if let Some(event) = convert(read()?) {
                 match event {
                     Event::Abort => exit(1),
-                    Event::MoveToStart => self.shift(MovementType::Start),
-                    Event::MoveToEnd => self.shift(MovementType::End),
+                    Event::MoveToStart => self.edit(Edit::MoveToStart),
+                    Event::MoveToEnd => self.edit(Edit::MoveToEnd),
                     Event::Insert(ch) => {
                         update_query = true;
                         // if the cursor is at the end, it means the character was appended
                         append &= self.query.cursor_at_end();
-                        self.insert_char(ch);
+                        self.edit(Edit::Insert(ch));
                     }
                     Event::Select => return Ok(EventSummary::Select),
                     Event::MoveUp => self.incr_selection(),
                     Event::MoveDown => self.decr_selection(),
-                    Event::MoveLeft => self.shift(MovementType::Left),
-                    Event::MoveRight => self.shift(MovementType::Right),
+                    Event::MoveLeft => self.edit(Edit::MoveLeft),
+                    Event::MoveRight => self.edit(Edit::MoveRight),
                     Event::Delete => {
                         update_query = true;
                         append = false;
-                        self.delete_char();
+                        self.edit(Edit::Delete);
                     }
                     Event::Quit => return Ok(EventSummary::Quit),
                     Event::Resize(width, height) => {
@@ -198,7 +198,7 @@ impl PickerState {
                     Event::Paste(contents) => {
                         update_query = true;
                         append &= self.query.cursor_at_end();
-                        self.paste(&contents);
+                        self.edit(Edit::Paste(contents));
                     }
                 }
             }
@@ -285,6 +285,7 @@ impl PickerState {
         self.clamp_selector_index();
     }
 }
+
 /// # Core picker struct
 pub struct Picker<T: Send + Sync + 'static> {
     matcher: Nucleo<T>,
