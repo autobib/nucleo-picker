@@ -80,7 +80,7 @@ impl PickerState {
             width,
             height,
             selector_index: None,
-            query: EditableString::default(),
+            query: EditableString::new((width - 3) as usize),
             draw_count: 0,
             matched_item_count: 0,
             item_count: 0,
@@ -147,7 +147,7 @@ impl PickerState {
             .slice(..)
             .chars()
             .filter(|ch| !ch.is_control())
-            .take(self.width as usize - 2)
+            .take((self.width - 2) as _)
             .map(|ch| match ch {
                 '\n' => ' ',
                 s => s,
@@ -253,12 +253,14 @@ impl PickerState {
                     .queue(PrintStyledContent("▌".with(Color::Magenta)))?;
             }
 
+            let view = self.query.view();
+
             // render the query string
             stdout
                 .queue(MoveTo(0, self.height - 1))?
                 .queue(Print("> "))?
-                .queue(Print(&self.query))?
-                .queue(MoveTo(self.query.position() as u16 + 2, self.height - 1))?;
+                .queue(Print(&view))?
+                .queue(MoveTo((view.position() + 2) as _, self.height - 1))?;
 
             // flush to terminal
             stdout.flush()
@@ -272,6 +274,7 @@ impl PickerState {
         self.needs_redraw = true;
         self.width = width;
         self.height = height;
+        self.query.resize((width - 3) as _);
         self.clamp_draw_count();
         self.clamp_selector_index();
     }
@@ -352,7 +355,7 @@ impl<T: Send + Sync + 'static> Picker<T> {
                 EventSummary::UpdateQuery(append) => {
                     self.matcher.pattern.reparse(
                         0,
-                        &term.query.to_string(),
+                        &term.query.full_contents(),
                         nucleo::pattern::CaseMatching::Smart,
                         nucleo::pattern::Normalization::Smart,
                         append,

@@ -1,4 +1,31 @@
-use std::fmt::{Display, Formatter};
+use std::{
+    cmp::min,
+    fmt::{Display, Formatter},
+};
+
+/// A representation of the current view state of an [`EditableString`] created by the
+/// [`EditableString::view`] method.
+#[derive(Debug)]
+pub struct View<'a> {
+    contents: &'a [char],
+    cursor: usize,
+}
+
+impl Display for View<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        for ch in self.contents {
+            ch.fmt(f)?
+        }
+        Ok(())
+    }
+}
+
+impl View<'_> {
+    /// The position of the cursor within the view.
+    pub fn position(&self) -> usize {
+        self.cursor
+    }
+}
 
 /// The movement mode.
 #[derive(Debug, PartialEq, Eq)]
@@ -21,20 +48,46 @@ pub enum Edit {
 
 /// A simple editable string type with a cursor indicating the current edit position, and various
 /// supported actions.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct EditableString {
     /// The contents of the editable string.
     contents: Vec<char>,
     /// The position within the string.
     cursor: usize,
+    /// The current offset of the view window.
+    offset: usize,
+    /// The width of the view window.
+    width: usize,
     /// Scratch space for operations such as non-append paste.
     _scratch: Vec<char>,
 }
 
 impl EditableString {
-    /// The cursor position within the string.
-    pub fn position(&self) -> usize {
-        self.cursor
+    pub fn full_contents(&self) -> String {
+        self.contents.iter().collect()
+    }
+
+    pub fn view(&self) -> View<'_> {
+        View {
+            contents: &self.contents
+                [self.offset..min(self.offset + self.width, self.contents.len())],
+            cursor: self.cursor - self.offset,
+        }
+    }
+
+    pub fn new(width: usize) -> Self {
+        Self {
+            contents: Vec::default(),
+            cursor: 0,
+            offset: 0,
+            width,
+            _scratch: Vec::new(),
+        }
+    }
+
+    pub fn resize(&mut self, max_width: usize) {
+        self.width = max_width;
+        self.reset_window();
     }
 
     /// Is the cursor at the end of the string?
@@ -42,7 +95,18 @@ impl EditableString {
         self.cursor == self.contents.len()
     }
 
-    /// Change the cursor position to the provided index return whether or not the cursor moved.
+    /// Reset the window so that it includes the new cursor position `pos`
+    #[inline]
+    fn reset_window(&mut self) {
+        if self.cursor < self.offset {
+            self.offset = self.cursor
+        } else if self.cursor >= self.offset + self.width {
+            self.offset = self.cursor - self.width
+        }
+    }
+
+    /// Change the cursor position to the provided index; return true if the cursor moved, else
+    /// false.
     #[inline]
     fn shift_to(&mut self, pos: usize) -> bool {
         if pos <= self.contents.len() && self.cursor != pos {
@@ -56,7 +120,7 @@ impl EditableString {
     /// Apply the provided [`Edit`].
     #[inline]
     pub fn edit(&mut self, st: Edit) -> bool {
-        match st {
+        let changed = match st {
             Edit::MoveLeft => {
                 if self.cursor > 0 {
                     self.cursor -= 1;
@@ -70,7 +134,7 @@ impl EditableString {
             Edit::MoveToEnd => self.shift_to(self.contents.len()),
             Edit::Insert(ch) => {
                 self.contents.insert(self.cursor, ch);
-                self.cursor += 1;
+                self.shift_to(self.cursor + 1);
                 true
             }
             Edit::Paste(s) => {
@@ -80,16 +144,15 @@ impl EditableString {
                         self.contents.extend(s.chars());
                         self.cursor = self.contents.len();
                     } else {
-                        // the new characters to append
+                        // cache tail inside scratch space
                         self._scratch.clear();
-                        self._scratch.extend(s.chars());
-                        let extend_len = self._scratch.len();
-
-                        // extend by the tail of the cursor
                         self._scratch.extend(self.contents.drain(self.cursor..));
 
                         // increment cursor and append the extension
-                        self.cursor += extend_len;
+                        self.shift_to(self.cursor + s.len());
+                        self.contents.extend(s.chars());
+
+                        // re-append the tail
                         self.contents.append(&mut self._scratch);
                     }
                     true
@@ -106,14 +169,13 @@ impl EditableString {
                     false
                 }
             }
-        }
-    }
-}
+        };
 
-impl Display for EditableString {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let content_str: String = self.contents.iter().collect();
-        content_str.fmt(f)
+        if changed {
+            self.reset_window();
+        }
+
+        changed
     }
 }
 
@@ -123,7 +185,7 @@ mod tests {
 
     #[test]
     fn edit() {
-        let mut editable = EditableString::default();
+        let mut editable = EditableString::new(usize::MAX);
         for e in [
             Edit::Insert('a'),
             Edit::Insert('b'),
@@ -142,6 +204,30 @@ mod tests {
             editable.edit(e);
         }
 
-        assert_eq!(&editable.to_string(), "4abc123");
+        assert_eq!(&editable.view().to_string(), "4abc123");
+    }
+
+    #[test]
+    fn window() {
+        let mut editable = EditableString::new(2);
+
+        for e in [
+            Edit::Insert('1'),
+            Edit::Insert('2'),
+            Edit::Insert('3'),
+            Edit::Insert('4'),
+            Edit::MoveLeft,
+        ] {
+            editable.edit(e);
+        }
+        assert_eq!(editable.view().position(), 1);
+
+        editable.edit(Edit::MoveLeft);
+        editable.edit(Edit::MoveLeft);
+        assert_eq!(editable.view().position(), 0);
+
+        editable.edit(Edit::Insert('a'));
+        editable.edit(Edit::MoveToEnd);
+        assert_eq!(editable.view().position(), 2);
     }
 }
