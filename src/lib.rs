@@ -1,5 +1,11 @@
 //! # A generic fuzzy item picker
-//! This is a generic picker implementation which wraps a [`nucleo::Nucleo`] matcher.
+//! This is a generic picker implementation which wraps the [`nucleo::Nucleo`] matching engine. The
+//! API is pretty similar to how one would use [`Nucleo`](nucleo::Nucleo).
+//!
+//! The majority of the internal state is re-exposed through the main [`Picker`] entrypoint.
+//!
+//! For usage examples, visit the [examples
+//! folder](https://github.com/autobib/nucleo-picker/tree/master/examples) on GitHub.
 mod bind;
 pub mod component;
 pub mod fill;
@@ -128,24 +134,9 @@ impl PickerState {
     }
 
     /// Perform the given edit action.
-    pub fn edit(&mut self, st: Edit) {
+    pub fn edit_query(&mut self, st: Edit) {
         self.needs_redraw |= self.query.edit(st);
     }
-
-    //     /// Paste the contents of the string at the current cursor position.
-    //     pub fn paste(&mut self, contents: String) {
-    //         self.needs_redraw |= self.query.edit(Edit::Paste(contents));
-    //     }
-
-    //     /// Append a char to the query string.
-    //     pub fn insert_char(&mut self, ch: char) {
-    //         self.needs_redraw |= self.query.edit(Edit::Insert(ch));
-    //     }
-
-    //     /// Delete a char from the query string.
-    //     pub fn delete_char(&mut self) {
-    //         self.needs_redraw |= self.query.edit(Edit::Delete);
-    //     }
 
     /// Format a [`Utf32String`] for displaying. Currently:
     /// - Delete control characters.
@@ -173,23 +164,23 @@ impl PickerState {
             if let Some(event) = convert(read()?) {
                 match event {
                     Event::Abort => exit(1),
-                    Event::MoveToStart => self.edit(Edit::MoveToStart),
-                    Event::MoveToEnd => self.edit(Edit::MoveToEnd),
+                    Event::MoveToStart => self.edit_query(Edit::MoveToStart),
+                    Event::MoveToEnd => self.edit_query(Edit::MoveToEnd),
                     Event::Insert(ch) => {
                         update_query = true;
                         // if the cursor is at the end, it means the character was appended
                         append &= self.query.cursor_at_end();
-                        self.edit(Edit::Insert(ch));
+                        self.edit_query(Edit::Insert(ch));
                     }
                     Event::Select => return Ok(EventSummary::Select),
                     Event::MoveUp => self.incr_selection(),
                     Event::MoveDown => self.decr_selection(),
-                    Event::MoveLeft => self.edit(Edit::MoveLeft),
-                    Event::MoveRight => self.edit(Edit::MoveRight),
+                    Event::MoveLeft => self.edit_query(Edit::MoveLeft),
+                    Event::MoveRight => self.edit_query(Edit::MoveRight),
                     Event::Delete => {
                         update_query = true;
                         append = false;
-                        self.edit(Edit::Delete);
+                        self.edit_query(Edit::Delete);
                     }
                     Event::Quit => return Ok(EventSummary::Quit),
                     Event::Resize(width, height) => {
@@ -198,7 +189,7 @@ impl PickerState {
                     Event::Paste(contents) => {
                         update_query = true;
                         append &= self.query.cursor_at_end();
-                        self.edit(Edit::Paste(contents));
+                        self.edit_query(Edit::Paste(contents));
                     }
                 }
             }
@@ -240,7 +231,7 @@ impl PickerState {
             // draw the matches
             for (idx, it) in snapshot.matched_items(..self.draw_count as u32).enumerate() {
                 let render = self.format_display(&it.matcher_columns[0]);
-                if Some(idx) == self.selector_index.map(|i| i as usize) {
+                if Some(idx) == self.selector_index.map(|i| i as _) {
                     stdout
                         .queue(SetAttribute(Attribute::Bold))?
                         .queue(MoveUp(1))?
@@ -370,7 +361,7 @@ impl<T: Send + Sync + 'static> Picker<T> {
                 EventSummary::Select => {
                     break term
                         .selector_index
-                        .and_then(|idx| self.matcher.snapshot().get_matched_item(idx as u32))
+                        .and_then(|idx| self.matcher.snapshot().get_matched_item(idx as _))
                         .map(|it| it.data);
                 }
                 EventSummary::Quit => {
