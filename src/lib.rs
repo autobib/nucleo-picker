@@ -1,6 +1,6 @@
 //! # A generic fuzzy item picker
 //! This is a generic picker implementation which wraps the [`nucleo::Nucleo`] matching engine. The
-//! API is pretty similar to how one would use [`Nucleo`](nucleo::Nucleo).
+//! API is pretty similar to how one would use [`Nucleo`].
 //!
 //! The majority of the internal state is re-exposed through the main [`Picker`] entrypoint.
 //!
@@ -44,20 +44,86 @@ use crate::{
 pub use nucleo;
 
 /// The outcome after processing all of the events.
-pub enum EventSummary {
+enum EventSummary {
+    /// Continue rendering the frame.
     Continue,
+    /// The query was updated; where the updates append-only?
     UpdateQuery(bool),
+    /// Select the given item and quit.
     Select,
+    /// Quit without selecting an item.
     Quit,
+}
+
+/// The dimension parameters of various items in the screen.
+#[derive(Debug)]
+struct Dimensions {
+    /// The width of the screen.
+    width: u16,
+    /// The height of the screen, including the prompt.
+    height: u16,
+    /// The left buffer size of the prompt.
+    prompt_left_buffer: u16,
+    /// The right buffer size of the prompt.
+    prompt_right_buffer: u16,
+}
+
+impl Dimensions {
+    /// Initialize based on screen dimensions.
+    pub fn from_screen(width: u16, height: u16) -> Self {
+        Self {
+            width,
+            height,
+            prompt_left_buffer: 3,
+            prompt_right_buffer: 3,
+        }
+    }
+
+    /// The [`MoveTo`] command for setting the cursor at the selector position.
+    pub fn move_to_selector(&self, selector_index: u16) -> MoveTo {
+        MoveTo(0, self.max_draw_count() - selector_index - 1)
+    }
+
+    /// The [`MoveTo`] command for setting the cursor at the bottom left corner of the match
+    /// printing area.
+    pub fn move_to_results_start(&self) -> MoveTo {
+        MoveTo(0, self.max_draw_count())
+    }
+
+    /// The maximum query width.
+    pub fn query_max_width(&self) -> usize {
+        self.width
+            .saturating_sub(self.prompt_left_buffer)
+            .saturating_sub(self.prompt_right_buffer)
+            .saturating_sub(2) as _
+    }
+
+    pub fn max_draw_count(&self) -> u16 {
+        self.height.saturating_sub(2)
+    }
+
+    pub fn max_draw_length(&self) -> u16 {
+        self.width.saturating_sub(2)
+    }
+
+    fn query_y(&self) -> u16 {
+        self.height.saturating_sub(1)
+    }
+
+    pub fn move_to_query(&self) -> MoveTo {
+        MoveTo(0, self.query_y())
+    }
+
+    pub fn move_to_cursor(&self, view_position: usize) -> MoveTo {
+        MoveTo((view_position + 2) as _, self.query_y())
+    }
 }
 
 /// A representation of the current state of the picker.
 #[derive(Debug)]
 struct PickerState {
-    /// The width of the screen.
-    width: u16,
-    /// The height of the screen, including the prompt.
-    height: u16,
+    /// The dimensions of the application.
+    dimensions: Dimensions,
     /// The selector index position, or [`None`] if there is nothing to select.
     selector_index: Option<u16>,
     /// The query string.
@@ -74,13 +140,14 @@ struct PickerState {
 
 impl PickerState {
     /// The initial picker state.
-    pub fn new(dimensions: (u16, u16)) -> Self {
-        let (width, height) = dimensions;
+    pub fn new(screen: (u16, u16)) -> Self {
+        let dimensions = Dimensions::from_screen(screen.0, screen.1);
+        let query = EditableString::new(dimensions.query_max_width());
+
         Self {
-            width,
-            height,
+            dimensions,
             selector_index: None,
-            query: EditableString::new((width - 3) as usize),
+            query,
             draw_count: 0,
             matched_item_count: 0,
             item_count: 0,
@@ -120,7 +187,7 @@ impl PickerState {
 
     /// Clamp the draw count so that it falls in the valid range.
     fn clamp_draw_count(&mut self) {
-        self.draw_count = min(self.draw_count, self.height - 2)
+        self.draw_count = min(self.draw_count, self.dimensions.max_draw_count())
     }
 
     /// Clamp the selector index so that it falls in the valid range.
@@ -147,7 +214,7 @@ impl PickerState {
             .slice(..)
             .chars()
             .filter(|ch| !ch.is_control())
-            .take((self.width - 2) as _)
+            .take(self.dimensions.max_draw_length() as _)
             .map(|ch| match ch {
                 '\n' => ' ',
                 s => s,
@@ -164,8 +231,8 @@ impl PickerState {
             if let Some(event) = convert(read()?) {
                 match event {
                     Event::Abort => exit(1),
-                    Event::MoveToStart => self.edit_query(Edit::MoveToStart),
-                    Event::MoveToEnd => self.edit_query(Edit::MoveToEnd),
+                    Event::MoveToStart => self.edit_query(Edit::ToStart),
+                    Event::MoveToEnd => self.edit_query(Edit::ToEnd),
                     Event::Insert(ch) => {
                         update_query = true;
                         // if the cursor is at the end, it means the character was appended
@@ -175,8 +242,8 @@ impl PickerState {
                     Event::Select => return Ok(EventSummary::Select),
                     Event::MoveUp => self.incr_selection(),
                     Event::MoveDown => self.decr_selection(),
-                    Event::MoveLeft => self.edit_query(Edit::MoveLeft),
-                    Event::MoveRight => self.edit_query(Edit::MoveRight),
+                    Event::MoveLeft => self.edit_query(Edit::Left),
+                    Event::MoveRight => self.edit_query(Edit::Right),
                     Event::Delete => {
                         update_query = true;
                         append = false;
@@ -215,7 +282,7 @@ impl PickerState {
             // clear screen and set cursor position to bottom
             stdout
                 .queue(Clear(ClearType::All))?
-                .queue(MoveTo(0, self.height - 2))?;
+                .queue(self.dimensions.move_to_results_start())?;
 
             // draw the match counts
             stdout
@@ -249,18 +316,20 @@ impl PickerState {
             // draw the selection indicator
             if let Some(position) = self.selector_index {
                 stdout
-                    .queue(MoveTo(0, self.height - 3 - position))?
+                    .queue(self.dimensions.move_to_selector(position))?
                     .queue(PrintStyledContent("▌".with(Color::Magenta)))?;
             }
 
-            let view = self.query.view();
-
             // render the query string
+            let view = self.query.view_padded(
+                self.dimensions.prompt_left_buffer as _,
+                self.dimensions.prompt_right_buffer as _,
+            );
             stdout
-                .queue(MoveTo(0, self.height - 1))?
+                .queue(self.dimensions.move_to_query())?
                 .queue(Print("> "))?
                 .queue(Print(&view))?
-                .queue(MoveTo((view.position() + 2) as _, self.height - 1))?;
+                .queue(self.dimensions.move_to_cursor(view.index()))?;
 
             // flush to terminal
             stdout.flush()
@@ -272,15 +341,20 @@ impl PickerState {
     /// Resize the terminal state on screen size change.
     pub fn resize(&mut self, width: u16, height: u16) {
         self.needs_redraw = true;
-        self.width = width;
-        self.height = height;
-        self.query.resize((width - 3) as _);
+        self.dimensions = Dimensions::from_screen(width, height);
+        self.query.resize(self.dimensions.query_max_width());
         self.clamp_draw_count();
         self.clamp_selector_index();
     }
 }
 
-/// # Core picker struct
+/// # The core item picker
+/// This is the main entrypoint for this crate. Initialize a picker with the [`Picker::new`] or the
+/// [`Picker::default`] implementation and add elements to the picker using an [`Injector`]
+/// returned by the [`Picker::injector`] method.
+///
+/// See also the documentation for [`nucleo::Nucleo`] and [`nucleo::Injector`], or the
+/// [usage examples](https://github.com/autobib/nucleo-picker/tree/master/examples).
 pub struct Picker<T: Send + Sync + 'static> {
     matcher: Nucleo<T>,
 }
@@ -301,12 +375,12 @@ impl<T: Send + Sync + 'static> Picker<T> {
             .ok()
     }
 
-    /// Suggested frame length of 16ms, or ~60 FPS.
+    /// Suggested frame interval of 16ms, or ~60 FPS.
     const fn suggested_frame_interval() -> Duration {
         Duration::from_millis(16)
     }
 
-    /// Create a new [`Picker`] instance with arguments passed to [`Nucleo`](Nucleo).
+    /// Create a new [`Picker`] instance with arguments passed to [`Nucleo`].
     pub fn new(config: Config, num_threads: Option<usize>, columns: u32) -> Self {
         Self {
             matcher: Nucleo::new(config, Arc::new(|| {}), num_threads, columns),
@@ -325,7 +399,7 @@ impl<T: Send + Sync + 'static> Picker<T> {
         self.matcher.injector()
     }
 
-    /// Open the picker prompt for user interaction and return the picked item, if any.
+    /// Open the interactive picker prompt and return the picked item, if any.
     pub fn pick(&mut self) -> Result<Option<&T>, io::Error> {
         if !std::io::stdin().is_tty() {
             return Err(io::Error::new(io::ErrorKind::Other, "is not interactive"));
@@ -335,11 +409,7 @@ impl<T: Send + Sync + 'static> Picker<T> {
     }
 
     /// The actual picker implementation.
-    fn pick_inner(
-        &mut self,
-        // events: Receiver<Event>,
-        interval: Duration,
-    ) -> Result<Option<&T>, io::Error> {
+    fn pick_inner(&mut self, interval: Duration) -> Result<Option<&T>, io::Error> {
         let mut stdout = io::stdout();
         let mut term = PickerState::new(size()?);
 

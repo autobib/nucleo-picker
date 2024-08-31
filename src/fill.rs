@@ -1,6 +1,6 @@
-//! # Column fill helper functions
+//! # Column fill helper functions for an [`Injector`](nucleo::Injector)
 //! This module contains helper functions that are intended to be used as the `fill_columns`
-//! argument for the [`Injector::push`](crate::nucleo::Injector::push) function.
+//! argument for the [`Injector::push`](nucleo::Injector::push) function.
 //! It is straightforward to write such a function yourself if you want to customize the fill
 //! behaviour in any way.
 use nucleo::Utf32String;

@@ -1,63 +1,46 @@
-use std::{
-    cmp::min,
-    fmt::{Display, Formatter},
-};
+use super::{Cursor, View};
 
-/// A representation of the current view state of an [`EditableString`] created by the
-/// [`EditableString::view`] method.
-#[derive(Debug)]
-pub struct View<'a> {
-    contents: &'a [char],
-    cursor: usize,
-}
-
-impl Display for View<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        for ch in self.contents {
-            ch.fmt(f)?
-        }
-        Ok(())
-    }
-}
-
-impl View<'_> {
-    /// The position of the cursor within the view.
-    pub fn position(&self) -> usize {
-        self.cursor
-    }
-}
-
-/// The movement mode.
+/// An edit to apply to an [`EditableString`].
 #[derive(Debug, PartialEq, Eq)]
 pub enum Edit {
-    /// Move the cursor left.
-    MoveLeft,
-    /// Move the cursor right.
-    MoveRight,
-    /// Move the cursor to the start.
-    MoveToStart,
-    /// Move the cursor to the end.
-    MoveToEnd,
-    /// Insert a char at the current cursor position.
+    /// Insert a [`char`] at the current cursor position.
     Insert(char),
-    /// Delete a char immediately preceding the current cursor position.
+    /// Delete a [`char`] immediately preceding the current cursor position.
     Delete,
-    /// Paste a string at the current cursor position.
+    /// Paste a [`String`] at the current cursor position.
     Paste(String),
+    /// Move the cursor left.
+    Left,
+    /// Move the cursor right.
+    Right,
+    /// Move the cursor to the start.
+    ToStart,
+    /// Move the cursor to the end.
+    ToEnd,
 }
 
-/// A simple editable string type with a cursor indicating the current edit position, and various
+/// A movement to apply to an [`EditableString`].
+#[derive(Debug, PartialEq, Eq)]
+enum Jump {
+    /// Move the cursor left by a given number of characters.
+    Left(usize),
+    /// Move the cursor right by a given number of characters.
+    Right(usize),
+    /// Move the cursor to the start.
+    ToStart,
+    /// Move the cursor to the end.
+    ToEnd,
+}
+
+/// # An editable string type with a cursor and scrolling window.
+/// This is an editable string type with a cursor indicating the current edit position, and various
 /// supported actions.
 #[derive(Debug)]
 pub struct EditableString {
     /// The contents of the editable string.
     contents: Vec<char>,
     /// The position within the string.
-    cursor: usize,
-    /// The current offset of the view window.
-    offset: usize,
-    /// The width of the view window.
-    width: usize,
+    cursor: Cursor,
     /// Scratch space for operations such as non-append paste.
     _scratch: Vec<char>,
 }
@@ -67,90 +50,87 @@ impl EditableString {
         self.contents.iter().collect()
     }
 
-    pub fn view(&self) -> View<'_> {
-        View {
-            contents: &self.contents
-                [self.offset..min(self.offset + self.width, self.contents.len())],
-            cursor: self.cursor - self.offset,
-        }
+    /// Return an unpadded view; equivalent to
+    /// [`EditableString::view_padded(0,0)`](EditableString::view_padded).
+    pub fn view(&self) -> View<'_, char> {
+        self.cursor.view(&self.contents)
     }
 
+    /// Return the padded view given the current cursor position with padding size on the left
+    /// and the right
+    pub fn view_padded(&self, left: usize, right: usize) -> View<'_, char> {
+        self.cursor.view_padded(left, right, &self.contents)
+    }
+
+    /// Create a new [`EditableString`] with given window width.
     pub fn new(width: usize) -> Self {
         Self {
             contents: Vec::default(),
-            cursor: 0,
-            offset: 0,
-            width,
+            cursor: Cursor::new(width),
             _scratch: Vec::new(),
         }
     }
 
-    pub fn resize(&mut self, max_width: usize) {
-        self.width = max_width;
-        self.reset_window();
+    /// Resize the window with the updated width.
+    pub fn resize(&mut self, width: usize) {
+        self.cursor.set_width(width)
     }
 
     /// Is the cursor at the end of the string?
     pub fn cursor_at_end(&self) -> bool {
-        self.cursor == self.contents.len()
-    }
-
-    /// Reset the window so that it includes the new cursor position `pos`
-    #[inline]
-    fn reset_window(&mut self) {
-        if self.cursor < self.offset {
-            self.offset = self.cursor
-        } else if self.cursor >= self.offset + self.width {
-            self.offset = self.cursor - self.width
-        }
+        self.cursor.idx() == self.contents.len()
     }
 
     /// Change the cursor position to the provided index; return true if the cursor moved, else
     /// false.
-    #[inline]
+    #[inline(always)]
     fn shift_to(&mut self, pos: usize) -> bool {
-        if pos <= self.contents.len() && self.cursor != pos {
-            self.cursor = pos;
+        if pos <= self.contents.len() && self.cursor.idx() != pos {
+            self.cursor.set_index(pos);
             true
         } else {
             false
         }
     }
 
-    /// Apply the provided [`Edit`].
-    #[inline]
-    pub fn edit(&mut self, st: Edit) -> bool {
-        let changed = match st {
-            Edit::MoveLeft => {
-                if self.cursor > 0 {
-                    self.cursor -= 1;
-                    true
-                } else {
-                    false
-                }
-            }
-            Edit::MoveRight => self.shift_to(self.cursor + 1),
-            Edit::MoveToStart => self.shift_to(0),
-            Edit::MoveToEnd => self.shift_to(self.contents.len()),
+    /// Move the cursor by the provided [`Jump`].
+    #[inline(always)]
+    fn jump(&mut self, jm: Jump) -> bool {
+        match jm {
+            Jump::Left(dist) => self.shift_to(self.cursor.idx().saturating_sub(dist)),
+            Jump::Right(dist) => self.shift_to(self.cursor.idx().saturating_add(dist)),
+            Jump::ToStart => self.shift_to(0),
+            Jump::ToEnd => self.shift_to(self.contents.len()),
+        }
+    }
+
+    /// Apply the provided [`Edit`] to the [`EditableString`], and return whether or not anything
+    /// changed.
+    pub fn edit(&mut self, e: Edit) -> bool {
+        match e {
+            Edit::Left => self.jump(Jump::Left(1)),
+            Edit::Right => self.jump(Jump::Right(1)),
+            Edit::ToStart => self.jump(Jump::ToStart),
+            Edit::ToEnd => self.jump(Jump::ToEnd),
             Edit::Insert(ch) => {
-                self.contents.insert(self.cursor, ch);
-                self.shift_to(self.cursor + 1);
-                true
+                self.contents.insert(self.cursor.idx(), ch);
+                self.jump(Jump::Right(1))
             }
             Edit::Paste(s) => {
                 if !s.is_empty() {
                     // we are appending, so we can avoid some writes.
                     if self.cursor_at_end() {
                         self.contents.extend(s.chars());
-                        self.cursor = self.contents.len();
+                        self.jump(Jump::ToEnd);
                     } else {
-                        // cache tail inside scratch space
+                        // move tail to scratch space
                         self._scratch.clear();
-                        self._scratch.extend(self.contents.drain(self.cursor..));
+                        self._scratch
+                            .extend(self.contents.drain(self.cursor.idx()..));
 
                         // increment cursor and append the extension
-                        self.shift_to(self.cursor + s.len());
                         self.contents.extend(s.chars());
+                        self.jump(Jump::Right(s.len()));
 
                         // re-append the tail
                         self.contents.append(&mut self._scratch);
@@ -161,21 +141,13 @@ impl EditableString {
                 }
             }
             Edit::Delete => {
-                if self.cursor > 0 {
-                    self.cursor -= 1;
-                    self.contents.remove(self.cursor);
-                    true
-                } else {
-                    false
+                let changed = self.jump(Jump::Left(1));
+                if changed {
+                    self.contents.remove(self.cursor.idx());
                 }
+                changed
             }
-        };
-
-        if changed {
-            self.reset_window();
         }
-
-        changed
     }
 }
 
@@ -191,14 +163,14 @@ mod tests {
             Edit::Insert('b'),
             Edit::Insert('c'),
             Edit::Insert('d'),
-            Edit::MoveLeft,
+            Edit::Left,
             Edit::Insert('1'),
             Edit::Insert('2'),
             Edit::Insert('3'),
-            Edit::MoveToStart,
+            Edit::ToStart,
             Edit::Delete,
             Edit::Insert('4'),
-            Edit::MoveToEnd,
+            Edit::ToEnd,
             Edit::Delete,
         ] {
             editable.edit(e);
@@ -216,18 +188,18 @@ mod tests {
             Edit::Insert('2'),
             Edit::Insert('3'),
             Edit::Insert('4'),
-            Edit::MoveLeft,
+            Edit::Left,
         ] {
             editable.edit(e);
         }
-        assert_eq!(editable.view().position(), 1);
+        assert_eq!(editable.view().index(), 1);
 
-        editable.edit(Edit::MoveLeft);
-        editable.edit(Edit::MoveLeft);
-        assert_eq!(editable.view().position(), 0);
+        editable.edit(Edit::Left);
+        editable.edit(Edit::Left);
+        assert_eq!(editable.view().index(), 0);
 
         editable.edit(Edit::Insert('a'));
-        editable.edit(Edit::MoveToEnd);
-        assert_eq!(editable.view().position(), 2);
+        editable.edit(Edit::ToEnd);
+        assert_eq!(editable.view().index(), 2);
     }
 }
