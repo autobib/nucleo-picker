@@ -90,7 +90,7 @@ impl Dimensions {
         MoveTo(0, self.max_draw_count())
     }
 
-    /// The maximum query width.
+    /// The maximum width of the query string display window.
     pub fn query_max_width(&self) -> usize {
         self.width
             .saturating_sub(self.prompt_left_buffer)
@@ -98,22 +98,27 @@ impl Dimensions {
             .saturating_sub(2) as _
     }
 
+    /// The maximum number of matches which can be drawn to the screen.
     pub fn max_draw_count(&self) -> u16 {
         self.height.saturating_sub(2)
     }
 
+    /// The maximum length on which a match can be drawn.
     pub fn max_draw_length(&self) -> u16 {
         self.width.saturating_sub(2)
     }
 
+    /// The y index of the query string.
     fn query_y(&self) -> u16 {
         self.height.saturating_sub(1)
     }
 
+    /// The command to move to the start of the query rendering region.
     pub fn move_to_query(&self) -> MoveTo {
         MoveTo(0, self.query_y())
     }
 
+    /// The command to move to the cursor position.
     pub fn move_to_cursor(&self, view_position: usize) -> MoveTo {
         MoveTo((view_position + 2) as _, self.query_y())
     }
