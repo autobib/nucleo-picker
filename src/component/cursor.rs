@@ -8,7 +8,7 @@ use std::{
 /// # A view of an underlying buffer.
 #[derive(Debug, Clone, Copy)]
 pub struct View<'a, T> {
-    pub contents: &'a [T],
+    contents: &'a [T],
     _index: usize,
 }
 
@@ -22,9 +22,15 @@ impl Display for View<'_, char> {
 }
 
 impl<'a, T> View<'a, T> {
-    /// The 0-indexed position of the cursor within the view.
+    /// The `0`-indexed position of the cursor within the view, which is guaranteed to be a valid
+    /// index for the slice returned by [`View::as_slice`].
     pub fn index(&self) -> usize {
         self._index
+    }
+
+    /// Return the contents of the view.
+    pub fn as_slice(&self) -> &'a [T] {
+        self.contents
     }
 }
 

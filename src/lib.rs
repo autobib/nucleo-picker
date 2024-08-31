@@ -1,8 +1,8 @@
 //! # A generic fuzzy item picker
-//! This is a generic picker implementation which wraps the [`nucleo::Nucleo`] matching engine. The
-//! API is pretty similar to how one would use [`Nucleo`].
+//! This is a generic picker implementation which wraps the [`nucleo::Nucleo`] matching engine with
+//! an interactive TUI.
 //!
-//! The majority of the internal state is re-exposed through the main [`Picker`] entrypoint.
+//! The API is pretty similar to that exposed by the [`nucleo`] crate; the majority of the internal state of [`Nucleo`] is re-exposed through the main [`Picker`] entrypoint.
 //!
 //! For usage examples, visit the [examples
 //! folder](https://github.com/autobib/nucleo-picker/tree/master/examples) on GitHub.
