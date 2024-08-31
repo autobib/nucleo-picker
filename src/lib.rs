@@ -361,7 +361,7 @@ pub struct Picker<T: Send + Sync + 'static> {
 
 impl<T: Send + Sync + 'static> Default for Picker<T> {
     fn default() -> Self {
-        Self::new(Config::DEFAULT, Self::suggested_threads(), 1)
+        Self::new(Config::DEFAULT, Self::default_thread_count(), 1)
     }
 }
 
@@ -369,14 +369,14 @@ impl<T: Send + Sync + 'static> Picker<T> {
     /// Best-effort guess to reduce thread contention. Reserve two threads:
     /// 1. for populating the macher
     /// 2. for rendering the terminal UI and handling user input
-    fn suggested_threads() -> Option<usize> {
+    fn default_thread_count() -> Option<usize> {
         available_parallelism()
             .map(|it| it.get().checked_sub(2).unwrap_or(1))
             .ok()
     }
 
-    /// Suggested frame interval of 16ms, or ~60 FPS.
-    const fn suggested_frame_interval() -> Duration {
+    /// Default frame interval of 16ms, or ~60 FPS.
+    const fn default_frame_interval() -> Duration {
         Duration::from_millis(16)
     }
 
@@ -390,7 +390,7 @@ impl<T: Send + Sync + 'static> Picker<T> {
     /// Create a new [`Picker`] instance with the given configuration.
     pub fn with_config(config: Config) -> Self {
         Self {
-            matcher: Nucleo::new(config, Arc::new(|| {}), Self::suggested_threads(), 1),
+            matcher: Nucleo::new(config, Arc::new(|| {}), Self::default_thread_count(), 1),
         }
     }
 
@@ -405,7 +405,7 @@ impl<T: Send + Sync + 'static> Picker<T> {
             return Err(io::Error::new(io::ErrorKind::Other, "is not interactive"));
         }
 
-        self.pick_inner(Self::suggested_frame_interval())
+        self.pick_inner(Self::default_frame_interval())
     }
 
     /// The actual picker implementation.
