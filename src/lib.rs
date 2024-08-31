@@ -47,8 +47,8 @@ pub use nucleo;
 enum EventSummary {
     /// Continue rendering the frame.
     Continue,
-    /// The query was updated; where the updates append-only?
-    UpdateQuery(bool),
+    /// The prompt was updated; where the updates append-only?
+    Updateprompt(bool),
     /// Select the given item and quit.
     Select,
     /// Quit without selecting an item.
@@ -63,9 +63,9 @@ struct Dimensions {
     /// The height of the screen, including the prompt.
     height: u16,
     /// The left buffer size of the prompt.
-    prompt_left_buffer: u16,
+    prompt_left_padding: u16,
     /// The right buffer size of the prompt.
-    prompt_right_buffer: u16,
+    prompt_right_padding: u16,
 }
 
 impl Dimensions {
@@ -74,8 +74,8 @@ impl Dimensions {
         Self {
             width,
             height,
-            prompt_left_buffer: 3,
-            prompt_right_buffer: 3,
+            prompt_left_padding: width / 8,
+            prompt_right_padding: width / 12,
         }
     }
 
@@ -90,11 +90,11 @@ impl Dimensions {
         MoveTo(0, self.max_draw_count())
     }
 
-    /// The maximum width of the query string display window.
-    pub fn query_max_width(&self) -> usize {
+    /// The maximum width of the prompt string display window.
+    pub fn prompt_max_width(&self) -> usize {
         self.width
-            .saturating_sub(self.prompt_left_buffer)
-            .saturating_sub(self.prompt_right_buffer)
+            .saturating_sub(self.prompt_left_padding)
+            .saturating_sub(self.prompt_right_padding)
             .saturating_sub(2) as _
     }
 
@@ -108,19 +108,19 @@ impl Dimensions {
         self.width.saturating_sub(2)
     }
 
-    /// The y index of the query string.
-    fn query_y(&self) -> u16 {
+    /// The y index of the prompt string.
+    fn prompt_y(&self) -> u16 {
         self.height.saturating_sub(1)
     }
 
-    /// The command to move to the start of the query rendering region.
-    pub fn move_to_query(&self) -> MoveTo {
-        MoveTo(0, self.query_y())
+    /// The command to move to the start of the prompt rendering region.
+    pub fn move_to_prompt(&self) -> MoveTo {
+        MoveTo(0, self.prompt_y())
     }
 
     /// The command to move to the cursor position.
     pub fn move_to_cursor(&self, view_position: usize) -> MoveTo {
-        MoveTo((view_position + 2) as _, self.query_y())
+        MoveTo((view_position + 2) as _, self.prompt_y())
     }
 }
 
@@ -131,8 +131,8 @@ struct PickerState {
     dimensions: Dimensions,
     /// The selector index position, or [`None`] if there is nothing to select.
     selector_index: Option<u16>,
-    /// The query string.
-    query: EditableString,
+    /// The prompt string.
+    prompt: EditableString,
     /// The current number of items to be drawn to the terminal.
     draw_count: u16,
     /// The total number of items.
@@ -147,12 +147,12 @@ impl PickerState {
     /// The initial picker state.
     pub fn new(screen: (u16, u16)) -> Self {
         let dimensions = Dimensions::from_screen(screen.0, screen.1);
-        let query = EditableString::new(dimensions.query_max_width());
+        let prompt = EditableString::new(dimensions.prompt_max_width());
 
         Self {
             dimensions,
             selector_index: None,
-            query,
+            prompt,
             draw_count: 0,
             matched_item_count: 0,
             item_count: 0,
@@ -206,8 +206,8 @@ impl PickerState {
     }
 
     /// Perform the given edit action.
-    pub fn edit_query(&mut self, st: Edit) {
-        self.needs_redraw |= self.query.edit(st);
+    pub fn edit_prompt(&mut self, st: Edit) {
+        self.needs_redraw |= self.prompt.edit(st);
     }
 
     /// Format a [`Utf32String`] for displaying. Currently:
@@ -229,45 +229,45 @@ impl PickerState {
 
     /// Clear the queued events.
     fn handle(&mut self) -> Result<EventSummary, io::Error> {
-        let mut update_query = false;
+        let mut update_prompt = false;
         let mut append = true;
 
         while poll(Duration::from_millis(5))? {
             if let Some(event) = convert(read()?) {
                 match event {
                     Event::Abort => exit(1),
-                    Event::MoveToStart => self.edit_query(Edit::ToStart),
-                    Event::MoveToEnd => self.edit_query(Edit::ToEnd),
+                    Event::MoveToStart => self.edit_prompt(Edit::ToStart),
+                    Event::MoveToEnd => self.edit_prompt(Edit::ToEnd),
                     Event::Insert(ch) => {
-                        update_query = true;
+                        update_prompt = true;
                         // if the cursor is at the end, it means the character was appended
-                        append &= self.query.cursor_at_end();
-                        self.edit_query(Edit::Insert(ch));
+                        append &= self.prompt.cursor_at_end();
+                        self.edit_prompt(Edit::Insert(ch));
                     }
                     Event::Select => return Ok(EventSummary::Select),
                     Event::MoveUp => self.incr_selection(),
                     Event::MoveDown => self.decr_selection(),
-                    Event::MoveLeft => self.edit_query(Edit::Left),
-                    Event::MoveRight => self.edit_query(Edit::Right),
+                    Event::MoveLeft => self.edit_prompt(Edit::Left),
+                    Event::MoveRight => self.edit_prompt(Edit::Right),
                     Event::Delete => {
-                        update_query = true;
+                        update_prompt = true;
                         append = false;
-                        self.edit_query(Edit::Delete);
+                        self.edit_prompt(Edit::Delete);
                     }
                     Event::Quit => return Ok(EventSummary::Quit),
                     Event::Resize(width, height) => {
                         self.resize(width, height);
                     }
                     Event::Paste(contents) => {
-                        update_query = true;
-                        append &= self.query.cursor_at_end();
-                        self.edit_query(Edit::Paste(contents));
+                        update_prompt = true;
+                        append &= self.prompt.cursor_at_end();
+                        self.edit_prompt(Edit::Paste(contents));
                     }
                 }
             }
         }
-        Ok(if update_query {
-            EventSummary::UpdateQuery(append)
+        Ok(if update_prompt {
+            EventSummary::Updateprompt(append)
         } else {
             EventSummary::Continue
         })
@@ -325,13 +325,13 @@ impl PickerState {
                     .queue(PrintStyledContent("▌".with(Color::Magenta)))?;
             }
 
-            // render the query string
-            let view = self.query.view_padded(
-                self.dimensions.prompt_left_buffer as _,
-                self.dimensions.prompt_right_buffer as _,
+            // render the prompt string
+            let view = self.prompt.view_padded(
+                self.dimensions.prompt_left_padding as _,
+                self.dimensions.prompt_right_padding as _,
             );
             stdout
-                .queue(self.dimensions.move_to_query())?
+                .queue(self.dimensions.move_to_prompt())?
                 .queue(Print("> "))?
                 .queue(Print(&view))?
                 .queue(self.dimensions.move_to_cursor(view.index()))?;
@@ -347,7 +347,7 @@ impl PickerState {
     pub fn resize(&mut self, width: u16, height: u16) {
         self.needs_redraw = true;
         self.dimensions = Dimensions::from_screen(width, height);
-        self.query.resize(self.dimensions.query_max_width());
+        self.prompt.resize(self.dimensions.prompt_max_width());
         self.clamp_draw_count();
         self.clamp_selector_index();
     }
@@ -424,13 +424,13 @@ impl<T: Send + Sync + 'static> Picker<T> {
         let selection = loop {
             let deadline = Instant::now() + interval;
 
-            // process any queued keyboard events and reset query pattern if necessary
+            // process any queued keyboard events and reset prompt pattern if necessary
             match term.handle()? {
                 EventSummary::Continue => {}
-                EventSummary::UpdateQuery(append) => {
+                EventSummary::Updateprompt(append) => {
                     self.matcher.pattern.reparse(
                         0,
-                        &term.query.full_contents(),
+                        &term.prompt.full_contents(),
                         nucleo::pattern::CaseMatching::Smart,
                         nucleo::pattern::Normalization::Smart,
                         append,
