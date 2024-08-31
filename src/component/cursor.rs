@@ -46,7 +46,8 @@ impl<'a, T> View<'a, T> {
 /// - The `index`, which is the position within the string.
 /// - The `width`, which is the width of the internal window
 /// - The `offset`, which is the position of the leftmost endpoint of the view window.
-/// Visually, given an we have an underlying buffer
+///
+/// Visually, given an underlying buffer
 /// ```txt
 /// _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 /// ```
