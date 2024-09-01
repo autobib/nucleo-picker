@@ -48,7 +48,7 @@ enum EventSummary {
     /// Continue rendering the frame.
     Continue,
     /// The prompt was updated; where the updates append-only?
-    Updateprompt(bool),
+    UpdatePrompt(bool),
     /// Select the given item and quit.
     Select,
     /// Quit without selecting an item.
@@ -267,7 +267,7 @@ impl PickerState {
             }
         }
         Ok(if update_prompt {
-            EventSummary::Updateprompt(append)
+            EventSummary::UpdatePrompt(append)
         } else {
             EventSummary::Continue
         })
@@ -424,10 +424,10 @@ impl<T: Send + Sync + 'static> Picker<T> {
         let selection = loop {
             let deadline = Instant::now() + interval;
 
-            // process any queued keyboard events and reset prompt pattern if necessary
+            // process any queued keyboard events and reset pattern if necessary
             match term.handle()? {
                 EventSummary::Continue => {}
-                EventSummary::Updateprompt(append) => {
+                EventSummary::UpdatePrompt(append) => {
                     self.matcher.pattern.reparse(
                         0,
                         &term.prompt.full_contents(),
