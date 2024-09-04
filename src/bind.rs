@@ -33,7 +33,7 @@ pub fn convert(event: CrosstermEvent) -> Option<Event> {
         CrosstermEvent::Key(
             KeyEvent {
                 modifiers: KeyModifiers::CONTROL,
-                code: KeyCode::Char('e'),
+                code: KeyCode::Char('a'),
                 ..
             }
             | KeyEvent {
@@ -45,7 +45,7 @@ pub fn convert(event: CrosstermEvent) -> Option<Event> {
         CrosstermEvent::Key(
             KeyEvent {
                 modifiers: KeyModifiers::CONTROL,
-                code: KeyCode::Char('a'),
+                code: KeyCode::Char('e'),
                 ..
             }
             | KeyEvent {
