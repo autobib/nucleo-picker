@@ -20,7 +20,7 @@ use std::{
 };
 
 use crossterm::{
-    cursor::{MoveTo, MoveToColumn, MoveUp},
+    cursor::{MoveTo, MoveToColumn, MoveToPreviousLine, MoveUp},
     event::{poll, read, DisableBracketedPaste, EnableBracketedPaste},
     execute,
     style::{
@@ -79,9 +79,8 @@ impl Dimensions {
         }
     }
 
-    /// The [`MoveTo`] command for setting the cursor at the selector position.
-    pub fn move_to_selector(&self, selector_index: u16) -> MoveTo {
-        MoveTo(0, self.max_draw_count() - selector_index - 1)
+    pub fn move_to_end_of_line(&self) -> MoveToColumn {
+        MoveToColumn(self.width - 1)
     }
 
     /// The [`MoveTo`] command for setting the cursor at the bottom left corner of the match
@@ -284,12 +283,8 @@ impl PickerState {
             // reset redraw state
             self.needs_redraw = false;
 
-            // clear screen and set cursor position to bottom
-            stdout
-                .queue(Clear(ClearType::All))?
-                .queue(self.dimensions.move_to_results_start())?;
-
             // draw the match counts
+            stdout.queue(self.dimensions.move_to_results_start())?;
             stdout
                 .queue(SetAttribute(Attribute::Italic))?
                 .queue(SetForegroundColor(Color::Green))?
@@ -298,31 +293,35 @@ impl PickerState {
                 .queue(Print("/"))?
                 .queue(Print(self.item_count))?
                 .queue(SetAttribute(Attribute::Reset))?
-                .queue(ResetColor)?;
+                .queue(ResetColor)?
+                .queue(Clear(ClearType::UntilNewLine))?;
 
             // draw the matches
             for (idx, it) in snapshot.matched_items(..self.draw_count as u32).enumerate() {
                 let render = self.format_display(&it.matcher_columns[0]);
                 if Some(idx) == self.selector_index.map(|i| i as _) {
                     stdout
+                        .queue(MoveToPreviousLine(1))?
                         .queue(SetAttribute(Attribute::Bold))?
-                        .queue(MoveUp(1))?
-                        .queue(MoveToColumn(2))?
+                        .queue(PrintStyledContent("▌ ".with(Color::Magenta)))? // selection indicator
                         .queue(Print(render))?
-                        .queue(SetAttribute(Attribute::Reset))?;
+                        .queue(SetAttribute(Attribute::Reset))?
+                        .queue(Clear(ClearType::UntilNewLine))?;
                 } else {
                     stdout
-                        .queue(MoveUp(1))?
-                        .queue(MoveToColumn(2))?
-                        .queue(Print(render))?;
+                        .queue(MoveToPreviousLine(1))?
+                        .queue(Print("  "))?
+                        .queue(Print(render))?
+                        .queue(Clear(ClearType::UntilNewLine))?;
                 }
             }
 
-            // draw the selection indicator
-            if let Some(position) = self.selector_index {
+            // clear above the current matches
+            if self.draw_count != self.dimensions.max_draw_count() {
                 stdout
-                    .queue(self.dimensions.move_to_selector(position))?
-                    .queue(PrintStyledContent("▌".with(Color::Magenta)))?;
+                    .queue(MoveUp(1))?
+                    .queue(self.dimensions.move_to_end_of_line())?
+                    .queue(Clear(ClearType::FromCursorUp))?;
             }
 
             // render the prompt string
@@ -334,6 +333,7 @@ impl PickerState {
                 .queue(self.dimensions.move_to_prompt())?
                 .queue(Print("> "))?
                 .queue(Print(&view))?
+                .queue(Clear(ClearType::UntilNewLine))?
                 .queue(self.dimensions.move_to_cursor(view.index()))?;
 
             // flush to terminal
