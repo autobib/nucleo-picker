@@ -26,36 +26,24 @@ pub enum Event {
 pub fn convert(event: CrosstermEvent) -> Option<Event> {
     match event {
         CrosstermEvent::Key(KeyEvent {
+            kind: KeyEventKind::Press,
             modifiers: KeyModifiers::CONTROL,
-            code: KeyCode::Char('c') | KeyCode::Char('C'),
+            code,
             ..
-        }) => Some(Event::Abort),
-        CrosstermEvent::Key(
-            KeyEvent {
-                modifiers: KeyModifiers::CONTROL,
-                code: KeyCode::Char('a'),
-                ..
-            }
-            | KeyEvent {
-                modifiers: KeyModifiers::NONE,
-                code: KeyCode::Home,
-                ..
-            },
-        ) => Some(Event::MoveToStart),
-        CrosstermEvent::Key(
-            KeyEvent {
-                modifiers: KeyModifiers::CONTROL,
-                code: KeyCode::Char('e'),
-                ..
-            }
-            | KeyEvent {
-                modifiers: KeyModifiers::NONE,
-                code: KeyCode::End,
-                ..
-            },
-        ) => Some(Event::MoveToEnd),
+        }) => match code {
+            KeyCode::Char('c') | KeyCode::Char('g') | KeyCode::Char('q') => Some(Event::Abort),
+            KeyCode::Char('b') => Some(Event::MoveLeft),
+            KeyCode::Char('f') => Some(Event::MoveRight),
+            KeyCode::Char('h') => Some(Event::Delete),
+            KeyCode::Char('k') | KeyCode::Char('p') => Some(Event::MoveUp),
+            KeyCode::Char('j') | KeyCode::Char('n') => Some(Event::MoveDown),
+            KeyCode::Char('a') => Some(Event::MoveToStart),
+            KeyCode::Char('e') => Some(Event::MoveToEnd),
+            _ => None,
+        },
         CrosstermEvent::Key(KeyEvent {
             kind: KeyEventKind::Press,
+            modifiers: KeyModifiers::NONE,
             code,
             ..
         }) => match code {
@@ -66,6 +54,8 @@ pub fn convert(event: CrosstermEvent) -> Option<Event> {
             KeyCode::Left => Some(Event::MoveLeft),
             KeyCode::Right => Some(Event::MoveRight),
             KeyCode::Backspace => Some(Event::Delete),
+            KeyCode::End => Some(Event::MoveToEnd),
+            KeyCode::Home => Some(Event::MoveToStart),
             KeyCode::Esc => Some(Event::Quit),
             _ => None,
         },
