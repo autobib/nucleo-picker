@@ -55,7 +55,7 @@ impl<'a, T> View<'a, T> {
 /// ```txt
 /// _ _ _ _[* _ _ _ _ _]_ _ _ _ _ _ _
 /// ```
-/// which has `index = 5`, `width = 6`, and `offset = 4`.
+/// which has `index = 4`, `width = 6`, and `offset = 4`.
 /// The main invariant is that `offset <= index < offset + width`.
 ///
 ///
