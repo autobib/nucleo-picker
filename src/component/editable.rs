@@ -56,6 +56,12 @@ impl EditableString {
         self.cursor.view(&self.contents)
     }
 
+    /// Reset the prompt contents and move the cursor to the end of the prompt.
+    pub fn set_prompt(&mut self, new: &str) {
+        self.contents = new.chars().collect();
+        self.jump(Jump::ToEnd);
+    }
+
     /// Return the padded view given the current cursor position with padding size on the left
     /// and the right
     pub fn view_padded(&self, left: usize, right: usize) -> View<'_, char> {

@@ -19,3 +19,6 @@ name = "find"
 
 [[example]]
 name = "blocking"
+
+[[example]]
+name = "options"

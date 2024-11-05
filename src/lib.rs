@@ -209,6 +209,12 @@ impl PickerState {
         self.needs_redraw |= self.prompt.edit(st);
     }
 
+    /// Set the prompt to a given string, moving the cursor to the beginning.
+    pub fn set_prompt(&mut self, prompt: &str) {
+        self.prompt.set_prompt(prompt);
+        self.needs_redraw = true;
+    }
+
     /// Format a [`Utf32String`] for displaying. Currently:
     /// - Delete control characters.
     /// - Truncates the string to an appropriate length.
@@ -353,50 +359,111 @@ impl PickerState {
     }
 }
 
+/// # Options for a picker
+/// Specify configuration options for a [`Picker`] before initialization.
+pub struct PickerOptions {
+    columns: u32,
+    config: Config,
+    query: Option<String>,
+    threads: Option<usize>,
+}
+
+impl Default for PickerOptions {
+    fn default() -> Self {
+        Self {
+            columns: 1,
+            config: Config::DEFAULT,
+            query: None,
+            threads: None,
+        }
+    }
+}
+
+impl PickerOptions {
+    /// Initialize with default configuration.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the number of columns.
+    pub fn columns(&mut self, columns: u32) -> &mut Self {
+        self.columns = columns;
+        self
+    }
+
+    /// Set the internal matcher configuration.
+    pub fn config(&mut self, config: Config) -> &mut Self {
+        self.config = config;
+        self
+    }
+
+    /// Provide a default query string.
+    pub fn query<Q: ToString>(&mut self, query: Q) -> &mut Self {
+        self.query = Some(query.to_string());
+        self
+    }
+
+    /// Convert into a [`Picker`].
+    pub fn picker<T: Send + Sync + 'static>(self) -> Picker<T> {
+        let matcher = Nucleo::new(
+            self.config,
+            Arc::new(|| {}),
+            self.threads.or_else(|| {
+                // Reserve two threads:
+                // 1. for populating the macher
+                // 2. for rendering the terminal UI and handling user input
+                available_parallelism()
+                    .map(|it| it.get().checked_sub(2).unwrap_or(1))
+                    .ok()
+            }),
+            self.columns,
+        );
+
+        Picker {
+            matcher,
+            query: self.query,
+        }
+    }
+}
+
 /// # The core item picker
-/// This is the main entrypoint for this crate. Initialize a picker with the [`Picker::new`] or the
-/// [`Picker::default`] implementation and add elements to the picker using an [`Injector`]
+/// This is the main entrypoint for this crate. Initialize a picker with [`Picker::default`], or
+/// with custom configuration using [`PickerOptions`], and add elements to the picker using an [`Injector`]
 /// returned by the [`Picker::injector`] method.
 ///
 /// See also the documentation for [`nucleo::Nucleo`] and [`nucleo::Injector`], or the
 /// [usage examples](https://github.com/autobib/nucleo-picker/tree/master/examples).
 pub struct Picker<T: Send + Sync + 'static> {
     matcher: Nucleo<T>,
+    query: Option<String>,
 }
 
 impl<T: Send + Sync + 'static> Default for Picker<T> {
     fn default() -> Self {
-        Self::new(Config::DEFAULT, Self::default_thread_count(), 1)
+        PickerOptions::default().picker()
     }
 }
 
 impl<T: Send + Sync + 'static> Picker<T> {
-    /// Best-effort guess to reduce thread contention. Reserve two threads:
-    /// 1. for populating the macher
-    /// 2. for rendering the terminal UI and handling user input
-    fn default_thread_count() -> Option<usize> {
-        available_parallelism()
-            .map(|it| it.get().checked_sub(2).unwrap_or(1))
-            .ok()
-    }
-
     /// Default frame interval of 16ms, or ~60 FPS.
     const fn default_frame_interval() -> Duration {
         Duration::from_millis(16)
     }
 
-    /// Create a new [`Picker`] instance with arguments passed to [`Nucleo`].
-    pub fn new(config: Config, num_threads: Option<usize>, columns: u32) -> Self {
-        Self {
-            matcher: Nucleo::new(config, Arc::new(|| {}), num_threads, columns),
-        }
+    /// Convenience method to initialize a picker with a single column and the provided nucleo
+    /// configuration.
+    pub fn with_config(config: Config) -> Self {
+        let mut opts = PickerOptions::default();
+        opts.config(config);
+        opts.picker()
     }
 
-    /// Create a new [`Picker`] instance with the given configuration.
-    pub fn with_config(config: Config) -> Self {
-        Self {
-            matcher: Nucleo::new(config, Arc::new(|| {}), Self::default_thread_count(), 1),
-        }
+    /// Update the default query string to a provided value. This is mainly useful for modifying the
+    /// query string before re-using the [`Picker`].
+    ///
+    /// See also the [`PickerOptions::query`] method to set the query during initialization.
+    pub fn update_query(&mut self, query: String) {
+        self.query = Some(query);
     }
 
     /// Get an [`Injector`] from the internal [`Nucleo`] instance.
@@ -417,6 +484,9 @@ impl<T: Send + Sync + 'static> Picker<T> {
     fn pick_inner(&mut self, interval: Duration) -> Result<Option<&T>, io::Error> {
         let mut stdout = io::stdout();
         let mut term = PickerState::new(size()?);
+        if let Some(query) = self.query.as_ref() {
+            term.set_prompt(query);
+        }
 
         enable_raw_mode()?;
         execute!(stdout, EnterAlternateScreen, EnableBracketedPaste)?;
