@@ -466,6 +466,11 @@ impl<T: Send + Sync + 'static> Picker<T> {
         self.query = Some(query);
     }
 
+    /// Update the internal nucleo configuration.
+    pub fn update_config(&mut self, config: Config) {
+        self.matcher.update_config(config);
+    }
+
     /// Get an [`Injector`] from the internal [`Nucleo`] instance.
     pub fn injector(&self) -> Injector<T> {
         self.matcher.injector()
