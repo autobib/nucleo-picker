@@ -471,6 +471,14 @@ impl<T: Send + Sync + 'static> Picker<T> {
         self.matcher.update_config(config);
     }
 
+    /// Restart the matcher engine, disconnecting all active injectors.
+    ///
+    /// Internally, this is a call to [`Nucleo::restart`] with `clear_snapshot = true`.
+    /// See the documentation for [`Nucleo::restart`] for more detail.
+    pub fn restart(&mut self) {
+        self.matcher.restart(true)
+    }
+
     /// Get an [`Injector`] from the internal [`Nucleo`] instance.
     pub fn injector(&self) -> Injector<T> {
         self.matcher.injector()
