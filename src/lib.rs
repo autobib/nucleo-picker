@@ -191,7 +191,7 @@ impl PickerState {
 
     /// Clamp the draw count so that it falls in the valid range.
     fn clamp_draw_count(&mut self) {
-        self.draw_count = min(self.draw_count, self.dimensions.max_draw_count())
+        self.draw_count = min(self.draw_count, self.dimensions.max_draw_count());
     }
 
     /// Clamp the selector index so that it falls in the valid range.
@@ -476,7 +476,7 @@ impl<T: Send + Sync + 'static> Picker<T> {
     /// Internally, this is a call to [`Nucleo::restart`] with `clear_snapshot = true`.
     /// See the documentation for [`Nucleo::restart`] for more detail.
     pub fn restart(&mut self) {
-        self.matcher.restart(true)
+        self.matcher.restart(true);
     }
 
     /// Get an [`Injector`] from the internal [`Nucleo`] instance.

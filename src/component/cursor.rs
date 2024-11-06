@@ -15,7 +15,7 @@ pub struct View<'a, T> {
 impl Display for View<'_, char> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         for ch in self.contents {
-            ch.fmt(f)?
+            ch.fmt(f)?;
         }
         Ok(())
     }
@@ -133,21 +133,21 @@ impl Cursor {
     /// Set the index to the given value.
     pub fn set_index(&mut self, index: usize) {
         self.index = index;
-        self.reset()
+        self.reset();
     }
 
     /// Set the width to the given value.
     pub fn set_width(&mut self, width: usize) {
         self.width = width;
-        self.reset()
+        self.reset();
     }
 
     /// Reset the internal window.
     fn reset(&mut self) {
         if self.index < self.offset {
-            self.offset = self.index
+            self.offset = self.index;
         } else if self.index >= self.offset + self.width {
-            self.offset = self.index - self.width
+            self.offset = self.index - self.width;
         }
     }
 }
