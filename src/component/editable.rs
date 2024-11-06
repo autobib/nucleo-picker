@@ -79,7 +79,7 @@ impl EditableString {
 
     /// Resize the window with the updated width.
     pub fn resize(&mut self, width: usize) {
-        self.cursor.set_width(width)
+        self.cursor.set_width(width);
     }
 
     /// Is the cursor at the end of the string?
