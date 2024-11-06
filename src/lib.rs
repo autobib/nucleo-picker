@@ -13,6 +13,7 @@ pub mod fill;
 use std::{
     cmp::min,
     io::{self, Stdout, Write},
+    num::NonZero,
     process::exit,
     sync::Arc,
     thread::{available_parallelism, sleep},
@@ -365,7 +366,7 @@ pub struct PickerOptions {
     columns: u32,
     config: Config,
     query: Option<String>,
-    threads: Option<usize>,
+    threads: Option<NonZero<usize>>,
 }
 
 impl Default for PickerOptions {
@@ -391,6 +392,15 @@ impl PickerOptions {
         self
     }
 
+    /// Set the number of threads used by the picker.
+    ///
+    /// If `None`, this will default to an estimate of the number of available processors on your
+    /// device minus 2, with a lower bounded by 1.
+    pub fn threads(&mut self, threads: Option<NonZero<usize>>) -> &mut Self {
+        self.threads = threads;
+        self
+    }
+
     /// Set the internal matcher configuration.
     pub fn config(&mut self, config: Config) -> &mut Self {
         self.config = config;
@@ -408,14 +418,17 @@ impl PickerOptions {
         let matcher = Nucleo::new(
             self.config,
             Arc::new(|| {}),
-            self.threads.or_else(|| {
-                // Reserve two threads:
-                // 1. for populating the macher
-                // 2. for rendering the terminal UI and handling user input
-                available_parallelism()
-                    .map(|it| it.get().checked_sub(2).unwrap_or(1))
-                    .ok()
-            }),
+            // nucleo's API is a bit weird here in that it does not accept `NonZero<usize>`
+            self.threads
+                .or_else(|| {
+                    // Reserve two threads:
+                    // 1. for populating the macher
+                    // 2. for rendering the terminal UI and handling user input
+                    available_parallelism()
+                        .ok()
+                        .and_then(|it| it.get().checked_sub(2).and_then(NonZero::new))
+                })
+                .map(NonZero::get),
             self.columns,
         );
 
@@ -448,6 +461,15 @@ impl<T: Send + Sync + 'static> Picker<T> {
     /// Default frame interval of 16ms, or ~60 FPS.
     const fn default_frame_interval() -> Duration {
         Duration::from_millis(16)
+    }
+
+    /// Create a new [`Picker`] instance with arguments passed to [`Nucleo`].
+    #[deprecated(since = "0.5.0", note = "Initialize using `PickerOptions` instead")]
+    pub fn new(config: Config, num_threads: Option<usize>, columns: u32) -> Self {
+        let mut opts = PickerOptions::new();
+        let threads = num_threads.and_then(NonZero::<usize>::new);
+        opts.config(config).threads(threads).columns(columns);
+        opts.picker()
     }
 
     /// Convenience method to initialize a picker with a single column and the provided nucleo
