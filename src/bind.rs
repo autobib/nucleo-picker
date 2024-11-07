@@ -60,6 +60,15 @@ pub fn convert(event: CrosstermEvent) -> Option<Event> {
             KeyCode::Enter => Some(Event::Select),
             _ => None,
         },
+        CrosstermEvent::Key(KeyEvent {
+            kind: KeyEventKind::Press,
+            modifiers: KeyModifiers::SHIFT,
+            code,
+            ..
+        }) => match code {
+            KeyCode::Char(ch) => Some(Event::Insert(ch)),
+            _ => None,
+        },
         CrosstermEvent::Resize(width, height) => Some(Event::Resize(width, height)),
         CrosstermEvent::Paste(contents) => Some(Event::Paste(contents)),
         _ => None,
