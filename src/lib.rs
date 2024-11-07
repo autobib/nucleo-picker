@@ -394,8 +394,8 @@ impl PickerOptions {
 
     /// Set the number of threads used by the picker.
     ///
-    /// If `None`, this will default to an estimate of the number of available processors on your
-    /// device minus 2, with a lower bounded by 1.
+    /// If `None`, this will default to the number of available processors on your device
+    /// minus 2, with a lower bound of 1.
     pub fn threads(&mut self, threads: Option<NonZero<usize>>) -> &mut Self {
         self.threads = threads;
         self
@@ -464,6 +464,9 @@ impl<T: Send + Sync + 'static> Picker<T> {
     }
 
     /// Create a new [`Picker`] instance with arguments passed to [`Nucleo`].
+    ///
+    /// # Deprecated
+    /// Configuration should be done using the [`PickerOptions`] struct instead.
     #[deprecated(since = "0.5.0", note = "Initialize using `PickerOptions` instead")]
     pub fn new(config: Config, num_threads: Option<usize>, columns: u32) -> Self {
         let mut opts = PickerOptions::new();
@@ -472,8 +475,8 @@ impl<T: Send + Sync + 'static> Picker<T> {
         opts.picker()
     }
 
-    /// Convenience method to initialize a picker with a single column and the provided nucleo
-    /// configuration.
+    /// Convenience method to initialize a picker with all default settings, except with the provided
+    /// nucleo [`Config`].
     pub fn with_config(config: Config) -> Self {
         let mut opts = PickerOptions::default();
         opts.config(config);
