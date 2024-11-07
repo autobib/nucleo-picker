@@ -510,12 +510,16 @@ impl<T: Send + Sync + 'static> Picker<T> {
     }
 
     /// Open the interactive picker prompt and return the picked item, if any.
+    ///
+    /// This automatically fails with an [`io::ErrorKind::Other`] if either stdout or stdin is an
+    /// interactive terminal. The picker will immediately abort without returning if `CTRL-C` is
+    /// called during regular operation.
     pub fn pick(&mut self) -> Result<Option<&T>, io::Error> {
-        if !std::io::stdin().is_tty() {
-            return Err(io::Error::new(io::ErrorKind::Other, "is not interactive"));
+        if std::io::stdin().is_tty() && std::io::stdout().is_tty() {
+            self.pick_inner(Self::default_frame_interval())
+        } else {
+            Err(io::Error::new(io::ErrorKind::Other, "is not interactive"))
         }
-
-        self.pick_inner(Self::default_frame_interval())
     }
 
     /// The actual picker implementation.
