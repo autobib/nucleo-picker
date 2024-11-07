@@ -67,6 +67,8 @@ pub fn convert(event: CrosstermEvent) -> Option<Event> {
             ..
         }) => match code {
             KeyCode::Char(ch) => Some(Event::Insert(ch)),
+            KeyCode::Backspace => Some(Event::Delete),
+            KeyCode::Enter => Some(Event::Select),
             _ => None,
         },
         CrosstermEvent::Resize(width, height) => Some(Event::Resize(width, height)),
