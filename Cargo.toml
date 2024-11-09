@@ -10,9 +10,13 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 crossterm = "0.28"
 nucleo = "0.5"
+unicode-segmentation = "1.10"
+unicode-width = "0.2"
 
 [dev-dependencies]
 walkdir = "2.5"
+ryu = "1.0"
+rand = "0.8"
 
 [lints.clippy]
 redundant_closure_for_method_calls = "warn"
@@ -25,6 +29,9 @@ name = "find"
 
 [[example]]
 name = "blocking"
+
+[[example]]
+name = "float"
 
 [[example]]
 name = "options"

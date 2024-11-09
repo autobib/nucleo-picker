@@ -3,17 +3,15 @@
 //! This blocking example demonstrates some of the configuration examples available to the picker.
 use std::io::Result;
 
-use nucleo_picker::{nucleo::Config, PickerOptions};
+use nucleo_picker::{nucleo::Config, render::StrRender, PickerOptions};
 
 fn main() -> Result<()> {
-    let mut opts = PickerOptions::default();
-    opts
+    let mut picker = PickerOptions::default()
         // set the configuration to match 'path-like' objects
         .config(Config::DEFAULT.match_paths())
         // set the default query string to `/var`
-        .query("/var");
-
-    let mut picker = opts.picker();
+        .query("/var")
+        .picker(StrRender);
 
     let choices = vec![
         "/var/tmp",
@@ -25,9 +23,9 @@ fn main() -> Result<()> {
     ];
 
     // populate the matcher
-    let injector = picker.injector();
+    let mut injector = picker.injector();
     for opt in choices {
-        let _ = injector.push(opt, |e, cols| cols[0] = e.to_owned().into());
+        injector.push(opt);
     }
 
     // open interactive prompt

@@ -29,6 +29,7 @@ impl<'a, T> View<'a, T> {
     }
 
     /// Return the contents of the view.
+    #[allow(unused)]
     pub fn as_slice(&self) -> &'a [T] {
         self.contents
     }
@@ -125,6 +126,7 @@ impl Cursor {
 
     /// Return the current view given the current cursor state. For the padded version, see
     /// [`Self::view_padded`].
+    #[allow(unused)]
     #[inline]
     pub fn view<'a, T>(&self, target: &'a [T]) -> View<'a, T> {
         self.view_padded(0, 0, target)
