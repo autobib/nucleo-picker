@@ -52,6 +52,8 @@ impl EditableString {
 
     /// Return an unpadded view; equivalent to
     /// [`EditableString::view_padded(0,0)`](EditableString::view_padded).
+    #[allow(unused)]
+    #[inline]
     pub fn view(&self) -> View<'_, char> {
         self.cursor.view(&self.contents)
     }

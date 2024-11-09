@@ -5,22 +5,10 @@
 //! [`find`](/examples/find.rs) for a (somewhat) more realistic use-case.
 use std::io::Result;
 
-use nucleo_picker::{
-    nucleo::Utf32String, // nucleo re-export
-    Picker,
-};
-
-/// The item type that we are picking. This can be anything that is Send + Sync + 'static.
-type Item = &'static str;
-
-/// Format the item for display within the `Nucleo` instance.
-fn set_nucleo_column(i: &Item, cols: &mut [Utf32String]) {
-    // only set column 0 since the picker (by default) has 1 column
-    cols[0] = (i as &str).into();
-}
+use nucleo_picker::{render::StrRender, Picker};
 
 fn main() -> Result<()> {
-    let mut picker = Picker::default();
+    let mut picker = Picker::new(StrRender);
 
     let choices = vec![
         "Rembrandt",
@@ -34,9 +22,11 @@ fn main() -> Result<()> {
     ];
 
     // populate the matcher
-    let injector = picker.injector(); // this is just a `nucleo::Injector`;
+    let mut injector = picker.injector();
     for opt in choices {
-        let _ = injector.push(opt, set_nucleo_column);
+        // Use `RenderStr` renderer to generate the match contents, since the choices are already
+        // string types.
+        injector.push(opt);
     }
 
     // open interactive prompt

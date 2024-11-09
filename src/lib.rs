@@ -1,14 +1,21 @@
 //! # A generic fuzzy item picker
-//! This is a generic picker implementation which wraps the [`nucleo::Nucleo`] matching engine with
-//! an interactive TUI.
+//! This is a generic picker implementation based on the [`nucleo::Nucleo`] matching engine. The
+//! main feature is an interactive fuzzy picker TUI, similar in spirit to the very popular
+//! [fzf](https://github.com/junegunn/fzf).
 //!
-//! The API is pretty similar to that exposed by the [`nucleo`] crate; the majority of the internal state of [`Nucleo`] is re-exposed through the main [`Picker`] entrypoint.
+//! In short, initialize a [`Picker`] using [`PickerOptions`] and describe how the items
+//! should be represented by implementing [`Render`], or using a [built-in renderer](render).
 //!
-//! For usage examples, visit the [examples
+//! ## Example
+//! For more usage examples, visit the [examples
 //! folder](https://github.com/autobib/nucleo-picker/tree/master/examples) on GitHub.
+//! ```no_run
+#![doc = include_str!("../examples/find.rs")]
+//! ```
 mod bind;
-pub mod component;
+mod component;
 pub mod fill;
+pub mod render;
 mod term;
 
 use std::{
@@ -27,28 +34,119 @@ use crossterm::{
     },
     tty::IsTty,
 };
-use nucleo::{Config, Injector, Nucleo};
-
-pub use nucleo;
+use nucleo as nc;
 
 use crate::term::{EventSummary, PickerState};
 
-/// # Options for a picker
+/// A trait which can render objects for matching and display.
+///
+/// Some renderers for common types are already implemented in the [`render`] module. In
+/// particular, if render performance is not a bottleneck, the
+/// [`DisplayRender`](render::DisplayRender) struct is particularly easy to use.
+///
+/// ## Example
+/// Here is a basic example for how one would implement a renderer, even for a foreign type.
+/// ```
+/// use std::borrow::Cow;
+///
+/// use nucleo_picker::Render;
+/// use walkdir::DirEntry;
+///
+/// #[derive(Clone)]
+/// pub struct DirEntryRender;
+///
+/// impl Render<DirEntry> for DirEntryRender {
+///     type Column<'a> = Cow<'a, str>;
+///
+///     fn as_column<'a>(&mut self, value: &'a DirEntry) -> Self::Column<'a> {
+///         value.path().to_string_lossy()
+///     }
+/// }
+/// ```
+/// ## Performance considations
+/// Generally speaking, this crate assumes that the [`Render`] implementation is quite
+/// fast. For each value, the [`Render`] implementation is first called to generate the match
+/// objects, and then called again in order to render the interactive picker screen with the
+/// relevant matches.
+///
+/// In particular, very slow [`Render`] implementations will reduce interactivitity of the terminal
+/// interface. A crude rule of thumb is that rendering a single item should take (in the worst case)
+/// at most 100μs. For comparison, formatting an `f64` into pre-allocated buffer takes around 0.1μs.
+///
+/// If this is not the case for your type, it is highly recommended to cache the render
+/// computation. One possibility is to do this directly inside your type:
+/// ```
+/// # use nucleo_picker::Render;
+/// pub struct Item<D> {
+///     data: D,
+///     column: String,
+/// }
+///
+/// #[derive(Clone, Copy)]
+/// pub struct ItemRender;
+///
+/// impl<D> Render<Item<D>> for ItemRender {
+/// type Column<'a>
+///     = &'a str
+/// where
+///     D: 'a;
+///
+///     fn as_column<'a>(&'a mut self, item: &'a Item<D>) -> Self::Column<'a> {
+///         &item.column
+///     }
+/// }
+/// ```
+/// Note that the rendered column can borrow from `&self`. This means, for instance, that you can
+/// write the representation of your type to an internal buffer and return a slice of that buffer.
+///
+/// ## Cloning
+/// The [`Clone`] implementation is called each time the [`Picker::injector`] method is called.
+/// As a result, if you expect to use many injectors, but do not expect to mutate your internal
+/// state, you should internally use [`Arc`] for types for which [`Clone`] is very expensive.
+///
+pub trait Render<T>: Clone {
+    /// The string type that `T` is rendered as.
+    type Column<'a>: AsRef<str>
+    where
+        T: 'a,
+        Self: 'a;
+
+    /// Render the given value as a column in the picker.
+    fn as_column<'a>(&'a mut self, value: &'a T) -> Self::Column<'a>;
+}
+
+/// A handle which allows adding new items to a [`Picker`].
+#[derive(Clone)]
+pub struct Injector<T, R> {
+    inner: nc::Injector<T>,
+    render: R,
+}
+
+impl<T, R: Render<T>> Injector<T, R> {
+    /// Send a value to the matcher engine.
+    pub fn push(&mut self, value: T) {
+        self.inner.push(value, |s, columns| {
+            columns[0] = self.render.as_column(s).as_ref().into();
+        });
+    }
+}
+
+/// # A builder for the picker
 /// Specify configuration options for a [`Picker`] before initialization.
 pub struct PickerOptions {
-    columns: u32,
-    config: Config,
-    query: Option<String>,
-    threads: Option<NonZero<usize>>,
+    _config: nc::Config,
+    _query: Option<String>,
+    _threads: Option<NonZero<usize>>,
+    _highlight: bool,
 }
 
 impl Default for PickerOptions {
     fn default() -> Self {
         Self {
-            columns: 1,
-            config: Config::DEFAULT,
-            query: None,
-            threads: None,
+            _config: nc::Config::DEFAULT,
+            _query: None,
+            _threads: None,
+            _highlight: true,
         }
     }
 }
@@ -59,40 +157,40 @@ impl PickerOptions {
         Self::default()
     }
 
-    /// Set the number of columns.
-    pub fn columns(&mut self, columns: u32) -> &mut Self {
-        self.columns = columns;
-        self
-    }
-
     /// Set the number of threads used by the picker.
     ///
     /// If `None`, this will default to the number of available processors on your device
     /// minus 2, with a lower bound of 1.
-    pub fn threads(&mut self, threads: Option<NonZero<usize>>) -> &mut Self {
-        self.threads = threads;
+    pub fn threads(mut self, threads: Option<NonZero<usize>>) -> Self {
+        self._threads = threads;
         self
     }
 
     /// Set the internal matcher configuration.
-    pub fn config(&mut self, config: Config) -> &mut Self {
-        self.config = config;
+    pub fn config(mut self, config: nc::Config) -> Self {
+        self._config = config;
+        self
+    }
+
+    /// Whether or not to highlight matches.
+    pub fn highlight(mut self, highlight: bool) -> Self {
+        self._highlight = highlight;
         self
     }
 
     /// Provide a default query string.
-    pub fn query<Q: ToString>(&mut self, query: Q) -> &mut Self {
-        self.query = Some(query.to_string());
+    pub fn query<Q: ToString>(mut self, query: Q) -> Self {
+        self._query = Some(query.to_string());
         self
     }
 
     /// Convert into a [`Picker`].
-    pub fn picker<T: Send + Sync + 'static>(self) -> Picker<T> {
-        let matcher = Nucleo::new(
-            self.config,
+    pub fn picker<T: Send + Sync + 'static, R>(self, render: R) -> Picker<T, R> {
+        let matcher = nc::Nucleo::new(
+            self._config,
             Arc::new(|| {}),
             // nucleo's API is a bit weird here in that it does not accept `NonZero<usize>`
-            self.threads
+            self._threads
                 .or_else(|| {
                     // Reserve two threads:
                     // 1. for populating the macher
@@ -102,58 +200,43 @@ impl PickerOptions {
                         .and_then(|it| it.get().checked_sub(2).and_then(NonZero::new))
                 })
                 .map(NonZero::get),
-            self.columns,
+            1,
         );
 
         Picker {
             matcher,
-            query: self.query,
+            render,
+            query: self._query,
         }
     }
 }
 
-/// # The core item picker
-/// This is the main entrypoint for this crate. Initialize a picker with [`Picker::default`], or
-/// with custom configuration using [`PickerOptions`], and add elements to the picker using an [`Injector`]
-/// returned by the [`Picker::injector`] method.
+/// A fuzzy matching interactive item picker.
 ///
-/// See also the documentation for [`nucleo::Nucleo`] and [`nucleo::Injector`], or the
+/// The parameter `T` is the item type and the parameter `R` is the renderer, which describes how
+/// to represent `T` in the matcher.
+///
+/// Initialize a picker with [`Picker::new`], or with custom configuration using
+/// [`PickerOptions`], and add elements to the picker using a [`PickerInjector`] returned
+/// by the [`Picker::injector`] method.
+///
+/// See also the documentation for [`nucleo::Nucleo`] and [`PickerInjector`], or the
 /// [usage examples](https://github.com/autobib/nucleo-picker/tree/master/examples).
-pub struct Picker<T: Send + Sync + 'static> {
-    matcher: Nucleo<T>,
+pub struct Picker<T: Send + Sync + 'static, R> {
+    matcher: nc::Nucleo<T>,
+    render: R,
     query: Option<String>,
 }
 
-impl<T: Send + Sync + 'static> Default for Picker<T> {
-    fn default() -> Self {
-        PickerOptions::default().picker()
+impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
+    /// Initialize a new picker with default configuration and the provided renderer.
+    pub fn new(render: R) -> Self {
+        PickerOptions::default().picker(render)
     }
-}
 
-impl<T: Send + Sync + 'static> Picker<T> {
     /// Default frame interval of 16ms, or ~60 FPS.
     const fn default_frame_interval() -> Duration {
         Duration::from_millis(16)
-    }
-
-    /// Create a new [`Picker`] instance with arguments passed to [`Nucleo`].
-    ///
-    /// # Deprecated
-    /// Configuration should be done using the [`PickerOptions`] struct instead.
-    #[deprecated(since = "0.5.0", note = "Initialize using `PickerOptions` instead")]
-    pub fn new(config: Config, num_threads: Option<usize>, columns: u32) -> Self {
-        let mut opts = PickerOptions::new();
-        let threads = num_threads.and_then(NonZero::<usize>::new);
-        opts.config(config).threads(threads).columns(columns);
-        opts.picker()
-    }
-
-    /// Convenience method to initialize a picker with all default settings, except with the provided
-    /// nucleo [`Config`].
-    pub fn with_config(config: Config) -> Self {
-        let mut opts = PickerOptions::default();
-        opts.config(config);
-        opts.picker()
     }
 
     /// Update the default query string to a provided value. This is mainly useful for modifying the
@@ -165,7 +248,7 @@ impl<T: Send + Sync + 'static> Picker<T> {
     }
 
     /// Update the internal nucleo configuration.
-    pub fn update_config(&mut self, config: Config) {
+    pub fn update_config(&mut self, config: nc::Config) {
         self.matcher.update_config(config);
     }
 
@@ -177,15 +260,40 @@ impl<T: Send + Sync + 'static> Picker<T> {
         self.matcher.restart(true);
     }
 
-    /// Get an [`Injector`] from the internal [`Nucleo`] instance.
-    pub fn injector(&self) -> Injector<T> {
-        self.matcher.injector()
+    /// Restart the matcher engine, disconnecting all active injectors and replacing the internal
+    /// renderer.
+    ///
+    /// See [`Picker::restart`] and [`Nucleo::restart`] for more detail.
+    pub fn reset_render(&mut self, render: R) {
+        self.restart();
+        self.render = render;
+    }
+
+    /// Get a [`PickerInjector`] wrapping a [`nucleo::Injector`] with a rendering implementation.
+    ///
+    /// # Performance considerations
+    /// This clones the internal [`Render`] object. In most cases, this is either cheap of free:
+    /// this is the case for all renderers implemented in the [`render`] module, which are
+    /// zero-sized types. However, if you have a custom [`Render`] implementation which is
+    /// expensive to clone, and you call the `injector` method a very large number of times, this
+    /// may cause performance degredation.
+    pub fn injector(&self) -> Injector<T, R> {
+        Injector {
+            inner: self.matcher.injector(),
+            render: self.render.clone(),
+        }
+    }
+
+    /// A convenience method to obtain the rendered version of a value as it would appear in the
+    /// picker.
+    pub fn render<'a>(&'a mut self, value: &'a T) -> <R as Render<T>>::Column<'a> {
+        self.render.as_column(value)
     }
 
     /// Open the interactive picker prompt and return the picked item, if any.
     ///
-    /// This automatically fails with an [`io::ErrorKind::Other`] if either stdout or stdin is an
-    /// interactive terminal. The picker will immediately abort without returning if `CTRL-C` is
+    /// This automatically fails with an [`io::ErrorKind::Other`] if either stdout or stdin is not
+    /// interactive. The picker will immediately abort without returning if `CTRL-C` is
     /// called during regular operation.
     pub fn pick(&mut self) -> Result<Option<&T>, io::Error> {
         if std::io::stdin().is_tty() && std::io::stdout().is_tty() {
