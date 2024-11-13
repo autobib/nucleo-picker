@@ -4,7 +4,6 @@
 use std::{
     cmp::min,
     io::{self, Stdout, Write},
-    process::exit,
     time::Duration,
 };
 
@@ -232,7 +231,9 @@ impl PickerState {
         while poll(Duration::from_millis(5))? {
             if let Some(event) = convert(read()?) {
                 match event {
-                    Event::Abort => exit(1),
+                    Event::Abort => {
+                        return Err(io::Error::new(io::ErrorKind::Other, "keyboard interrupt"))
+                    }
                     Event::MoveToStart => self.edit_prompt(Edit::ToStart),
                     Event::MoveToEnd => self.edit_prompt(Edit::ToEnd),
                     Event::Insert(ch) => {
