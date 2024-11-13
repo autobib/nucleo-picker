@@ -14,7 +14,7 @@ unicode-segmentation = "1.10"
 unicode-width = "0.2"
 
 [dev-dependencies]
-walkdir = "2.5"
+ignore = "0.4"
 ryu = "1.0"
 rand = "0.8"
 
