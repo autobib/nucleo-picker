@@ -320,26 +320,31 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
             let deadline = Instant::now() + interval;
 
             // process any queued keyboard events and reset pattern if necessary
-            match term.handle()? {
-                EventSummary::Continue => {}
-                EventSummary::UpdatePrompt(append) => {
-                    self.matcher.pattern.reparse(
-                        0,
-                        &term.prompt_contents(),
-                        nucleo::pattern::CaseMatching::Smart,
-                        nucleo::pattern::Normalization::Smart,
-                        append,
-                    );
-                }
-                EventSummary::Select => {
-                    break term
-                        .selection()
-                        .and_then(|idx| self.matcher.snapshot().get_matched_item(idx as _))
-                        .map(|it| it.data);
-                }
-                EventSummary::Quit => {
-                    break None;
-                }
+            match term.handle() {
+                Ok(summary) => match summary {
+                    EventSummary::Continue => {}
+                    EventSummary::UpdatePrompt(append) => {
+                        self.matcher.pattern.reparse(
+                            0,
+                            &term.prompt_contents(),
+                            nucleo::pattern::CaseMatching::Smart,
+                            nucleo::pattern::Normalization::Smart,
+                            append,
+                        );
+                    }
+                    EventSummary::Select => {
+                        break Ok(term
+                            .selection()
+                            .and_then(|idx| self.matcher.snapshot().get_matched_item(idx as _))
+                            .map(|it| it.data));
+                    }
+                    EventSummary::Quit => {
+                        break Ok(None);
+                    }
+                },
+                // capture the internal error, so we can still attempt to clean up the terminal
+                // afterwards
+                Err(err) => break Err(err),
             };
 
             // increment the matcher and update state
@@ -355,6 +360,6 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
 
         disable_raw_mode()?;
         execute!(stdout, DisableBracketedPaste, LeaveAlternateScreen)?;
-        Ok(selection)
+        selection
     }
 }
