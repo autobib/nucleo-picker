@@ -36,6 +36,8 @@ use crossterm::{
 };
 use nucleo as nc;
 
+pub use nucleo;
+
 use crate::term::{EventSummary, PickerState};
 
 /// A trait which can render objects for matching and display.
@@ -50,7 +52,7 @@ use crate::term::{EventSummary, PickerState};
 /// use std::borrow::Cow;
 ///
 /// use nucleo_picker::Render;
-/// use walkdir::DirEntry;
+/// use ignore::DirEntry;
 ///
 /// #[derive(Clone)]
 /// pub struct DirEntryRender;

@@ -3,8 +3,8 @@
 //! Iterate over directories to populate the picker, but do not block so that
 //! matching can be done while the picker is populated.
 use std::{borrow::Cow, env::args, io, path::PathBuf, thread::spawn};
-use walkdir::{DirEntry, WalkDir};
 
+use ignore::{DirEntry, Walk};
 use nucleo_picker::{nucleo::Config, PickerOptions, Render};
 
 #[derive(Clone)]
@@ -36,7 +36,7 @@ fn main() -> io::Result<()> {
     // populate from a separate thread to avoid locking the picker interface
     let mut injector = picker.injector();
     spawn(move || {
-        for entry in WalkDir::new(root).into_iter().filter_map(Result::ok) {
+        for entry in Walk::new(root).into_iter().filter_map(Result::ok) {
             injector.push(entry);
         }
     });
