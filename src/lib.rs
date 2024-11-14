@@ -34,11 +34,15 @@ use crossterm::{
     },
     tty::IsTty,
 };
-use nucleo as nc;
+use nucleo::{
+    self as nc,
+    pattern::{CaseMatching, Normalization},
+    Nucleo,
+};
 
 pub use nucleo;
 
-use crate::term::{EventSummary, PickerState};
+use crate::term::{EventSummary, PickerConfig, PickerState};
 
 /// A trait which can render objects for matching and display.
 ///
@@ -139,7 +143,7 @@ pub struct PickerOptions {
     _config: nc::Config,
     _query: Option<String>,
     _threads: Option<NonZero<usize>>,
-    _highlight: bool,
+    _picker_config: PickerConfig,
 }
 
 impl Default for PickerOptions {
@@ -148,7 +152,7 @@ impl Default for PickerOptions {
             _config: nc::Config::DEFAULT,
             _query: None,
             _threads: None,
-            _highlight: true,
+            _picker_config: PickerConfig::default(),
         }
     }
 }
@@ -176,7 +180,25 @@ impl PickerOptions {
 
     /// Whether or not to highlight matches.
     pub fn highlight(mut self, highlight: bool) -> Self {
-        self._highlight = highlight;
+        self._picker_config.highlight = highlight;
+        self
+    }
+
+    /// How much space to leave after rendering the rightmost highlight.
+    pub fn right_highlight_buffer(mut self, size: u16) -> Self {
+        self._picker_config.right_highlight_buffer = size;
+        self
+    }
+
+    /// How to treat case mismatch.
+    pub fn case_matching(mut self, case_matching: CaseMatching) -> Self {
+        self._picker_config.case_matching = case_matching;
+        self
+    }
+
+    /// How to perform Unicode normalization.
+    pub fn normalization(mut self, normalization: Normalization) -> Self {
+        self._picker_config.normalization = normalization;
         self
     }
 
@@ -188,8 +210,8 @@ impl PickerOptions {
 
     /// Convert into a [`Picker`].
     pub fn picker<T: Send + Sync + 'static, R>(self, render: R) -> Picker<T, R> {
-        let matcher = nc::Nucleo::new(
-            self._config,
+        let matcher = Nucleo::new(
+            self._config.clone(),
             Arc::new(|| {}),
             // nucleo's API is a bit weird here in that it does not accept `NonZero<usize>`
             self._threads
@@ -208,6 +230,8 @@ impl PickerOptions {
         Picker {
             matcher,
             render,
+            picker_config: self._picker_config,
+            config: self._config,
             query: self._query,
         }
     }
@@ -219,14 +243,16 @@ impl PickerOptions {
 /// to represent `T` in the matcher.
 ///
 /// Initialize a picker with [`Picker::new`], or with custom configuration using
-/// [`PickerOptions`], and add elements to the picker using a [`PickerInjector`] returned
+/// [`PickerOptions`], and add elements to the picker using a [`Injector`] returned
 /// by the [`Picker::injector`] method.
 ///
-/// See also the documentation for [`nucleo::Nucleo`] and [`PickerInjector`], or the
+/// See also the documentation for [`nucleo::Nucleo`] and [`Injector`], or the
 /// [usage examples](https://github.com/autobib/nucleo-picker/tree/master/examples).
 pub struct Picker<T: Send + Sync + 'static, R> {
-    matcher: nc::Nucleo<T>,
+    matcher: Nucleo<T>,
     render: R,
+    picker_config: PickerConfig,
+    config: nc::Config,
     query: Option<String>,
 }
 
@@ -271,7 +297,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         self.render = render;
     }
 
-    /// Get a [`PickerInjector`] wrapping a [`nucleo::Injector`] with a rendering implementation.
+    /// Get a [`Injector`] wrapping a [`nucleo::Injector`] with a rendering implementation.
     ///
     /// # Performance considerations
     /// This clones the internal [`Render`] object. In most cases, this is either cheap of free:
@@ -294,9 +320,10 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
 
     /// Open the interactive picker prompt and return the picked item, if any.
     ///
-    /// This automatically fails with an [`io::ErrorKind::Other`] if either stdout or stdin is not
-    /// interactive. The picker will immediately abort without returning if `CTRL-C` is
-    /// called during regular operation.
+    /// This fails with an [`io::ErrorKind::Other`] if:
+    ///
+    /// 1. either stdout or stdin is not interactive, in which the message will be `"is not interactive"`
+    /// 2. if the user presses `CTRL-C`, in which case the message will be `"keyboard interrupt"`
     pub fn pick(&mut self) -> Result<Option<&T>, io::Error> {
         if std::io::stdin().is_tty() && std::io::stdout().is_tty() {
             self.pick_inner(Self::default_frame_interval())
@@ -308,7 +335,8 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// The actual picker implementation.
     fn pick_inner(&mut self, interval: Duration) -> Result<Option<&T>, io::Error> {
         let mut stdout = io::stdout();
-        let mut term = PickerState::new(size()?);
+        let mut term = PickerState::new(size()?, &self.picker_config);
+        let mut matcher = nucleo::Matcher::new(self.config.clone());
         if let Some(query) = self.query.as_ref() {
             term.set_prompt(query);
         }
@@ -327,8 +355,8 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                         self.matcher.pattern.reparse(
                             0,
                             &term.prompt_contents(),
-                            nucleo::pattern::CaseMatching::Smart,
-                            nucleo::pattern::Normalization::Smart,
+                            self.picker_config.case_matching,
+                            self.picker_config.normalization,
                             append,
                         );
                     }
@@ -352,7 +380,12 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
             term.update(status.changed, self.matcher.snapshot());
 
             // redraw the screen
-            term.draw(&mut stdout, self.matcher.snapshot())?;
+            term.draw(
+                &mut stdout,
+                &mut matcher,
+                &mut self.render,
+                self.matcher.snapshot(),
+            )?;
 
             // wait if frame rendering finishes early
             sleep(deadline - Instant::now());
