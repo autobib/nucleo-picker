@@ -12,6 +12,7 @@ crossterm = "0.28"
 nucleo = "0.5"
 unicode-segmentation = "1.10"
 unicode-width = "0.2"
+memchr = "2.7"
 
 [dev-dependencies]
 ignore = "0.4"
@@ -29,6 +30,9 @@ name = "find"
 
 [[example]]
 name = "blocking"
+
+[[example]]
+name = "multiline"
 
 [[example]]
 name = "float"

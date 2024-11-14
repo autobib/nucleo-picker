@@ -1,27 +1,33 @@
 //! # Terminal renderer
 //! This module contains the main representation of the internal state of the picker, as well as
 //! the code for rendering the picker to a terminal screen.
+mod span;
+mod unicode;
+
 use std::{
     cmp::min,
     io::{self, Stdout, Write},
+    ops::Range,
     time::Duration,
 };
 
 use crossterm::{
     cursor::{MoveTo, MoveToColumn, MoveToPreviousLine, MoveUp},
     event::{poll, read},
-    style::{
-        Attribute, Color, Print, PrintStyledContent, ResetColor, SetAttribute, SetForegroundColor,
-        Stylize,
-    },
-    terminal::{Clear, ClearType},
-    QueueableCommand,
+    style::{Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor},
+    terminal::{BeginSynchronizedUpdate, Clear, ClearType, EndSynchronizedUpdate},
+    ExecutableCommand, QueueableCommand,
 };
-use nucleo::Utf32String;
+use nucleo::{
+    pattern::{CaseMatching, Normalization},
+    Matcher,
+};
 
+use self::{span::Spanned, unicode::Span};
 use crate::{
     bind::{convert, Event},
     component::{Edit, EditableString},
+    Render,
 };
 
 /// The outcome after processing all of the events.
@@ -104,9 +110,30 @@ impl Dimensions {
     }
 }
 
+/// Configuration used internally in the [`PickerState`].
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct PickerConfig {
+    pub highlight: bool,
+    pub case_matching: CaseMatching,
+    pub normalization: Normalization,
+    pub right_highlight_buffer: u16,
+}
+
+impl Default for PickerConfig {
+    fn default() -> Self {
+        Self {
+            highlight: true,
+            case_matching: CaseMatching::Smart,
+            normalization: Normalization::Smart,
+            right_highlight_buffer: 3,
+        }
+    }
+}
+
 /// A representation of the current state of the picker.
 #[derive(Debug)]
-pub struct PickerState {
+pub struct PickerState<'a> {
     /// The dimensions of the application.
     dimensions: Dimensions,
     /// The selector index position, or [`None`] if there is nothing to select.
@@ -121,11 +148,17 @@ pub struct PickerState {
     matched_item_count: u32,
     /// Has the state changed?
     needs_redraw: bool,
+    /// Configuration for drawing the picker.
+    config: &'a PickerConfig,
+    /// Buffers to reduce allocations
+    spans: Vec<Span>,
+    lines: Vec<Range<usize>>,
+    indices: Vec<u32>,
 }
 
-impl PickerState {
+impl<'a> PickerState<'a> {
     /// The initial picker state.
-    pub fn new(screen: (u16, u16)) -> Self {
+    pub fn new(screen: (u16, u16), config: &'a PickerConfig) -> Self {
         let dimensions = Dimensions::from_screen(screen.0, screen.1);
         let prompt = EditableString::new(dimensions.prompt_max_width());
 
@@ -137,6 +170,10 @@ impl PickerState {
             matched_item_count: 0,
             item_count: 0,
             needs_redraw: true,
+            config,
+            spans: Vec::with_capacity(16),
+            lines: Vec::with_capacity(4),
+            indices: Vec::with_capacity(16),
         }
     }
 
@@ -201,23 +238,6 @@ impl PickerState {
         self.needs_redraw = true;
     }
 
-    /// Format a [`Utf32String`] for displaying. Currently:
-    /// - Delete control characters.
-    /// - Truncates the string to an appropriate length.
-    /// - Replaces any newline characters with spaces.
-    fn format_display(&self, display: &Utf32String) -> String {
-        display
-            .slice(..)
-            .chars()
-            .filter(|ch| !ch.is_control())
-            .take(self.dimensions.max_draw_length() as _)
-            .map(|ch| match ch {
-                '\n' => ' ',
-                s => s,
-            })
-            .collect()
-    }
-
     /// The current contents of the prompt.
     pub fn prompt_contents(&self) -> String {
         self.prompt.full_contents()
@@ -273,14 +293,24 @@ impl PickerState {
 
     /// Draw the terminal to the screen. This assumes that the draw count has been updated and the
     /// selector index has been properly clamped, or this method will panic!
-    pub fn draw<T: Send + Sync + 'static>(
+    pub fn draw<T: Send + Sync + 'static, R: Render<T>>(
         &mut self,
         stdout: &mut Stdout,
+        matcher: &mut Matcher,
+        render: &mut R,
         snapshot: &nucleo::Snapshot<T>,
     ) -> Result<(), io::Error> {
         if self.needs_redraw {
             // reset redraw state
             self.needs_redraw = false;
+
+            // we can't do anything if the screen is so narrow
+            if self.dimensions.width < 4 {
+                stdout.queue(Clear(ClearType::All))?.flush()?;
+                return Ok(());
+            }
+
+            stdout.execute(BeginSynchronizedUpdate)?;
 
             // draw the match counts
             stdout.queue(self.dimensions.move_to_results_start())?;
@@ -295,24 +325,53 @@ impl PickerState {
                 .queue(ResetColor)?
                 .queue(Clear(ClearType::UntilNewLine))?;
 
+            let mut current_draw_count = 0;
+
             // draw the matches
-            for (idx, it) in snapshot.matched_items(..self.draw_count as u32).enumerate() {
-                let render = self.format_display(&it.matcher_columns[0]);
-                if Some(idx) == self.selector_index.map(|i| i as _) {
-                    stdout
-                        .queue(MoveToPreviousLine(1))?
-                        .queue(SetAttribute(Attribute::Bold))?
-                        .queue(PrintStyledContent("▌ ".with(Color::Magenta)))? // selection indicator
-                        .queue(Print(render))?
-                        .queue(SetAttribute(Attribute::Reset))?
-                        .queue(Clear(ClearType::UntilNewLine))?;
-                } else {
-                    stdout
-                        .queue(MoveToPreviousLine(1))?
-                        .queue(Print("  "))?
-                        .queue(Print(render))?
-                        .queue(Clear(ClearType::UntilNewLine))?;
+            'm: for (idx, it) in snapshot.matched_items(..).enumerate() {
+                // generate the indices
+                if self.config.highlight {
+                    self.indices.clear();
+                    snapshot.pattern().column_pattern(0).indices(
+                        it.matcher_columns[0].slice(..),
+                        matcher,
+                        &mut self.indices,
+                    );
+                    self.indices.sort_unstable();
+                    self.indices.dedup();
                 }
+
+                // convert the indices into spans
+                let rendered = render.as_column(it.data);
+                let spanned = Spanned::new(
+                    &self.indices,
+                    rendered.as_ref(),
+                    &mut self.spans,
+                    &mut self.lines,
+                );
+
+                // space needed to render the next entry
+                let required_headspace = spanned.count_lines();
+                current_draw_count += required_headspace;
+
+                if current_draw_count > self.dimensions.max_draw_count() as usize {
+                    break 'm;
+                }
+                // since max_draw_count() returns a u16, if required_headspace
+                // does not fit, it would have already exited in the previous line
+                let required_headspace = required_headspace as u16;
+
+                // move the cursor up the appropriate amount and then print the selection to the
+                // terminal
+                stdout.queue(MoveToPreviousLine(required_headspace))?;
+                spanned.queue_print(
+                    stdout,
+                    self.selector_index.is_some_and(|i| i as usize == idx),
+                    self.dimensions.max_draw_length(),
+                    self.config.right_highlight_buffer,
+                )?;
+
+                stdout.queue(MoveToPreviousLine(required_headspace))?;
             }
 
             // clear above the current matches
@@ -336,7 +395,9 @@ impl PickerState {
                 .queue(self.dimensions.move_to_cursor(view.index()))?;
 
             // flush to terminal
-            stdout.flush()
+            stdout.flush()?;
+            stdout.execute(EndSynchronizedUpdate)?;
+            Ok(())
         } else {
             Ok(())
         }
