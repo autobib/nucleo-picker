@@ -6,7 +6,7 @@ mod unicode;
 
 use std::{
     cmp::min,
-    io::{self, Stdout, Write},
+    io::{self, StderrLock, Write},
     ops::Range,
     time::Duration,
 };
@@ -295,7 +295,7 @@ impl<'a> PickerState<'a> {
     /// selector index has been properly clamped, or this method will panic!
     pub fn draw<T: Send + Sync + 'static, R: Render<T>>(
         &mut self,
-        stdout: &mut Stdout,
+        stderr: &mut StderrLock<'_>,
         matcher: &mut Matcher,
         render: &mut R,
         snapshot: &nucleo::Snapshot<T>,
@@ -306,15 +306,15 @@ impl<'a> PickerState<'a> {
 
             // we can't do anything if the screen is so narrow
             if self.dimensions.width < 4 {
-                stdout.queue(Clear(ClearType::All))?.flush()?;
+                stderr.queue(Clear(ClearType::All))?.flush()?;
                 return Ok(());
             }
 
-            stdout.execute(BeginSynchronizedUpdate)?;
+            stderr.execute(BeginSynchronizedUpdate)?;
 
             // draw the match counts
-            stdout.queue(self.dimensions.move_to_results_start())?;
-            stdout
+            stderr.queue(self.dimensions.move_to_results_start())?;
+            stderr
                 .queue(SetAttribute(Attribute::Italic))?
                 .queue(SetForegroundColor(Color::Green))?
                 .queue(Print("  "))?
@@ -363,20 +363,20 @@ impl<'a> PickerState<'a> {
 
                 // move the cursor up the appropriate amount and then print the selection to the
                 // terminal
-                stdout.queue(MoveToPreviousLine(required_headspace))?;
+                stderr.queue(MoveToPreviousLine(required_headspace))?;
                 spanned.queue_print(
-                    stdout,
+                    stderr,
                     self.selector_index.is_some_and(|i| i as usize == idx),
                     self.dimensions.max_draw_length(),
                     self.config.right_highlight_buffer,
                 )?;
 
-                stdout.queue(MoveToPreviousLine(required_headspace))?;
+                stderr.queue(MoveToPreviousLine(required_headspace))?;
             }
 
             // clear above the current matches
             if self.draw_count != self.dimensions.max_draw_count() {
-                stdout
+                stderr
                     .queue(MoveUp(1))?
                     .queue(self.dimensions.move_to_end_of_line())?
                     .queue(Clear(ClearType::FromCursorUp))?;
@@ -387,7 +387,7 @@ impl<'a> PickerState<'a> {
                 self.dimensions.prompt_left_padding as _,
                 self.dimensions.prompt_right_padding as _,
             );
-            stdout
+            stderr
                 .queue(self.dimensions.move_to_prompt())?
                 .queue(Print("> "))?
                 .queue(Print(&view))?
@@ -395,8 +395,8 @@ impl<'a> PickerState<'a> {
                 .queue(self.dimensions.move_to_cursor(view.index()))?;
 
             // flush to terminal
-            stdout.flush()?;
-            stdout.execute(EndSynchronizedUpdate)?;
+            stderr.flush()?;
+            stderr.execute(EndSynchronizedUpdate)?;
             Ok(())
         } else {
             Ok(())

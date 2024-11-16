@@ -320,12 +320,21 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
 
     /// Open the interactive picker prompt and return the picked item, if any.
     ///
+    /// # Custom [`io::Error`]
     /// This fails with an [`io::ErrorKind::Other`] if:
     ///
-    /// 1. stdout is not interactive, in which the message will be `"is not interactive"`
+    /// 1. stderr is not interactive, in which the message will be `"is not interactive"`
     /// 2. if the user presses `CTRL-C`, in which case the message will be `"keyboard interrupt"`
+    ///
+    /// # Rendering details
+    /// The picker prompt is rendered in an alternate screen using the `stderr` file handle. In
+    /// order to prevent screen corruption, a lock is acquired to `stderr`; see
+    /// [`StderrLock`](std::io::StderrLock) for more detail.
+    ///
+    /// In particular, while the picker is interactive, any other thread which attempts to write to
+    /// stderr will block. Note that `stdin` and `stdout` will remain fully interactive.
     pub fn pick(&mut self) -> Result<Option<&T>, io::Error> {
-        if std::io::stdout().is_tty() {
+        if std::io::stderr().is_tty() {
             self.pick_inner(Self::default_frame_interval())
         } else {
             Err(io::Error::new(io::ErrorKind::Other, "is not interactive"))
@@ -334,7 +343,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
 
     /// The actual picker implementation.
     fn pick_inner(&mut self, interval: Duration) -> Result<Option<&T>, io::Error> {
-        let mut stdout = io::stdout();
+        let mut stderr = io::stderr().lock();
         let mut term = PickerState::new(size()?, &self.picker_config);
         let mut matcher = nucleo::Matcher::new(self.config.clone());
         if let Some(query) = self.query.as_ref() {
@@ -342,7 +351,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         }
 
         enable_raw_mode()?;
-        execute!(stdout, EnterAlternateScreen, EnableBracketedPaste)?;
+        execute!(stderr, EnterAlternateScreen, EnableBracketedPaste)?;
 
         let selection = loop {
             let deadline = Instant::now() + interval;
@@ -381,7 +390,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
 
             // redraw the screen
             term.draw(
-                &mut stdout,
+                &mut stderr,
                 &mut matcher,
                 &mut self.render,
                 self.matcher.snapshot(),
@@ -392,7 +401,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         };
 
         disable_raw_mode()?;
-        execute!(stdout, DisableBracketedPaste, LeaveAlternateScreen)?;
+        execute!(stderr, DisableBracketedPaste, LeaveAlternateScreen)?;
         selection
     }
 }
