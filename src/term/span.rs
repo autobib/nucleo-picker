@@ -1,4 +1,4 @@
-use std::{cmp::max, io, io::Stdout, iter::once, ops::Range, slice::Iter};
+use std::{cmp::max, io, io::StderrLock, iter::once, ops::Range, slice::Iter};
 
 use crossterm::{
     cursor::{MoveToColumn, MoveToNextLine},
@@ -138,27 +138,31 @@ impl<'a> Spanned<'a> {
     /// Print the header for each line, which is either two spaces or styled indicator. This also
     /// sets the highlighting features for the given line.
     #[inline]
-    fn start_line(stdout: &mut Stdout, selected: bool) -> Result<(), io::Error> {
+    fn start_line(stderr: &mut StderrLock<'_>, selected: bool) -> Result<(), io::Error> {
         if selected {
             // print the line as bold, and with a 'selection' marker
-            stdout
+            stderr
                 .queue(SetAttribute(Attribute::Bold))?
                 .queue(SetBackgroundColor(Color::DarkGrey))?
                 .queue(PrintStyledContent("▌ ".magenta()))?;
         } else {
             // print a blank instead
-            stdout.queue(Print("  "))?;
+            stderr.queue(Print("  "))?;
         }
         Ok(())
     }
 
-    /// Queue a string slice for printing to STDOUT, either highlighted or printed.
+    /// Queue a string slice for printing to stderr, either highlighted or printed.
     #[inline]
-    fn print_span(stdout: &mut Stdout, to_print: &str, highlight: bool) -> Result<(), io::Error> {
+    fn print_span(
+        stderr: &mut StderrLock<'_>,
+        to_print: &str,
+        highlight: bool,
+    ) -> Result<(), io::Error> {
         if highlight {
-            stdout.queue(PrintStyledContent(to_print.cyan()))?;
+            stderr.queue(PrintStyledContent(to_print.cyan()))?;
         } else {
-            stdout.queue(Print(to_print))?;
+            stderr.queue(Print(to_print))?;
         }
         Ok(())
     }
@@ -166,8 +170,8 @@ impl<'a> Spanned<'a> {
     /// Clean up after printing the line by resetting any display styling, clearing any trailing
     /// characters, and moving to the next line.
     #[inline]
-    fn finish_line(stdout: &mut Stdout) -> Result<(), io::Error> {
-        stdout
+    fn finish_line(stderr: &mut StderrLock<'_>) -> Result<(), io::Error> {
+        stderr
             .queue(SetAttribute(Attribute::Reset))?
             .queue(Clear(ClearType::UntilNewLine))?
             .queue(MoveToNextLine(1))?;
@@ -179,7 +183,7 @@ impl<'a> Spanned<'a> {
     #[inline]
     pub fn queue_print(
         &self,
-        stdout: &mut Stdout,
+        stderr: &mut StderrLock<'_>,
         selected: bool,
         max_width: u16,
         right_buffer: u16,
@@ -195,19 +199,19 @@ impl<'a> Spanned<'a> {
             //
             // If the input is ASCII, this check is optimal.
             for line in self.lines() {
-                Self::start_line(stdout, selected)?;
+                Self::start_line(stderr, selected)?;
                 for span in line.iter() {
-                    Self::print_span(stdout, self.index_in(span), span.is_match)?;
+                    Self::print_span(stderr, self.index_in(span), span.is_match)?;
                 }
-                Self::finish_line(stdout)?;
+                Self::finish_line(stderr)?;
             }
         } else {
             let offset = self.required_offset(max_width, right_buffer);
 
             for line in self.lines() {
-                Self::start_line(stdout, selected)?;
-                self.queue_print_line(stdout, line, offset, max_width)?;
-                Self::finish_line(stdout)?;
+                Self::start_line(stderr, selected)?;
+                self.queue_print_line(stderr, line, offset, max_width)?;
+                Self::finish_line(stderr)?;
             }
         }
         Ok(())
@@ -218,7 +222,7 @@ impl<'a> Spanned<'a> {
     #[inline]
     fn queue_print_line(
         &self,
-        stdout: &mut Stdout,
+        stderr: &mut StderrLock<'_>,
         line: &[Span],
         offset: usize,
         capacity: u16,
@@ -235,7 +239,7 @@ impl<'a> Spanned<'a> {
         if offset > 0 {
             // we just checked that `capacity != 0`
             remaining_capacity -= 1;
-            stdout.queue(Print(ELLIPSIS))?;
+            stderr.queue(Print(ELLIPSIS))?;
         };
 
         // consume as much of the first span as required to overtake the offset. since the width of
@@ -253,7 +257,7 @@ impl<'a> Spanned<'a> {
             Some(new) => {
                 remaining_capacity = new as u16;
                 for _ in 0..alignment {
-                    stdout.queue(Print(ELLIPSIS))?;
+                    stderr.queue(Print(ELLIPSIS))?;
                 }
             }
             None => return Ok(()),
@@ -265,14 +269,14 @@ impl<'a> Spanned<'a> {
             match truncate(substr, remaining_capacity) {
                 Ok(new) => {
                     remaining_capacity = new;
-                    Self::print_span(stdout, substr, span.is_match)?;
+                    Self::print_span(stderr, substr, span.is_match)?;
                 }
                 Err((prefix, alignment)) => {
-                    Self::print_span(stdout, prefix, span.is_match)?;
+                    Self::print_span(stderr, prefix, span.is_match)?;
                     if alignment > 0 {
                         // there is already extra space; fill it
                         for _ in 0..alignment {
-                            stdout.queue(Print(ELLIPSIS))?;
+                            stderr.queue(Print(ELLIPSIS))?;
                         }
                     } else {
                         // overwrite the previous grapheme
@@ -282,9 +286,9 @@ impl<'a> Spanned<'a> {
                             .unwrap()
                             .width();
 
-                        stdout.queue(MoveToColumn(2 + capacity - undo_width as u16))?;
+                        stderr.queue(MoveToColumn(2 + capacity - undo_width as u16))?;
                         for _ in 0..undo_width {
-                            stdout.queue(Print(ELLIPSIS))?;
+                            stderr.queue(Print(ELLIPSIS))?;
                         }
                     }
                     return Ok(());
