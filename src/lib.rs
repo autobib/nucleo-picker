@@ -322,10 +322,10 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     ///
     /// This fails with an [`io::ErrorKind::Other`] if:
     ///
-    /// 1. either stdout or stdin is not interactive, in which the message will be `"is not interactive"`
+    /// 1. stdout is not interactive, in which the message will be `"is not interactive"`
     /// 2. if the user presses `CTRL-C`, in which case the message will be `"keyboard interrupt"`
     pub fn pick(&mut self) -> Result<Option<&T>, io::Error> {
-        if std::io::stdin().is_tty() && std::io::stdout().is_tty() {
+        if std::io::stdout().is_tty() {
             self.pick_inner(Self::default_frame_interval())
         } else {
             Err(io::Error::new(io::ErrorKind::Other, "is not interactive"))
