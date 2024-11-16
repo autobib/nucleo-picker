@@ -20,13 +20,15 @@ See the [`examples`](/examples) directory for implementation examples, or try ou
 
 ## Features
 These are some key features as to why you might want to use this crate over other alternatives.
-Many of these features are courtesy of [`nucleo`](https://docs.rs/nucleo/latest/nucleo/).
-- Highly optimized matching.
+- Highly optimized matching, courtesy of [`nucleo`](https://docs.rs/nucleo/latest/nucleo/).
 - Robust Unicode handling using [Unicode text segmentation](https://crates.io/crates/unicode-segmentation) and [Unicode width](https://crates.io/crates/unicode-width).
 - Convenient API:
   - Non-blocking to match live on an item stream.
   - Generic `Picker` for any type `T` which is `Send + Sync + 'static`.
   - Stateful rendering of crate-local and foreign types with the `Render` trait.
+- Flexible screen rendering:
+  - Match highlighting with automatic scroll-through for highlighted matches.
+  - Correctly handle multi-line or overflowed items.
 
 ## Query syntax
 The query syntax is as documented in the [nucleo-matcher](https://docs.rs/nucleo-matcher/latest/nucleo_matcher/pattern/enum.AtomKind.html) crate.
