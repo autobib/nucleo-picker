@@ -32,9 +32,9 @@ pub fn convert(event: CrosstermEvent) -> Option<Event> {
             ..
         }) => match code {
             KeyCode::Char('c') => Some(Event::Abort),
-            KeyCode::Char('g') | KeyCode::Char('q') => Some(Event::Quit),
-            KeyCode::Char('k') | KeyCode::Char('p') => Some(Event::MoveUp),
-            KeyCode::Char('j') | KeyCode::Char('n') => Some(Event::MoveDown),
+            KeyCode::Char('g' | 'q') => Some(Event::Quit),
+            KeyCode::Char('k' | 'p') => Some(Event::MoveUp),
+            KeyCode::Char('j' | 'n') => Some(Event::MoveDown),
             KeyCode::Char('b') => Some(Event::MoveLeft),
             KeyCode::Char('f') => Some(Event::MoveRight),
             KeyCode::Char('a') => Some(Event::MoveToStart),

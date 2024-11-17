@@ -9,7 +9,7 @@ use std::{
 #[derive(Debug, Clone, Copy)]
 pub struct View<'a, T> {
     contents: &'a [T],
-    _index: usize,
+    cursor: usize,
 }
 
 impl Display for View<'_, char> {
@@ -25,7 +25,7 @@ impl<'a, T> View<'a, T> {
     /// The `0`-indexed position of the cursor within the view, which is guaranteed to be a valid
     /// index for the slice returned by [`View::as_slice`].
     pub fn index(&self) -> usize {
-        self._index
+        self.cursor
     }
 
     /// Return the contents of the view.
@@ -120,7 +120,7 @@ impl Cursor {
         let view_right = min(view_left + left + self.width + right, buffer.len());
         View {
             contents: &buffer[view_left..view_right],
-            _index: self.index - view_left,
+            cursor: self.index - view_left,
         }
     }
 

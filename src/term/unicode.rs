@@ -1,4 +1,7 @@
 //! Utilities for handling unicode display in the terminal.
+
+#![allow(clippy::cast_possible_truncation)]
+
 use std::ops::Range;
 
 use memchr::memchr_iter;
@@ -26,21 +29,19 @@ pub struct Span {
 /// non-empty string slices such as `\u{200b}`.
 #[inline]
 pub fn truncate(input: &str, capacity: u16) -> Result<u16, (&str, usize)> {
-    match (capacity as usize).checked_sub(input.width()) {
-        // cast is valid since capacity was originally `u16`
-        Some(remaining) => Ok(remaining as u16),
-        None => {
-            let mut current_length = 0;
-            for (offset, grapheme) in input.grapheme_indices(true) {
-                let next_length = current_length + grapheme.width();
-                if next_length > capacity as usize {
-                    return Err((&input[..offset], capacity as usize - current_length));
-                }
-                current_length = next_length;
+    if let Some(remaining) = (capacity as usize).checked_sub(input.width()) {
+        Ok(remaining as u16)
+    } else {
+        let mut current_length = 0;
+        for (offset, grapheme) in input.grapheme_indices(true) {
+            let next_length = current_length + grapheme.width();
+            if next_length > capacity as usize {
+                return Err((&input[..offset], capacity as usize - current_length));
             }
-
-            Ok(capacity - current_length as u16)
+            current_length = next_length;
         }
+
+        Ok(capacity - current_length as u16)
     }
 }
 
