@@ -4,6 +4,7 @@
 > [!CAUTION]
 > This the README for the forthcoming `v0.6.0` release, which includes a number of breaking changes to the API.
 > These changes are required for more robust internal implementation and to resolve some outstanding issues.
+> See the [Changelog](Changelog.md) for more details on these changes.
 > You can opt-in to bleeding edge changes by including the following line in the `[dependencies]` section of your `Cargo.toml`:
 > ```
 > nucleo-picker = { git = "https://github.com/autobib/nucleo-picker", branch = "master" }
@@ -12,23 +13,21 @@
 
 # nucleo-picker
 Yet another fuzzy picker library.
-This library provides a TUI for the [`nucleo`](https://docs.rs/nucleo/latest/nucleo/) crate, but otherwise attempts to be a relatively thin wrapper.
-
+This library provides a TUI for the [`nucleo`](https://docs.rs/nucleo/latest/nucleo/) crate.
 The picker interface is similar to the very popular [fzf](https://github.com/junegunn/fzf) command-line tool, but rather than act as a standalone binary, this provides a [Rust](https://www.rust-lang.org/) library which allows you to incorporate a picker interface into your own application.
 
 See the [`examples`](/examples) directory for implementation examples, or try out the sample `find/fzf` implementation by cloning the repository and running `cargo run --release --example find ~`.
 
 ## Features
-These are some key features as to why you might want to use this crate over other alternatives.
 - Highly optimized matching, courtesy of [`nucleo`](https://docs.rs/nucleo/latest/nucleo/).
-- Robust Unicode handling using [Unicode text segmentation](https://crates.io/crates/unicode-segmentation) and [Unicode width](https://crates.io/crates/unicode-width).
-- Convenient API:
-  - Non-blocking to match live on an item stream.
-  - Generic `Picker` for any type `T` which is `Send + Sync + 'static`.
-  - Stateful rendering of crate-local and foreign types with the `Render` trait.
-- Flexible screen rendering:
-  - Match highlighting with automatic scroll-through for highlighted matches.
+- Robust rendering:
+  - Match highlighting with automatic scroll-through.
+  - Careful Unicode handling using [Unicode text segmentation](https://crates.io/crates/unicode-segmentation) and [Unicode width](https://crates.io/crates/unicode-width).
   - Correctly handle multi-line or overflowed items.
+- Convenient API:
+  - Non-blocking to match on streaming input.
+  - Generic `Picker` for any type `T` which is `Send + Sync + 'static`.
+  - Customizable rendering of crate-local and foreign types with the `Render` trait.
 
 ## Query syntax
 The query syntax is as documented in the [nucleo-matcher](https://docs.rs/nucleo-matcher/latest/nucleo_matcher/pattern/enum.AtomKind.html) crate.
@@ -48,10 +47,10 @@ For example, the query `foo ^bar` means that we match for strings which contain 
 
 ## Related crates
 This crate mainly exists as a result of the author's annoyance with pretty much every fuzzy picker TUI in the rust ecosystem.
-- [skim](https://docs.rs/skim/latest/skim/)'s `Arc<dyn SkimItem>` is very inconvenient since the original item cannot be recovered from the match.
-  `skim` also contains a large amount of dependency baggage.
+- [skim](https://docs.rs/skim/latest/skim/)'s `Arc<dyn SkimItem>` is inconvenient since the original item cannot be canonically recovered from the match (requires `Arc` down-casting).
+  `skim` also has a large number of dependencies and is designed more as a binary than a library.
 - [fuzzypicker](https://docs.rs/fuzzypicker/latest/fuzzypicker/) is based on `skim` and inherits `skim`'s problems.
-- [nucleo-ui](https://docs.rs/nucleo-ui/latest/nucleo_ui/) only has a blocking API and only supports matching on `String`.
+- [nucleo-ui](https://docs.rs/nucleo-ui/latest/nucleo_ui/) only has a blocking API and only supports matching on `String`. It also seems to be un-maintained.
 - [fuzzy-select](https://docs.rs/fuzzy-select/latest/fuzzy_select/) only has a blocking API.
 - [dialoguer `FuzzySelect`](https://docs.rs/dialoguer/latest/dialoguer/struct.FuzzySelect.html) only has a blocking API and only supports matching on `String`.
   The terminal handling also has a few strange bugs.
