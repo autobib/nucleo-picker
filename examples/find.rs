@@ -11,10 +11,10 @@ use nucleo_picker::{nucleo::Config, PickerOptions, Render};
 pub struct DirEntryRender;
 
 impl Render<DirEntry> for DirEntryRender {
-    type Column<'a> = Cow<'a, str>;
+    type Str<'a> = Cow<'a, str>;
 
     // Render a `DirEntry` using its internal path buffer.
-    fn as_column<'a>(&mut self, value: &'a DirEntry) -> Self::Column<'a> {
+    fn render<'a>(&self, value: &'a DirEntry) -> Self::Str<'a> {
         value.path().to_string_lossy()
     }
 }
@@ -34,7 +34,7 @@ fn main() -> io::Result<()> {
     };
 
     // populate from a separate thread to avoid locking the picker interface
-    let mut injector = picker.injector();
+    let injector = picker.injector();
     spawn(move || {
         for entry in Walk::new(root).filter_map(Result::ok) {
             injector.push(entry);

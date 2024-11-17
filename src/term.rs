@@ -131,9 +131,9 @@ impl Default for PickerConfig {
     }
 }
 
-/// A representation of the current state of the picker.
+/// The struct which draws the content to the screen.
 #[derive(Debug)]
-pub struct PickerState<'a> {
+pub struct Compositor<'a> {
     /// The dimensions of the application.
     dimensions: Dimensions,
     /// The selector index position, or [`None`] if there is nothing to select.
@@ -150,13 +150,15 @@ pub struct PickerState<'a> {
     needs_redraw: bool,
     /// Configuration for drawing the picker.
     config: &'a PickerConfig,
-    /// Buffers to reduce allocations
+    /// A reusable buffer for spans used to render items.
     spans: Vec<Span>,
+    /// A reusable buffer of sub-slices of `spans`.
     lines: Vec<Range<usize>>,
+    /// A resuable buffer for indices generated from a match.
     indices: Vec<u32>,
 }
 
-impl<'a> PickerState<'a> {
+impl<'a> Compositor<'a> {
     /// The initial picker state.
     pub fn new(screen: (u16, u16), config: &'a PickerConfig) -> Self {
         let dimensions = Dimensions::from_screen(screen.0, screen.1);
@@ -297,7 +299,7 @@ impl<'a> PickerState<'a> {
         &mut self,
         stderr: &mut StderrLock<'_>,
         matcher: &mut Matcher,
-        render: &mut R,
+        render: &R,
         snapshot: &nucleo::Snapshot<T>,
     ) -> Result<(), io::Error> {
         if self.needs_redraw {
@@ -342,7 +344,7 @@ impl<'a> PickerState<'a> {
                 }
 
                 // convert the indices into spans
-                let rendered = render.as_column(it.data);
+                let rendered = render.render(it.data);
                 let spanned = Spanned::new(
                     &self.indices,
                     rendered.as_ref(),

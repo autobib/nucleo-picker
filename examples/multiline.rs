@@ -4,10 +4,10 @@
 //! TUI.
 use std::io::Result;
 
-use nucleo_picker::{render::StrRender, Picker};
+use nucleo_picker::{render::StrRenderer, Picker};
 
 fn main() -> Result<()> {
-    let mut picker = Picker::new(StrRender);
+    let mut picker = Picker::new(StrRenderer);
 
     let choices = vec![
         "0",
@@ -44,7 +44,7 @@ fn main() -> Result<()> {
         repeat_choices.extend(choices.iter());
     }
 
-    let mut injector = picker.injector();
+    let injector = picker.injector();
     for opt in repeat_choices {
         injector.push(opt);
     }

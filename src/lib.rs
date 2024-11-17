@@ -41,45 +41,55 @@ use nucleo::{
 
 pub use nucleo;
 
-use crate::term::{EventSummary, PickerConfig, PickerState};
+use crate::term::{Compositor, EventSummary, PickerConfig};
 
-/// A trait which can render objects for matching and display.
+/// A trait which describes how to render objects for matching and display.
 ///
 /// Some renderers for common types are already implemented in the [`render`] module. In
-/// particular, if render performance is not a bottleneck, the
-/// [`DisplayRender`](render::DisplayRender) struct is particularly easy to use.
+/// many cases, the [`DisplayRenderer`](render::DisplayRenderer) is particularly easy to use.
+///
+/// ## Safety
+/// Rendering *must* be **idempotent**: for a given render implementation `R` and a item `T`, the call
+/// `R::render(&self, &T)` must depend only on the specific render instance and the specific item,
+/// and not any other mutable state. In particular, interior mutability, while in principle
+/// possible, is *highly discouraged*.
+///
+/// If idempotence is violated, internal index computations which depend on the rendered format
+/// will become invalid and the picker will panic. Regardless, implementing [`Render`] is safe
+/// since violation of idempotence will not result in undefined behaviour.
 ///
 /// ## Example
-/// Here is a basic example for how one would implement a renderer, even for a foreign type.
+/// Here is a basic example for how one would implement a renderer for a `DirEntry` from the
+/// [ignore](https://docs.rs/ignore/latest/ignore/) crate.
 /// ```
 /// use std::borrow::Cow;
 ///
 /// use nucleo_picker::Render;
 /// use ignore::DirEntry;
 ///
-/// #[derive(Clone)]
-/// pub struct DirEntryRender;
+/// pub struct DirEntryRenderer;
 ///
-/// impl Render<DirEntry> for DirEntryRender {
-///     type Column<'a> = Cow<'a, str>;
+/// impl Render<DirEntry> for DirEntryRenderer {
+///     type Str<'a> = Cow<'a, str>;
 ///
-///     fn as_column<'a>(&mut self, value: &'a DirEntry) -> Self::Column<'a> {
+///     fn render<'a>(&self, value: &'a DirEntry) -> Self::Str<'a> {
 ///         value.path().to_string_lossy()
 ///     }
 /// }
 /// ```
+///
 /// ## Performance considations
 /// Generally speaking, this crate assumes that the [`Render`] implementation is quite
 /// fast. For each value, the [`Render`] implementation is first called to generate the match
 /// objects, and then called again in order to render the interactive picker screen with the
 /// relevant matches.
 ///
-/// In particular, very slow [`Render`] implementations will reduce interactivitity of the terminal
+/// In particular, very slow [`Render`] implementations will reduce interactivity of the terminal
 /// interface. A crude rule of thumb is that rendering a single item should take (in the worst case)
-/// at most 100μs. For comparison, formatting an `f64` into pre-allocated buffer takes around 0.1μs.
+/// at most 100μs. For comparison, display formatting an `f64` takes less than 1μs.
 ///
 /// If this is not the case for your type, it is highly recommended to cache the render
-/// computation. One possibility is to do this directly inside your type:
+/// computation:
 /// ```
 /// # use nucleo_picker::Render;
 /// pub struct Item<D> {
@@ -87,51 +97,52 @@ use crate::term::{EventSummary, PickerConfig, PickerState};
 ///     column: String,
 /// }
 ///
-/// #[derive(Clone, Copy)]
-/// pub struct ItemRender;
+/// pub struct ItemRenderer;
 ///
-/// impl<D> Render<Item<D>> for ItemRender {
-/// type Column<'a>
+/// impl<D> Render<Item<D>> for ItemRenderer {
+/// type Str<'a>
 ///     = &'a str
 /// where
 ///     D: 'a;
 ///
-///     fn as_column<'a>(&'a mut self, item: &'a Item<D>) -> Self::Column<'a> {
+///     fn render<'a>(&self, item: &'a Item<D>) -> Self::Str<'a> {
 ///         &item.column
 ///     }
 /// }
 /// ```
-/// Note that the rendered column can borrow from `&self`. This means, for instance, that you can
-/// write the representation of your type to an internal buffer and return a slice of that buffer.
-///
-/// ## Cloning
-/// The [`Clone`] implementation is called each time the [`Picker::injector`] method is called.
-/// As a result, if you expect to use many injectors, but do not expect to mutate your internal
-/// state, you should internally use [`Arc`] for types for which [`Clone`] is very expensive.
-///
-pub trait Render<T>: Clone {
-    /// The string type that `T` is rendered as.
-    type Column<'a>: AsRef<str>
+pub trait Render<T> {
+    /// The string type that `T` is rendered as, most commonly a [`&'a str`](str), a
+    /// [`Cow<'a, str>`](std::borrow::Cow), or a [`String`].
+    type Str<'a>: AsRef<str>
     where
-        T: 'a,
-        Self: 'a;
+        T: 'a;
 
     /// Render the given value as a column in the picker.
-    fn as_column<'a>(&'a mut self, value: &'a T) -> Self::Column<'a>;
+    fn render<'a>(&self, value: &'a T) -> Self::Str<'a>;
 }
 
 /// A handle which allows adding new items to a [`Picker`].
-#[derive(Clone)]
+///
+/// This struct is cheaply clonable and can be sent across threads.
 pub struct Injector<T, R> {
     inner: nc::Injector<T>,
-    render: R,
+    render: Arc<R>,
+}
+
+impl<T, R> Clone for Injector<T, R> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            render: self.render.clone(),
+        }
+    }
 }
 
 impl<T, R: Render<T>> Injector<T, R> {
     /// Send a value to the matcher engine.
-    pub fn push(&mut self, value: T) {
+    pub fn push(&self, value: T) {
         self.inner.push(value, |s, columns| {
-            columns[0] = self.render.as_column(s).as_ref().into();
+            columns[0] = self.render.render(s).as_ref().into();
         });
     }
 }
@@ -228,7 +239,7 @@ impl PickerOptions {
 
         Picker {
             matcher,
-            render,
+            render: render.into(),
             picker_config: self._picker_config,
             config: self._config,
             query: self._query,
@@ -238,7 +249,7 @@ impl PickerOptions {
 
 /// A fuzzy matching interactive item picker.
 ///
-/// The parameter `T` is the item type and the parameter `R` is the renderer, which describes how
+/// The parameter `T` is the item type and the parameter `R` is the [renderer](Render), which describes how
 /// to represent `T` in the matcher.
 ///
 /// Initialize a picker with [`Picker::new`], or with custom configuration using
@@ -249,7 +260,7 @@ impl PickerOptions {
 /// [usage examples](https://github.com/autobib/nucleo-picker/tree/master/examples).
 pub struct Picker<T: Send + Sync + 'static, R> {
     matcher: Nucleo<T>,
-    render: R,
+    render: Arc<R>,
     picker_config: PickerConfig,
     config: nc::Config,
     query: Option<String>,
@@ -291,9 +302,9 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// renderer.
     ///
     /// See [`Picker::restart`] and [`Nucleo::restart`] for more detail.
-    pub fn reset_render(&mut self, render: R) {
+    pub fn reset_renderer(&mut self, render: R) {
         self.restart();
-        self.render = render;
+        self.render = render.into();
     }
 
     /// Get a [`Injector`] wrapping a [`nucleo::Injector`] with a rendering implementation.
@@ -313,8 +324,8 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
 
     /// A convenience method to obtain the rendered version of a value as it would appear in the
     /// picker.
-    pub fn render<'a>(&'a mut self, value: &'a T) -> <R as Render<T>>::Column<'a> {
-        self.render.as_column(value)
+    pub fn render<'a>(&self, value: &'a T) -> <R as Render<T>>::Str<'a> {
+        self.render.render(value)
     }
 
     /// Open the interactive picker prompt and return the picked item, if any.
@@ -343,7 +354,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// The actual picker implementation.
     fn pick_inner(&mut self, interval: Duration) -> Result<Option<&T>, io::Error> {
         let mut stderr = io::stderr().lock();
-        let mut term = PickerState::new(size()?, &self.picker_config);
+        let mut term = Compositor::new(size()?, &self.picker_config);
         let mut matcher = nucleo::Matcher::new(self.config.clone());
         if let Some(query) = self.query.as_ref() {
             term.set_prompt(query);
@@ -391,7 +402,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
             term.draw(
                 &mut stderr,
                 &mut matcher,
-                &mut self.render,
+                self.render.as_ref(),
                 self.matcher.snapshot(),
             )?;
 
