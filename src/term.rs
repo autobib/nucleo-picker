@@ -237,7 +237,7 @@ impl<'a> Compositor<'a> {
         self.needs_redraw |= self.prompt.edit(st);
     }
 
-    /// Set the prompt to a given string, moving the cursor to the beginning.
+    /// Set the prompt to a given string, moving the cursor to the end.
     pub fn set_prompt(&mut self, prompt: &str) {
         self.prompt.set_prompt(prompt);
         self.needs_redraw = true;
@@ -272,9 +272,11 @@ impl<'a> Compositor<'a> {
                     Event::MoveLeft => self.edit_prompt(Edit::Left),
                     Event::MoveRight => self.edit_prompt(Edit::Right),
                     Event::Delete => {
-                        update_prompt = true;
-                        append = false;
-                        self.edit_prompt(Edit::Delete);
+                        if !self.prompt.is_empty() {
+                            update_prompt = true;
+                            append = false;
+                            self.edit_prompt(Edit::Delete);
+                        }
                     }
                     Event::Quit => return Ok(EventSummary::Quit),
                     Event::Resize(width, height) => {
