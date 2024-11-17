@@ -32,9 +32,9 @@ enum Jump {
     ToEnd,
 }
 
-/// # An editable string type with a cursor and scrolling window.
-/// This is an editable string type with a cursor indicating the current edit position, and various
-/// supported actions.
+/// An editable string type with a cursor and scrolling window.
+///
+/// The cursor indicates the current edit position and supported actions.
 #[derive(Debug)]
 #[allow(clippy::module_name_repetitions)]
 pub struct EditableString {
@@ -85,9 +85,22 @@ impl EditableString {
         self.cursor.set_width(width);
     }
 
-    /// Is the cursor at the end of the string?
-    pub fn cursor_at_end(&self) -> bool {
-        self.cursor.idx() == self.contents.len()
+    /// Check if there is no trailing escape `\`.
+    fn no_trailing_escape(&self) -> bool {
+        (self
+            .contents
+            .iter()
+            .rev()
+            .take_while(|ch| **ch == '\\')
+            .count()
+            % 2)
+            == 0
+    }
+
+    /// Are we in an "appending" state? This is the case if the cursor is at the end of the string
+    /// and the previous character isn't an escaped `\`.
+    pub fn is_appending(&self) -> bool {
+        self.cursor.idx() == self.contents.len() && self.no_trailing_escape()
     }
 
     /// Change the cursor position to the provided index; return true if the cursor moved, else
@@ -131,7 +144,7 @@ impl EditableString {
                     false
                 } else {
                     // we are appending, so we can avoid some writes.
-                    if self.cursor_at_end() {
+                    if self.is_appending() {
                         self.contents.extend(s.chars());
                         self.jump(Jump::ToEnd);
                     } else {

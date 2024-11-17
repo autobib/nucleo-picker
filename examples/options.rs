@@ -1,6 +1,6 @@
 //! # Demonstration of configuration options
 //!
-//! This blocking example demonstrates some of the configuration examples available to the picker.
+//! This blocking example demonstrates some of the configuration options available to the picker.
 use std::io::Result;
 
 use nucleo_picker::{nucleo::Config, render::StrRenderer, PickerOptions};
