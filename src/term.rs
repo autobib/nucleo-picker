@@ -263,8 +263,7 @@ impl<'a> Compositor<'a> {
                     Event::MoveToEnd => self.edit_prompt(Edit::ToEnd),
                     Event::Insert(ch) => {
                         update_prompt = true;
-                        // if the cursor is at the end, it means the character was appended
-                        append &= self.prompt.cursor_at_end();
+                        append &= self.prompt.is_appending();
                         self.edit_prompt(Edit::Insert(ch));
                     }
                     Event::Select => return Ok(EventSummary::Select),
@@ -283,7 +282,7 @@ impl<'a> Compositor<'a> {
                     }
                     Event::Paste(contents) => {
                         update_prompt = true;
-                        append &= self.prompt.cursor_at_end();
+                        append &= self.prompt.is_appending();
                         self.edit_prompt(Edit::Paste(contents));
                     }
                 }

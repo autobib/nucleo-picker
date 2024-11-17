@@ -3,15 +3,15 @@ This directory contains a variety of examples of how to use the [nucleo-picker](
 
 In order to try out the examples, run
 ```
-cargo run --release --example <example_name>
+cargo run --release --example <name>
 ```
-where `example_name` is the part of the path without the suffix.
+where `<name>` is the part of the path without the `.rs` suffix.
 
 Some of the examples may require arguments to run properly; see the individual files for more information.
 
 ## Directory
 
-Path                         | Description
+File                         | Description
 -----------------------------|------------
 [blocking.rs](blocking.rs)   | A basic blocking example with a very small number of matches.
 [find.rs](find.rs)           | A basic [find](https://en.wikipedia.org/wiki/Find_(Unix)) implementation with fuzzy matching on resulting items.
