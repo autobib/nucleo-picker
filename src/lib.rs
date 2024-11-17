@@ -14,7 +14,6 @@
 //! ```
 mod bind;
 mod component;
-pub mod fill;
 pub mod render;
 mod term;
 
@@ -320,13 +319,13 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
 
     /// Open the interactive picker prompt and return the picked item, if any.
     ///
-    /// # Custom [`io::Error`]
+    /// ## Custom [`io::Error`]
     /// This fails with an [`io::ErrorKind::Other`] if:
     ///
     /// 1. stderr is not interactive, in which the message will be `"is not interactive"`
-    /// 2. if the user presses `CTRL-C`, in which case the message will be `"keyboard interrupt"`
+    /// 2. the user presses `CTRL-C`, in which case the message will be `"keyboard interrupt"`
     ///
-    /// # Rendering details
+    /// ## Stderr lock
     /// The picker prompt is rendered in an alternate screen using the `stderr` file handle. In
     /// order to prevent screen corruption, a lock is acquired to `stderr`; see
     /// [`StderrLock`](std::io::StderrLock) for more detail.
