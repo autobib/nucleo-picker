@@ -3,11 +3,11 @@
 //! This is almost a minimal example, but not really a good example of what to do in practice unless
 //! the number of items is very small since we block the main thread to populate the matcher. See
 //! [`find`](/examples/find.rs) for a (somewhat) more realistic use-case.
-use std::io::Result;
+use std::io;
 
 use nucleo_picker::{render::StrRenderer, Picker};
 
-fn main() -> Result<()> {
+fn main() -> io::Result<()> {
     let mut picker = Picker::new(StrRenderer);
 
     let choices = vec![

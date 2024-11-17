@@ -28,6 +28,7 @@ mod term;
 
 use std::{
     io,
+    iter::Extend,
     num::NonZero,
     sync::Arc,
     thread::{available_parallelism, sleep},
@@ -272,6 +273,15 @@ pub struct Picker<T: Send + Sync + 'static, R> {
     picker_config: PickerConfig,
     config: nc::Config,
     query: Option<String>,
+}
+
+impl<T: Send + Sync + 'static, R: Render<T>> Extend<T> for Picker<T, R> {
+    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
+        let injector = self.injector();
+        for it in iter {
+            injector.push(it);
+        }
+    }
 }
 
 impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
