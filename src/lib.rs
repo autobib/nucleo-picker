@@ -159,25 +159,26 @@ impl<T, R: Render<T>> Injector<T, R> {
 
 /// Specify configuration options for a [`Picker`].
 pub struct PickerOptions {
-    _config: nc::Config,
-    _query: Option<String>,
-    _threads: Option<NonZero<usize>>,
-    _picker_config: PickerConfig,
+    config: nc::Config,
+    query: Option<String>,
+    threads: Option<NonZero<usize>>,
+    picker_config: PickerConfig,
 }
 
 impl Default for PickerOptions {
     fn default() -> Self {
         Self {
-            _config: nc::Config::DEFAULT,
-            _query: None,
-            _threads: None,
-            _picker_config: PickerConfig::default(),
+            config: nc::Config::DEFAULT,
+            query: None,
+            threads: None,
+            picker_config: PickerConfig::default(),
         }
     }
 }
 
 impl PickerOptions {
     /// Initialize with default configuration.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -186,54 +187,63 @@ impl PickerOptions {
     ///
     /// If `None`, this will default to the number of available processors on your device
     /// minus 2, with a lower bound of 1.
+    #[must_use]
     pub fn threads(mut self, threads: Option<NonZero<usize>>) -> Self {
-        self._threads = threads;
+        self.threads = threads;
         self
     }
 
     /// Set the internal matcher configuration.
+    #[must_use]
     pub fn config(mut self, config: nc::Config) -> Self {
-        self._config = config;
+        self.config = config;
         self
     }
 
     /// Whether or not to highlight matches.
+    #[must_use]
     pub fn highlight(mut self, highlight: bool) -> Self {
-        self._picker_config.highlight = highlight;
+        self.picker_config.highlight = highlight;
         self
     }
 
     /// How much space to leave after rendering the rightmost highlight.
+    #[must_use]
     pub fn right_highlight_buffer(mut self, size: u16) -> Self {
-        self._picker_config.right_highlight_buffer = size;
+        self.picker_config.right_highlight_buffer = size;
         self
     }
 
     /// How to treat case mismatch.
+    #[must_use]
     pub fn case_matching(mut self, case_matching: CaseMatching) -> Self {
-        self._picker_config.case_matching = case_matching;
+        self.picker_config.case_matching = case_matching;
         self
     }
 
     /// How to perform Unicode normalization.
+    #[must_use]
     pub fn normalization(mut self, normalization: Normalization) -> Self {
-        self._picker_config.normalization = normalization;
+        self.picker_config.normalization = normalization;
         self
     }
 
     /// Provide a default query string.
+    #[must_use]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn query<Q: ToString>(mut self, query: Q) -> Self {
-        self._query = Some(query.to_string());
+        self.query = Some(query.to_string());
         self
     }
 
     /// Convert into a [`Picker`].
+    #[must_use]
     pub fn picker<T: Send + Sync + 'static, R>(self, render: R) -> Picker<T, R> {
         let matcher = Nucleo::new(
-            self._config.clone(),
+            self.config.clone(),
             Arc::new(|| {}),
             // nucleo's API is a bit weird here in that it does not accept `NonZero<usize>`
-            self._threads
+            self.threads
                 .or_else(|| {
                     // Reserve two threads:
                     // 1. for populating the macher
@@ -249,9 +259,9 @@ impl PickerOptions {
         Picker {
             matcher,
             render: render.into(),
-            picker_config: self._picker_config,
-            config: self._config,
-            query: self._query,
+            picker_config: self.picker_config,
+            config: self.config,
+            query: self.query,
         }
     }
 }
@@ -286,6 +296,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Extend<T> for Picker<T, R> {
 
 impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// Initialize a new picker with default configuration and the provided renderer.
+    #[must_use]
     pub fn new(render: R) -> Self {
         PickerOptions::default().picker(render)
     }
@@ -326,6 +337,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     }
 
     /// Get an [`Injector`] to send items to the picker.
+    #[must_use]
     pub fn injector(&self) -> Injector<T, R> {
         Injector {
             inner: self.matcher.injector(),
@@ -341,7 +353,9 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
 
     /// Open the interactive picker prompt and return the picked item, if any.
     ///
-    /// ## Custom [`io::Error`]
+    /// # Errors
+    /// Underlying IO errors from the standard library or [`crossterm`] will be propogated.
+    ///
     /// This fails with an [`io::ErrorKind::Other`] if:
     ///
     /// 1. stderr is not interactive, in which the message will be `"is not interactive"`
@@ -393,7 +407,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                     EventSummary::Select => {
                         break Ok(term
                             .selection()
-                            .and_then(|idx| self.matcher.snapshot().get_matched_item(idx as _))
+                            .and_then(|idx| self.matcher.snapshot().get_matched_item(idx.into()))
                             .map(|it| it.data));
                     }
                     EventSummary::Quit => {

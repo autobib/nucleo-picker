@@ -1,6 +1,9 @@
 //! # Terminal renderer
 //! This module contains the main representation of the internal state of the picker, as well as
 //! the code for rendering the picker to a terminal screen.
+
+#![allow(clippy::cast_possible_truncation)]
+
 mod span;
 mod unicode;
 

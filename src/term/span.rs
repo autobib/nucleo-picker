@@ -200,7 +200,7 @@ impl<'a> Spanned<'a> {
             // If the input is ASCII, this check is optimal.
             for line in self.lines() {
                 Self::start_line(stderr, selected)?;
-                for span in line.iter() {
+                for span in line {
                     Self::print_span(stderr, self.index_in(span), span.is_match)?;
                 }
                 Self::finish_line(stderr)?;

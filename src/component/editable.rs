@@ -36,13 +36,14 @@ enum Jump {
 /// This is an editable string type with a cursor indicating the current edit position, and various
 /// supported actions.
 #[derive(Debug)]
+#[allow(clippy::module_name_repetitions)]
 pub struct EditableString {
     /// The contents of the editable string.
     contents: Vec<char>,
     /// The position within the string.
     cursor: Cursor,
     /// Scratch space for operations such as non-append paste.
-    _scratch: Vec<char>,
+    scratch: Vec<char>,
 }
 
 impl EditableString {
@@ -75,7 +76,7 @@ impl EditableString {
         Self {
             contents: Vec::default(),
             cursor: Cursor::new(width),
-            _scratch: Vec::new(),
+            scratch: Vec::new(),
         }
     }
 
@@ -91,7 +92,7 @@ impl EditableString {
 
     /// Change the cursor position to the provided index; return true if the cursor moved, else
     /// false.
-    #[inline(always)]
+    #[inline]
     fn shift_to(&mut self, pos: usize) -> bool {
         if pos <= self.contents.len() && self.cursor.idx() != pos {
             self.cursor.set_index(pos);
@@ -102,7 +103,8 @@ impl EditableString {
     }
 
     /// Move the cursor by the provided [`Jump`].
-    #[inline(always)]
+    #[inline]
+    #[allow(clippy::needless_pass_by_value)]
     fn jump(&mut self, jm: Jump) -> bool {
         match jm {
             Jump::Left(dist) => self.shift_to(self.cursor.idx().saturating_sub(dist)),
@@ -125,15 +127,17 @@ impl EditableString {
                 self.jump(Jump::Right(1))
             }
             Edit::Paste(s) => {
-                if !s.is_empty() {
+                if s.is_empty() {
+                    false
+                } else {
                     // we are appending, so we can avoid some writes.
                     if self.cursor_at_end() {
                         self.contents.extend(s.chars());
                         self.jump(Jump::ToEnd);
                     } else {
                         // move tail to scratch space
-                        self._scratch.clear();
-                        self._scratch
+                        self.scratch.clear();
+                        self.scratch
                             .extend(self.contents.drain(self.cursor.idx()..));
 
                         // increment cursor and append the extension
@@ -141,11 +145,9 @@ impl EditableString {
                         self.jump(Jump::Right(s.len()));
 
                         // re-append the tail
-                        self.contents.append(&mut self._scratch);
+                        self.contents.append(&mut self.scratch);
                     }
                     true
-                } else {
-                    false
                 }
             }
             Edit::Delete => {
