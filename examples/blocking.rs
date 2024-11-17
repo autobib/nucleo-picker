@@ -5,10 +5,10 @@
 //! [`find`](/examples/find.rs) for a (somewhat) more realistic use-case.
 use std::io::Result;
 
-use nucleo_picker::{render::StrRender, Picker};
+use nucleo_picker::{render::StrRenderer, Picker};
 
 fn main() -> Result<()> {
-    let mut picker = Picker::new(StrRender);
+    let mut picker = Picker::new(StrRenderer);
 
     let choices = vec![
         "Rembrandt",
@@ -22,7 +22,7 @@ fn main() -> Result<()> {
     ];
 
     // populate the matcher
-    let mut injector = picker.injector();
+    let injector = picker.injector();
     for opt in choices {
         // Use `RenderStr` renderer to generate the match contents, since the choices are already
         // string types.

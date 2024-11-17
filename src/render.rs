@@ -9,47 +9,44 @@ use std::{borrow::Cow, path::Path};
 use super::Render;
 
 /// A renderer for any type which de-references as [`str`], such as a [`String`].
-#[derive(Copy, Clone)]
-pub struct StrRender;
+pub struct StrRenderer;
 
-impl<T: AsRef<str>> Render<T> for StrRender {
-    type Column<'a>
+impl<T: AsRef<str>> Render<T> for StrRenderer {
+    type Str<'a>
         = &'a str
     where
         T: 'a;
 
-    fn as_column<'a>(&'a mut self, value: &'a T) -> Self::Column<'a> {
+    fn render<'a>(&self, value: &'a T) -> Self::Str<'a> {
         value.as_ref()
     }
 }
 
 /// A renderer for any type which de-references as [`Path`], such as a
 /// [`PathBuf`](std::path::PathBuf).
-#[derive(Copy, Clone)]
-pub struct PathRender;
+pub struct PathRenderer;
 
-impl<T: AsRef<Path>> Render<T> for PathRender {
-    type Column<'a>
+impl<T: AsRef<Path>> Render<T> for PathRenderer {
+    type Str<'a>
         = Cow<'a, str>
     where
         T: 'a;
 
-    fn as_column<'a>(&'a mut self, value: &'a T) -> Self::Column<'a> {
+    fn render<'a>(&self, value: &'a T) -> Self::Str<'a> {
         value.as_ref().to_string_lossy()
     }
 }
 
 /// A renderer which uses a type's [`Display`](std::fmt::Display) implementation.
-#[derive(Copy, Clone)]
-pub struct DisplayRender;
+pub struct DisplayRenderer;
 
-impl<T: ToString> Render<T> for DisplayRender {
-    type Column<'a>
+impl<T: ToString> Render<T> for DisplayRenderer {
+    type Str<'a>
         = String
     where
         T: 'a;
 
-    fn as_column<'a>(&'a mut self, value: &'a T) -> Self::Column<'a> {
+    fn render<'a>(&self, value: &'a T) -> Self::Str<'a> {
         value.to_string()
     }
 }

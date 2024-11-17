@@ -16,8 +16,6 @@ memchr = "2.7"
 
 [dev-dependencies]
 ignore = "0.4"
-ryu = "1.0"
-rand = "0.8"
 
 [lints.clippy]
 redundant_closure_for_method_calls = "warn"
@@ -33,9 +31,6 @@ name = "blocking"
 
 [[example]]
 name = "multiline"
-
-[[example]]
-name = "float"
 
 [[example]]
 name = "options"
