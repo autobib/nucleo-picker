@@ -33,4 +33,7 @@ name = "blocking"
 name = "multiline"
 
 [[example]]
+name = "fzf"
+
+[[example]]
 name = "options"
