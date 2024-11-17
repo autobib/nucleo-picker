@@ -103,6 +103,11 @@ impl EditableString {
         self.cursor.idx() == self.contents.len() && self.no_trailing_escape()
     }
 
+    /// Whether or not the query string is empty.
+    pub fn is_empty(&self) -> bool {
+        self.contents.is_empty()
+    }
+
     /// Change the cursor position to the provided index; return true if the cursor moved, else
     /// false.
     #[inline]
