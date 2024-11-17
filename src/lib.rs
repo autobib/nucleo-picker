@@ -6,9 +6,18 @@
 //! In short, initialize a [`Picker`] using [`PickerOptions`] and describe how the items
 //! should be represented by implementing [`Render`], or using a [built-in renderer](render).
 //!
-//! ## Example
+//! ## Usage examples
 //! For more usage examples, visit the [examples
 //! folder](https://github.com/autobib/nucleo-picker/tree/master/examples) on GitHub.
+//!
+//! ### `fzf` example
+//! Run this example with `cat myfile.txt | cargo run --release --example fzf`.
+//! ```no_run
+#![doc = include_str!("../examples/fzf.rs")]
+//! ```
+//!
+//! ### `find` example
+//! Run this example with `cargo run --release --example find ~`.
 //! ```no_run
 #![doc = include_str!("../examples/find.rs")]
 //! ```
@@ -147,8 +156,7 @@ impl<T, R: Render<T>> Injector<T, R> {
     }
 }
 
-/// # A builder for the picker
-/// Specify configuration options for a [`Picker`] before initialization.
+/// Specify configuration options for a [`Picker`].
 pub struct PickerOptions {
     _config: nc::Config,
     _query: Option<String>,
@@ -307,14 +315,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         self.render = render.into();
     }
 
-    /// Get a [`Injector`] wrapping a [`nucleo::Injector`] with a rendering implementation.
-    ///
-    /// # Performance considerations
-    /// This clones the internal [`Render`] object. In most cases, this is either cheap of free:
-    /// this is the case for all renderers implemented in the [`render`] module, which are
-    /// zero-sized types. However, if you have a custom [`Render`] implementation which is
-    /// expensive to clone, and you call the `injector` method a very large number of times, this
-    /// may cause performance degredation.
+    /// Get an [`Injector`] to send items to the picker.
     pub fn injector(&self) -> Injector<T, R> {
         Injector {
             inner: self.matcher.injector(),
