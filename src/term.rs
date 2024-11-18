@@ -4,6 +4,7 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
+mod item;
 mod span;
 mod unicode;
 
@@ -26,7 +27,11 @@ use nucleo::{
     Matcher,
 };
 
-use self::{span::Spanned, unicode::Span};
+use self::{
+    item::{new_rendered, Rendered},
+    span::Spanned,
+    unicode::{AsciiProcessor, Processor, Span, UnicodeProcessor},
+};
 use crate::{
     bind::{convert, Event},
     component::{Edit, EditableString},
@@ -297,6 +302,45 @@ impl<'a> Compositor<'a> {
         })
     }
 
+    #[inline]
+    fn draw_match<P: Processor>(
+        &mut self,
+        stderr: &mut StderrLock<'_>,
+        rendered: &str,
+        current_draw_count: &mut usize,
+        idx: usize,
+    ) -> Result<bool, io::Error> {
+        // convert the indices into spans
+        let spanned: Spanned<'_, P> =
+            Spanned::new(&self.indices, rendered, &mut self.spans, &mut self.lines);
+
+        // space needed to render the next entry
+        let required_headspace = spanned.count_lines();
+        *current_draw_count += required_headspace;
+
+        // not enough space: bail early
+        if *current_draw_count > self.dimensions.max_draw_count() as usize {
+            return Ok(true);
+        }
+        // since max_draw_count() returns a u16, if required_headspace
+        // does not fit, it would have already exited in the previous line
+        let required_headspace = required_headspace as u16;
+
+        // move the cursor up the appropriate amount and then print the selection to the
+        // terminal
+        stderr.queue(MoveToPreviousLine(required_headspace))?;
+        spanned.queue_print(
+            stderr,
+            self.selector_index.is_some_and(|i| i as usize == idx),
+            self.dimensions.max_draw_length(),
+            self.config.right_highlight_buffer,
+        )?;
+
+        // fix the cursor position
+        stderr.queue(MoveToPreviousLine(required_headspace))?;
+        Ok(false)
+    }
+
     /// Draw the terminal to the screen. This assumes that the draw count has been updated and the
     /// selector index has been properly clamped, or this method will panic!
     pub fn draw<T: Send + Sync + 'static, R: Render<T>>(
@@ -334,7 +378,7 @@ impl<'a> Compositor<'a> {
             let mut current_draw_count = 0;
 
             // draw the matches
-            'm: for (idx, it) in snapshot.matched_items(..).enumerate() {
+            for (idx, it) in snapshot.matched_items(..).enumerate() {
                 // generate the indices
                 if self.config.highlight {
                     self.indices.clear();
@@ -347,37 +391,28 @@ impl<'a> Compositor<'a> {
                     self.indices.dedup();
                 }
 
-                // convert the indices into spans
-                let rendered = render.render(it.data);
-                let spanned = Spanned::new(
-                    &self.indices,
-                    rendered.as_ref(),
-                    &mut self.spans,
-                    &mut self.lines,
-                );
-
-                // space needed to render the next entry
-                let required_headspace = spanned.count_lines();
-                current_draw_count += required_headspace;
-
-                if current_draw_count > self.dimensions.max_draw_count() as usize {
-                    break 'm;
+                match new_rendered(&it, render) {
+                    Rendered::Ascii(s) => {
+                        if self.draw_match::<AsciiProcessor>(
+                            stderr,
+                            s,
+                            &mut current_draw_count,
+                            idx,
+                        )? {
+                            break;
+                        }
+                    }
+                    Rendered::Unicode(r) => {
+                        if self.draw_match::<UnicodeProcessor>(
+                            stderr,
+                            r.as_ref(),
+                            &mut current_draw_count,
+                            idx,
+                        )? {
+                            break;
+                        }
+                    }
                 }
-                // since max_draw_count() returns a u16, if required_headspace
-                // does not fit, it would have already exited in the previous line
-                let required_headspace = required_headspace as u16;
-
-                // move the cursor up the appropriate amount and then print the selection to the
-                // terminal
-                stderr.queue(MoveToPreviousLine(required_headspace))?;
-                spanned.queue_print(
-                    stderr,
-                    self.selector_index.is_some_and(|i| i as usize == idx),
-                    self.dimensions.max_draw_length(),
-                    self.config.right_highlight_buffer,
-                )?;
-
-                stderr.queue(MoveToPreviousLine(required_headspace))?;
             }
 
             // clear above the current matches
