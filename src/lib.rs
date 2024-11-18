@@ -56,7 +56,15 @@ use crate::term::{Compositor, EventSummary, PickerConfig};
 /// A trait which describes how to render objects for matching and display.
 ///
 /// Some renderers for common types are already implemented in the [`render`] module. In
-/// many cases, the [`DisplayRenderer`](render::DisplayRenderer) is particularly easy to use.
+/// many cases, the [`DisplayRenderer`](render::DisplayRenderer) is particularly easy to use. On
+/// the other hand, if you are implementing [`Render`] yourself, read on!
+///
+/// Jump to:
+///
+/// - [Safety](#safety)
+/// - [Examples](#examples)
+/// - [Render considerations](#render-considerations)
+/// - [Performance considerations](#performance-considerations)
 ///
 /// ## Safety
 /// Rendering *must* be **idempotent**: for a given render implementation `R` and a item `T`, the call
@@ -66,9 +74,10 @@ use crate::term::{Compositor, EventSummary, PickerConfig};
 ///
 /// If idempotence is violated, internal index computations which depend on the rendered format
 /// will become invalid and the picker will panic. Regardless, implementing [`Render`] is safe
-/// since violation of idempotence will not result in undefined behaviour.
+/// since violation of idempotence will not result in undefined behaviour (though your application
+/// will probably crash).
 ///
-/// ## Example
+/// ## Examples
 /// Here is a basic example for how one would implement a renderer for a `DirEntry` from the
 /// [ignore](https://docs.rs/ignore/latest/ignore/) crate.
 /// ```
@@ -84,6 +93,65 @@ use crate::term::{Compositor, EventSummary, PickerConfig};
 ///
 ///     fn render<'a>(&self, value: &'a DirEntry) -> Self::Str<'a> {
 ///         value.path().to_string_lossy()
+///     }
+/// }
+/// ```
+/// Here is another example showing that a renderer can use internal (immutable) state to customize
+/// the rendered format.
+/// ```
+/// use nucleo_picker::Render;
+///
+/// pub struct PrefixRenderer {
+///     prefix: String,
+/// }
+///
+/// impl<T: AsRef<str>> Render<T> for PrefixRenderer {
+///     type Str<'a> = String
+///         where T: 'a;
+///
+///     fn render<'a>(&self, value: &'a T) -> Self::Str<'a> {
+///         let mut rendered = String::new();
+///         rendered.push_str(&self.prefix);
+///         rendered.push_str(value.as_ref());
+///         rendered
+///     }
+/// }
+/// ```
+///
+/// ## Render considerations
+/// The picker is capable of correctly displaying most Unicode data. Internally, Unicode width
+/// calculations are performed to keep track of the amount of space that it takes on the screen to
+/// display a given item.
+///
+/// The main exception is that tabs (`\t`) are not supported correctly: mainly, width calculations
+/// will most likely be incorrect since the offset from printing a `\t` depends on the position
+/// within the screen: in other words, a tab is more like a conditional cursor movement rather
+/// than a printed character.
+///
+/// It is best to avoid tabs in your rendered format, and if you do not have control over the
+/// incoming data and you suspect it will contain tabs, the most robust solution is likely to just
+/// replace tabs with spaces.
+/// ```
+/// # use nucleo_picker::Render;
+/// use std::borrow::Cow;
+///
+/// pub struct TabReplaceRenderer;
+///
+/// impl<T: AsRef<str>> Render<T> for TabReplaceRenderer {
+///     type Str<'a>
+///         = Cow<'a, str>
+///     where
+///         T: 'a;
+///
+///     fn render<'a>(&self, value: &'a T) -> Self::Str<'a> {
+///         let value_ref = value.as_ref();
+///
+///         if value_ref.contains('\t') {
+///             // replace tabs with two spaces
+///             Cow::Owned(value_ref.replace('\t', "  "))
+///         } else {
+///             Cow::Borrowed(value_ref)
+///         }
 ///     }
 /// }
 /// ```
@@ -105,19 +173,20 @@ use crate::term::{Compositor, EventSummary, PickerConfig};
 /// # use nucleo_picker::Render;
 /// pub struct Item<D> {
 ///     data: D,
-///     column: String,
+///     /// the pre-computed rendered version of `data`
+///     rendered: String,
 /// }
 ///
 /// pub struct ItemRenderer;
 ///
 /// impl<D> Render<Item<D>> for ItemRenderer {
-/// type Str<'a>
-///     = &'a str
-/// where
-///     D: 'a;
+///     type Str<'a>
+///         = &'a str
+///     where
+///         D: 'a;
 ///
 ///     fn render<'a>(&self, item: &'a Item<D>) -> Self::Str<'a> {
-///         &item.column
+///         &item.rendered
 ///     }
 /// }
 /// ```
@@ -128,7 +197,8 @@ pub trait Render<T> {
     where
         T: 'a;
 
-    /// Render the given value as a column in the picker.
+    /// Render the given value as a column in the picker. See the [trait-level docs](Render) for
+    /// more detail.
     fn render<'a>(&self, value: &'a T) -> Self::Str<'a>;
 }
 
