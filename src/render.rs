@@ -9,6 +9,14 @@ use std::{borrow::Cow, path::Path};
 use super::Render;
 
 /// A renderer for any type which de-references as [`str`], such as a [`String`].
+/// ```
+/// # use nucleo_picker::{render::StrRenderer, Render};
+/// let str_renderer = StrRenderer;
+///
+/// let st = "Hello!".to_owned();
+///
+/// assert_eq!(str_renderer.render(&st), "Hello!");
+/// ```
 pub struct StrRenderer;
 
 impl<T: AsRef<str>> Render<T> for StrRenderer {
@@ -24,6 +32,20 @@ impl<T: AsRef<str>> Render<T> for StrRenderer {
 
 /// A renderer for any type which de-references as [`Path`], such as a
 /// [`PathBuf`](std::path::PathBuf).
+/// ```
+/// # use nucleo_picker::{render::PathRenderer, Render};
+/// use std::path::PathBuf;
+/// let path_renderer = PathRenderer;
+///
+/// let mut path = PathBuf::new();
+///
+/// path.push("/");
+/// path.push("dev");
+/// path.push("null");
+///
+/// // Note: platform-dependent output
+/// assert_eq!(path_renderer.render(&path), "/dev/null");
+/// ```
 pub struct PathRenderer;
 
 impl<T: AsRef<Path>> Render<T> for PathRenderer {
@@ -38,6 +60,12 @@ impl<T: AsRef<Path>> Render<T> for PathRenderer {
 }
 
 /// A renderer which uses a type's [`Display`](std::fmt::Display) implementation.
+/// ```
+/// # use nucleo_picker::{render::DisplayRenderer, Render};
+/// let display_renderer = DisplayRenderer;
+///
+/// assert_eq!(display_renderer.render(&1.624f32), "1.624");
+/// ```
 pub struct DisplayRenderer;
 
 impl<T: ToString> Render<T> for DisplayRenderer {
