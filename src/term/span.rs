@@ -1,4 +1,4 @@
-use std::{cmp::max, io, io::StderrLock, iter::once, ops::Range, slice::Iter};
+use std::{cmp::max, io, io::StderrLock, iter::once, marker::PhantomData, ops::Range, slice::Iter};
 
 use crossterm::{
     cursor::{MoveToColumn, MoveToNextLine},
@@ -8,20 +8,19 @@ use crossterm::{
     terminal::{Clear, ClearType},
     QueueableCommand,
 };
-use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
 
-use super::unicode::{consume, spans_from_indices, truncate, Span};
+use super::unicode::{consume, spans_from_indices, truncate, Processor, Span};
 
 /// Represent additional data on top of a string slice.
 ///
 /// The `spans` are guaranteed to not contain newlines. In order to determine which spans belong to
 /// which line, `lines` consists of contiguous sub-slices of `spans`.
 #[derive(Debug)]
-pub struct Spanned<'a> {
+pub struct Spanned<'a, P> {
     rendered: &'a str,
     spans: &'a Vec<Span>,
     lines: &'a Vec<Range<usize>>,
+    _marker: PhantomData<P>,
 }
 
 pub struct SpannedLines<'a> {
@@ -41,7 +40,7 @@ impl<'a> Iterator for SpannedLines<'a> {
     }
 }
 
-impl<'a> Spanned<'a> {
+impl<'a, P: Processor> Spanned<'a, P> {
     #[inline]
     pub fn new(
         indices: &[u32],
@@ -49,11 +48,12 @@ impl<'a> Spanned<'a> {
         spans: &'a mut Vec<Span>,
         lines: &'a mut Vec<Range<usize>>,
     ) -> Self {
-        spans_from_indices(indices, rendered, spans, lines);
+        spans_from_indices::<P>(indices, rendered, spans, lines);
         Self {
             rendered,
             spans,
             lines,
+            _marker: PhantomData,
         }
     }
 
@@ -84,7 +84,7 @@ impl<'a> Spanned<'a> {
                 required_width = max(
                     required_width,
                     // spans[0] must exist since `find` returned something
-                    self.rendered[line[0].range.start..span.range.end].width(),
+                    P::width(&self.rendered[line[0].range.start..span.range.end]),
                 );
             }
         }
@@ -111,7 +111,7 @@ impl<'a> Spanned<'a> {
                     // find the 'leftmost' highlighted span.
                     if let Some(span) = line.iter().find(|span| span.is_match) {
                         let no_highlight_width =
-                            self.rendered[line[0].range.start..span.range.start].width();
+                            P::width(&self.rendered[line[0].range.start..span.range.start]);
                         if no_highlight_width <= offset {
                             offset = no_highlight_width;
                             is_sharp = true;
@@ -246,7 +246,7 @@ impl<'a> Spanned<'a> {
         // the offset is bounded above by the width of the first span, this is guaranteed to occur
         // within the first span
         let first_span = &line[0];
-        let (init, alignment) = consume(self.index_in(first_span), offset);
+        let (init, alignment) = consume::<P>(self.index_in(first_span), offset);
         let new_first_span = Span {
             range: first_span.range.start + init..first_span.range.end,
             is_match: first_span.is_match,
@@ -266,7 +266,7 @@ impl<'a> Spanned<'a> {
         // print as many spans as possible
         for span in once(&new_first_span).chain(line[1..].iter()) {
             let substr = self.index_in(span);
-            match truncate(substr, remaining_capacity) {
+            match truncate::<P>(substr, remaining_capacity) {
                 Ok(new) => {
                     remaining_capacity = new;
                     Self::print_span(stderr, substr, span.is_match)?;
@@ -280,11 +280,9 @@ impl<'a> Spanned<'a> {
                         }
                     } else {
                         // overwrite the previous grapheme
-                        let undo_width = self.rendered[..span.range.start + prefix.len()]
-                            .graphemes(true)
-                            .next_back()
-                            .unwrap()
-                            .width();
+                        let undo_width = P::last_grapheme_width(
+                            &self.rendered[..span.range.start + prefix.len()],
+                        );
 
                         stderr.queue(MoveToColumn(2 + capacity - undo_width as u16))?;
                         for _ in 0..undo_width {
@@ -317,7 +315,7 @@ impl<'a> Spanned<'a> {
     }
 
     #[inline]
-    pub fn lines(&self) -> SpannedLines<'_> {
+    fn lines(&self) -> SpannedLines<'_> {
         SpannedLines {
             iter: self.lines.iter(),
             spans: self.spans,
@@ -329,13 +327,25 @@ impl<'a> Spanned<'a> {
 mod tests {
     use super::*;
 
+    use crate::term::unicode::{is_ascii_safe, is_unicode_safe, AsciiProcessor, UnicodeProcessor};
+
     #[test]
     fn test_required_width() {
         fn assert_correct_width(indices: Vec<u32>, rendered: &str, expected_width: usize) {
             let mut spans = Vec::new();
             let mut lines = Vec::new();
-            let spanned = Spanned::new(&indices, rendered, &mut spans, &mut lines);
-            assert_eq!(spanned.required_width(), expected_width);
+            let spanned: Spanned<'_, UnicodeProcessor> =
+                Spanned::new(&indices, rendered, &mut spans, &mut lines);
+
+            if is_unicode_safe(rendered) {
+                assert_eq!(spanned.required_width(), expected_width);
+            }
+
+            if is_ascii_safe(rendered) {
+                let spanned: Spanned<'_, AsciiProcessor> =
+                    Spanned::new(&indices, rendered, &mut spans, &mut lines);
+                assert_eq!(spanned.required_width(), expected_width);
+            }
         }
 
         assert_correct_width(vec![], "a", 0);
@@ -360,8 +370,18 @@ mod tests {
         ) {
             let mut spans = Vec::new();
             let mut lines = Vec::new();
-            let spanned = Spanned::new(&indices, rendered, &mut spans, &mut lines);
-            assert_eq!(spanned.required_offset(max_width, 0), expected_offset);
+
+            if is_unicode_safe(rendered) {
+                let spanned: Spanned<'_, UnicodeProcessor> =
+                    Spanned::new(&indices, rendered, &mut spans, &mut lines);
+                assert_eq!(spanned.required_offset(max_width, 0), expected_offset);
+            }
+
+            if is_ascii_safe(rendered) {
+                let spanned: Spanned<'_, AsciiProcessor> =
+                    Spanned::new(&indices, rendered, &mut spans, &mut lines);
+                assert_eq!(spanned.required_offset(max_width, 0), expected_offset);
+            }
         }
 
         assert_correct_offset(vec![], "a", 1, 0);
@@ -370,6 +390,8 @@ mod tests {
         assert_correct_offset(vec![2], "abc", 2, 2);
         assert_correct_offset(vec![2], "abc", 3, 0);
         assert_correct_offset(vec![2], "abc\nab", 2, 2);
+        assert_correct_offset(vec![7], "abc\nabcd", 2, 3);
+
         assert_correct_offset(vec![7], "abc\nabcd", 2, 3);
 
         assert_correct_offset(vec![0, 7], "abc\nabcd", 2, 0);

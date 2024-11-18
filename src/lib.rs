@@ -90,13 +90,14 @@ use crate::term::{Compositor, EventSummary, PickerConfig};
 ///
 /// ## Performance considations
 /// Generally speaking, this crate assumes that the [`Render`] implementation is quite
-/// fast. For each value, the [`Render`] implementation is first called to generate the match
-/// objects, and then called again in order to render the interactive picker screen with the
-/// relevant matches.
+/// fast. For each item, the [`Render`] implementation is first called to generate the match
+/// objects, and then if the item is not ASCII, [`Render`] is called again in order to render
+/// the interactive picker screen with the relevant matches.
 ///
-/// In particular, very slow [`Render`] implementations will reduce interactivity of the terminal
-/// interface. A crude rule of thumb is that rendering a single item should take (in the worst case)
-/// at most 100μs. For comparison, display formatting an `f64` takes less than 1μs.
+/// In particular, very slow [`Render`] implementations which output non-ASCII will reduce
+/// interactivity of the terminal interface. A crude rule of thumb is that rendering a single
+/// item should take (in the worst case) at most 100μs. For comparison, display formatting an
+/// `f64` takes less than 1μs.
 ///
 /// If this is not the case for your type, it is highly recommended to cache the render
 /// computation:

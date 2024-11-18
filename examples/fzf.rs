@@ -1,6 +1,6 @@
 //! # Simple `fzf` clone
 //!
-//! Read lines from `stdin` in a streaming fashion and populate the picker, immitating the basic
+//! Read lines from `stdin` in a streaming fashion and populate the picker, imitating the basic
 //! functionality of [fzf](https://github.com/junegunn/fzf).
 use std::{
     io::{self, BufRead},
