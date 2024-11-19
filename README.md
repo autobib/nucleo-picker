@@ -56,6 +56,5 @@ This crate mainly exists as a result of the author's annoyance with pretty much 
   The terminal handling also has a few strange bugs.
 
 ## Disclaimer
-The feature set of this library is quite minimal (by design) but may be expanded in the future. There are a currently a few known problems which have not been addressed (see the [issues page on GitHub](https://github.com/autobib/nucleo-picker/issues) for a list).
-
-This crate is not affiliated with the authors of `nucleo`, but if they have comments / complaints I am very glad to hear them!
+The feature set of this library is quite minimal (by design) but may be expanded in the future.
+There are a currently a few known problems which have not been addressed (see the [issues page on GitHub](https://github.com/autobib/nucleo-picker/issues) for a list).
