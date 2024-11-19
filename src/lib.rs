@@ -237,9 +237,17 @@ impl<T, R: Render<T>> Extend<T> for Injector<T, R> {
 }
 
 /// Specify configuration options for a [`Picker`].
+/// ```
+/// use nucleo_picker::{render::StrRenderer, Picker, PickerOptions};
+///
+/// let picker: Picker<String, _> = PickerOptions::new()
+///     .highlight(true)
+///     .query("search")
+///     .picker(StrRenderer);
+/// ```
 pub struct PickerOptions {
     config: nc::Config,
-    query: Option<String>,
+    query: String,
     threads: Option<NonZero<usize>>,
     picker_config: PickerConfig,
 }
@@ -248,7 +256,7 @@ impl Default for PickerOptions {
     fn default() -> Self {
         Self {
             config: nc::Config::DEFAULT,
-            query: None,
+            query: String::new(),
             threads: None,
             picker_config: PickerConfig::default(),
         }
@@ -309,9 +317,8 @@ impl PickerOptions {
 
     /// Provide a default query string.
     #[must_use]
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn query<Q: ToString>(mut self, query: Q) -> Self {
-        self.query = Some(query.to_string());
+    pub fn query<Q: Into<String>>(mut self, query: Q) -> Self {
+        self.query = query.into();
         self
     }
 
@@ -361,7 +368,7 @@ pub struct Picker<T: Send + Sync + 'static, R> {
     render: Arc<R>,
     picker_config: PickerConfig,
     config: nc::Config,
-    query: Option<String>,
+    query: String,
 }
 
 impl<T: Send + Sync + 'static, R: Render<T>> Extend<T> for Picker<T, R> {
@@ -389,8 +396,8 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// query string before re-using the [`Picker`].
     ///
     /// See also the [`PickerOptions::query`] method to set the query during initialization.
-    pub fn update_query(&mut self, query: String) {
-        self.query = Some(query);
+    pub fn update_query<Q: Into<String>>(&mut self, query: Q) {
+        self.query = query.into();
     }
 
     /// Update the internal nucleo configuration.
@@ -460,9 +467,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         let mut stderr = io::stderr().lock();
         let mut term = Compositor::new(size()?, &self.picker_config);
         let mut matcher = nucleo::Matcher::new(self.config.clone());
-        if let Some(query) = self.query.as_ref() {
-            term.set_prompt(query);
-        }
+        term.set_prompt(&self.query);
 
         enable_raw_mode()?;
         execute!(stderr, EnterAlternateScreen, EnableBracketedPaste)?;
