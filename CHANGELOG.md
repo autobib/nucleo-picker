@@ -12,7 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `Picker::new` signature has changed.
   - `PickerOptions::picker` signature has changed.
 - **Breaking** `PickerOptions::query` and `Picker::set_query` now accept any argument which is `Into<String>` instead of `ToString`.
-- **Breaking** `Picker::pick` uses STDERR instead of STDOUT for interactive screen. A lock is acquired to STDERR for rendering performance in case of Mutex contention.
+- **Breaking** `Picker::pick` uses STDERR instead of STDOUT for interactive screen.
+    A lock is acquired to STDERR to reduce the chance of rendering corruption and prevent Mutex contention.
   - If your application requires debug logging, it is probably best to log to a file instead.
 - **Breaking** `Picker::injector` now returns a `nucleo_picker::Injector` instead of a `nucleo::Injector`. The `nucleo_picker::Injector` no longer exposes the internal match object; instead, rendering is done by the new `Render` trait.
 - User CTRL-C during `Picker::pick` now returns `io::Error` with custom error message.
