@@ -228,6 +228,14 @@ impl<T, R: Render<T>> Injector<T, R> {
     }
 }
 
+impl<T, R: Render<T>> Extend<T> for Injector<T, R> {
+    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
+        for it in iter {
+            self.push(it);
+        }
+    }
+}
+
 /// Specify configuration options for a [`Picker`].
 pub struct PickerOptions {
     config: nc::Config,

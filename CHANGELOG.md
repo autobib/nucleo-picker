@@ -24,7 +24,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pressing DELETE when the prompt is empty no longer causes screen redraw.
 - Correctly handle `\!`, `\^`, and `\$`.
 
-
 ### Added
 - Match highlighting
 - Robust Unicode and mutiline support
@@ -33,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Convenient `Render` implementations in new `render` module.
 - New configuration options for `PickerOptions`.
 - New example: `fzf` clone
+- `Picker` and `Injector` now implement `Extend` for convenient item adding.
 
 ## [0.5.0] - 2024-11-7
 
