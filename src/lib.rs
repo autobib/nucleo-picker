@@ -1,10 +1,10 @@
 //! # A generic fuzzy item picker
 //! This is a generic picker implementation based on the [`nucleo::Nucleo`] matching engine. The
-//! main feature is an interactive fuzzy picker TUI, similar in spirit to the very popular
-//! [fzf](https://github.com/junegunn/fzf).
+//! crate allows you to incorporate an interactive fuzzy picker TUI (similar in spirit to the very popular
+//! [fzf](https://github.com/junegunn/fzf)) into your own applications.
 //!
 //! In short, initialize a [`Picker`] using [`PickerOptions`] and describe how the items
-//! should be represented by implementing [`Render`], or using a [built-in renderer](render).
+//! should be represented by implementing [`Render`], or use a [built-in renderer](render).
 //!
 //! ## Usage examples
 //! For more usage examples, visit the [examples
@@ -21,6 +21,10 @@
 //! ```no_run
 #![doc = include_str!("../examples/find.rs")]
 //! ```
+
+#![deny(missing_docs)]
+#![warn(rustdoc::unescaped_backticks)]
+
 mod bind;
 mod component;
 pub mod render;
@@ -125,7 +129,7 @@ use crate::term::{Compositor, EventSummary, PickerConfig};
 ///
 /// The main exception is that tabs (`\t`) are not supported correctly: mainly, width calculations
 /// will most likely be incorrect since the offset from printing a `\t` depends on the position
-/// within the screen: in other words, a tab is more like a conditional cursor movement rather
+/// within the screen. In other words, a tab is more like a conditional cursor movement rather
 /// than a printed character.
 ///
 /// It is best to avoid tabs in your rendered format, and if you do not have control over the
