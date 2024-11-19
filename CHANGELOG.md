@@ -21,17 +21,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Suggested support for multiple columns has now been removed (multiple columns were never supported internally).
 
 ### Fixed
-- Picker no longer blocks STDIN and STDOUT.
+- Picker no longer blocks STDIN and STDOUT. (#15)
 - Pressing DELETE when the prompt is empty no longer causes screen redraw.
+- Use synchronized output to avoid screen tearing on large render calls. (#14)
 - Correctly handle `\!`, `\^`, and `\$`.
 
 ### Added
-- Match highlighting
+- Match highlighting. (#9)
 - Robust Unicode and multi-line support
   - Correctly renders multi-line items
   - Unicode width computations to correctly handle double-width and zero-width graphemes.
 - Convenient `Render` implementations in new `render` module.
-- New configuration options for `PickerOptions`.
+- New configuration options for `PickerOptions`. (#2)
 - New example: `fzf` clone
 - `Picker` and `Injector` now implement `Extend` for convenient item adding.
 
