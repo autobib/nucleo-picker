@@ -360,9 +360,15 @@ impl PickerOptions {
 /// Initialize a picker with [`Picker::new`], or with custom configuration using
 /// [`PickerOptions`], and add elements to the picker using a [`Injector`] returned
 /// by the [`Picker::injector`] method.
+/// ```
+/// use nucleo_picker::{render::StrRenderer, Picker};
 ///
-/// See also the documentation for [`nucleo::Nucleo`] and [`Injector`], or the
-/// [usage examples](https://github.com/autobib/nucleo-picker/tree/master/examples).
+/// // Initialize a picker using default settings, with item type `String`
+/// let picker: Picker<String, _> = Picker::new(StrRenderer);
+/// ```
+///
+/// See also the [usage
+/// examples](https://github.com/autobib/nucleo-picker/tree/master/examples).
 pub struct Picker<T: Send + Sync + 'static, R> {
     matcher: Nucleo<T>,
     render: Arc<R>,
@@ -433,19 +439,14 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
 
     /// A convenience method to obtain the rendered version of a value as it would appear in the
     /// picker.
+    ///
+    /// This is the same as calling [`Render::render`] on the [`Render`] implementation internal
+    /// to the picker.
     pub fn render<'a>(&self, value: &'a T) -> <R as Render<T>>::Str<'a> {
         self.render.render(value)
     }
 
     /// Open the interactive picker prompt and return the picked item, if any.
-    ///
-    /// # Errors
-    /// Underlying IO errors from the standard library or [`crossterm`] will be propogated.
-    ///
-    /// This fails with an [`io::ErrorKind::Other`] if:
-    ///
-    /// 1. stderr is not interactive, in which the message will be `"is not interactive"`
-    /// 2. the user presses `CTRL-C`, in which case the message will be `"keyboard interrupt"`
     ///
     /// ## Stderr lock
     /// The picker prompt is rendered in an alternate screen using the `stderr` file handle. In
@@ -454,17 +455,31 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     ///
     /// In particular, while the picker is interactive, any other thread which attempts to write to
     /// stderr will block. Note that `stdin` and `stdout` will remain fully interactive.
+    ///
+    /// # Errors
+    /// Underlying IO errors from the standard library or [`crossterm`] will be propogated.
+    ///
+    /// This fails with an [`io::ErrorKind::Other`] if:
+    ///
+    /// 1. stderr is not interactive, in which case the message will be `"is not interactive"`
+    /// 2. the user presses `CTRL-C`, in which case the message will be `"keyboard interrupt"`
     pub fn pick(&mut self) -> Result<Option<&T>, io::Error> {
-        if std::io::stderr().is_tty() {
-            self.pick_inner(Self::default_frame_interval())
+        let stderr = io::stderr().lock();
+        if stderr.is_tty() {
+            // if std::io::stderr().is_tty() {
+            self.pick_inner(Self::default_frame_interval(), stderr)
         } else {
             Err(io::Error::new(io::ErrorKind::Other, "is not interactive"))
         }
     }
 
     /// The actual picker implementation.
-    fn pick_inner(&mut self, interval: Duration) -> Result<Option<&T>, io::Error> {
-        let mut stderr = io::stderr().lock();
+    fn pick_inner(
+        &mut self,
+        interval: Duration,
+        mut stderr: io::StderrLock<'_>,
+    ) -> Result<Option<&T>, io::Error> {
+        // let mut stderr = io::stderr().lock();
         let mut term = Compositor::new(size()?, &self.picker_config);
         let mut matcher = nucleo::Matcher::new(self.config.clone());
         term.set_prompt(&self.query);
