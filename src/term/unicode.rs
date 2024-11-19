@@ -52,7 +52,7 @@ mod private {
 /// Whether or not a given string slice is safe to use with a [`UnicodeProcessor`].
 #[inline]
 pub(crate) fn is_unicode_safe(input: &str) -> bool {
-    !input.is_ascii() || (input.is_ascii() && !input.contains('\r'))
+    !input.contains('\r') || !input.is_ascii()
 }
 
 /// Whether or not a given string slice is safe to use with an [`AsciiProcessor`].
