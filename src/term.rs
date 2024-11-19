@@ -42,7 +42,7 @@ use crate::{
 pub enum EventSummary {
     /// Continue rendering the frame.
     Continue,
-    /// The prompt was updated; where the updates append-only?
+    /// The prompt was updated; were the updates append-only?
     UpdatePrompt(bool),
     /// Select the given item and quit.
     Select,
@@ -142,7 +142,7 @@ impl Default for PickerConfig {
 /// The struct which draws the content to the screen.
 #[derive(Debug)]
 pub struct Compositor<'a> {
-    /// The dimensions of the application.
+    /// The dimensions of the terminal window.
     dimensions: Dimensions,
     /// The selector index position, or [`None`] if there is nothing to select.
     selector_index: Option<u16>,
@@ -167,7 +167,7 @@ pub struct Compositor<'a> {
 }
 
 impl<'a> Compositor<'a> {
-    /// The initial picker state.
+    /// The initial state.
     pub fn new(screen: (u16, u16), config: &'a PickerConfig) -> Self {
         let dimensions = Dimensions::from_screen(screen.0, screen.1);
         let prompt = EditableString::new(dimensions.prompt_max_width());
