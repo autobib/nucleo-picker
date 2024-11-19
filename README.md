@@ -4,7 +4,7 @@
 > [!CAUTION]
 > This the README for the forthcoming `v0.6.0` release, which includes a number of breaking changes to the API.
 > These changes are required for more robust internal implementation and to resolve some outstanding issues.
-> See the [Changelog](Changelog.md) for more details on these changes.
+> See the [Changelog](CHANGELOG.md) for more details on these changes.
 > You can opt-in to bleeding edge changes by including the following line in the `[dependencies]` section of your `Cargo.toml`:
 > ```
 > nucleo-picker = { git = "https://github.com/autobib/nucleo-picker", branch = "master" }
