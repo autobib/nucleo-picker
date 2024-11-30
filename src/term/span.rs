@@ -1,4 +1,10 @@
-use std::{cmp::max, io, io::StderrLock, iter::once, marker::PhantomData, ops::Range, slice::Iter};
+use std::{
+    io::{self, StderrLock},
+    iter::once,
+    marker::PhantomData,
+    ops::Range,
+    slice::Iter,
+};
 
 use crossterm::{
     cursor::{MoveToColumn, MoveToNextLine},
@@ -9,7 +15,10 @@ use crossterm::{
     QueueableCommand,
 };
 
-use super::unicode::{consume, spans_from_indices, truncate, Processor, Span};
+use super::{
+    unicode::{consume, spans_from_indices, truncate, Processor, Span},
+    ELLIPSIS,
+};
 
 /// Represent additional data on top of a string slice.
 ///
@@ -18,8 +27,8 @@ use super::unicode::{consume, spans_from_indices, truncate, Processor, Span};
 #[derive(Debug)]
 pub struct Spanned<'a, P> {
     rendered: &'a str,
-    spans: &'a Vec<Span>,
-    lines: &'a Vec<Range<usize>>,
+    spans: &'a [Span],
+    lines: &'a [Range<usize>],
     _marker: PhantomData<P>,
 }
 
@@ -40,19 +49,62 @@ impl<'a> Iterator for SpannedLines<'a> {
     }
 }
 
+pub trait KeepLines {
+    fn from_offset(offset: u16) -> Self;
+
+    fn subslice<'a>(&self, lines: &'a [Range<usize>]) -> &'a [Range<usize>];
+}
+
+pub struct Tail(usize);
+
+impl KeepLines for Tail {
+    fn subslice<'a>(&self, lines: &'a [Range<usize>]) -> &'a [Range<usize>] {
+        &lines[lines.len() - self.0..]
+    }
+
+    fn from_offset(offset: u16) -> Self {
+        Self(offset as usize)
+    }
+}
+
+pub struct Head(usize);
+
+impl KeepLines for Head {
+    fn subslice<'a>(&self, lines: &'a [Range<usize>]) -> &'a [Range<usize>] {
+        &lines[..self.0]
+    }
+
+    fn from_offset(offset: u16) -> Self {
+        Self(offset as usize)
+    }
+}
+
+struct All;
+
+impl KeepLines for All {
+    fn subslice<'a>(&self, lines: &'a [Range<usize>]) -> &'a [Range<usize>] {
+        lines
+    }
+
+    fn from_offset(_: u16) -> Self {
+        Self
+    }
+}
+
 impl<'a, P: Processor> Spanned<'a, P> {
     #[inline]
-    pub fn new(
+    pub fn new<L: KeepLines>(
         indices: &[u32],
         rendered: &'a str,
         spans: &'a mut Vec<Span>,
         lines: &'a mut Vec<Range<usize>>,
+        keep_lines: L,
     ) -> Self {
         spans_from_indices::<P>(indices, rendered, spans, lines);
         Self {
             rendered,
             spans,
-            lines,
+            lines: keep_lines.subslice(lines),
             _marker: PhantomData,
         }
     }
@@ -63,10 +115,8 @@ impl<'a, P: Processor> Spanned<'a, P> {
         let mut max_line_bytes = 0;
         for line in self.lines() {
             if !line.is_empty() {
-                max_line_bytes = max(
-                    max_line_bytes,
-                    line[line.len() - 1].range.end - line[0].range.start,
-                );
+                max_line_bytes =
+                    max_line_bytes.max(line[line.len() - 1].range.end - line[0].range.start);
             }
         }
 
@@ -81,8 +131,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
         for line in self.lines() {
             // find the 'rightmost' highlighted span
             if let Some(span) = line.iter().rev().find(|span| span.is_match) {
-                required_width = max(
-                    required_width,
+                required_width = required_width.max(
                     // spans[0] must exist since `find` returned something
                     P::width(&self.rendered[line[0].range.start..span.range.end]),
                 );
@@ -227,8 +276,6 @@ impl<'a, P: Processor> Spanned<'a, P> {
         offset: usize,
         capacity: u16,
     ) -> Result<(), io::Error> {
-        const ELLIPSIS: char = '…';
-
         let mut remaining_capacity = capacity;
 
         // do not print ellipsis if line is empty or the screen is extremely narrow
@@ -299,19 +346,12 @@ impl<'a, P: Processor> Spanned<'a, P> {
 
     /// Compute the string slice corresponding to the given [`Span`].
     ///
-    /// # Safety
+    /// # Panics
     /// This method must be called with a span with `range.start` and `range.end` corresponding to
     /// valid unicode indices in `rendered`.
     #[inline]
     fn index_in(&self, span: &Span) -> &str {
-        unsafe {
-            self.rendered
-                .get_unchecked(span.range.start..span.range.end)
-        }
-    }
-
-    pub fn count_lines(&self) -> usize {
-        self.lines.len()
+        &self.rendered[span.range.start..span.range.end]
     }
 
     #[inline]
@@ -335,7 +375,7 @@ mod tests {
             let mut spans = Vec::new();
             let mut lines = Vec::new();
             let spanned: Spanned<'_, UnicodeProcessor> =
-                Spanned::new(&indices, rendered, &mut spans, &mut lines);
+                Spanned::new(&indices, rendered, &mut spans, &mut lines, All);
 
             if is_unicode_safe(rendered) {
                 assert_eq!(spanned.required_width(), expected_width);
@@ -343,7 +383,7 @@ mod tests {
 
             if is_ascii_safe(rendered) {
                 let spanned: Spanned<'_, AsciiProcessor> =
-                    Spanned::new(&indices, rendered, &mut spans, &mut lines);
+                    Spanned::new(&indices, rendered, &mut spans, &mut lines, All);
                 assert_eq!(spanned.required_width(), expected_width);
             }
         }
@@ -373,13 +413,13 @@ mod tests {
 
             if is_unicode_safe(rendered) {
                 let spanned: Spanned<'_, UnicodeProcessor> =
-                    Spanned::new(&indices, rendered, &mut spans, &mut lines);
+                    Spanned::new(&indices, rendered, &mut spans, &mut lines, All);
                 assert_eq!(spanned.required_offset(max_width, 0), expected_offset);
             }
 
             if is_ascii_safe(rendered) {
                 let spanned: Spanned<'_, AsciiProcessor> =
-                    Spanned::new(&indices, rendered, &mut spans, &mut lines);
+                    Spanned::new(&indices, rendered, &mut spans, &mut lines, All);
                 assert_eq!(spanned.required_offset(max_width, 0), expected_offset);
             }
         }

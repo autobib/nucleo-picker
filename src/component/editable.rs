@@ -100,7 +100,7 @@ impl EditableString {
     /// Are we in an "appending" state? This is the case if the cursor is at the end of the string
     /// and the previous character isn't an escaped `\`.
     pub fn is_appending(&self) -> bool {
-        self.cursor.idx() == self.contents.len() && self.no_trailing_escape()
+        self.cursor.index() == self.contents.len() && self.no_trailing_escape()
     }
 
     /// Whether or not the query string is empty.
@@ -112,7 +112,7 @@ impl EditableString {
     /// false.
     #[inline]
     fn shift_to(&mut self, pos: usize) -> bool {
-        if pos <= self.contents.len() && self.cursor.idx() != pos {
+        if pos <= self.contents.len() && self.cursor.index() != pos {
             self.cursor.set_index(pos);
             true
         } else {
@@ -125,8 +125,8 @@ impl EditableString {
     #[allow(clippy::needless_pass_by_value)]
     fn jump(&mut self, jm: Jump) -> bool {
         match jm {
-            Jump::Left(dist) => self.shift_to(self.cursor.idx().saturating_sub(dist)),
-            Jump::Right(dist) => self.shift_to(self.cursor.idx().saturating_add(dist)),
+            Jump::Left(dist) => self.shift_to(self.cursor.index().saturating_sub(dist)),
+            Jump::Right(dist) => self.shift_to(self.cursor.index().saturating_add(dist)),
             Jump::ToStart => self.shift_to(0),
             Jump::ToEnd => self.shift_to(self.contents.len()),
         }
@@ -141,7 +141,7 @@ impl EditableString {
             Edit::ToStart => self.jump(Jump::ToStart),
             Edit::ToEnd => self.jump(Jump::ToEnd),
             Edit::Insert(ch) => {
-                self.contents.insert(self.cursor.idx(), ch);
+                self.contents.insert(self.cursor.index(), ch);
                 self.jump(Jump::Right(1))
             }
             Edit::Paste(s) => {
@@ -156,7 +156,7 @@ impl EditableString {
                         // move tail to scratch space
                         self.scratch.clear();
                         self.scratch
-                            .extend(self.contents.drain(self.cursor.idx()..));
+                            .extend(self.contents.drain(self.cursor.index()..));
 
                         // increment cursor and append the extension
                         self.contents.extend(s.chars());
@@ -171,7 +171,7 @@ impl EditableString {
             Edit::Delete => {
                 let changed = self.jump(Jump::Left(1));
                 if changed {
-                    self.contents.remove(self.cursor.idx());
+                    self.contents.remove(self.cursor.index());
                 }
                 changed
             }

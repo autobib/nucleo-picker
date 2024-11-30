@@ -220,8 +220,7 @@ pub fn spans_from_indices<P: Processor>(
     let mut line_start = 0;
     let mut line_end = 0;
 
-    let mut cursor = 0; // only used for internal state of `next_span`
-    while let Some((left, right)) = next_span(&mut cursor, indices) {
+    for (left, right) in IndexSpans::new(indices) {
         let (middle, _) = grapheme_index_iter
             .nth(left - iter_step_count)
             .expect("Match index does not correspond to grapheme!");
@@ -316,33 +315,45 @@ fn insert_unmatched_spans(
     }
 }
 
-/// Given a set of indices, return the next span if any. A span is a pair `(usize, usize)`,
-/// corresponding to grapheme indices.
-#[inline]
-fn next_span(cursor: &mut usize, indices: &[u32]) -> Option<(usize, usize)> {
-    if *cursor >= indices.len() {
-        return None;
+struct IndexSpans<'a> {
+    indices: &'a [u32],
+    cursor: usize,
+}
+
+impl<'a> IndexSpans<'a> {
+    fn new(indices: &'a [u32]) -> Self {
+        Self { indices, cursor: 0 }
     }
+}
 
-    let first = indices[*cursor];
-    let mut last = first;
+impl Iterator for IndexSpans<'_> {
+    type Item = (usize, usize);
 
-    let (left, right) = loop {
-        *cursor += 1;
-        match indices.get(*cursor) {
-            Some(next) => {
-                if *next == last + 1 {
-                    last += 1;
-                } else {
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.cursor >= self.indices.len() {
+            return None;
+        }
+
+        let first = self.indices[self.cursor];
+        let mut last = first;
+
+        let (left, right) = loop {
+            self.cursor += 1;
+            match self.indices.get(self.cursor) {
+                Some(next) => {
+                    if *next == last + 1 {
+                        last += 1;
+                    } else {
+                        break (first, last);
+                    }
+                }
+                None => {
                     break (first, last);
                 }
             }
-            None => {
-                break (first, last);
-            }
-        }
-    };
-    Some((left as _, right as _))
+        };
+        Some((left as _, right as _))
+    }
 }
 
 #[cfg(test)]
@@ -538,32 +549,32 @@ mod tests {
     #[test]
     fn test_next_span() {
         let indices: Vec<u32> = vec![1, 2, 4, 5, 6];
-        let mut cursor: usize = 0;
-        assert_eq!(next_span(&mut cursor, &indices), Some((1, 2)));
-        assert_eq!(cursor, 2);
-        assert_eq!(next_span(&mut cursor, &indices), Some((4, 6)));
-        assert_eq!(cursor, 5);
-        assert_eq!(next_span(&mut cursor, &indices), None);
-        assert_eq!(cursor, 5);
+        let mut is = IndexSpans::new(&indices);
+        assert_eq!(is.next(), Some((1, 2)));
+        assert_eq!(is.cursor, 2);
+        assert_eq!(is.next(), Some((4, 6)));
+        assert_eq!(is.cursor, 5);
+        assert_eq!(is.next(), None);
+        assert_eq!(is.cursor, 5);
 
         let indices: Vec<u32> = vec![];
-        let mut cursor: usize = 0;
-        assert_eq!(next_span(&mut cursor, &indices), None);
-        assert_eq!(cursor, 0);
+        let mut is = IndexSpans::new(&indices);
+        assert_eq!(is.next(), None);
+        assert_eq!(is.cursor, 0);
 
         let indices: Vec<u32> = vec![2];
-        let mut cursor: usize = 0;
-        assert_eq!(next_span(&mut cursor, &indices), Some((2, 2)));
-        assert_eq!(cursor, 1);
-        assert_eq!(next_span(&mut cursor, &indices), None);
-        assert_eq!(cursor, 1);
+        let mut is = IndexSpans::new(&indices);
+        assert_eq!(is.next(), Some((2, 2)));
+        assert_eq!(is.cursor, 1);
+        assert_eq!(is.next(), None);
+        assert_eq!(is.cursor, 1);
 
         let indices: Vec<u32> = vec![10, 11, 12, 13];
-        let mut cursor: usize = 0;
-        assert_eq!(next_span(&mut cursor, &indices), Some((10, 13)));
-        assert_eq!(cursor, 4);
-        assert_eq!(next_span(&mut cursor, &indices), None);
-        assert_eq!(cursor, 4);
+        let mut is = IndexSpans::new(&indices);
+        assert_eq!(is.next(), Some((10, 13)));
+        assert_eq!(is.cursor, 4);
+        assert_eq!(is.next(), None);
+        assert_eq!(is.cursor, 4);
     }
 
     #[test]

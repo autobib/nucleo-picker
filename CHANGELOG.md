@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Robust Unicode and multi-line support
   - Correctly renders multi-line items
   - Unicode width computations to correctly handle double-width and zero-width graphemes.
+- Full match item scrollback
 - Convenient `Render` implementations in new `render` module.
 - New configuration options for `PickerOptions`. (#2)
 - New example: `fzf` clone
