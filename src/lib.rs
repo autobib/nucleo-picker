@@ -54,7 +54,10 @@ use nucleo::{
 
 pub use nucleo;
 
-use crate::term::{Compositor, CompositorBuffer, EventSummary, PickerConfig};
+use crate::{
+    component::normalize_query_string,
+    term::{Compositor, CompositorBuffer, EventSummary, PickerConfig},
+};
 
 /// A trait which describes how to render objects for matching and display.
 ///
@@ -328,6 +331,7 @@ impl PickerOptions {
     #[inline]
     pub fn query<Q: Into<String>>(mut self, query: Q) -> Self {
         self.query = query.into();
+        normalize_query_string(&mut self.query);
         self
     }
 
@@ -414,6 +418,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     #[inline]
     pub fn update_query<Q: Into<String>>(&mut self, query: Q) {
         self.query = query.into();
+        normalize_query_string(&mut self.query);
     }
 
     /// Update the internal nucleo configuration.

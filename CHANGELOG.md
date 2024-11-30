@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pressing DELETE when the prompt is empty no longer causes screen redraw.
 - Use synchronized output to avoid screen tearing on large render calls. (#14)
 - Correctly handle `\!`, `\^`, and `\$`.
+- Query strings are now correctly normalized to replace newlines and tabs with single spaces, and to disallow ASCII control characters.
 
 ### Added
 - Match highlighting. (#9)

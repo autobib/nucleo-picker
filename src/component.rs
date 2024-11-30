@@ -4,4 +4,4 @@ mod cursor;
 mod editable;
 
 pub use cursor::{Cursor, View};
-pub use editable::{Edit, EditableString};
+pub use editable::{normalize_query_string, Edit, EditableString};
