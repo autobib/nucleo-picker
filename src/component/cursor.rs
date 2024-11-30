@@ -102,7 +102,7 @@ impl Cursor {
     }
 
     /// The absolute index of the cursor.
-    pub fn idx(&self) -> usize {
+    pub fn index(&self) -> usize {
         self.index
     }
 

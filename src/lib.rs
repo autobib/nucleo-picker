@@ -31,7 +31,7 @@ pub mod render;
 mod term;
 
 use std::{
-    io,
+    io::{self, IsTerminal},
     iter::Extend,
     num::NonZero,
     sync::Arc,
@@ -45,7 +45,6 @@ use crossterm::{
     terminal::{
         disable_raw_mode, enable_raw_mode, size, EnterAlternateScreen, LeaveAlternateScreen,
     },
-    tty::IsTty,
 };
 use nucleo::{
     self as nc,
@@ -55,31 +54,21 @@ use nucleo::{
 
 pub use nucleo;
 
-use crate::term::{Compositor, EventSummary, PickerConfig};
+use crate::term::{Compositor, CompositorBuffer, EventSummary, PickerConfig};
 
 /// A trait which describes how to render objects for matching and display.
 ///
 /// Some renderers for common types are already implemented in the [`render`] module. In
-/// many cases, the [`DisplayRenderer`](render::DisplayRenderer) is particularly easy to use. On
-/// the other hand, if you are implementing [`Render`] yourself, read on!
+/// many cases, the [`DisplayRenderer`](render::DisplayRenderer) is particularly easy to use.
 ///
-/// Jump to:
-///
-/// - [Safety](#safety)
-/// - [Examples](#examples)
-/// - [Render considerations](#render-considerations)
-/// - [Performance considerations](#performance-considerations)
-///
-/// ## Safety
 /// Rendering *must* be **idempotent**: for a given render implementation `R` and a item `T`, the call
 /// `R::render(&self, &T)` must depend only on the specific render instance and the specific item,
-/// and not any other mutable state. In particular, interior mutability, while in principle
-/// possible, is *highly discouraged*.
+/// and not any other mutable state. Violation of this condition is normally only possible via
+/// interior mutability, global state, I/O, or unsafe code.
 ///
 /// If idempotence is violated, internal index computations which depend on the rendered format
-/// will become invalid and the picker will panic. Regardless, implementing [`Render`] is safe
-/// since violation of idempotence will not result in undefined behaviour (though your application
-/// will probably crash).
+/// will become invalid and the picker may either panic or return incorrect results. Note that such
+/// errors are encapsulated within the picker and will not result in undefined behaviour.
 ///
 /// ## Examples
 /// Here is a basic example for how one would implement a renderer for a `DirEntry` from the
@@ -270,6 +259,7 @@ impl Default for PickerOptions {
 impl PickerOptions {
     /// Initialize with default configuration.
     #[must_use]
+    #[inline]
     pub fn new() -> Self {
         Self::default()
     }
@@ -279,6 +269,7 @@ impl PickerOptions {
     /// If `None`, this will default to the number of available processors on your device
     /// minus 2, with a lower bound of 1.
     #[must_use]
+    #[inline]
     pub fn threads(mut self, threads: Option<NonZero<usize>>) -> Self {
         self.threads = threads;
         self
@@ -286,6 +277,7 @@ impl PickerOptions {
 
     /// Set the internal matcher configuration.
     #[must_use]
+    #[inline]
     pub fn config(mut self, config: nc::Config) -> Self {
         self.config = config;
         self
@@ -293,6 +285,7 @@ impl PickerOptions {
 
     /// Whether or not to highlight matches.
     #[must_use]
+    #[inline]
     pub fn highlight(mut self, highlight: bool) -> Self {
         self.picker_config.highlight = highlight;
         self
@@ -300,13 +293,23 @@ impl PickerOptions {
 
     /// How much space to leave after rendering the rightmost highlight.
     #[must_use]
-    pub fn right_highlight_buffer(mut self, size: u16) -> Self {
-        self.picker_config.right_highlight_buffer = size;
+    #[inline]
+    pub fn right_highlight_padding(mut self, size: u16) -> Self {
+        self.picker_config.right_highlight_padding = size;
+        self
+    }
+
+    /// How much space to leave around the cursor when scrolling.
+    #[must_use]
+    #[inline]
+    pub fn scroll_padding(mut self, size: u16) -> Self {
+        self.picker_config.scroll_padding = size;
         self
     }
 
     /// How to treat case mismatch.
     #[must_use]
+    #[inline]
     pub fn case_matching(mut self, case_matching: CaseMatching) -> Self {
         self.picker_config.case_matching = case_matching;
         self
@@ -314,6 +317,7 @@ impl PickerOptions {
 
     /// How to perform Unicode normalization.
     #[must_use]
+    #[inline]
     pub fn normalization(mut self, normalization: Normalization) -> Self {
         self.picker_config.normalization = normalization;
         self
@@ -321,6 +325,7 @@ impl PickerOptions {
 
     /// Provide a default query string.
     #[must_use]
+    #[inline]
     pub fn query<Q: Into<String>>(mut self, query: Q) -> Self {
         self.query = query.into();
         self
@@ -406,11 +411,13 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// query string before re-using the [`Picker`].
     ///
     /// See also the [`PickerOptions::query`] method to set the query during initialization.
+    #[inline]
     pub fn update_query<Q: Into<String>>(&mut self, query: Q) {
         self.query = query.into();
     }
 
     /// Update the internal nucleo configuration.
+    #[inline]
     pub fn update_config(&mut self, config: nc::Config) {
         self.matcher.update_config(config);
     }
@@ -446,6 +453,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     ///
     /// This is the same as calling [`Render::render`] on the [`Render`] implementation internal
     /// to the picker.
+    #[inline]
     pub fn render<'a>(&self, value: &'a T) -> <R as Render<T>>::Str<'a> {
         self.render.render(value)
     }
@@ -469,8 +477,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// 2. the user presses `CTRL-C`, in which case the message will be `"keyboard interrupt"`
     pub fn pick(&mut self) -> Result<Option<&T>, io::Error> {
         let stderr = io::stderr().lock();
-        if stderr.is_tty() {
-            // if std::io::stderr().is_tty() {
+        if stderr.is_terminal() {
             self.pick_inner(Self::default_frame_interval(), stderr)
         } else {
             Err(io::Error::new(io::ErrorKind::Other, "is not interactive"))
@@ -483,10 +490,11 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         interval: Duration,
         mut stderr: io::StderrLock<'_>,
     ) -> Result<Option<&T>, io::Error> {
-        // let mut stderr = io::stderr().lock();
         let mut term = Compositor::new(size()?, &self.picker_config);
-        let mut matcher = nucleo::Matcher::new(self.config.clone());
         term.set_prompt(&self.query);
+
+        let mut buffer = CompositorBuffer::new();
+        let mut matcher = nucleo::Matcher::new(self.config.clone());
 
         enable_raw_mode()?;
         execute!(stderr, EnterAlternateScreen, EnableBracketedPaste)?;
@@ -510,7 +518,9 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                     EventSummary::Select => {
                         break Ok(term
                             .selection()
-                            .and_then(|idx| self.matcher.snapshot().get_matched_item(idx.into()))
+                            .try_into()
+                            .ok()
+                            .and_then(|idx| self.matcher.snapshot().get_matched_item(idx))
                             .map(|it| it.data));
                     }
                     EventSummary::Quit => {
@@ -532,6 +542,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                 &mut matcher,
                 self.render.as_ref(),
                 self.matcher.snapshot(),
+                &mut buffer,
             )?;
 
             // wait if frame rendering finishes early

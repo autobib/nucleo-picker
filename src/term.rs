@@ -9,14 +9,13 @@ mod span;
 mod unicode;
 
 use std::{
-    cmp::min,
     io::{self, StderrLock, Write},
     ops::Range,
     time::Duration,
 };
 
 use crossterm::{
-    cursor::{MoveTo, MoveToColumn, MoveToPreviousLine, MoveUp},
+    cursor::{MoveTo, MoveToColumn, MoveToPreviousLine},
     event::{poll, read},
     style::{Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor},
     terminal::{BeginSynchronizedUpdate, Clear, ClearType, EndSynchronizedUpdate},
@@ -28,15 +27,17 @@ use nucleo::{
 };
 
 use self::{
-    item::{new_rendered, Rendered},
-    span::Spanned,
-    unicode::{AsciiProcessor, Processor, Span, UnicodeProcessor},
+    item::{new_rendered, Layout, Rendered},
+    span::{Head, KeepLines, Spanned, Tail},
+    unicode::{AsciiProcessor, Span, UnicodeProcessor},
 };
 use crate::{
     bind::{convert, Event},
     component::{Edit, EditableString},
     Render,
 };
+
+const ELLIPSIS: char = '…';
 
 /// The outcome after processing all of the events.
 pub enum EventSummary {
@@ -57,6 +58,10 @@ struct Dimensions {
     width: u16,
     /// The height of the screen, including the prompt.
     height: u16,
+    /// The margin at the bottom.
+    margin_bottom: u16,
+    /// The margin at the top.
+    margin_top: u16,
     /// The left buffer size of the prompt.
     prompt_left_padding: u16,
     /// The right buffer size of the prompt.
@@ -66,12 +71,20 @@ struct Dimensions {
 impl Dimensions {
     /// Initialize based on screen dimensions.
     pub fn from_screen(width: u16, height: u16) -> Self {
+        let max_allowed_margin = height.saturating_sub(3) / 2;
+        let max_allowed_prompt_margin = width.saturating_sub(4) / 2;
         Self {
             width,
             height,
-            prompt_left_padding: width / 8,
-            prompt_right_padding: width / 12,
+            margin_bottom: max_allowed_margin.min(3),
+            margin_top: max_allowed_margin.min(3),
+            prompt_left_padding: max_allowed_prompt_margin.min(3),
+            prompt_right_padding: max_allowed_prompt_margin.min(3),
         }
+    }
+
+    pub fn move_to_screen_index(&self, index: u16) -> MoveTo {
+        MoveTo(0, self.max_draw_height() - 1 - index)
     }
 
     pub fn move_to_end_of_line(&self) -> MoveToColumn {
@@ -81,7 +94,7 @@ impl Dimensions {
     /// The [`MoveTo`] command for setting the cursor at the bottom left corner of the match
     /// printing area.
     pub fn move_to_results_start(&self) -> MoveTo {
-        MoveTo(0, self.max_draw_count())
+        MoveTo(0, self.max_draw_height())
     }
 
     /// The maximum width of the prompt string display window.
@@ -93,7 +106,7 @@ impl Dimensions {
     }
 
     /// The maximum number of matches which can be drawn to the screen.
-    pub fn max_draw_count(&self) -> u16 {
+    pub fn max_draw_height(&self) -> u16 {
         self.height.saturating_sub(2)
     }
 
@@ -125,7 +138,8 @@ pub struct PickerConfig {
     pub highlight: bool,
     pub case_matching: CaseMatching,
     pub normalization: Normalization,
-    pub right_highlight_buffer: u16,
+    pub right_highlight_padding: u16,
+    pub scroll_padding: u16,
 }
 
 impl Default for PickerConfig {
@@ -134,7 +148,27 @@ impl Default for PickerConfig {
             highlight: true,
             case_matching: CaseMatching::Smart,
             normalization: Normalization::Smart,
-            right_highlight_buffer: 3,
+            right_highlight_padding: 3,
+            scroll_padding: 3,
+        }
+    }
+}
+
+pub struct CompositorBuffer {
+    /// Spans used to render items.
+    spans: Vec<Span>,
+    /// Sub-slices of `spans` corresponding to lines.
+    lines: Vec<Range<usize>>,
+    /// Indices generated from a match.
+    indices: Vec<u32>,
+}
+
+impl CompositorBuffer {
+    pub fn new() -> Self {
+        Self {
+            spans: Vec::with_capacity(16),
+            lines: Vec::with_capacity(4),
+            indices: Vec::with_capacity(16),
         }
     }
 }
@@ -144,12 +178,10 @@ impl Default for PickerConfig {
 pub struct Compositor<'a> {
     /// The dimensions of the terminal window.
     dimensions: Dimensions,
-    /// The selector index position, or [`None`] if there is nothing to select.
-    selector_index: Option<u16>,
+    /// The current position of the selection.
+    selection: usize,
     /// The prompt string.
     prompt: EditableString,
-    /// The current number of items to be drawn to the terminal.
-    draw_count: u16,
     /// The total number of items.
     item_count: u32,
     /// The number of matches.
@@ -158,12 +190,8 @@ pub struct Compositor<'a> {
     needs_redraw: bool,
     /// Configuration for drawing the picker.
     config: &'a PickerConfig,
-    /// A reusable buffer for spans used to render items.
-    spans: Vec<Span>,
-    /// A reusable buffer of sub-slices of `spans`.
-    lines: Vec<Range<usize>>,
-    /// A resuable buffer for indices generated from a match.
-    indices: Vec<u32>,
+    /// Stateful representation of the current screen layout.
+    layout: Layout,
 }
 
 impl<'a> Compositor<'a> {
@@ -174,36 +202,35 @@ impl<'a> Compositor<'a> {
 
         Self {
             dimensions,
-            selector_index: None,
+            selection: 0,
             prompt,
-            draw_count: 0,
             matched_item_count: 0,
             item_count: 0,
             needs_redraw: true,
             config,
-            spans: Vec::with_capacity(16),
-            lines: Vec::with_capacity(4),
-            indices: Vec::with_capacity(16),
+            layout: Layout::default(),
         }
     }
 
     /// Return the current index of the selection, if any.
-    pub fn selection(&self) -> Option<u16> {
-        self.selector_index
+    pub fn selection(&self) -> usize {
+        self.selection
     }
 
-    /// Increment the current item selection.
+    /// Increment the current item selection without exceeding the provided bound.
     fn incr_selection(&mut self) {
-        self.needs_redraw = true;
-        self.selector_index = self.selector_index.map(|i| i.saturating_add(1));
-        self.clamp_selector_index();
+        if self.selection < self.matched_item_count.saturating_sub(1) as usize {
+            self.needs_redraw = true;
+            self.selection += 1;
+        }
     }
 
     /// Decrement the current item selection.
     fn decr_selection(&mut self) {
-        self.needs_redraw = true;
-        self.selector_index = self.selector_index.map(|i| i.saturating_sub(1));
-        self.clamp_selector_index();
+        if let Some(new) = self.selection.checked_sub(1) {
+            self.needs_redraw = true;
+            self.selection = new;
+        }
     }
 
     /// Update the draw count from a snapshot.
@@ -216,24 +243,9 @@ impl<'a> Compositor<'a> {
             self.needs_redraw = true;
             self.item_count = snapshot.item_count();
             self.matched_item_count = snapshot.matched_item_count();
-            self.draw_count = self.matched_item_count.try_into().unwrap_or(u16::MAX);
-            self.clamp_draw_count();
-            self.clamp_selector_index();
-        }
-    }
-
-    /// Clamp the draw count so that it falls in the valid range.
-    fn clamp_draw_count(&mut self) {
-        self.draw_count = min(self.draw_count, self.dimensions.max_draw_count());
-    }
-
-    /// Clamp the selector index so that it falls in the valid range.
-    fn clamp_selector_index(&mut self) {
-        if self.draw_count == 0 {
-            self.selector_index = None;
-        } else {
-            let position = min(self.selector_index.unwrap_or(0), self.draw_count - 1);
-            self.selector_index = Some(position);
+            self.selection = self
+                .selection
+                .min(self.matched_item_count.saturating_sub(1) as usize);
         }
     }
 
@@ -302,43 +314,202 @@ impl<'a> Compositor<'a> {
         })
     }
 
+    /// The inner `match draw` implementation.
     #[inline]
-    fn draw_match<P: Processor>(
+    #[allow(clippy::too_many_arguments)]
+    fn draw_single_match<
+        T: Send + Sync + 'static,
+        R: Render<T>,
+        L: KeepLines,
+        const SELECTED: bool,
+    >(
+        stderr: &mut StderrLock<'_>,
+        buffer: &mut CompositorBuffer,
+        max_draw_length: u16,
+        config: &PickerConfig,
+        item: &nucleo::Item<'_, T>,
+        snapshot: &nucleo::Snapshot<T>,
+        matcher: &mut nucleo::Matcher,
+        height: u16,
+        render: &R,
+    ) -> Result<(), io::Error> {
+        // generate the indices
+        if config.highlight {
+            buffer.indices.clear();
+            snapshot.pattern().column_pattern(0).indices(
+                item.matcher_columns[0].slice(..),
+                matcher,
+                &mut buffer.indices,
+            );
+            buffer.indices.sort_unstable();
+            buffer.indices.dedup();
+        }
+
+        match new_rendered(item, render) {
+            Rendered::Ascii(s) => Spanned::<'_, AsciiProcessor>::new(
+                &buffer.indices,
+                s,
+                &mut buffer.spans,
+                &mut buffer.lines,
+                L::from_offset(height),
+            )
+            .queue_print(
+                stderr,
+                SELECTED,
+                max_draw_length,
+                config.right_highlight_padding,
+            ),
+            Rendered::Unicode(r) => Spanned::<'_, UnicodeProcessor>::new(
+                &buffer.indices,
+                r.as_ref(),
+                &mut buffer.spans,
+                &mut buffer.lines,
+                L::from_offset(height),
+            )
+            .queue_print(
+                stderr,
+                SELECTED,
+                max_draw_length,
+                config.right_highlight_padding,
+            ),
+        }
+    }
+
+    #[inline]
+    fn draw_matches<T: Send + Sync + 'static, R: Render<T>>(
         &mut self,
         stderr: &mut StderrLock<'_>,
-        rendered: &str,
-        current_draw_count: &mut usize,
-        idx: usize,
-    ) -> Result<bool, io::Error> {
-        // convert the indices into spans
-        let spanned: Spanned<'_, P> =
-            Spanned::new(&self.indices, rendered, &mut self.spans, &mut self.lines);
+        matcher: &mut Matcher,
+        render: &R,
+        snapshot: &nucleo::Snapshot<T>,
+        buffer: &mut CompositorBuffer,
+    ) -> Result<(), io::Error> {
+        // draw the matches
+        if snapshot.matched_item_count() == 0 {
+            // erase the matches if there are no matched items
+            stderr
+                .queue(MoveToPreviousLine(1))?
+                .queue(self.dimensions.move_to_end_of_line())?
+                .queue(Clear(ClearType::FromCursorUp))?;
+        } else {
+            // recompute the layout
+            let view = self.layout.recompute(
+                self.dimensions.max_draw_height(),
+                self.dimensions.margin_bottom,
+                self.dimensions.margin_top,
+                self.selection as u32,
+                snapshot,
+            );
 
-        // space needed to render the next entry
-        let required_headspace = spanned.count_lines();
-        *current_draw_count += required_headspace;
+            let mut match_lines_rendered = 0;
+            let mut item_iter = snapshot.matched_items(
+                self.selection as u32 - view.below.len() as u32
+                    ..=self.selection as u32 + view.above.len() as u32,
+            );
 
-        // not enough space: bail early
-        if *current_draw_count > self.dimensions.max_draw_count() as usize {
-            return Ok(true);
+            // render below the selection
+            for height in view.below.iter().rev() {
+                match_lines_rendered += height;
+                stderr.queue(
+                    self.dimensions
+                        .move_to_screen_index(match_lines_rendered - 1),
+                )?;
+
+                Self::draw_single_match::<T, R, Head, false>(
+                    stderr,
+                    buffer,
+                    self.dimensions.max_draw_length(),
+                    self.config,
+                    &item_iter.next().unwrap(),
+                    snapshot,
+                    matcher,
+                    *height,
+                    render,
+                )?;
+            }
+
+            // render the selection
+            match_lines_rendered += view.current;
+            stderr.queue(
+                self.dimensions
+                    .move_to_screen_index(match_lines_rendered - 1),
+            )?;
+
+            Self::draw_single_match::<T, R, Head, true>(
+                stderr,
+                buffer,
+                self.dimensions.max_draw_length(),
+                self.config,
+                &item_iter.next().unwrap(),
+                snapshot,
+                matcher,
+                view.current,
+                render,
+            )?;
+
+            // render above the selection
+            for height in view.above {
+                match_lines_rendered += height;
+                stderr.queue(
+                    self.dimensions
+                        .move_to_screen_index(match_lines_rendered - 1),
+                )?;
+
+                Self::draw_single_match::<T, R, Tail, false>(
+                    stderr,
+                    buffer,
+                    self.dimensions.max_draw_length(),
+                    self.config,
+                    &item_iter.next().unwrap(),
+                    snapshot,
+                    matcher,
+                    *height,
+                    render,
+                )?;
+            }
+
+            // clear above matches if required
+            if match_lines_rendered + 1 < self.dimensions.max_draw_height() {
+                stderr
+                    .queue(self.dimensions.move_to_screen_index(match_lines_rendered))?
+                    .queue(self.dimensions.move_to_end_of_line())?
+                    .queue(Clear(ClearType::FromCursorUp))?;
+            }
         }
-        // since max_draw_count() returns a u16, if required_headspace
-        // does not fit, it would have already exited in the previous line
-        let required_headspace = required_headspace as u16;
 
-        // move the cursor up the appropriate amount and then print the selection to the
-        // terminal
-        stderr.queue(MoveToPreviousLine(required_headspace))?;
-        spanned.queue_print(
-            stderr,
-            self.selector_index.is_some_and(|i| i as usize == idx),
-            self.dimensions.max_draw_length(),
-            self.config.right_highlight_buffer,
-        )?;
+        Ok(())
+    }
 
-        // fix the cursor position
-        stderr.queue(MoveToPreviousLine(required_headspace))?;
-        Ok(false)
+    /// Draw the prompt string
+    fn draw_prompt(&mut self, stderr: &mut StderrLock<'_>) -> Result<(), io::Error> {
+        let view = self.prompt.view_padded(
+            self.dimensions.prompt_left_padding as _,
+            self.dimensions.prompt_right_padding as _,
+        );
+        stderr
+            .queue(self.dimensions.move_to_prompt())?
+            .queue(Print("> "))?
+            .queue(Print(&view))?
+            .queue(Clear(ClearType::UntilNewLine))?
+            .queue(self.dimensions.move_to_cursor(view.index()))?;
+
+        Ok(())
+    }
+
+    /// Draw the match counts to the terminal, e.g. `9/43`.
+    fn draw_match_counts(&mut self, stderr: &mut StderrLock<'_>) -> Result<(), io::Error> {
+        stderr.queue(self.dimensions.move_to_results_start())?;
+        stderr
+            .queue(SetAttribute(Attribute::Italic))?
+            .queue(SetForegroundColor(Color::Green))?
+            .queue(Print("  "))?
+            .queue(Print(self.matched_item_count))?
+            .queue(Print("/"))?
+            .queue(Print(self.item_count))?
+            .queue(SetAttribute(Attribute::Reset))?
+            .queue(ResetColor)?
+            .queue(Clear(ClearType::UntilNewLine))?;
+        Ok(())
     }
 
     /// Draw the terminal to the screen. This assumes that the draw count has been updated and the
@@ -349,99 +520,32 @@ impl<'a> Compositor<'a> {
         matcher: &mut Matcher,
         render: &R,
         snapshot: &nucleo::Snapshot<T>,
+        buffer: &mut CompositorBuffer,
     ) -> Result<(), io::Error> {
         if self.needs_redraw {
             // reset redraw state
             self.needs_redraw = false;
 
-            // we can't do anything if the screen is so narrow
-            if self.dimensions.width < 4 {
-                stderr.queue(Clear(ClearType::All))?.flush()?;
-                return Ok(());
-            }
-
             stderr.execute(BeginSynchronizedUpdate)?;
 
             // draw the match counts
-            stderr.queue(self.dimensions.move_to_results_start())?;
-            stderr
-                .queue(SetAttribute(Attribute::Italic))?
-                .queue(SetForegroundColor(Color::Green))?
-                .queue(Print("  "))?
-                .queue(Print(self.matched_item_count))?
-                .queue(Print("/"))?
-                .queue(Print(self.item_count))?
-                .queue(SetAttribute(Attribute::Reset))?
-                .queue(ResetColor)?
-                .queue(Clear(ClearType::UntilNewLine))?;
+            self.draw_match_counts(stderr)?;
 
-            let mut current_draw_count = 0;
-
-            // draw the matches
-            for (idx, it) in snapshot.matched_items(..).enumerate() {
-                // generate the indices
-                if self.config.highlight {
-                    self.indices.clear();
-                    snapshot.pattern().column_pattern(0).indices(
-                        it.matcher_columns[0].slice(..),
-                        matcher,
-                        &mut self.indices,
-                    );
-                    self.indices.sort_unstable();
-                    self.indices.dedup();
-                }
-
-                match new_rendered(&it, render) {
-                    Rendered::Ascii(s) => {
-                        if self.draw_match::<AsciiProcessor>(
-                            stderr,
-                            s,
-                            &mut current_draw_count,
-                            idx,
-                        )? {
-                            break;
-                        }
-                    }
-                    Rendered::Unicode(r) => {
-                        if self.draw_match::<UnicodeProcessor>(
-                            stderr,
-                            r.as_ref(),
-                            &mut current_draw_count,
-                            idx,
-                        )? {
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // clear above the current matches
-            if self.draw_count != self.dimensions.max_draw_count() {
-                stderr
-                    .queue(MoveUp(1))?
-                    .queue(self.dimensions.move_to_end_of_line())?
-                    .queue(Clear(ClearType::FromCursorUp))?;
+            // draw matches if there is space; the height check is required otherwise the
+            // `recompute` function will panic
+            if self.dimensions.max_draw_height() != 0 {
+                self.draw_matches(stderr, matcher, render, snapshot, buffer)?;
             }
 
             // render the prompt string
-            let view = self.prompt.view_padded(
-                self.dimensions.prompt_left_padding as _,
-                self.dimensions.prompt_right_padding as _,
-            );
-            stderr
-                .queue(self.dimensions.move_to_prompt())?
-                .queue(Print("> "))?
-                .queue(Print(&view))?
-                .queue(Clear(ClearType::UntilNewLine))?
-                .queue(self.dimensions.move_to_cursor(view.index()))?;
+            self.draw_prompt(stderr)?;
 
             // flush to terminal
             stderr.flush()?;
             stderr.execute(EndSynchronizedUpdate)?;
-            Ok(())
-        } else {
-            Ok(())
-        }
+        };
+
+        Ok(())
     }
 
     /// Resize the terminal state on screen size change.
@@ -449,7 +553,5 @@ impl<'a> Compositor<'a> {
         self.needs_redraw = true;
         self.dimensions = Dimensions::from_screen(width, height);
         self.prompt.resize(self.dimensions.prompt_max_width());
-        self.clamp_draw_count();
-        self.clamp_selector_index();
     }
 }
