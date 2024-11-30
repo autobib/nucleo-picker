@@ -1,5 +1,19 @@
 use super::{Cursor, View};
 
+/// Mutate a given string in-place, removing ASCII control characters and converting newlines,
+/// carriage returns, and TABs to ASCII space.
+pub fn normalize_query_string(s: &mut String) {
+    *s = s.chars().filter_map(normalize_char).collect();
+}
+
+fn normalize_char(ch: char) -> Option<char> {
+    match ch {
+        '\n' | '\t' => Some(' '),
+        ch if ch.is_ascii_control() => None,
+        ch => Some(ch),
+    }
+}
+
 /// An edit to apply to an [`EditableString`].
 #[derive(Debug, PartialEq, Eq)]
 pub enum Edit {
@@ -141,13 +155,18 @@ impl EditableString {
             Edit::ToStart => self.jump(Jump::ToStart),
             Edit::ToEnd => self.jump(Jump::ToEnd),
             Edit::Insert(ch) => {
-                self.contents.insert(self.cursor.index(), ch);
-                self.jump(Jump::Right(1))
+                if let Some(ch) = normalize_char(ch) {
+                    self.contents.insert(self.cursor.index(), ch);
+                    self.jump(Jump::Right(1))
+                } else {
+                    false
+                }
             }
-            Edit::Paste(s) => {
+            Edit::Paste(mut s) => {
                 if s.is_empty() {
                     false
                 } else {
+                    normalize_query_string(&mut s);
                     // we are appending, so we can avoid some writes.
                     if self.is_appending() {
                         self.contents.extend(s.chars());
@@ -182,6 +201,21 @@ impl EditableString {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_normalize_query() {
+        let mut s = "a\nb".to_owned();
+        normalize_query_string(&mut s);
+        assert_eq!(s, "a b");
+
+        let mut s = "ｏ\nｏ".to_owned();
+        normalize_query_string(&mut s);
+        assert_eq!(s, "ｏ ｏ");
+
+        let mut s = "a\n\u{07}ｏ".to_owned();
+        normalize_query_string(&mut s);
+        assert_eq!(s, "a ｏ");
+    }
 
     #[test]
     fn edit() {

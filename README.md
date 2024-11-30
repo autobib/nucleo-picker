@@ -18,6 +18,8 @@ The picker interface is similar to the very popular [fzf](https://github.com/jun
 
 See the [`examples`](/examples) directory for implementation examples, or try out the sample `find/fzf` implementation by cloning the repository and running `cargo run --release --example find ~`.
 
+If you are looking for documentation for interactive usage of the picker, see the [`USAGE.md`](/USAGE.md) file.
+
 ## Features
 - Highly optimized matching, courtesy of [`nucleo`](https://docs.rs/nucleo/latest/nucleo/).
 - Robust rendering:
@@ -29,22 +31,6 @@ See the [`examples`](/examples) directory for implementation examples, or try ou
   - Non-blocking to match on streaming input.
   - Generic `Picker` for any type `T` which is `Send + Sync + 'static`.
   - Customizable rendering of crate-local and foreign types with the `Render` trait.
-
-## Query syntax
-The query syntax is as documented in the [nucleo-matcher](https://docs.rs/nucleo-matcher/latest/nucleo_matcher/pattern/enum.AtomKind.html) crate.
-
-Essentially, each query is parsed as a sequence of whitespace-separated "atoms", such as `a1 a2 a3`.
-By default, each atom corresponds to a fuzzy match: that is, higher score is assigned for a closer match, but exact match is not required.
-There is also a special syntax for various types of exact matches.
-
-- `'foo` match an exact substring, with negation `!foo`
-- `^foo` must match an exact prefix, with negation `!^foo`
-- `foo$` must match an exact suffix, with negation `!foo$`
-- `^foo$` must match the entire string exactly, with negation `!^foo$`
-
-Whitespace and control symbols `'^$!` can also be interpreted literally by escaping with a backslash `\`.
-
-For example, the query `foo ^bar` means that we match for strings which contain `foo` (or similar), and which begin with the exact string `bar`.
 
 ## Related crates
 This crate mainly exists as a result of the author's annoyance with pretty much every fuzzy picker TUI in the rust ecosystem.
