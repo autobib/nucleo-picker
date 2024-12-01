@@ -15,9 +15,31 @@ use super::Render;
 /// [`serde`](::serde) framework, you may find it convenient to enable the `serde` optional feature.
 /// With this feature enabled, an injector implements
 /// [`DeserializeSeed`](::serde::de::DeserializeSeed) and expects a sequence of picker items.
+/// ```
+/// use nucleo_picker::{render::StrRenderer, Picker, Render};
+/// use serde::{de::DeserializeSeed, Deserialize};
+/// use serde_json::Deserializer;
 ///
-/// See the [serde example](https://github.com/autobib/nucleo-picker/tree/master/examples/serde.rs)
-/// for more detail.
+/// let input = r#"
+///   [
+///    "Alvar Aalto",
+///    "Frank Lloyd Wright",
+///    "Zaha Hadid",
+///    "Le Corbusier"
+///   ]
+/// "#;
+///
+/// // the type annotation here also tells `serde_json` to deserialize `input` as a sequence of
+/// // `String`.
+/// let mut picker: Picker<String, _> = Picker::new(StrRenderer);
+/// let injector = picker.injector();
+///
+/// // in practice, you might read from a file or a socket and use
+/// // `Deserializer::from_reader` instead, and run this in a separate thread
+/// injector
+///     .deserialize(&mut Deserializer::from_str(input))
+///     .unwrap();
+/// ```
 pub struct Injector<T, R> {
     inner: nc::Injector<T>,
     render: Arc<R>,

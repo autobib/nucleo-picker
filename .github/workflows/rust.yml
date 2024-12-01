@@ -19,9 +19,9 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
     - name: Build test binaries
-      run: cargo test --no-run
+      run: cargo test --no-run --all-features
     - name: Run tests
-      run: cargo test --no-fail-fast
+      run: cargo test --no-fail-fast --all-features
 
   checks:
     runs-on: ubuntu-latest
