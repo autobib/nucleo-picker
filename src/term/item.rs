@@ -298,7 +298,7 @@ impl Layout {
 
                 // now we have completely filled the bottom margin, so we fill the space above
                 // until we hit the match index
-                margin_bottom
+                total_bottom_height - 1
                     + match Self::extend_layout(
                         &mut self.above,
                         height - total_bottom_height,

@@ -1,25 +1,27 @@
-# Picker Interactive Usage
-This file contains documentation for *using* the picker when it is actively running.
+# Picker interactive usage
+This file contains documentation for interactive use of the picker.
+Jump to:
 
 - [Query syntax](#query-syntax)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Scroll and paste](#scroll-and-paste)
 
-## Query syntax
-The query syntax is as documented in the [nucleo-matcher](https://docs.rs/nucleo-matcher/latest/nucleo_matcher/pattern/enum.AtomKind.html) crate.
 
-Essentially, each query is parsed as a sequence of whitespace-separated "atoms", such as `a1 a2 a3`.
+## Query syntax
+The query is parsed as a sequence of whitespace-separated "atoms", such as `a1 a2 a3`.
 By default, each atom corresponds to a fuzzy match: that is, higher score is assigned for a closer match, but exact match is not required.
 There is also a special syntax for various types of exact matches.
 
-- `'foo` match an exact substring, with negation `!foo`
-- `^foo` must match an exact prefix, with negation `!^foo`
-- `foo$` must match an exact suffix, with negation `!foo$`
-- `^foo$` must match the entire string exactly, with negation `!^foo$`
+- `'foo` matches an exact substring, with negation `!foo`
+- `^foo` matches an exact prefix, with negation `!^foo`
+- `foo$` matches an exact suffix, with negation `!foo$`
+- `^foo$` matches the entire string exactly, with negation `!^foo$`
 
 Whitespace and control symbols `'^$!` can also be interpreted literally by escaping with a backslash `\`.
 
-For example, the query `foo ^bar` means that we match for strings which contain `foo` (or similar), and which begin with the exact string `bar`.
+For example, the query `fo\$ ^bar` means that we match for strings which contain `fo$` (or similar), and which begin with the exact string `bar`.
+
+The query syntax is also documented in the [nucleo-matcher](https://docs.rs/nucleo-matcher/latest/nucleo_matcher/pattern/enum.AtomKind.html) crate.
 
 
 ## Keyboard shortcuts
