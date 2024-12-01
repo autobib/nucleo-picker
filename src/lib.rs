@@ -201,6 +201,12 @@ pub trait Render<T> {
 }
 
 /// Specify configuration options for a [`Picker`].
+///
+/// Initialize with the [`new`](PickerOptions::new) function or (equivalently) the
+/// [`Default`](PickerOptions::default) implementation, specify options, and then convert to e
+/// [`Picker`] using the [`picker`](PickerOptions::picker) method.
+///
+/// ## Example
 /// ```
 /// use nucleo_picker::{render::StrRenderer, Picker, PickerOptions};
 ///
