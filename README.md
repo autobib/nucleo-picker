@@ -19,10 +19,43 @@ If you are looking for a list of recent changes, see the [`CHANGELOG.md`](CHANGE
   - Careful Unicode handling using [Unicode text segmentation](https://crates.io/crates/unicode-segmentation) and [Unicode width](https://crates.io/crates/unicode-width).
   - Correctly handle multi-line or overflowed items.
   - Responsive terminal rendering with batched keyboard input handling.
-- Convenient API:
+- Ergonomic API:
   - Non-blocking to match on streaming input.
   - Generic `Picker` for any type `T` which is `Send + Sync + 'static`.
   - Customizable rendering of crate-local and foreign types with the `Render` trait.
+
+## Example
+Implement a heavily simplified `fzf` clone in 30 lines of code.
+Run with `cat myfile.txt | cargo run --release --example fzf`.
+```rust
+use std::{
+    io::{self, BufRead},
+    process::exit,
+    thread::spawn,
+};
+
+use nucleo_picker::{render::StrRenderer, Picker};
+
+fn main() -> io::Result<()> {
+    let mut picker = Picker::new(StrRenderer);
+
+    let injector = picker.injector();
+    spawn(move || {
+        for line in io::stdin().lock().lines() {
+            match line {
+                Ok(s) => injector.push(s),
+                Err(_) => {}
+            }
+        }
+    });
+
+    match picker.pick()? {
+        Some(it) => println!("{it}"),
+        None => exit(1),
+    }
+    Ok(())
+}
+```
 
 ## Related crates
 This crate mainly exists as a result of the author's annoyance with pretty much every fuzzy picker TUI in the rust ecosystem.
