@@ -26,7 +26,12 @@ If you are looking for a list of recent changes, see the [`CHANGELOG.md`](CHANGE
 
 ## Example
 Implement a heavily simplified `fzf` clone in 30 lines of code.
-Run with `cat myfile.txt | cargo run --release --example fzf`.
+Try it out with:
+```
+cargo build --release --example fzf
+cat myfile.txt | ./target/release/examples/fzf
+```
+The code to create the binary:
 ```rust
 use std::{
     io::{self, BufRead},
