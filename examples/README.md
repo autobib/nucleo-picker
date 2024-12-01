@@ -7,14 +7,14 @@ cargo run --release --example <name>
 ```
 where `<name>` is the part of the path without the `.rs` suffix.
 
-Some of the examples may require arguments to run properly; see the individual files for more information.
+Some of the examples may require arguments or feature flags to run properly; see the individual files for more information.
 
 ## Directory
 
-File                         | Description
------------------------------|------------
-[blocking.rs](blocking.rs)   | A basic blocking example with a very small number of matches.
-[find.rs](find.rs)           | A basic [find](https://en.wikipedia.org/wiki/Find_(Unix)) implementation with fuzzy matching on resulting items.
-[fzf.rs](fzf.rs)             | A simple [fzf](https://github.com/junegunn/fzf) clone which reads lines from STDIN and presents for matching.
-[multiline.rs](multiline.rs) | A rendering demonstration in the presence of long lines to show highlight scroll-through and line-break handling.
-[options.rs](options.rs)     | Some customization examples of the picker.
+File                       | Description
+---------------------------|------------
+[blocking.rs](blocking.rs) | A basic blocking example with a very small number of matches.
+[find.rs](find.rs)         | A basic [find](https://en.wikipedia.org/wiki/Find_(Unix)) implementation with fuzzy matching on resulting items.
+[fzf.rs](fzf.rs)           | A simple [fzf](https://github.com/junegunn/fzf) clone which reads lines from STDIN and presents for matching.
+[options.rs](options.rs)   | Some customization examples of the picker.
+[serde.rs](serde.rs)       | Use `serde` to deserialize picker items from input.

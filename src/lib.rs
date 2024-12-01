@@ -27,6 +27,7 @@
 
 mod bind;
 mod component;
+mod injector;
 pub mod render;
 mod term;
 
@@ -54,6 +55,7 @@ use nucleo::{
 
 pub use nucleo;
 
+pub use crate::injector::Injector;
 use crate::{
     component::normalize_query_string,
     term::{Compositor, CompositorBuffer, EventSummary, PickerConfig},
@@ -196,40 +198,6 @@ pub trait Render<T> {
     /// Render the given value as a column in the picker. See the [trait-level docs](Render) for
     /// more detail.
     fn render<'a>(&self, value: &'a T) -> Self::Str<'a>;
-}
-
-/// A handle which allows adding new items to a [`Picker`].
-///
-/// This struct is cheaply clonable and can be sent across threads.
-pub struct Injector<T, R> {
-    inner: nc::Injector<T>,
-    render: Arc<R>,
-}
-
-impl<T, R> Clone for Injector<T, R> {
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-            render: self.render.clone(),
-        }
-    }
-}
-
-impl<T, R: Render<T>> Injector<T, R> {
-    /// Send a value to the matcher engine.
-    pub fn push(&self, value: T) {
-        self.inner.push(value, |s, columns| {
-            columns[0] = self.render.render(s).as_ref().into();
-        });
-    }
-}
-
-impl<T, R: Render<T>> Extend<T> for Injector<T, R> {
-    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
-        for it in iter {
-            self.push(it);
-        }
-    }
 }
 
 /// Specify configuration options for a [`Picker`].
@@ -447,10 +415,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// Get an [`Injector`] to send items to the picker.
     #[must_use]
     pub fn injector(&self) -> Injector<T, R> {
-        Injector {
-            inner: self.matcher.injector(),
-            render: self.render.clone(),
-        }
+        Injector::new(self.matcher.injector(), self.render.clone())
     }
 
     /// A convenience method to obtain the rendered version of a value as it would appear in the

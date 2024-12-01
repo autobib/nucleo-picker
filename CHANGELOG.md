@@ -37,7 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Convenient `Render` implementations in new `render` module.
 - New configuration options for `PickerOptions`. (#2)
 - New example: `fzf` clone
-- `Picker` and `Injector` now implement `Extend` for convenient item adding.
+- Convenience features for adding new items to a `Picker`:
+  - `Picker` and `Injector` now implement `Extend` for convenient item adding.
+  - With the optional `serde` feature, an `&Injector` now implements `DeserializeSeed` to allow adding items from the picker directly from a deserializer.
 
 ## [0.5.0] - 2024-11-7
 

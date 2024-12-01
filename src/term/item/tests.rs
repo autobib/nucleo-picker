@@ -559,6 +559,42 @@ fn test_multiline_jitter() {
 }
 
 #[test]
+fn test_large_multi() {
+    let mut nc = Nucleo::new(Config::DEFAULT, Arc::new(|| {}), Some(1), 1);
+
+    reset(&mut nc, &["0\n1\n2\n3\n4\n5", "0\n1", "0\n1", "0\n1\n2\n3"]);
+    let mut layout = Layout::default();
+
+    assert_eq!(
+        layout.recompute(30, 3, 3, 0, nc.snapshot()),
+        LayoutView {
+            below: &[],
+            current: 6,
+            above: &[2, 2, 4],
+        }
+    );
+
+    assert_eq!(
+        layout.recompute(30, 3, 3, 1, nc.snapshot()),
+        LayoutView {
+            below: &[6],
+            current: 2,
+            above: &[2, 4],
+        }
+    );
+
+    println!("Running");
+    assert_eq!(
+        layout.recompute(30, 3, 3, 0, nc.snapshot()),
+        LayoutView {
+            below: &[],
+            current: 6,
+            above: &[2, 2, 4],
+        }
+    );
+}
+
+#[test]
 fn test_layout_mid_screen() {
     let mut nc = Nucleo::new(Config::DEFAULT, Arc::new(|| {}), Some(1), 1);
 
