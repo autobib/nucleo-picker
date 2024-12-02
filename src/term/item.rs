@@ -1,62 +1,106 @@
 #[cfg(test)]
 mod tests;
 
-use std::num::NonZero;
+use std::{num::NonZero, ops::RangeBounds};
 
 use memchr::memchr_iter;
 use nucleo::{Item, Snapshot, Utf32Str};
 
 use crate::Render;
 
+/// A special buffer of items which need not have fixed widths.
+pub trait VariableSizeBuffer {
+    type Item<'a>
+    where
+        Self: 'a;
+
+    /// The total number items contained in the buffer.
+    fn count(&self) -> u32;
+
+    /// Obtain an iterator of items in the given range.
+    fn items(
+        &self,
+        range: impl RangeBounds<u32>,
+    ) -> impl ExactSizeIterator<Item = Self::Item<'_>> + DoubleEndedIterator + '_;
+
+    /// Compute the width of an item in the buffer.
+    fn size(item: &Self::Item<'_>) -> NonZero<usize>;
+
+    /// A convenience function to obtain an iterator of the item widths in the given range.
+    fn item_sizes(&self, range: impl RangeBounds<u32>) -> impl DoubleEndedIterator<Item = usize> {
+        self.items(range).map(|item| Self::size(&item).get())
+    }
+}
+
+impl<T: Send + Sync + 'static> VariableSizeBuffer for Snapshot<T> {
+    type Item<'a>
+        = Item<'a, T>
+    where
+        Self: 'a;
+
+    fn count(&self) -> u32 {
+        self.matched_item_count()
+    }
+
+    fn items(
+        &self,
+        range: impl RangeBounds<u32>,
+    ) -> impl ExactSizeIterator<Item = Self::Item<'_>> + DoubleEndedIterator + '_ {
+        self.matched_items(range)
+    }
+
+    fn size(item: &Self::Item<'_>) -> NonZero<usize> {
+        let num_linebreaks = match item.matcher_columns[0].slice(..) {
+            Utf32Str::Ascii(bytes) => memchr_iter(b'\n', bytes).count(),
+            Utf32Str::Unicode(chars) => {
+                // TODO: there is an upstream Unicode handling issue in that windows-style newlines are
+                // mapped to `\r` instead of `\n`. Therefore we count both the number of occurrences of
+                // `\r` and `\n`. This handles mixed `\r\n` as well as `\n`, but returns the incorrect
+                // value in the presence of free-standing carriage returns.
+                chars
+                    .iter()
+                    .filter(|ch| **ch == '\n' || **ch == '\r')
+                    .count()
+            }
+        };
+        // SAFETY: we are adding 1 to a usize
+        unsafe { NonZero::new_unchecked(1 + num_linebreaks) }
+    }
+}
+
 /// A container type since a [`Render`] implementation might return a type which needs ownership.
 ///
 /// For the given item, check the corresponding variant. If the variant is ASCII, that means we can
 /// use much more efficient ASCII processing on rendering.
-pub enum Rendered<'a, S> {
+pub enum RenderedItem<'a, S> {
     Ascii(&'a str),
     Unicode(S),
 }
 
-pub fn new_rendered<'a, T, R: Render<T>>(
-    item: &Item<'a, T>,
-    renderer: &R,
-) -> Rendered<'a, <R as Render<T>>::Str<'a>> {
-    if let Utf32Str::Ascii(bytes) = item.matcher_columns[0].slice(..) {
-        Rendered::Ascii(unsafe { std::str::from_utf8_unchecked(bytes) })
-    } else {
-        Rendered::Unicode(renderer.render(item.data))
+impl<'a, S> RenderedItem<'a, S> {
+    /// Initialize a new `RenderedItem` from an [`Item`] and a [`Render`] implementation.
+    pub fn new<T, R>(item: &Item<'a, T>, renderer: &R) -> Self
+    where
+        R: Render<T, Str<'a> = S>,
+    {
+        if let Utf32Str::Ascii(bytes) = item.matcher_columns[0].slice(..) {
+            RenderedItem::Ascii(unsafe { std::str::from_utf8_unchecked(bytes) })
+        } else {
+            RenderedItem::Unicode(renderer.render(item.data))
+        }
     }
 }
 
-impl<S: AsRef<str>> AsRef<str> for Rendered<'_, S> {
+impl<S: AsRef<str>> AsRef<str> for RenderedItem<'_, S> {
     fn as_ref(&self) -> &str {
         match self {
-            Rendered::Ascii(s) => s,
-            Rendered::Unicode(u) => u.as_ref(),
+            RenderedItem::Ascii(s) => s,
+            RenderedItem::Unicode(u) => u.as_ref(),
         }
     }
 }
 
-/// Determine how many lines it will take to render a given item.
-fn count_lines<T>(item: &Item<'_, T>) -> NonZero<usize> {
-    let num_linebreaks = match item.matcher_columns[0].slice(..) {
-        Utf32Str::Ascii(bytes) => memchr_iter(b'\n', bytes).count(),
-        Utf32Str::Unicode(chars) => {
-            // TODO: there is an upstream Unicode handling issue in that windows-style newlines are
-            // mapped to `\r` instead of `\n`. Therefore we count both the number of occurrences of
-            // `\r` and `\n`. This handles mixed `\r\n` as well as `\n`, but returns the incorrect
-            // value in the presence of free-standing carriage returns.
-            chars
-                .iter()
-                .filter(|ch| **ch == '\n' || **ch == '\r')
-                .count()
-        }
-    };
-    // SAFETY: we are adding 1 to a usize
-    unsafe { NonZero::new_unchecked(1 + num_linebreaks) }
-}
-
-/// A representation of the screen layout.
+/// A view into a [`Layout`] at a given point in time.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LayoutView<'a> {
     /// The number of lines to render for each item beginning below the screen index and rendering
@@ -69,7 +113,7 @@ pub struct LayoutView<'a> {
     pub above: &'a [u16],
 }
 
-/// A representation of the internal screen layout.
+/// Stateful representation of the screen layout.
 ///
 /// The layout is top-biased: when there is a limited amount of space and the given item is very
 /// large, prefer placing the cursor at a position which shows the top lines instead of the bottom
@@ -100,7 +144,7 @@ impl Layout {
     /// Extend the line space buffer from the given [`Item`] iterator. Returns the amount of
     /// remaining space at the end (if any).
     #[inline]
-    fn extend_layout<'a, T: Send + Sync + 'static, I: Iterator<Item = Item<'a, T>>>(
+    fn extend_layout<I: Iterator<Item = usize>>(
         buffer: &mut Vec<u16>,
         remaining_space: u16,
         items: I,
@@ -112,13 +156,13 @@ impl Layout {
     /// remaining space at the end in the `Ok` variant, or the amount by which the final item was
     /// truncated in the `Err` variant.
     #[inline]
-    fn extend_layout_excess<'a, T: Send + Sync + 'static, I: Iterator<Item = Item<'a, T>>>(
+    fn extend_layout_excess<I: Iterator<Item = usize>>(
         buffer: &mut Vec<u16>,
         mut remaining_space: u16,
         items: I,
     ) -> Result<u16, (usize, usize)> {
         for (idx, item) in items.enumerate() {
-            let required_space = count_lines(&item).get();
+            let required_space = item;
             if required_space >= remaining_space.into() {
                 if remaining_space != 0 {
                     buffer.push(remaining_space);
@@ -134,64 +178,65 @@ impl Layout {
 
     /// Reset the screen index in case the screen size has changed.
     #[inline]
-    fn clamp_indices<T: Send + Sync + 'static>(
-        &mut self,
-        height: u16,
-        margin_top: u16,
-        snapshot: &Snapshot<T>,
-    ) {
-        self.screen_index = self.screen_index.min(height - margin_top - 1);
-        self.match_index = self
-            .match_index
-            .min(snapshot.matched_item_count().saturating_sub(1));
+    fn clamp_indices<B: VariableSizeBuffer>(&mut self, size: u16, margin_top: u16, buffer: &B) {
+        self.screen_index = self.screen_index.min(size - margin_top - 1);
+        self.match_index = self.match_index.min(buffer.count().saturating_sub(1));
     }
 
+    /// Recompute the internal layout given a selection index, which will become the new match
+    /// index after the method is completed.
+    ///
+    /// This method is used to process actions such as moving the cursor up and down. Since we
+    /// process keyboard input in batches, this method is designed to allow arbitrary changes
+    /// in the selection.
+    ///
+    /// After recomputing, return a view of the internal buffers to use when rendering the screen.
     #[must_use]
-    pub fn recompute<T: Send + Sync + 'static>(
+    pub fn recompute<B: VariableSizeBuffer>(
         &mut self,
-        height: u16,
+        total_size: u16,
         margin_bottom: u16,
         margin_top: u16,
         selection: u32,
-        snapshot: &Snapshot<T>,
+        buffer: &B,
     ) -> LayoutView {
-        debug_assert!(margin_bottom + margin_top < height);
-        debug_assert!(selection < snapshot.matched_item_count());
-        self.clamp_indices(height, margin_top, snapshot);
+        debug_assert!(margin_bottom + margin_top < total_size);
+        debug_assert!(selection < buffer.count());
+        self.clamp_indices(total_size, margin_top, buffer);
 
         self.below_and_including.clear();
         self.above.clear();
         self.screen_index = if selection >= self.match_index {
-            self.recompute_above(height, margin_top, selection, snapshot)
+            self.recompute_above(total_size, margin_top, selection, buffer)
         } else {
-            self.recompute_below(height, margin_bottom, margin_top, selection, snapshot)
+            self.recompute_below(total_size, margin_bottom, margin_top, selection, buffer)
         };
         self.match_index = selection;
 
-        debug_assert!(self.screen_index < height);
+        debug_assert!(self.screen_index < total_size);
         let view = self.view();
         debug_assert!(
             view.above.iter().sum::<u16>() + view.below.iter().sum::<u16>() + view.current
-                <= height
+                <= total_size
         );
         view
     }
 
     #[inline]
-    fn recompute_above<T: Send + Sync + 'static>(
+    fn recompute_above<B: VariableSizeBuffer>(
         &mut self,
-        height: u16,
+        total_size: u16,
         margin_top: u16,
         selection: u32,
-        snapshot: &Snapshot<T>,
+        buffer: &B,
     ) -> u16 {
         // first, iterate downwards until one of the following happens:
         // 1. we run out of screen space
         // 2. we hit the current matched item
         let remaining_space_above = match Self::extend_layout(
             &mut self.below_and_including,
-            height - margin_top,
-            snapshot.matched_items(self.match_index..=selection).rev(),
+            total_size - margin_top,
+            buffer.item_sizes(self.match_index..=selection).rev(),
         ) {
             None => {
                 // we ran out of space, so we fill the space above, which is just `margin_top`.
@@ -219,39 +264,39 @@ impl Layout {
                     + Self::extend_layout(
                         &mut self.below_and_including,
                         remaining_space_below,
-                        snapshot.matched_items(..self.match_index).rev(),
+                        buffer.item_sizes(..self.match_index).rev(),
                     )
                     .unwrap_or(0)
             }
         };
 
         // extend above
-        if selection < snapshot.matched_item_count() - 1 {
+        if selection < buffer.count() - 1 {
             Self::extend_layout(
                 &mut self.above,
                 remaining_space_above,
-                snapshot.matched_items(selection + 1..),
+                buffer.item_sizes(selection + 1..),
             );
         }
 
         // set the screen index
-        height - remaining_space_above - 1
+        total_size - remaining_space_above - 1
     }
 
     #[inline]
-    fn recompute_below<T: Send + Sync + 'static>(
+    fn recompute_below<B: VariableSizeBuffer>(
         &mut self,
-        height: u16,
+        total_size: u16,
         margin_bottom: u16,
         margin_top: u16,
         selection: u32,
-        snapshot: &Snapshot<T>,
+        buffer: &B,
     ) -> u16 {
         // first, render as much of the selection as possible
         match Self::extend_layout(
             &mut self.below_and_including,
-            height - margin_top,
-            snapshot.matched_items(selection..=selection),
+            total_size - margin_top,
+            buffer.item_sizes(selection..=selection),
         ) {
             None => {
                 // rendering the selection already took all the space, so we just render the top
@@ -259,34 +304,34 @@ impl Layout {
                 Self::extend_layout(
                     &mut self.above,
                     margin_top,
-                    snapshot.matched_items(selection + 1..),
+                    buffer.item_sizes(selection + 1..),
                 );
 
-                height - margin_top - 1
+                total_size - margin_top - 1
             }
             Some(remaining) => {
                 // there is leftover space: this is how much space the selection took
-                let selection_height = height - margin_top - remaining;
+                let selection_size = total_size - margin_top - remaining;
 
-                let (extra_rendered, total_bottom_height, bottom_item_excess) =
-                    if selection_height > margin_bottom {
+                let (extra_rendered, total_bottom_size, bottom_item_excess) =
+                    if selection_size > margin_bottom {
                         // the selection is fully rendered and large enough to fill the bottom margin
-                        (0, selection_height, 0)
+                        (0, selection_size, 0)
                     } else {
                         // the selection didn't completely fill the bottom margin, fill it and keep
                         // track of the extra space
                         match Self::extend_layout_excess(
                             &mut self.below_and_including,
-                            margin_bottom - selection_height + 1,
-                            snapshot.matched_items(..selection).rev(),
+                            margin_bottom - selection_size + 1,
+                            buffer.item_sizes(..selection).rev(),
                         ) {
                             Ok(remaining_bottom_margin) => {
                                 // we hit the bottom of the screen, so we just render the remaining
                                 // space above and return early
                                 Self::extend_layout(
                                     &mut self.above,
-                                    height - margin_bottom - 1 + remaining_bottom_margin,
-                                    snapshot.matched_items(selection + 1..),
+                                    total_size - margin_bottom - 1 + remaining_bottom_margin,
+                                    buffer.item_sizes(selection + 1..),
                                 );
                                 return margin_bottom - remaining_bottom_margin;
                             }
@@ -298,11 +343,11 @@ impl Layout {
 
                 // now we have completely filled the bottom margin, so we fill the space above
                 // until we hit the match index
-                total_bottom_height - 1
+                total_bottom_size - 1
                     + match Self::extend_layout(
                         &mut self.above,
-                        height - total_bottom_height,
-                        snapshot.matched_items(selection + 1..=self.match_index),
+                        total_size - total_bottom_size,
+                        buffer.item_sizes(selection + 1..=self.match_index),
                     ) {
                         None => {
                             // we ran out of space, so we're done; the bottom margin is already
@@ -311,9 +356,9 @@ impl Layout {
                         }
                         Some(remaining_space) => {
                             // truncate the amount of remaining space above to not exceed the previous
-                            // space above (which is exactly `height - self.screen_index - 1`) to
+                            // space above (which is exactly `total_size - self.screen_index - 1`) to
                             // prevent the screen from scrolling up unnecessarily
-                            let max_space_above = height - self.screen_index - 1;
+                            let max_space_above = total_size - self.screen_index - 1;
                             let (remaining_space_below, remaining_space_above) =
                                 if max_space_above < remaining_space {
                                     (remaining_space - max_space_above, max_space_above)
@@ -322,11 +367,11 @@ impl Layout {
                                 };
 
                             // render above
-                            if self.match_index + 1 < snapshot.matched_item_count() {
+                            if self.match_index + 1 < buffer.count() {
                                 Self::extend_layout(
                                     &mut self.above,
                                     remaining_space_above,
-                                    snapshot.matched_items(self.match_index + 1..),
+                                    buffer.item_sizes(self.match_index + 1..),
                                 );
                             }
 
@@ -347,8 +392,8 @@ impl Layout {
                                     - Self::extend_layout(
                                         &mut self.below_and_including,
                                         remaining_space_below - bottom_item_excess as u16,
-                                        snapshot
-                                            .matched_items(..selection - extra_rendered as u32)
+                                        buffer
+                                            .item_sizes(..selection - extra_rendered as u32)
                                             .rev(),
                                     )
                                     .unwrap_or(0)

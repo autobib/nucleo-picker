@@ -3,7 +3,7 @@
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::module_name_repetitions)]
 
-use std::ops::Range;
+use std::{iter::repeat, ops::Range};
 
 use memchr::memchr_iter;
 
@@ -21,10 +21,9 @@ use memchr::memchr_iter;
 /// `From<&str>` implementation that we depend on for consistency of internal representation only
 /// performs an `.is_ascii()` check, and then segments based on byte offsets instead of graphemes.
 ///
-/// In essence, the *correct and safe* to use these implementations as long as we keep track of
-/// what nucleo is doing upstream: for a given `&str`, if the match object is
-/// [`nucleo::Utf32Str::Unicode`], we use [`UnicodeProcessor`], and if the match object is
-/// [`nucleo::Utf32Str::Ascii`], we use [`AsciiProcessor`].
+/// In essence, the *correct and safe* to use these implementations is to do exactly what nucleo
+/// is doing upstream: for a given `&str`, if the match object is [`nucleo::Utf32Str::Unicode`],
+/// we use [`UnicodeProcessor`], and if the match object is [`nucleo::Utf32Str::Ascii`], we use
 /// [`AsciiProcessor`].
 pub trait Processor: private::Sealed {
     /// Compute the width (in terms of visible columns) of the input string.
@@ -36,7 +35,7 @@ pub trait Processor: private::Sealed {
     /// Return an iterator over pairs `(offset, grapheme_width)` for the graphemes in `input`.
     fn grapheme_index_widths(input: &str) -> impl Iterator<Item = (usize, usize)>;
 
-    /// Compute the width (in terms of visible columns) if the last grapheme.
+    /// Compute the width (in terms of visible columns) of the last grapheme.
     ///
     /// This method assumes that `input` is non-empty and does not contain a trailing newline. If
     /// this is not the case, the returned value is undefined.
@@ -95,33 +94,9 @@ impl Processor for UnicodeProcessor {
 
 pub struct AsciiProcessor;
 
-struct Counter {
-    counter: usize,
-    limit: usize,
-}
-
-impl Counter {
-    fn new(limit: usize) -> Self {
-        Self { counter: 0, limit }
-    }
-}
-
-impl Iterator for Counter {
-    type Item = (usize, usize);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.counter < self.limit {
-            let ret = Some((self.counter, 1));
-            self.counter += 1;
-            ret
-        } else {
-            None
-        }
-    }
-}
-
 impl Processor for AsciiProcessor {
-    /// Since we assume there are no carriage returns and no newlines,
+    /// Since we assume there are no carriage returns and no newlines, the width of a string is
+    /// just the number of bytes.
     #[inline]
     fn width(input: &str) -> usize {
         debug_assert!(is_ascii_safe(input));
@@ -131,7 +106,7 @@ impl Processor for AsciiProcessor {
     #[inline]
     fn grapheme_index_widths(input: &str) -> impl Iterator<Item = (usize, usize)> {
         debug_assert!(is_ascii_safe(input));
-        Counter::new(input.len())
+        repeat(1).take(input.len()).enumerate()
     }
 
     #[inline]

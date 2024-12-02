@@ -27,7 +27,7 @@ use nucleo::{
 };
 
 use self::{
-    item::{new_rendered, Layout, Rendered},
+    item::{Layout, RenderedItem},
     span::{Head, KeepLines, Spanned, Tail},
     unicode::{AsciiProcessor, Span, UnicodeProcessor},
 };
@@ -345,8 +345,8 @@ impl<'a> Compositor<'a> {
             buffer.indices.dedup();
         }
 
-        match new_rendered(item, render) {
-            Rendered::Ascii(s) => Spanned::<'_, AsciiProcessor>::new(
+        match RenderedItem::new(item, render) {
+            RenderedItem::Ascii(s) => Spanned::<'_, AsciiProcessor>::new(
                 &buffer.indices,
                 s,
                 &mut buffer.spans,
@@ -359,7 +359,7 @@ impl<'a> Compositor<'a> {
                 max_draw_length,
                 config.right_highlight_padding,
             ),
-            Rendered::Unicode(r) => Spanned::<'_, UnicodeProcessor>::new(
+            RenderedItem::Unicode(r) => Spanned::<'_, UnicodeProcessor>::new(
                 &buffer.indices,
                 r.as_ref(),
                 &mut buffer.spans,
