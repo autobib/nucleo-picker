@@ -124,14 +124,16 @@ use crate::{
 /// calculations are performed to keep track of the amount of space that it takes on the screen to
 /// display a given item.
 ///
-/// The main exception is that tabs (`\t`) are not supported correctly: mainly, width calculations
+/// The main exception is that tabs (`\t`) and carriage returns (`\r`) which are not bound in a
+/// windows-style newline (i.e. `\r\n`) are not supported correctly. Mainly, width calculations
 /// will most likely be incorrect since the offset from printing a `\t` depends on the position
-/// within the screen. In other words, a tab is more like a conditional cursor movement rather
-/// than a printed character.
+/// within the screen, and a free-standing carriage return acts as a cursor movement to the start
+/// of the line. In other words, tab and carriage returns are more like context-dependent cursor
+/// movements rather than printed character.
 ///
-/// It is best to avoid tabs in your rendered format, and if you do not have control over the
-/// incoming data and you suspect it will contain tabs, the most robust solution is likely to just
-/// replace tabs with spaces.
+/// It is best to avoid such characters tabs in your rendered format. If you do not have control
+/// over the incoming data, the most robust solution is likely to perform substitutions during
+/// rendering.
 /// ```
 /// # use nucleo_picker::Render;
 /// use std::borrow::Cow;
