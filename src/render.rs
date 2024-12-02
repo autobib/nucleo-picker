@@ -9,6 +9,8 @@ use std::{borrow::Cow, path::Path};
 use super::Render;
 
 /// A renderer for any type which de-references as [`str`], such as a [`String`].
+///
+/// ## Example
 /// ```
 /// # use nucleo_picker::{render::StrRenderer, Render};
 /// let str_renderer = StrRenderer;
@@ -25,13 +27,15 @@ impl<T: AsRef<str>> Render<T> for StrRenderer {
     where
         T: 'a;
 
-    fn render<'a>(&self, value: &'a T) -> Self::Str<'a> {
-        value.as_ref()
+    fn render<'a>(&self, item: &'a T) -> Self::Str<'a> {
+        item.as_ref()
     }
 }
 
 /// A renderer for any type which de-references as [`Path`], such as a
 /// [`PathBuf`](std::path::PathBuf).
+///
+/// ## Example
 /// ```
 /// # use nucleo_picker::{render::PathRenderer, Render};
 /// use std::path::PathBuf;
@@ -54,12 +58,14 @@ impl<T: AsRef<Path>> Render<T> for PathRenderer {
     where
         T: 'a;
 
-    fn render<'a>(&self, value: &'a T) -> Self::Str<'a> {
-        value.as_ref().to_string_lossy()
+    fn render<'a>(&self, item: &'a T) -> Self::Str<'a> {
+        item.as_ref().to_string_lossy()
     }
 }
 
 /// A renderer which uses a type's [`Display`](std::fmt::Display) implementation.
+///
+/// ## Example
 /// ```
 /// # use nucleo_picker::{render::DisplayRenderer, Render};
 /// let display_renderer = DisplayRenderer;
@@ -74,7 +80,7 @@ impl<T: ToString> Render<T> for DisplayRenderer {
     where
         T: 'a;
 
-    fn render<'a>(&self, value: &'a T) -> Self::Str<'a> {
-        value.to_string()
+    fn render<'a>(&self, item: &'a T) -> Self::Str<'a> {
+        item.to_string()
     }
 }
