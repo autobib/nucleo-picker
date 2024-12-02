@@ -61,9 +61,9 @@ impl<T: Send + Sync + 'static, R: Render<T>> Injector<T, R> {
 }
 
 impl<T, R: Render<T>> Injector<T, R> {
-    /// Send a value to the matcher engine.
-    pub fn push(&self, value: T) {
-        self.inner.push(value, |s, columns| {
+    /// Add an item to the picker.
+    pub fn push(&self, item: T) {
+        self.inner.push(item, |s, columns| {
             columns[0] = self.render.render(s).as_ref().into();
         });
     }
@@ -102,8 +102,8 @@ mod serde {
         where
             S: SeqAccess<'de>,
         {
-            while let Some(value) = seq.next_element()? {
-                self.push(value);
+            while let Some(item) = seq.next_element()? {
+                self.push(item);
             }
 
             Ok(())

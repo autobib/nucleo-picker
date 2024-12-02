@@ -89,8 +89,8 @@ use crate::{
 /// impl Render<DirEntry> for DirEntryRenderer {
 ///     type Str<'a> = Cow<'a, str>;
 ///
-///     fn render<'a>(&self, value: &'a DirEntry) -> Self::Str<'a> {
-///         value.path().to_string_lossy()
+///     fn render<'a>(&self, item: &'a DirEntry) -> Self::Str<'a> {
+///         item.path().to_string_lossy()
 ///     }
 /// }
 /// ```
@@ -107,10 +107,10 @@ use crate::{
 ///     type Str<'a> = String
 ///         where T: 'a;
 ///
-///     fn render<'a>(&self, value: &'a T) -> Self::Str<'a> {
+///     fn render<'a>(&self, item: &'a T) -> Self::Str<'a> {
 ///         let mut rendered = String::new();
 ///         rendered.push_str(&self.prefix);
-///         rendered.push_str(value.as_ref());
+///         rendered.push_str(item.as_ref());
 ///         rendered
 ///     }
 /// }
@@ -141,14 +141,14 @@ use crate::{
 ///     where
 ///         T: 'a;
 ///
-///     fn render<'a>(&self, value: &'a T) -> Self::Str<'a> {
-///         let value_ref = value.as_ref();
+///     fn render<'a>(&self, item: &'a T) -> Self::Str<'a> {
+///         let item_ref = item.as_ref();
 ///
-///         if value_ref.contains('\t') {
+///         if item_ref.contains('\t') {
 ///             // replace tabs with two spaces
-///             Cow::Owned(value_ref.replace('\t', "  "))
+///             Cow::Owned(item_ref.replace('\t', "  "))
 ///         } else {
-///             Cow::Borrowed(value_ref)
+///             Cow::Borrowed(item_ref)
 ///         }
 ///     }
 /// }
@@ -195,9 +195,9 @@ pub trait Render<T> {
     where
         T: 'a;
 
-    /// Render the given value as a column in the picker. See the [trait-level docs](Render) for
-    /// more detail.
-    fn render<'a>(&self, value: &'a T) -> Self::Str<'a>;
+    /// Render the given item as it should appear in the picker. See the
+    /// [trait-level docs](Render) for more detail.
+    fn render<'a>(&self, item: &'a T) -> Self::Str<'a>;
 }
 
 /// Specify configuration options for a [`Picker`].
@@ -385,8 +385,8 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         Duration::from_millis(16)
     }
 
-    /// Update the default query string to a provided value. This is mainly useful for modifying the
-    /// query string before re-using the [`Picker`].
+    /// Update the default query string. This is mainly useful for modifying the query string
+    /// before re-using the [`Picker`].
     ///
     /// See also the [`PickerOptions::query`] method to set the query during initialization.
     #[inline]
@@ -424,14 +424,14 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         Injector::new(self.matcher.injector(), self.render.clone())
     }
 
-    /// A convenience method to obtain the rendered version of a value as it would appear in the
+    /// A convenience method to obtain the rendered version of an item as it would appear in the
     /// picker.
     ///
     /// This is the same as calling [`Render::render`] on the [`Render`] implementation internal
     /// to the picker.
     #[inline]
-    pub fn render<'a>(&self, value: &'a T) -> <R as Render<T>>::Str<'a> {
-        self.render.render(value)
+    pub fn render<'a>(&self, item: &'a T) -> <R as Render<T>>::Str<'a> {
+        self.render.render(item)
     }
 
     /// Open the interactive picker prompt and return the picked item, if any.
