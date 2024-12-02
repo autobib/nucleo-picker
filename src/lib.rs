@@ -165,8 +165,8 @@ use crate::{
 ///
 /// In particular, very slow [`Render`] implementations which output non-ASCII will reduce
 /// interactivity of the terminal interface. A crude rule of thumb is that rendering a single
-/// item should take (in the worst case) at most 100μs. For comparison, display formatting an
-/// `f64` takes less than 1μs.
+/// item should take (in the worst case) at most 100μs. For comparison, display formatting a
+/// `f64` takes around 100ns.
 ///
 /// If this is not the case for your type, it is highly recommended to cache the render
 /// computation:
