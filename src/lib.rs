@@ -66,13 +66,15 @@ use crate::{
 ///
 /// Some renderers for common types are already implemented in the [`render`] module. In
 /// many cases, the [`DisplayRenderer`](render::DisplayRenderer) is particularly easy to use.
+/// This trait is also automatically implemented for [closures which return `Cow<'a,
+/// str>`](#impl-Render<T>-for-R).
 ///
-/// Rendering *must* be **idempotent**: for a given render implementation `R` and a item `T`, the call
+/// Rendering *must* be **pure**: for a given render implementation `R` and a item `T`, the call
 /// `R::render(&self, &T)` must depend only on the specific render instance and the specific item,
-/// and not any other mutable state. Violation of this condition is normally only possible via
-/// interior mutability, global state, I/O, or unsafe code.
+/// and not any other state. Violation of this condition is normally only possible via interior
+/// mutability, global state, I/O, or unsafe code.
 ///
-/// If idempotence is violated, internal index computations which depend on the rendered format
+/// If purism is violated, internal index computations which depend on the rendered format
 /// will become invalid and the picker may either panic or return incorrect results. Note that such
 /// errors are encapsulated within the picker and will not result in undefined behaviour.
 ///
