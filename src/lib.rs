@@ -32,6 +32,7 @@ pub mod render;
 mod term;
 
 use std::{
+    borrow::Cow,
     io::{self, IsTerminal},
     iter::Extend,
     num::NonZero,
@@ -198,6 +199,17 @@ pub trait Render<T> {
     /// Render the given item as it should appear in the picker. See the
     /// [trait-level docs](Render) for more detail.
     fn render<'a>(&self, item: &'a T) -> Self::Str<'a>;
+}
+
+impl<T, R: for<'a> Fn(&'a T) -> Cow<'a, str>> Render<T> for R {
+    type Str<'a>
+        = Cow<'a, str>
+    where
+        T: 'a;
+
+    fn render<'a>(&self, item: &'a T) -> Self::Str<'a> {
+        self(item)
+    }
 }
 
 /// Specify configuration options for a [`Picker`].
