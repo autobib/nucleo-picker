@@ -138,7 +138,7 @@ pub struct PickerConfig {
     pub highlight: bool,
     pub case_matching: CaseMatching,
     pub normalization: Normalization,
-    pub right_highlight_padding: u16,
+    pub highlight_padding: u16,
     pub scroll_padding: u16,
     pub prompt_padding: u16,
 }
@@ -149,7 +149,7 @@ impl Default for PickerConfig {
             highlight: true,
             case_matching: CaseMatching::Smart,
             normalization: Normalization::Smart,
-            right_highlight_padding: 3,
+            highlight_padding: 3,
             scroll_padding: 3,
             prompt_padding: 3,
         }
@@ -355,12 +355,7 @@ impl<'a> Compositor<'a> {
                 &mut buffer.lines,
                 L::from_offset(height),
             )
-            .queue_print(
-                stderr,
-                SELECTED,
-                max_draw_length,
-                config.right_highlight_padding,
-            ),
+            .queue_print(stderr, SELECTED, max_draw_length, config.highlight_padding),
             RenderedItem::Unicode(r) => Spanned::<'_, UnicodeProcessor>::new(
                 &buffer.indices,
                 r.as_ref(),
@@ -368,12 +363,7 @@ impl<'a> Compositor<'a> {
                 &mut buffer.lines,
                 L::from_offset(height),
             )
-            .queue_print(
-                stderr,
-                SELECTED,
-                max_draw_length,
-                config.right_highlight_padding,
-            ),
+            .queue_print(stderr, SELECTED, max_draw_length, config.highlight_padding),
         }
     }
 

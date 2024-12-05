@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [unreleased]
+
+### Added
+- Added configuration for prompt padding and scroll padding.
+
+### Deprecated
+- `PickerOptions::right_highlight_padding` has been deprecated; use `PickerOptions::highlight_padding` instead.
+
+### Fixed
+- Fixed highlight padding to correctly fill for highlight matches very close to the end of the screen
+
 ## [0.6.1] - 2024-12-04
 
 ### Added

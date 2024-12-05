@@ -313,11 +313,11 @@ impl PickerOptions {
         self
     }
 
-    /// How much space to leave after rendering the rightmost highlight.
+    /// How much space to leave when rendering match highlighting.
     #[must_use]
     #[inline]
-    pub fn right_highlight_padding(mut self, size: u16) -> Self {
-        self.picker_config.right_highlight_padding = size;
+    pub fn highlight_padding(mut self, size: u16) -> Self {
+        self.picker_config.highlight_padding = size;
         self
     }
 
@@ -359,6 +359,18 @@ impl PickerOptions {
     pub fn query<Q: Into<String>>(mut self, query: Q) -> Self {
         self.query = query.into();
         normalize_query_string(&mut self.query);
+        self
+    }
+
+    /// How much space to leave after rendering the rightmost highlight.
+    #[must_use]
+    #[inline]
+    #[deprecated(
+        since = "0.6.2",
+        note = "method has been renamed to `highlight_padding`"
+    )]
+    pub fn right_highlight_padding(mut self, size: u16) -> Self {
+        self.picker_config.highlight_padding = size;
         self
     }
 }
