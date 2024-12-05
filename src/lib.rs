@@ -321,11 +321,19 @@ impl PickerOptions {
         self
     }
 
-    /// How much space to leave around the cursor when scrolling.
+    /// How much space to leave around the selection when scrolling.
     #[must_use]
     #[inline]
     pub fn scroll_padding(mut self, size: u16) -> Self {
         self.picker_config.scroll_padding = size;
+        self
+    }
+
+    /// How much space to leave around the cursor.
+    #[must_use]
+    #[inline]
+    pub fn prompt_padding(mut self, size: u16) -> Self {
+        self.picker_config.prompt_padding = size;
         self
     }
 

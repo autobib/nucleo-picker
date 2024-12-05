@@ -58,10 +58,10 @@ struct Dimensions {
     width: u16,
     /// The height of the screen, including the prompt.
     height: u16,
-    /// The margin at the bottom.
-    margin_bottom: u16,
-    /// The margin at the top.
-    margin_top: u16,
+    /// The padding at the bottom.
+    padding_bottom: u16,
+    /// The padding at the top.
+    padding_top: u16,
     /// The left buffer size of the prompt.
     prompt_left_padding: u16,
     /// The right buffer size of the prompt.
@@ -70,16 +70,16 @@ struct Dimensions {
 
 impl Dimensions {
     /// Initialize based on screen dimensions.
-    pub fn from_screen(width: u16, height: u16) -> Self {
-        let max_allowed_margin = height.saturating_sub(3) / 2;
-        let max_allowed_prompt_margin = width.saturating_sub(4) / 2;
+    pub fn from_screen(config: &PickerConfig, width: u16, height: u16) -> Self {
+        let max_allowed_padding = height.saturating_sub(3) / 2;
+        let max_allowed_prompt_padding = width.saturating_sub(4) / 2;
         Self {
             width,
             height,
-            margin_bottom: max_allowed_margin.min(3),
-            margin_top: max_allowed_margin.min(3),
-            prompt_left_padding: max_allowed_prompt_margin.min(3),
-            prompt_right_padding: max_allowed_prompt_margin.min(3),
+            padding_bottom: max_allowed_padding.min(config.scroll_padding),
+            padding_top: max_allowed_padding.min(config.scroll_padding),
+            prompt_left_padding: max_allowed_prompt_padding.min(config.prompt_padding),
+            prompt_right_padding: max_allowed_prompt_padding.min(config.prompt_padding),
         }
     }
 
@@ -140,6 +140,7 @@ pub struct PickerConfig {
     pub normalization: Normalization,
     pub right_highlight_padding: u16,
     pub scroll_padding: u16,
+    pub prompt_padding: u16,
 }
 
 impl Default for PickerConfig {
@@ -150,6 +151,7 @@ impl Default for PickerConfig {
             normalization: Normalization::Smart,
             right_highlight_padding: 3,
             scroll_padding: 3,
+            prompt_padding: 3,
         }
     }
 }
@@ -197,7 +199,7 @@ pub struct Compositor<'a> {
 impl<'a> Compositor<'a> {
     /// The initial state.
     pub fn new(screen: (u16, u16), config: &'a PickerConfig) -> Self {
-        let dimensions = Dimensions::from_screen(screen.0, screen.1);
+        let dimensions = Dimensions::from_screen(config, screen.0, screen.1);
         let prompt = EditableString::new(dimensions.prompt_max_width());
 
         Self {
@@ -395,8 +397,8 @@ impl<'a> Compositor<'a> {
             // recompute the layout
             let view = self.layout.recompute(
                 self.dimensions.max_draw_height(),
-                self.dimensions.margin_bottom,
-                self.dimensions.margin_top,
+                self.dimensions.padding_bottom,
+                self.dimensions.padding_top,
                 self.selection as u32,
                 snapshot,
             );
@@ -551,7 +553,7 @@ impl<'a> Compositor<'a> {
     /// Resize the terminal state on screen size change.
     fn resize(&mut self, width: u16, height: u16) {
         self.needs_redraw = true;
-        self.dimensions = Dimensions::from_screen(width, height);
+        self.dimensions = Dimensions::from_screen(self.config, width, height);
         self.prompt.resize(self.dimensions.prompt_max_width());
     }
 }
