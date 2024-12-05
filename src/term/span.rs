@@ -115,8 +115,8 @@ impl<'a, P: Processor> Spanned<'a, P> {
         let mut max_line_bytes = 0;
         for line in self.lines() {
             if !line.is_empty() {
-                max_line_bytes =
-                    max_line_bytes.max(line[line.len() - 1].range.end - line[0].range.start);
+                max_line_bytes = max_line_bytes
+                    .max(line.last().unwrap().range.end - line.first().unwrap().range.start);
             }
         }
 
@@ -145,8 +145,8 @@ impl<'a, P: Processor> Spanned<'a, P> {
     /// ellipsis), if required. The ellipsis should be printed whenever the returned value is not
     /// `0`.
     #[inline]
-    fn required_offset(&self, max_width: u16, right_buffer: u16) -> usize {
-        match (self.required_width() + right_buffer as usize).checked_sub(max_width as usize) {
+    fn required_offset(&self, max_width: u16, highlight_padding: u16) -> usize {
+        match (self.required_width() + highlight_padding as usize).checked_sub(max_width as usize) {
             None | Some(0) => 0,
             Some(mut offset) => {
                 // ideally, we would like to offset by `offset`; but we prefer highlighting
@@ -235,9 +235,9 @@ impl<'a, P: Processor> Spanned<'a, P> {
         stderr: &mut StderrLock<'_>,
         selected: bool,
         max_width: u16,
-        right_buffer: u16,
+        highlight_padding: u16,
     ) -> Result<(), io::Error> {
-        if self.max_line_bytes() <= max_width as usize {
+        if self.max_line_bytes() <= max_width.saturating_sub(highlight_padding) as usize {
             // Fast path: all of the lines are short, so we can just render them without any unicode width
             // checks. This should be the case for the majority of situations, unless the screen is
             // very narrow or the rendered items are very wide.
@@ -255,7 +255,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
                 Self::finish_line(stderr)?;
             }
         } else {
-            let offset = self.required_offset(max_width, right_buffer);
+            let offset = self.required_offset(max_width, highlight_padding);
 
             for line in self.lines() {
                 Self::start_line(stderr, selected)?;

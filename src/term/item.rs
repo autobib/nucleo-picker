@@ -178,8 +178,8 @@ impl Layout {
 
     /// Reset the screen index in case the screen size has changed.
     #[inline]
-    fn clamp_indices<B: VariableSizeBuffer>(&mut self, size: u16, margin_top: u16, buffer: &B) {
-        self.screen_index = self.screen_index.min(size - margin_top - 1);
+    fn clamp_indices<B: VariableSizeBuffer>(&mut self, size: u16, padding_top: u16, buffer: &B) {
+        self.screen_index = self.screen_index.min(size - padding_top - 1);
         self.match_index = self.match_index.min(buffer.count().saturating_sub(1));
     }
 
@@ -195,21 +195,21 @@ impl Layout {
     pub fn recompute<B: VariableSizeBuffer>(
         &mut self,
         total_size: u16,
-        margin_bottom: u16,
-        margin_top: u16,
+        padding_bottom: u16,
+        padding_top: u16,
         selection: u32,
         buffer: &B,
     ) -> LayoutView {
-        debug_assert!(margin_bottom + margin_top < total_size);
+        debug_assert!(padding_bottom + padding_top < total_size);
         debug_assert!(selection < buffer.count());
-        self.clamp_indices(total_size, margin_top, buffer);
+        self.clamp_indices(total_size, padding_top, buffer);
 
         self.below_and_including.clear();
         self.above.clear();
         self.screen_index = if selection >= self.match_index {
-            self.recompute_above(total_size, margin_top, selection, buffer)
+            self.recompute_above(total_size, padding_top, selection, buffer)
         } else {
-            self.recompute_below(total_size, margin_bottom, margin_top, selection, buffer)
+            self.recompute_below(total_size, padding_bottom, padding_top, selection, buffer)
         };
         self.match_index = selection;
 
@@ -226,7 +226,7 @@ impl Layout {
     fn recompute_above<B: VariableSizeBuffer>(
         &mut self,
         total_size: u16,
-        margin_top: u16,
+        padding_top: u16,
         selection: u32,
         buffer: &B,
     ) -> u16 {
@@ -235,12 +235,12 @@ impl Layout {
         // 2. we hit the current matched item
         let remaining_space_above = match Self::extend_layout(
             &mut self.below_and_including,
-            total_size - margin_top,
+            total_size - padding_top,
             buffer.item_sizes(self.match_index..=selection).rev(),
         ) {
             None => {
-                // we ran out of space, so we fill the space above, which is just `margin_top`.
-                margin_top
+                // we ran out of space, so we fill the space above, which is just `padding_top`.
+                padding_top
             }
             Some(remaining_space_below) => {
                 // truncate the amount of remaining space below to not exceed the previous space
@@ -253,9 +253,9 @@ impl Layout {
                     .saturating_sub(*self.below_and_including.last().unwrap());
                 let (remaining_space_below, remaining_space_above) =
                     if threshold < remaining_space_below {
-                        (threshold, margin_top + remaining_space_below - threshold)
+                        (threshold, padding_top + remaining_space_below - threshold)
                     } else {
-                        (remaining_space_below, margin_top)
+                        (remaining_space_below, padding_top)
                     };
 
                 // extend below: we are guaranteed to not hit the bottom of the screen since the
@@ -287,61 +287,62 @@ impl Layout {
     fn recompute_below<B: VariableSizeBuffer>(
         &mut self,
         total_size: u16,
-        margin_bottom: u16,
-        margin_top: u16,
+        padding_bottom: u16,
+        padding_top: u16,
         selection: u32,
         buffer: &B,
     ) -> u16 {
         // first, render as much of the selection as possible
         match Self::extend_layout(
             &mut self.below_and_including,
-            total_size - margin_top,
+            total_size - padding_top,
             buffer.item_sizes(selection..=selection),
         ) {
             None => {
                 // rendering the selection already took all the space, so we just render the top
-                // margin
+                // padding
                 Self::extend_layout(
                     &mut self.above,
-                    margin_top,
+                    padding_top,
                     buffer.item_sizes(selection + 1..),
                 );
 
-                total_size - margin_top - 1
+                total_size - padding_top - 1
             }
             Some(remaining) => {
                 // there is leftover space: this is how much space the selection took
-                let selection_size = total_size - margin_top - remaining;
+                let selection_size = total_size - padding_top - remaining;
 
                 let (extra_rendered, total_bottom_size, bottom_item_excess) =
-                    if selection_size > margin_bottom {
-                        // the selection is fully rendered and large enough to fill the bottom margin
+                    if selection_size > padding_bottom {
+                        // the selection is fully rendered and large enough to fill the bottom
+                        // padding
                         (0, selection_size, 0)
                     } else {
-                        // the selection didn't completely fill the bottom margin, fill it and keep
+                        // the selection didn't completely fill the bottom padding, fill it and keep
                         // track of the extra space
                         match Self::extend_layout_excess(
                             &mut self.below_and_including,
-                            margin_bottom - selection_size + 1,
+                            padding_bottom - selection_size + 1,
                             buffer.item_sizes(..selection).rev(),
                         ) {
-                            Ok(remaining_bottom_margin) => {
+                            Ok(remaining_bottom_padding) => {
                                 // we hit the bottom of the screen, so we just render the remaining
                                 // space above and return early
                                 Self::extend_layout(
                                     &mut self.above,
-                                    total_size - margin_bottom - 1 + remaining_bottom_margin,
+                                    total_size - padding_bottom - 1 + remaining_bottom_padding,
                                     buffer.item_sizes(selection + 1..),
                                 );
-                                return margin_bottom - remaining_bottom_margin;
+                                return padding_bottom - remaining_bottom_padding;
                             }
                             Err((num_rendered, bottom_item_excess)) => {
-                                (num_rendered, margin_bottom + 1, bottom_item_excess)
+                                (num_rendered, padding_bottom + 1, bottom_item_excess)
                             }
                         }
                     };
 
-                // now we have completely filled the bottom margin, so we fill the space above
+                // now we have completely filled the bottom padding, so we fill the space above
                 // until we hit the match index
                 total_bottom_size - 1
                     + match Self::extend_layout(
@@ -350,7 +351,7 @@ impl Layout {
                         buffer.item_sizes(selection + 1..=self.match_index),
                     ) {
                         None => {
-                            // we ran out of space, so we're done; the bottom margin is already
+                            // we ran out of space, so we're done; the bottom padding is already
                             // filled
                             0
                         }
