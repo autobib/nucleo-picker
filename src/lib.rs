@@ -218,8 +218,8 @@ impl<T, R: for<'a> Fn(&'a T) -> Cow<'a, str>> Render<T> for R {
 
 /// Specify configuration options for a [`Picker`].
 ///
-/// Initialize with the [`new`](PickerOptions::new) function or (equivalently) the
-/// [`Default`](PickerOptions::default) implementation, specify options, and then convert to e
+/// Initialize with [`new`](PickerOptions::new) or (equivalently) the
+/// [`Default`](PickerOptions::default) implementation, specify options, and then convert to a
 /// [`Picker`] using the [`picker`](PickerOptions::picker) method.
 ///
 /// ## Example
@@ -257,7 +257,36 @@ impl PickerOptions {
         Self::default()
     }
 
-    /// Set the number of threads used by the picker.
+    /// Convert into a [`Picker`].
+    #[must_use]
+    pub fn picker<T: Send + Sync + 'static, R>(self, render: R) -> Picker<T, R> {
+        let matcher = Nucleo::new(
+            self.config.clone(),
+            Arc::new(|| {}),
+            // nucleo's API is a bit weird here in that it does not accept `NonZero<usize>`
+            self.threads
+                .or_else(|| {
+                    // Reserve two threads:
+                    // 1. for populating the macher
+                    // 2. for rendering the terminal UI and handling user input
+                    available_parallelism()
+                        .ok()
+                        .and_then(|it| it.get().checked_sub(2).and_then(NonZero::new))
+                })
+                .map(NonZero::get),
+            1,
+        );
+
+        Picker {
+            matcher,
+            render: render.into(),
+            picker_config: self.picker_config,
+            config: self.config,
+            query: self.query,
+        }
+    }
+
+    /// Set the number of threads used by the internal matching engine.
     ///
     /// If `None`, this will default to the number of available processors on your device
     /// minus 2, with a lower bound of 1.
@@ -323,35 +352,6 @@ impl PickerOptions {
         self.query = query.into();
         normalize_query_string(&mut self.query);
         self
-    }
-
-    /// Convert into a [`Picker`].
-    #[must_use]
-    pub fn picker<T: Send + Sync + 'static, R>(self, render: R) -> Picker<T, R> {
-        let matcher = Nucleo::new(
-            self.config.clone(),
-            Arc::new(|| {}),
-            // nucleo's API is a bit weird here in that it does not accept `NonZero<usize>`
-            self.threads
-                .or_else(|| {
-                    // Reserve two threads:
-                    // 1. for populating the macher
-                    // 2. for rendering the terminal UI and handling user input
-                    available_parallelism()
-                        .ok()
-                        .and_then(|it| it.get().checked_sub(2).and_then(NonZero::new))
-                })
-                .map(NonZero::get),
-            1,
-        );
-
-        Picker {
-            matcher,
-            render: render.into(),
-            picker_config: self.picker_config,
-            config: self.config,
-            query: self.query,
-        }
     }
 }
 
