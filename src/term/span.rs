@@ -20,18 +20,7 @@ use super::{
     ELLIPSIS,
 };
 
-/// Represent additional data on top of a string slice.
-///
-/// The `spans` are guaranteed to not contain newlines. In order to determine which spans belong to
-/// which line, `lines` consists of contiguous sub-slices of `spans`.
-#[derive(Debug)]
-pub struct Spanned<'a, P> {
-    rendered: &'a str,
-    spans: &'a [Span],
-    lines: &'a [Range<usize>],
-    _marker: PhantomData<P>,
-}
-
+/// An iterator over lines, as span slices.
 pub struct SpannedLines<'a> {
     iter: Iter<'a, Range<usize>>,
     spans: &'a [Span],
@@ -89,6 +78,18 @@ impl KeepLines for All {
     fn from_offset(_: u16) -> Self {
         Self
     }
+}
+
+/// Represent additional data on top of a string slice.
+///
+/// The `spans` are guaranteed to not contain newlines. In order to determine which spans belong to
+/// which line, `lines` consists of contiguous sub-slices of `spans`.
+#[derive(Debug)]
+pub struct Spanned<'a, P> {
+    rendered: &'a str,
+    spans: &'a [Span],
+    lines: &'a [Range<usize>],
+    _marker: PhantomData<P>,
 }
 
 impl<'a, P: Processor> Spanned<'a, P> {
