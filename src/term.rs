@@ -4,7 +4,9 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
+mod editable;
 mod item;
+mod layout;
 mod span;
 mod unicode;
 
@@ -27,7 +29,8 @@ use nucleo::{
 };
 
 use self::{
-    item::{Layout, RenderedItem},
+    item::RenderedItem,
+    layout::{Layout, VariableSizeBuffer},
     span::{Head, KeepLines, Spanned, Tail},
     unicode::{AsciiProcessor, Span, UnicodeProcessor},
 };
