@@ -17,7 +17,7 @@ use std::{
 };
 
 use crossterm::{
-    cursor::{MoveTo, MoveToColumn, MoveToPreviousLine},
+    cursor::{MoveRight, MoveTo, MoveToColumn, MoveToPreviousLine},
     event::{poll, read},
     style::{Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor},
     terminal::{BeginSynchronizedUpdate, Clear, ClearType, EndSynchronizedUpdate},
@@ -28,7 +28,9 @@ use nucleo::{
     Matcher,
 };
 
+pub use self::editable::normalize_query_string;
 use self::{
+    editable::{Edit, EditableString},
     item::RenderedItem,
     layout::{Layout, VariableSizeBuffer},
     span::{Head, KeepLines, Spanned, Tail},
@@ -36,7 +38,7 @@ use self::{
 };
 use crate::{
     bind::{convert, Event},
-    component::{Edit, EditableString},
+    // component::{Edit, EditableString},
     Render,
 };
 
@@ -62,27 +64,20 @@ struct Dimensions {
     /// The height of the screen, including the prompt.
     height: u16,
     /// The padding at the bottom.
-    padding_bottom: u16,
+    scroll_padding_bottom: u16,
     /// The padding at the top.
-    padding_top: u16,
-    /// The left buffer size of the prompt.
-    prompt_left_padding: u16,
-    /// The right buffer size of the prompt.
-    prompt_right_padding: u16,
+    scroll_padding_top: u16,
 }
 
 impl Dimensions {
     /// Initialize based on screen dimensions.
     pub fn from_screen(config: &PickerConfig, width: u16, height: u16) -> Self {
-        let max_allowed_padding = height.saturating_sub(3) / 2;
-        let max_allowed_prompt_padding = width.saturating_sub(4) / 2;
+        let scroll_padding = config.scroll_padding.min(height.saturating_sub(3) / 2);
         Self {
             width,
             height,
-            padding_bottom: max_allowed_padding.min(config.scroll_padding),
-            padding_top: max_allowed_padding.min(config.scroll_padding),
-            prompt_left_padding: max_allowed_prompt_padding.min(config.prompt_padding),
-            prompt_right_padding: max_allowed_prompt_padding.min(config.prompt_padding),
+            scroll_padding_bottom: scroll_padding,
+            scroll_padding_top: scroll_padding,
         }
     }
 
@@ -101,11 +96,8 @@ impl Dimensions {
     }
 
     /// The maximum width of the prompt string display window.
-    pub fn prompt_max_width(&self) -> usize {
-        self.width
-            .saturating_sub(self.prompt_left_padding)
-            .saturating_sub(self.prompt_right_padding)
-            .saturating_sub(2) as _
+    pub fn max_prompt_width(&self) -> u16 {
+        self.width.saturating_sub(2)
     }
 
     /// The maximum number of matches which can be drawn to the screen.
@@ -129,8 +121,8 @@ impl Dimensions {
     }
 
     /// The command to move to the cursor position.
-    pub fn move_to_cursor(&self, view_position: usize) -> MoveTo {
-        MoveTo((view_position + 2) as _, self.prompt_y())
+    pub fn move_to_cursor(&self, view_position: u16) -> MoveTo {
+        MoveTo(view_position + 2, self.prompt_y())
     }
 }
 
@@ -203,7 +195,7 @@ impl<'a> Compositor<'a> {
     /// The initial state.
     pub fn new(screen: (u16, u16), config: &'a PickerConfig) -> Self {
         let dimensions = Dimensions::from_screen(config, screen.0, screen.1);
-        let prompt = EditableString::new(dimensions.prompt_max_width());
+        let prompt = EditableString::new(dimensions.max_prompt_width(), config.prompt_padding);
 
         Self {
             dimensions,
@@ -255,8 +247,11 @@ impl<'a> Compositor<'a> {
     }
 
     /// Perform the given edit action.
-    fn edit_prompt(&mut self, st: Edit) {
-        self.needs_redraw |= self.prompt.edit(st);
+    #[inline]
+    fn edit_prompt(&mut self, st: Edit) -> bool {
+        let changed = self.prompt.edit(st);
+        self.needs_redraw |= changed;
+        changed
     }
 
     /// Set the prompt to a given string, moving the cursor to the end.
@@ -266,8 +261,8 @@ impl<'a> Compositor<'a> {
     }
 
     /// The current contents of the prompt.
-    pub fn prompt_contents(&self) -> String {
-        self.prompt.full_contents()
+    pub fn prompt_contents(&self) -> &str {
+        self.prompt.contents()
     }
 
     /// Clear the queued events.
@@ -281,23 +276,29 @@ impl<'a> Compositor<'a> {
                     Event::Abort => {
                         return Err(io::Error::new(io::ErrorKind::Other, "keyboard interrupt"))
                     }
-                    Event::MoveToStart => self.edit_prompt(Edit::ToStart),
-                    Event::MoveToEnd => self.edit_prompt(Edit::ToEnd),
+                    Event::MoveToStart => {
+                        self.edit_prompt(Edit::ToStart);
+                    }
+                    Event::MoveToEnd => {
+                        self.edit_prompt(Edit::ToEnd);
+                    }
                     Event::Insert(ch) => {
-                        update_prompt = true;
                         append &= self.prompt.is_appending();
-                        self.edit_prompt(Edit::Insert(ch));
+                        update_prompt |= self.edit_prompt(Edit::Insert(ch));
                     }
                     Event::Select => return Ok(EventSummary::Select),
                     Event::MoveUp => self.incr_selection(),
                     Event::MoveDown => self.decr_selection(),
-                    Event::MoveLeft => self.edit_prompt(Edit::Left),
-                    Event::MoveRight => self.edit_prompt(Edit::Right),
-                    Event::Delete => {
-                        if !self.prompt.is_empty() {
+                    Event::MoveLeft => {
+                        self.edit_prompt(Edit::Left);
+                    }
+                    Event::MoveRight => {
+                        self.edit_prompt(Edit::Right);
+                    }
+                    Event::Backspace => {
+                        if self.edit_prompt(Edit::Backspace) {
                             update_prompt = true;
                             append = false;
-                            self.edit_prompt(Edit::Delete);
                         }
                     }
                     Event::Quit => return Ok(EventSummary::Quit),
@@ -305,9 +306,8 @@ impl<'a> Compositor<'a> {
                         self.resize(width, height);
                     }
                     Event::Paste(contents) => {
-                        update_prompt = true;
                         append &= self.prompt.is_appending();
-                        self.edit_prompt(Edit::Paste(contents));
+                        update_prompt |= self.edit_prompt(Edit::Paste(contents));
                     }
                 }
             }
@@ -390,20 +390,20 @@ impl<'a> Compositor<'a> {
             // recompute the layout
             let view = self.layout.recompute(
                 self.dimensions.max_draw_height(),
-                self.dimensions.padding_bottom,
-                self.dimensions.padding_top,
+                self.dimensions.scroll_padding_bottom,
+                self.dimensions.scroll_padding_top,
                 self.selection as u32,
                 snapshot,
             );
 
             let mut match_lines_rendered = 0;
             let mut item_iter = snapshot.matched_items(
-                self.selection as u32 - view.below.len() as u32
+                self.selection as u32 + 1 - view.below.len() as u32
                     ..=self.selection as u32 + view.above.len() as u32,
             );
 
             // render below the selection
-            for height in view.below.iter().rev() {
+            for height in view.below[1..].iter().rev() {
                 match_lines_rendered += height;
                 stderr.queue(
                     self.dimensions
@@ -424,7 +424,7 @@ impl<'a> Compositor<'a> {
             }
 
             // render the selection
-            match_lines_rendered += view.current;
+            match_lines_rendered += view.below[0];
             stderr.queue(
                 self.dimensions
                     .move_to_screen_index(match_lines_rendered - 1),
@@ -438,7 +438,7 @@ impl<'a> Compositor<'a> {
                 &item_iter.next().unwrap(),
                 snapshot,
                 matcher,
-                view.current,
+                view.below[0],
                 render,
             )?;
 
@@ -476,17 +476,22 @@ impl<'a> Compositor<'a> {
     }
 
     /// Draw the prompt string
-    fn draw_prompt(&mut self, stderr: &mut StderrLock<'_>) -> Result<(), io::Error> {
-        let view = self.prompt.view_padded(
-            self.dimensions.prompt_left_padding as _,
-            self.dimensions.prompt_right_padding as _,
-        );
+    fn draw_prompt(&self, stderr: &mut StderrLock<'_>) -> Result<(), io::Error> {
+        let (contents, shift) = self.prompt.view();
+        println!("{contents:?}");
+
         stderr
             .queue(self.dimensions.move_to_prompt())?
-            .queue(Print("> "))?
-            .queue(Print(&view))?
+            .queue(Print("> "))?;
+
+        if shift != 0 {
+            stderr.queue(MoveRight(shift))?;
+        }
+
+        stderr
+            .queue(Print(contents))?
             .queue(Clear(ClearType::UntilNewLine))?
-            .queue(self.dimensions.move_to_cursor(view.index()))?;
+            .queue(self.dimensions.move_to_cursor(self.prompt.screen_offset()))?;
 
         Ok(())
     }
@@ -547,6 +552,9 @@ impl<'a> Compositor<'a> {
     fn resize(&mut self, width: u16, height: u16) {
         self.needs_redraw = true;
         self.dimensions = Dimensions::from_screen(self.config, width, height);
-        self.prompt.resize(self.dimensions.prompt_max_width());
+        self.prompt.resize(
+            self.dimensions.max_prompt_width(),
+            self.config.prompt_padding,
+        );
     }
 }

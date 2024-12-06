@@ -13,14 +13,14 @@ If you are looking for documentation for interactive usage of the picker, see th
 If you are looking for a list of recent changes, see the [`CHANGELOG.md`](CHANGELOG.md) file.
 
 ## Features
-- Highly optimized matching, courtesy of [`nucleo`](https://docs.rs/nucleo/latest/nucleo/).
+- [Highly optimized matching](https://github.com/helix-editor/nucleo).
 - Robust rendering:
+  - Full Unicode handling with [Unicode text segmentation](https://crates.io/crates/unicode-segmentation) and [Unicode width](https://crates.io/crates/unicode-width).
   - Match highlighting with automatic scroll-through.
-  - Careful Unicode handling using [Unicode text segmentation](https://crates.io/crates/unicode-segmentation) and [Unicode width](https://crates.io/crates/unicode-width).
-  - Correctly handle multi-line or overflowed items.
-  - Responsive terminal rendering with batched keyboard input handling.
+  - Correctly render multi-line or overflowed items.
+  - Responsive interface with batched keyboard input.
 - Ergonomic API:
-  - Non-blocking to match on streaming input.
+  - Fully concurrent lock- and wait-free streaming of input items.
   - Generic `Picker` for any type `T` which is `Send + Sync + 'static`.
   - Customizable rendering of crate-local and foreign types with the `Render` trait.
 
@@ -64,7 +64,7 @@ fn main() -> io::Result<()> {
 
 ## Related crates
 This crate mainly exists as a result of the author's annoyance with pretty much every fuzzy picker TUI in the rust ecosystem.
-- [skim](https://docs.rs/skim/latest/skim/)'s `Arc<dyn SkimItem>` is inconvenient since the original item cannot be canonically recovered from the match (requires `Arc` down-casting).
+- [skim](https://docs.rs/skim/latest/skim/)'s `Arc<dyn SkimItem>` is inconvenient for a [variety of reasons](https://rutar.org/writing/using-closure-traits-to-simplify-rust-api/).
   `skim` also has a large number of dependencies and is designed more as a binary than a library.
 - [fuzzypicker](https://docs.rs/fuzzypicker/latest/fuzzypicker/) is based on `skim` and inherits `skim`'s problems.
 - [nucleo-ui](https://docs.rs/nucleo-ui/latest/nucleo_ui/) only has a blocking API and only supports matching on `String`. It also seems to be un-maintained.

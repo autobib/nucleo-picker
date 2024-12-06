@@ -5,6 +5,8 @@ use super::VariableSizeBuffer;
 use crate::Render;
 
 impl<T: Send + Sync + 'static> VariableSizeBuffer for Snapshot<T> {
+    type Cursor = u32;
+
     type Item<'a>
         = Item<'a, T>
     where
@@ -32,11 +34,11 @@ impl<T: Send + Sync + 'static> VariableSizeBuffer for Snapshot<T> {
         1 + num_linebreaks
     }
 
-    fn below_and_including(&self, selection: u32) -> impl Iterator<Item = Self::Item<'_>> {
+    fn before(&self, selection: Self::Cursor) -> impl DoubleEndedIterator<Item = Self::Item<'_>> {
         self.matched_items(..=selection).rev()
     }
 
-    fn above(&self, selection: u32) -> impl Iterator<Item = Self::Item<'_>> {
+    fn after(&self, selection: Self::Cursor) -> impl DoubleEndedIterator<Item = Self::Item<'_>> {
         // we skip the first item rather than iterate on the range `selection + 1..` in case
         // `selection + 1` is an invalid index in which case `matched_items` would panic
         self.matched_items(selection..).skip(1)
