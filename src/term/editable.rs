@@ -1,74 +1,512 @@
-// use std::ops::Bound;
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-// use unicode_segmentation::UnicodeSegmentation;
-// use unicode_width::UnicodeWidthStr;
+/// Mutate a given string in-place, removing ASCII control characters and converting newlines,
+/// carriage returns, and TABs to ASCII space.
+pub fn normalize_query_string(s: &mut String) {
+    *s = s
+        .chars()
+        .filter_map(normalize_char)
+        .map(|(ch, _)| ch)
+        .collect();
+}
 
-// use super::VariableSizeBuffer;
+/// Normalize a single char, returning the resulting char as well as the width.
+///
+/// This automaticlly removes control characters since `ch.width()` returns `None` for control
+/// characters.
+#[inline]
+fn normalize_char(ch: char) -> Option<(char, usize)> {
+    match ch {
+        '\n' | '\t' => Some((' ', 1)),
+        ch => ch.width().map(|w| (ch, w)),
+    }
+}
 
-// pub struct Editable {
-//     contents: String,
-//     grapheme_boundaries: Vec<usize>,
-// }
+/// An edit to apply to an [`EditableString`].
+#[derive(Debug, PartialEq, Eq)]
+pub enum Edit {
+    /// Insert a [`char`] at the current cursor position.
+    Insert(char),
+    /// Delete a [`char`] immediately preceding the current cursor position.
+    Backspace,
+    /// Paste a [`String`] at the current cursor position.
+    Paste(String),
+    /// Move the cursor left.
+    Left,
+    /// Move the cursor right.
+    Right,
+    /// Move the cursor to the start.
+    ToStart,
+    /// Move the cursor to the end.
+    ToEnd,
+}
 
-// impl VariableSizeBuffer for Editable {
-//     type Item<'a>
-//         = &'a str
-//     where
-//         Self: 'a;
+/// A movement to apply to an [`EditableString`].
+#[derive(Debug, PartialEq, Eq)]
+enum CursorMovement {
+    /// Move the cursor left by a given number of characters.
+    Left,
+    /// Move the cursor right by a given number of characters.
+    Right,
+    /// Move the cursor to the start.
+    ToStart,
+    /// Move the cursor to the end.
+    ToEnd,
+}
 
-//     fn count(&self) -> u32 {
-//         self.grapheme_boundaries.len() as _
-//     }
+#[derive(Debug)]
+pub struct EditableString {
+    contents: String,
+    offset: usize,
+    screen_offset: u16,
+    width: u16,
+    left_padding: u16,
+    right_padding: u16,
+}
 
-//     fn items(
-//         &self,
-//         range: impl std::ops::RangeBounds<u32>,
-//     ) -> impl ExactSizeIterator<Item = Self::Item<'_>> + DoubleEndedIterator + '_ {
-//         let start = match range.start_bound() {
-//             Bound::Included(&start) => start as usize,
-//             Bound::Excluded(&start) => start as usize + 1,
-//             Bound::Unbounded => 0,
-//         };
-//         let end = match range.end_bound() {
-//             Bound::Included(&end) => end as usize + 1,
-//             Bound::Excluded(&end) => end as usize,
-//             Bound::Unbounded => self.grapheme_boundaries.len(),
-//         };
+impl EditableString {
+    /// Create a new editable string with the provided screen width and padding.
+    pub fn new(width: u16, padding: u16) -> Self {
+        let prompt_padding = padding.min(width.saturating_sub(1) / 2);
+        Self {
+            contents: String::new(),
+            offset: 0,
+            screen_offset: 0,
+            width,
+            left_padding: prompt_padding,
+            right_padding: prompt_padding,
+        }
+    }
 
-//         self.grapheme_boundaries[start..=end]
-//             .windows(2)
-//             .map(|pair| &self.contents[pair[0]..pair[1]])
-//     }
+    /// Return the prompt contents as well as an 'offset' which is required in the presence of an
+    /// initial grapheme that is too large to fit at the beginning of the screen.
+    pub fn view(&self) -> (&str, u16) {
+        let mut left_indices = self.contents[..self.offset].grapheme_indices(true).rev();
+        let mut total_left_width = 0;
+        let (left_offset, extra) = loop {
+            match left_indices.next() {
+                Some((offset, grapheme)) => {
+                    total_left_width += grapheme.width();
+                    if total_left_width >= self.screen_offset.into() {
+                        let extra = (total_left_width - self.screen_offset as usize) as u16;
+                        break (
+                            offset
+                                + if total_left_width == self.screen_offset.into() {
+                                    0
+                                } else {
+                                    grapheme.len()
+                                },
+                            extra,
+                        );
+                    }
+                }
+                None => break (0, 0),
+            }
+        };
 
-//     fn size(item: &Self::Item<'_>) -> usize {
-//         item.width()
-//     }
-// }
+        let mut right_indices = self.contents[self.offset..].grapheme_indices(true);
+        let mut total_right_width = 0;
+        let max_right_width = self.width - self.screen_offset;
+        let right_offset = loop {
+            match right_indices.next() {
+                Some((offset, grapheme)) => {
+                    total_right_width += grapheme.width();
+                    if total_right_width > max_right_width as usize {
+                        break self.offset + offset;
+                    }
+                }
+                None => break self.contents.len(),
+            }
+        };
 
-// impl From<String> for Editable {
-//     fn from(contents: String) -> Self {
-//         let mut grapheme_boundaries = contents
-//             .grapheme_indices(true)
-//             .map(|(idx, _)| idx)
-//             .collect::<Vec<usize>>();
-//         grapheme_boundaries.push(contents.len());
-//         Self {
-//             contents,
-//             grapheme_boundaries,
-//         }
-//     }
-// }
+        (&self.contents[left_offset..right_offset], extra)
+    }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
+    /// Resize the screen, adjusting the padding and the screen width.
+    pub fn resize(&mut self, width: u16, padding: u16) {
+        let prompt_padding = padding.min(width.saturating_sub(1) / 2);
+        self.left_padding = prompt_padding;
+        self.right_padding = prompt_padding;
+        self.width = width;
+        self.screen_offset = self.screen_offset.min(width - prompt_padding);
+    }
 
-//     #[test]
-//     fn test_new_editable() {
-//         let editable = Editable::from("देवनागरी".to_owned());
-//         println!("{:?}", editable.count());
-//         println!("{:?}", editable.contents);
-//         println!("{:?}", editable.grapheme_boundaries);
-//         assert!(false)
-//     }
-// }
+    /// Get the cursor offset within the screen.
+    pub fn screen_offset(&self) -> u16 {
+        self.screen_offset
+    }
+
+    /// Get the contents of the prompt.
+    pub fn contents(&self) -> &str {
+        &self.contents
+    }
+
+    /// Reset the prompt, moving the cursor to the end.
+    pub fn set_prompt<Q: Into<String>>(&mut self, prompt: Q) {
+        self.contents = prompt.into();
+        self.offset = self.contents.len();
+    }
+
+    /// Increase the screen offset by the provided width, without exceeding the maximum offset.
+    fn increase_by_width(&mut self, width: usize) {
+        self.screen_offset = self
+            .screen_offset
+            .saturating_add(width.try_into().unwrap_or(u16::MAX))
+            .min(self.width - self.right_padding);
+    }
+
+    /// Insert a character at the cursor position.
+    fn insert_char(&mut self, ch: char, w: usize) -> bool {
+        self.contents.insert(self.offset, ch);
+        self.increase_by_width(w);
+        self.offset += ch.len_utf8();
+        true
+    }
+
+    /// Insert a string at the cursor position.
+    fn insert(&mut self, string: &str) -> bool {
+        self.contents.insert_str(self.offset, string);
+        self.increase_by_width(string.width());
+        self.offset += string.len();
+        true
+    }
+
+    /// Move the cursor.
+    #[inline]
+    #[allow(clippy::needless_pass_by_value)]
+    fn move_cursor(&mut self, cm: CursorMovement) -> bool {
+        match cm {
+            CursorMovement::Left => {
+                match self.contents[..self.offset]
+                    .grapheme_indices(true)
+                    .next_back()
+                {
+                    Some((new_offset, gp)) => {
+                        self.offset = new_offset;
+                        // check if we would hit the beginning of the string
+                        let mut total_left_width = 0;
+                        let mut graphemes = self.contents[..self.offset].graphemes(true).rev();
+                        let left_padding = loop {
+                            match graphemes.next() {
+                                Some(g) => {
+                                    total_left_width += g.width();
+                                    if total_left_width >= self.left_padding as usize {
+                                        break self.left_padding;
+                                    }
+                                }
+                                None => {
+                                    break total_left_width as u16;
+                                }
+                            }
+                        };
+
+                        self.screen_offset = self
+                            .screen_offset
+                            .saturating_sub(gp.width().try_into().unwrap_or(u16::MAX))
+                            .max(left_padding);
+                        true
+                    }
+                    None => false,
+                }
+            }
+            CursorMovement::Right => match self.contents[self.offset..].graphemes(true).next() {
+                Some(gp) => {
+                    self.offset += gp.len();
+                    self.increase_by_width(gp.width());
+                    true
+                }
+                None => false,
+            },
+            CursorMovement::ToStart => {
+                if self.offset == 0 {
+                    false
+                } else {
+                    self.offset = 0;
+                    self.screen_offset = 0;
+                    true
+                }
+            }
+            CursorMovement::ToEnd => {
+                if self.offset == self.contents.len() {
+                    false
+                } else {
+                    let max_offset = self.width - self.right_padding;
+                    for gp in self.contents[self.offset..].graphemes(true) {
+                        self.screen_offset = self
+                            .screen_offset
+                            .saturating_add(gp.width().try_into().unwrap_or(u16::MAX));
+                        if self.screen_offset >= max_offset {
+                            self.screen_offset = max_offset;
+                            break;
+                        }
+                    }
+                    self.offset = self.contents.len();
+                    true
+                }
+            }
+        }
+    }
+
+    /// Edit the editable string according to the provided [`Edit`] action.
+    pub fn edit(&mut self, e: Edit) -> bool {
+        match e {
+            Edit::Left => self.move_cursor(CursorMovement::Left),
+            Edit::Right => self.move_cursor(CursorMovement::Right),
+            Edit::ToStart => self.move_cursor(CursorMovement::ToStart),
+            Edit::ToEnd => self.move_cursor(CursorMovement::ToEnd),
+            Edit::Insert(ch) => {
+                if let Some((ch, w)) = normalize_char(ch) {
+                    self.insert_char(ch, w)
+                } else {
+                    false
+                }
+            }
+            Edit::Paste(mut s) => {
+                normalize_query_string(&mut s);
+                self.insert(&s)
+            }
+            Edit::Backspace => {
+                let delete_until = self.offset;
+                if self.move_cursor(CursorMovement::Left) {
+                    self.contents.replace_range(self.offset..delete_until, "");
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+    }
+
+    /// Check if there is no trailing escape `\`.
+    fn no_trailing_escape(&self) -> bool {
+        (self
+            .contents
+            .bytes()
+            .rev()
+            .take_while(|ch| *ch == b'\\')
+            .count()
+            % 2)
+            == 0
+    }
+
+    /// Are we in an "appending" state? This is the case if the cursor is at the end of the string
+    /// and the previous character isn't an escaped `\`.
+    pub fn is_appending(&self) -> bool {
+        self.offset == self.contents.len() && self.no_trailing_escape()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_layout() {
+        let mut editable = EditableString::new(6, 2);
+        editable.edit(Edit::Insert('a'));
+        assert_eq!(editable.screen_offset, 1);
+        editable.edit(Edit::Insert('Ａ'));
+        assert_eq!(editable.screen_offset, 3);
+        editable.edit(Edit::Insert('B'));
+        assert_eq!(editable.screen_offset, 4);
+
+        let mut editable = EditableString::new(6, 2);
+        editable.edit(Edit::Paste("ＡaＡ".to_owned()));
+        assert_eq!(editable.screen_offset, 4);
+
+        let mut editable = EditableString::new(6, 2);
+        editable.edit(Edit::Paste("abc".to_owned()));
+        assert_eq!(editable.screen_offset, 3);
+        editable.edit(Edit::Paste("ab".to_owned()));
+        assert_eq!(editable.screen_offset, 4);
+        editable.edit(Edit::Left);
+        assert_eq!(editable.screen_offset, 3);
+        editable.edit(Edit::Left);
+        assert_eq!(editable.screen_offset, 2);
+        editable.edit(Edit::Left);
+        assert_eq!(editable.screen_offset, 2);
+        editable.edit(Edit::Left);
+        assert_eq!(editable.screen_offset, 1);
+        editable.edit(Edit::Left);
+        assert_eq!(editable.screen_offset, 0);
+
+        let mut editable = EditableString::new(7, 2);
+        editable.edit(Edit::Paste("ＡＡＡＡＡ".to_owned()));
+        editable.edit(Edit::ToStart);
+        assert_eq!(editable.screen_offset, 0);
+        editable.edit(Edit::Right);
+        assert_eq!(editable.screen_offset, 2);
+        editable.edit(Edit::Right);
+        assert_eq!(editable.screen_offset, 4);
+        editable.edit(Edit::Right);
+        assert_eq!(editable.screen_offset, 5);
+        editable.edit(Edit::Right);
+        assert_eq!(editable.screen_offset, 5);
+        editable.edit(Edit::Left);
+        assert_eq!(editable.screen_offset, 3);
+        editable.edit(Edit::Left);
+        assert_eq!(editable.screen_offset, 2);
+        editable.edit(Edit::Left);
+        assert_eq!(editable.screen_offset, 2);
+        editable.edit(Edit::Left);
+        assert_eq!(editable.screen_offset, 0);
+
+        let mut editable = EditableString::new(7, 2);
+        editable.edit(Edit::Paste("abc".to_owned()));
+        editable.edit(Edit::ToStart);
+        editable.edit(Edit::ToEnd);
+        assert_eq!(editable.screen_offset, 3);
+        editable.edit(Edit::Paste("defghi".to_owned()));
+        editable.edit(Edit::ToStart);
+        editable.edit(Edit::ToEnd);
+        assert_eq!(editable.screen_offset, 5);
+    }
+
+    #[test]
+    fn test_view() {
+        let mut editable = EditableString::new(7, 2);
+        editable.edit(Edit::Paste("abc".to_owned()));
+        assert_eq!(editable.view(), ("abc", 0));
+
+        let mut editable = EditableString::new(6, 1);
+        editable.edit(Edit::Paste("ＡＡＡＡＡＡ".to_owned()));
+        assert_eq!(editable.view(), ("ＡＡ", 1));
+
+        let mut editable = EditableString::new(7, 2);
+        editable.edit(Edit::Paste("ＡＡＡＡ".to_owned()));
+        assert_eq!(editable.view(), ("ＡＡ", 1));
+        editable.edit(Edit::Left);
+        assert_eq!(editable.view(), ("ＡＡ", 1));
+        editable.edit(Edit::Left);
+        assert_eq!(editable.view(), ("ＡＡＡ", 0));
+
+        let mut editable = EditableString::new(7, 2);
+        editable.edit(Edit::Paste("012345678".to_owned()));
+        editable.edit(Edit::ToStart);
+        assert_eq!(editable.view(), ("0123456", 0));
+
+        let mut editable = EditableString::new(7, 2);
+        editable.edit(Edit::Paste("012345Ａ".to_owned()));
+        editable.edit(Edit::ToStart);
+        assert_eq!(editable.view(), ("012345", 0));
+
+        let mut editable = EditableString::new(4, 1);
+        editable.edit(Edit::Paste("01234567".to_owned()));
+        assert_eq!(editable.view(), ("567", 0));
+        editable.edit(Edit::Left);
+        assert_eq!(editable.view(), ("567", 0));
+        editable.edit(Edit::Left);
+        assert_eq!(editable.view(), ("567", 0));
+        editable.edit(Edit::Left);
+        assert_eq!(editable.view(), ("4567", 0));
+        editable.edit(Edit::Left);
+        assert_eq!(editable.view(), ("3456", 0));
+        editable.edit(Edit::Left);
+        assert_eq!(editable.view(), ("2345", 0));
+        editable.edit(Edit::Right);
+        assert_eq!(editable.view(), ("2345", 0));
+        editable.edit(Edit::Right);
+        assert_eq!(editable.view(), ("2345", 0));
+        editable.edit(Edit::Right);
+        assert_eq!(editable.view(), ("3456", 0));
+    }
+
+    #[test]
+    fn test_delete() {
+        let mut editable = EditableString::new(7, 2);
+        editable.edit(Edit::Paste("Ａb".to_owned()));
+        editable.edit(Edit::Backspace);
+        assert_eq!(editable.contents, "Ａ");
+        assert_eq!(editable.screen_offset, 2);
+        editable.edit(Edit::Backspace);
+        assert_eq!(editable.contents, "");
+        assert_eq!(editable.screen_offset, 0);
+    }
+
+    #[test]
+    fn test_normalize_query() {
+        let mut s = "a\nb".to_owned();
+        normalize_query_string(&mut s);
+        assert_eq!(s, "a b");
+
+        let mut s = "ｏ\nｏ".to_owned();
+        normalize_query_string(&mut s);
+        assert_eq!(s, "ｏ ｏ");
+
+        let mut s = "a\n\u{07}ｏ".to_owned();
+        normalize_query_string(&mut s);
+        assert_eq!(s, "a ｏ");
+    }
+
+    #[test]
+    fn test_editable() {
+        let mut editable = EditableString::new(3, 1);
+        for e in [
+            Edit::Insert('a'),
+            Edit::Left,
+            Edit::Insert('b'),
+            Edit::ToEnd,
+            Edit::Insert('c'),
+            Edit::ToStart,
+            Edit::Insert('d'),
+            Edit::Left,
+            Edit::Left,
+            Edit::Right,
+            Edit::Insert('e'),
+        ] {
+            editable.edit(e);
+        }
+        assert_eq!(editable.contents, "debac");
+
+        let mut editable = EditableString::new(3, 1);
+        for e in [
+            Edit::Insert('a'),
+            Edit::Insert('b'),
+            Edit::Insert('c'),
+            Edit::Insert('d'),
+            Edit::Left,
+            Edit::Insert('1'),
+            Edit::Insert('2'),
+            Edit::Insert('3'),
+            Edit::ToStart,
+            Edit::Backspace,
+            Edit::Insert('4'),
+            Edit::ToEnd,
+            Edit::Backspace,
+            Edit::Left,
+            Edit::Delete,
+        ] {
+            editable.edit(e);
+        }
+
+        assert_eq!(editable.contents, "4abc12");
+    }
+
+    #[test]
+    fn test_editable_unicode() {
+        let mut editable = EditableString::new(3, 1);
+        for e in [
+            Edit::Paste("दे".to_owned()),
+            Edit::Left,
+            Edit::Insert('a'),
+            Edit::ToEnd,
+            Edit::Insert('Ａ'),
+        ] {
+            editable.edit(e);
+        }
+        assert_eq!(editable.contents, "aदेＡ");
+
+        for e in [
+            Edit::ToStart,
+            Edit::Right,
+            Edit::ToEnd,
+            Edit::Left,
+            Edit::Backspace,
+        ] {
+            editable.edit(e);
+        }
+
+        assert_eq!(editable.contents, "aＡ");
+    }
+}

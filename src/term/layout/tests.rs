@@ -32,8 +32,7 @@ fn test_layout_basic() {
     assert_eq!(
         layout.recompute(6, 2, 3, 0, nc.snapshot()),
         LayoutView {
-            below: &[],
-            current: 2,
+            below: &[2],
             above: &[1],
         }
     );
@@ -41,8 +40,7 @@ fn test_layout_basic() {
     assert_eq!(
         layout.recompute(6, 2, 3, 1, nc.snapshot()),
         LayoutView {
-            below: &[2],
-            current: 1,
+            below: &[1, 2],
             above: &[],
         }
     );
@@ -58,8 +56,7 @@ fn test_layout_large() {
     assert_eq!(
         layout.recompute(3, 0, 0, 0, nc.snapshot()),
         LayoutView {
-            below: &[],
-            current: 3,
+            below: &[3],
             above: &[],
         }
     );
@@ -67,8 +64,7 @@ fn test_layout_large() {
     assert_eq!(
         layout.recompute(3, 1, 0, 0, nc.snapshot()),
         LayoutView {
-            below: &[],
-            current: 3,
+            below: &[3],
             above: &[],
         }
     );
@@ -76,8 +72,7 @@ fn test_layout_large() {
     assert_eq!(
         layout.recompute(3, 1, 1, 0, nc.snapshot()),
         LayoutView {
-            below: &[],
-            current: 2,
+            below: &[2],
             above: &[1],
         }
     );
@@ -93,8 +88,7 @@ fn test_layout_overflow() {
     assert_eq!(
         layout.recompute(6, 2, 3, 0, nc.snapshot()),
         LayoutView {
-            below: &[],
-            current: 2,
+            below: &[2],
             above: &[1, 3],
         }
     );
@@ -102,8 +96,7 @@ fn test_layout_overflow() {
     assert_eq!(
         layout.recompute(6, 2, 3, 1, nc.snapshot()),
         LayoutView {
-            below: &[2],
-            current: 1,
+            below: &[1, 2],
             above: &[3],
         }
     );
@@ -111,8 +104,7 @@ fn test_layout_overflow() {
     assert_eq!(
         layout.recompute(6, 2, 3, 2, nc.snapshot()),
         LayoutView {
-            below: &[],
-            current: 3,
+            below: &[3],
             above: &[],
         }
     );
@@ -120,8 +112,7 @@ fn test_layout_overflow() {
     assert_eq!(
         layout.recompute(6, 2, 2, 2, nc.snapshot()),
         LayoutView {
-            below: &[],
-            current: 4,
+            below: &[4],
             above: &[],
         }
     );
@@ -129,8 +120,7 @@ fn test_layout_overflow() {
     assert_eq!(
         layout.recompute(7, 2, 2, 2, nc.snapshot()),
         LayoutView {
-            below: &[],
-            current: 4,
+            below: &[4],
             above: &[],
         }
     );
@@ -138,8 +128,7 @@ fn test_layout_overflow() {
     assert_eq!(
         layout.recompute(7, 2, 2, 0, nc.snapshot()),
         LayoutView {
-            below: &[],
-            current: 2,
+            below: &[2],
             above: &[1, 4],
         }
     );
@@ -147,8 +136,7 @@ fn test_layout_overflow() {
     assert_eq!(
         layout.recompute(6, 2, 0, 2, nc.snapshot()),
         LayoutView {
-            below: &[1, 1],
-            current: 4,
+            below: &[4, 1, 1],
             above: &[],
         }
     );
@@ -156,8 +144,7 @@ fn test_layout_overflow() {
     assert_eq!(
         layout.recompute(8, 2, 0, 2, nc.snapshot()),
         LayoutView {
-            below: &[1, 1],
-            current: 4,
+            below: &[4, 1, 1],
             above: &[],
         }
     );
@@ -165,8 +152,7 @@ fn test_layout_overflow() {
     assert_eq!(
         layout.recompute(7, 2, 0, 2, nc.snapshot()),
         LayoutView {
-            below: &[1, 1],
-            current: 4,
+            below: &[4, 1, 1],
             above: &[],
         }
     );
@@ -174,8 +160,7 @@ fn test_layout_overflow() {
     assert_eq!(
         layout.recompute(6, 2, 0, 2, nc.snapshot()),
         LayoutView {
-            below: &[1, 1],
-            current: 4,
+            below: &[4, 1, 1],
             above: &[],
         }
     );
@@ -193,8 +178,7 @@ fn test_scrolldown() {
     assert_eq!(
         layout.recompute(8, 2, 2, 0, nc.snapshot()),
         LayoutView {
-            below: &[],
-            current: 1,
+            below: &[1],
             above: &[1, 1, 1, 1, 1, 1, 1],
         }
     );
@@ -202,8 +186,7 @@ fn test_scrolldown() {
     assert_eq!(
         layout.recompute(8, 2, 2, 10, nc.snapshot()),
         LayoutView {
-            below: &[1, 1, 1, 1, 1],
-            current: 1,
+            below: &[1, 1, 1, 1, 1, 1],
             above: &[],
         }
     );
@@ -211,8 +194,7 @@ fn test_scrolldown() {
     assert_eq!(
         layout.recompute(8, 2, 2, 9, nc.snapshot()),
         LayoutView {
-            below: &[1, 1, 1, 1],
-            current: 1,
+            below: &[1, 1, 1, 1, 1],
             above: &[1],
         }
     );
@@ -220,8 +202,7 @@ fn test_scrolldown() {
     assert_eq!(
         layout.recompute(8, 2, 2, 8, nc.snapshot()),
         LayoutView {
-            below: &[1, 1, 1],
-            current: 1,
+            below: &[1, 1, 1, 1],
             above: &[1, 1],
         }
     );
@@ -229,8 +210,7 @@ fn test_scrolldown() {
     assert_eq!(
         layout.recompute(8, 2, 2, 7, nc.snapshot()),
         LayoutView {
-            below: &[1, 1],
-            current: 1,
+            below: &[1, 1, 1],
             above: &[1, 1, 1],
         }
     );
@@ -238,8 +218,7 @@ fn test_scrolldown() {
     assert_eq!(
         layout.recompute(8, 2, 2, 6, nc.snapshot()),
         LayoutView {
-            below: &[1, 1],
-            current: 1,
+            below: &[1, 1, 1],
             above: &[1, 1, 1, 1],
         }
     );
@@ -247,8 +226,7 @@ fn test_scrolldown() {
     assert_eq!(
         layout.recompute(8, 2, 2, 5, nc.snapshot()),
         LayoutView {
-            below: &[1, 1],
-            current: 1,
+            below: &[1, 1, 1],
             above: &[1, 1, 1, 1, 1],
         }
     );
@@ -256,8 +234,7 @@ fn test_scrolldown() {
     assert_eq!(
         layout.recompute(8, 2, 2, 2, nc.snapshot()),
         LayoutView {
-            below: &[1, 1],
-            current: 1,
+            below: &[1, 1, 1],
             above: &[1, 1, 1, 1, 1],
         }
     );
@@ -265,8 +242,7 @@ fn test_scrolldown() {
     assert_eq!(
         layout.recompute(8, 2, 2, 1, nc.snapshot()),
         LayoutView {
-            below: &[1],
-            current: 1,
+            below: &[1, 1],
             above: &[1, 1, 1, 1, 1, 1],
         }
     );
@@ -274,8 +250,7 @@ fn test_scrolldown() {
     assert_eq!(
         layout.recompute(8, 2, 2, 0, nc.snapshot()),
         LayoutView {
-            below: &[],
-            current: 1,
+            below: &[1],
             above: &[1, 1, 1, 1, 1, 1, 1],
         }
     );
@@ -291,8 +266,7 @@ fn test_layout_scrollback() {
     assert_eq!(
         layout.recompute(5, 1, 1, 0, nc.snapshot()),
         LayoutView {
-            below: &[],
-            current: 2,
+            below: &[2],
             above: &[1, 1, 1],
         }
     );
@@ -300,8 +274,7 @@ fn test_layout_scrollback() {
     assert_eq!(
         layout.recompute(5, 1, 1, 3, nc.snapshot()),
         LayoutView {
-            below: &[1, 1, 1],
-            current: 1,
+            below: &[1, 1, 1, 1],
             above: &[1],
         }
     );
@@ -309,8 +282,7 @@ fn test_layout_scrollback() {
     assert_eq!(
         layout.recompute(5, 1, 1, 4, nc.snapshot()),
         LayoutView {
-            below: &[1, 1, 1],
-            current: 1,
+            below: &[1, 1, 1, 1],
             above: &[1],
         }
     );
@@ -318,8 +290,7 @@ fn test_layout_scrollback() {
     assert_eq!(
         layout.recompute(5, 1, 1, 5, nc.snapshot()),
         LayoutView {
-            below: &[1, 1],
-            current: 2,
+            below: &[2, 1, 1],
             above: &[],
         }
     );
@@ -327,8 +298,7 @@ fn test_layout_scrollback() {
     assert_eq!(
         layout.recompute(5, 1, 1, 4, nc.snapshot()),
         LayoutView {
-            below: &[1],
-            current: 1,
+            below: &[1, 1],
             above: &[2],
         }
     );
@@ -336,8 +306,7 @@ fn test_layout_scrollback() {
     assert_eq!(
         layout.recompute(5, 1, 1, 5, nc.snapshot()),
         LayoutView {
-            below: &[1, 1],
-            current: 2,
+            below: &[2, 1, 1],
             above: &[],
         }
     );
@@ -345,8 +314,7 @@ fn test_layout_scrollback() {
     assert_eq!(
         layout.recompute(5, 1, 1, 4, nc.snapshot()),
         LayoutView {
-            below: &[1],
-            current: 1,
+            below: &[1, 1],
             above: &[2],
         }
     );
@@ -354,8 +322,7 @@ fn test_layout_scrollback() {
     assert_eq!(
         layout.recompute(5, 1, 1, 3, nc.snapshot()),
         LayoutView {
-            below: &[1],
-            current: 1,
+            below: &[1, 1],
             above: &[1, 2],
         }
     );
@@ -363,8 +330,7 @@ fn test_layout_scrollback() {
     assert_eq!(
         layout.recompute(5, 1, 1, 2, nc.snapshot()),
         LayoutView {
-            below: &[1],
-            current: 1,
+            below: &[1, 1],
             above: &[1, 1, 1],
         }
     );
@@ -372,8 +338,7 @@ fn test_layout_scrollback() {
     assert_eq!(
         layout.recompute(5, 1, 1, 1, nc.snapshot()),
         LayoutView {
-            below: &[1],
-            current: 1,
+            below: &[1, 1],
             above: &[1, 1, 1],
         }
     );
@@ -381,8 +346,7 @@ fn test_layout_scrollback() {
     assert_eq!(
         layout.recompute(5, 1, 1, 0, nc.snapshot()),
         LayoutView {
-            below: &[],
-            current: 2,
+            below: &[2],
             above: &[1, 1, 1],
         }
     );
@@ -390,8 +354,7 @@ fn test_layout_scrollback() {
     assert_eq!(
         layout.recompute(5, 1, 1, 4, nc.snapshot()),
         LayoutView {
-            below: &[1, 1, 1],
-            current: 1,
+            below: &[1, 1, 1, 1],
             above: &[1],
         }
     );
@@ -399,8 +362,7 @@ fn test_layout_scrollback() {
     assert_eq!(
         layout.recompute(5, 1, 1, 0, nc.snapshot()),
         LayoutView {
-            below: &[],
-            current: 2,
+            below: &[2],
             above: &[1, 1, 1],
         }
     );
@@ -416,8 +378,7 @@ fn test_layout_small() {
     assert_eq!(
         layout.recompute(5, 1, 1, 0, nc.snapshot()),
         LayoutView {
-            below: &[],
-            current: 1,
+            below: &[1],
             above: &[2],
         }
     );
@@ -425,8 +386,7 @@ fn test_layout_small() {
     assert_eq!(
         layout.recompute(5, 1, 1, 1, nc.snapshot()),
         LayoutView {
-            below: &[1],
-            current: 2,
+            below: &[2, 1],
             above: &[],
         }
     );
@@ -434,8 +394,7 @@ fn test_layout_small() {
     assert_eq!(
         layout.recompute(5, 1, 1, 0, nc.snapshot()),
         LayoutView {
-            below: &[],
-            current: 1,
+            below: &[1],
             above: &[2],
         }
     );
@@ -451,8 +410,7 @@ fn test_bottom_item_alignment() {
     assert_eq!(
         layout.recompute(20, 3, 3, 0, nc.snapshot()),
         LayoutView {
-            below: &[],
-            current: 4,
+            below: &[4],
             above: &[2, 2],
         }
     );
@@ -460,8 +418,7 @@ fn test_bottom_item_alignment() {
     assert_eq!(
         layout.recompute(20, 3, 3, 2, nc.snapshot()),
         LayoutView {
-            below: &[2, 4],
-            current: 2,
+            below: &[2, 2, 4],
             above: &[],
         }
     );
@@ -469,8 +426,7 @@ fn test_bottom_item_alignment() {
     assert_eq!(
         layout.recompute(20, 3, 3, 1, nc.snapshot()),
         LayoutView {
-            below: &[4],
-            current: 2,
+            below: &[2, 4],
             above: &[2],
         }
     );
@@ -486,8 +442,7 @@ fn test_multiline_jitter() {
     assert_eq!(
         layout.recompute(12, 3, 3, 0, nc.snapshot()),
         LayoutView {
-            below: &[],
-            current: 1,
+            below: &[1],
             above: &[1, 4, 2, 2],
         }
     );
@@ -495,8 +450,7 @@ fn test_multiline_jitter() {
     assert_eq!(
         layout.recompute(12, 3, 3, 1, nc.snapshot()),
         LayoutView {
-            below: &[1],
-            current: 1,
+            below: &[1, 1],
             above: &[4, 2, 2],
         }
     );
@@ -504,8 +458,7 @@ fn test_multiline_jitter() {
     assert_eq!(
         layout.recompute(12, 3, 3, 2, nc.snapshot()),
         LayoutView {
-            below: &[1, 1],
-            current: 4,
+            below: &[4, 1, 1],
             above: &[2, 2],
         }
     );
@@ -513,8 +466,7 @@ fn test_multiline_jitter() {
     assert_eq!(
         layout.recompute(12, 3, 3, 3, nc.snapshot()),
         LayoutView {
-            below: &[4, 1, 1],
-            current: 2,
+            below: &[2, 4, 1, 1],
             above: &[2],
         }
     );
@@ -522,8 +474,7 @@ fn test_multiline_jitter() {
     assert_eq!(
         layout.recompute(12, 3, 3, 4, nc.snapshot()),
         LayoutView {
-            below: &[2, 4, 1],
-            current: 2,
+            below: &[2, 2, 4, 1],
             above: &[],
         }
     );
@@ -531,8 +482,7 @@ fn test_multiline_jitter() {
     assert_eq!(
         layout.recompute(12, 3, 3, 3, nc.snapshot()),
         LayoutView {
-            below: &[4, 1],
-            current: 2,
+            below: &[2, 4, 1],
             above: &[2],
         }
     );
@@ -540,8 +490,7 @@ fn test_multiline_jitter() {
     assert_eq!(
         layout.recompute(12, 3, 3, 2, nc.snapshot()),
         LayoutView {
-            below: &[1],
-            current: 4,
+            below: &[4, 1],
             above: &[2, 2],
         }
     );
@@ -551,8 +500,7 @@ fn test_multiline_jitter() {
     assert_eq!(
         layout.recompute(12, 3, 3, 3, nc.snapshot()),
         LayoutView {
-            below: &[4, 1],
-            current: 2,
+            below: &[2, 4, 1],
             above: &[2],
         }
     );
@@ -568,8 +516,7 @@ fn test_large_multi() {
     assert_eq!(
         layout.recompute(30, 3, 3, 0, nc.snapshot()),
         LayoutView {
-            below: &[],
-            current: 6,
+            below: &[6],
             above: &[2, 2, 4],
         }
     );
@@ -577,8 +524,7 @@ fn test_large_multi() {
     assert_eq!(
         layout.recompute(30, 3, 3, 1, nc.snapshot()),
         LayoutView {
-            below: &[6],
-            current: 2,
+            below: &[2, 6],
             above: &[2, 4],
         }
     );
@@ -587,8 +533,7 @@ fn test_large_multi() {
     assert_eq!(
         layout.recompute(30, 3, 3, 0, nc.snapshot()),
         LayoutView {
-            below: &[],
-            current: 6,
+            below: &[6],
             above: &[2, 2, 4],
         }
     );
@@ -604,8 +549,7 @@ fn test_layout_mid_screen() {
     assert_eq!(
         layout.recompute(5, 1, 1, 4, nc.snapshot()),
         LayoutView {
-            below: &[1, 1, 1],
-            current: 1,
+            below: &[1, 1, 1, 1],
             above: &[1],
         }
     );
@@ -613,8 +557,7 @@ fn test_layout_mid_screen() {
     assert_eq!(
         layout.recompute(5, 1, 1, 2, nc.snapshot()),
         LayoutView {
-            below: &[1],
-            current: 1,
+            below: &[1, 1],
             above: &[1, 1, 1],
         }
     );
@@ -622,8 +565,7 @@ fn test_layout_mid_screen() {
     assert_eq!(
         layout.recompute(5, 1, 1, 3, nc.snapshot()),
         LayoutView {
-            below: &[1, 1],
-            current: 1,
+            below: &[1, 1, 1],
             above: &[1, 1],
         }
     );
@@ -631,8 +573,7 @@ fn test_layout_mid_screen() {
     assert_eq!(
         layout.recompute(5, 1, 1, 2, nc.snapshot()),
         LayoutView {
-            below: &[1],
-            current: 1,
+            below: &[1, 1],
             above: &[1, 1, 1],
         }
     );
@@ -640,8 +581,7 @@ fn test_layout_mid_screen() {
     assert_eq!(
         layout.recompute(7, 1, 1, 1, nc.snapshot()),
         LayoutView {
-            below: &[1],
-            current: 1,
+            below: &[1, 1],
             above: &[1, 1, 1, 1, 1],
         }
     );
@@ -649,8 +589,7 @@ fn test_layout_mid_screen() {
     assert_eq!(
         layout.recompute(7, 1, 1, 3, nc.snapshot()),
         LayoutView {
-            below: &[1, 1, 1],
-            current: 1,
+            below: &[1, 1, 1, 1],
             above: &[1, 1, 1],
         }
     );
@@ -658,8 +597,7 @@ fn test_layout_mid_screen() {
     assert_eq!(
         layout.recompute(7, 1, 1, 2, nc.snapshot()),
         LayoutView {
-            below: &[1, 1],
-            current: 1,
+            below: &[1, 1, 1],
             above: &[1, 1, 1, 1],
         }
     );
@@ -667,8 +605,7 @@ fn test_layout_mid_screen() {
     assert_eq!(
         layout.recompute(7, 1, 1, 3, nc.snapshot()),
         LayoutView {
-            below: &[1, 1, 1],
-            current: 1,
+            below: &[1, 1, 1, 1],
             above: &[1, 1, 1],
         }
     );
@@ -676,8 +613,7 @@ fn test_layout_mid_screen() {
     assert_eq!(
         layout.recompute(7, 1, 1, 1, nc.snapshot()),
         LayoutView {
-            below: &[1],
-            current: 1,
+            below: &[1, 1],
             above: &[1, 1, 1, 1, 1],
         }
     );
@@ -685,8 +621,7 @@ fn test_layout_mid_screen() {
     assert_eq!(
         layout.recompute(7, 1, 1, 7, nc.snapshot()),
         LayoutView {
-            below: &[1, 1, 1, 1, 1],
-            current: 1,
+            below: &[1, 1, 1, 1, 1, 1],
             above: &[],
         }
     );

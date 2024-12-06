@@ -26,7 +26,6 @@
 #![warn(rustdoc::unescaped_backticks)]
 
 mod bind;
-mod component;
 mod injector;
 pub mod render;
 mod term;
@@ -58,7 +57,7 @@ pub use nucleo;
 
 pub use crate::injector::Injector;
 use crate::{
-    component::normalize_query_string,
+    term::normalize_query_string,
     term::{Compositor, CompositorBuffer, EventSummary, PickerConfig},
 };
 
@@ -521,7 +520,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                     EventSummary::UpdatePrompt(append) => {
                         self.matcher.pattern.reparse(
                             0,
-                            &term.prompt_contents(),
+                            term.prompt_contents(),
                             self.picker_config.case_matching,
                             self.picker_config.normalization,
                             append,

@@ -13,7 +13,7 @@ pub enum Event {
     MoveDown,
     MoveToStart,
     MoveToEnd,
-    Delete,
+    Backspace,
     Quit,
     Abort,
     Resize(u16, u16),
@@ -39,7 +39,7 @@ pub fn convert(event: CrosstermEvent) -> Option<Event> {
             KeyCode::Char('f') => Some(Event::MoveRight),
             KeyCode::Char('a') => Some(Event::MoveToStart),
             KeyCode::Char('e') => Some(Event::MoveToEnd),
-            KeyCode::Char('h') => Some(Event::Delete),
+            KeyCode::Char('h') => Some(Event::Backspace),
             _ => None,
         },
         CrosstermEvent::Key(KeyEvent {
@@ -56,7 +56,7 @@ pub fn convert(event: CrosstermEvent) -> Option<Event> {
             KeyCode::Home => Some(Event::MoveToStart),
             KeyCode::End => Some(Event::MoveToEnd),
             KeyCode::Char(ch) => Some(Event::Insert(ch)),
-            KeyCode::Backspace => Some(Event::Delete),
+            KeyCode::Backspace => Some(Event::Backspace),
             KeyCode::Enter => Some(Event::Select),
             _ => None,
         },
@@ -67,7 +67,7 @@ pub fn convert(event: CrosstermEvent) -> Option<Event> {
             ..
         }) => match code {
             KeyCode::Char(ch) => Some(Event::Insert(ch)),
-            KeyCode::Backspace => Some(Event::Delete),
+            KeyCode::Backspace => Some(Event::Backspace),
             KeyCode::Enter => Some(Event::Select),
             _ => None,
         },
