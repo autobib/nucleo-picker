@@ -17,9 +17,16 @@ There is also a special syntax for various types of exact matches.
 - `foo$` matches an exact suffix, with negation `!foo$`
 - `^foo$` matches the entire string exactly, with negation `!^foo$`
 
-Whitespace and control symbols `'^$!` can also be interpreted literally by escaping with a backslash `\`.
+Note that the negations must match exactly.
+The negation does not impact scoring: instead, any match for a negative atom is simply discarded, regardless of score.
 
-For example, the query `fo\$ ^bar` means that we match for strings which contain `fo$` (or similar), and which begin with the exact string `bar`.
+Whitespace (that is, anything with the [Unicode whitespace property](https://www.unicode.org/Public/UCD/latest/ucd/PropList.txt)) and control symbols `'^$!` can also be interpreted literally by escaping with a backslash `\`.
+Otherwise, backslashes are interpreted literally; in particular, backslashes do not need to be escaped.
+For example:
+
+- `\ ` matches the literal space ` `.
+- `\\` and `\a` match, respectively, literal `\\` and `\a`.
+- The query `fo\$ ^bar` means that we match for strings which contain `fo$` (or similar), and which begin with the exact string `bar`.
 
 The query syntax is also documented in the [nucleo-matcher](https://docs.rs/nucleo-matcher/latest/nucleo_matcher/pattern/enum.AtomKind.html) crate.
 
@@ -39,6 +46,7 @@ ctrl + a, ⇱             | Cursor To Start
 ctrl + e                | Cursor To End
 ⌫, ctrl + h, shift + ⌫  | Backspace
 ⏎, shift + ⏎            | Select and Quit
+
 
 ## Scroll and paste
 By default, the picker does not directly capture scroll actions, but if your terminal forwards scroll as up / down arrow input, then scrolling will work as expected.
