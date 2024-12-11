@@ -11,7 +11,7 @@ mod span;
 mod unicode;
 
 use std::{
-    io::{self, StderrLock, Write},
+    io::{self, Write},
     ops::Range,
     time::Duration,
 };
@@ -350,9 +350,10 @@ impl<'a> Compositor<'a> {
         T: Send + Sync + 'static,
         R: Render<T>,
         L: KeepLines,
+        W: Write,
         const SELECTED: bool,
     >(
-        stderr: &mut StderrLock<'_>,
+        stderr: &mut W,
         buffer: &mut CompositorBuffer,
         max_draw_length: u16,
         config: &PickerConfig,
@@ -395,9 +396,9 @@ impl<'a> Compositor<'a> {
     }
 
     #[inline]
-    fn draw_matches<T: Send + Sync + 'static, R: Render<T>>(
+    fn draw_matches<T: Send + Sync + 'static, R: Render<T>, W: Write>(
         &mut self,
-        stderr: &mut StderrLock<'_>,
+        stderr: &mut W,
         matcher: &mut Matcher,
         render: &R,
         snapshot: &nucleo::Snapshot<T>,
@@ -434,7 +435,7 @@ impl<'a> Compositor<'a> {
                         .move_to_screen_index(match_lines_rendered - 1),
                 )?;
 
-                Self::draw_single_match::<T, R, Head, false>(
+                Self::draw_single_match::<T, R, Head, W, false>(
                     stderr,
                     buffer,
                     self.dimensions.max_draw_length(),
@@ -454,7 +455,7 @@ impl<'a> Compositor<'a> {
                     .move_to_screen_index(match_lines_rendered - 1),
             )?;
 
-            Self::draw_single_match::<T, R, Head, true>(
+            Self::draw_single_match::<T, R, Head, W, true>(
                 stderr,
                 buffer,
                 self.dimensions.max_draw_length(),
@@ -474,7 +475,7 @@ impl<'a> Compositor<'a> {
                         .move_to_screen_index(match_lines_rendered - 1),
                 )?;
 
-                Self::draw_single_match::<T, R, Tail, false>(
+                Self::draw_single_match::<T, R, Tail, W, false>(
                     stderr,
                     buffer,
                     self.dimensions.max_draw_length(),
@@ -500,7 +501,7 @@ impl<'a> Compositor<'a> {
     }
 
     /// Draw the prompt string
-    fn draw_prompt(&self, stderr: &mut StderrLock<'_>) -> Result<(), io::Error> {
+    fn draw_prompt<W: Write>(&self, stderr: &mut W) -> Result<(), io::Error> {
         let (contents, shift) = self.prompt.view();
 
         stderr
@@ -520,9 +521,9 @@ impl<'a> Compositor<'a> {
     }
 
     /// Draw the match counts to the terminal, e.g. `9/43`.
-    fn draw_match_counts(&mut self, stderr: &mut StderrLock<'_>) -> Result<(), io::Error> {
-        stderr.queue(self.dimensions.move_to_results_start())?;
-        stderr
+    fn draw_match_counts<W: Write>(&mut self, writer: &mut W) -> Result<(), io::Error> {
+        writer.queue(self.dimensions.move_to_results_start())?;
+        writer
             .queue(SetAttribute(Attribute::Italic))?
             .queue(SetForegroundColor(Color::Green))?
             .queue(Print("  "))?
@@ -537,9 +538,9 @@ impl<'a> Compositor<'a> {
 
     /// Draw the terminal to the screen. This assumes that the draw count has been updated and the
     /// selector index has been properly clamped, or this method will panic!
-    pub fn draw<T: Send + Sync + 'static, R: Render<T>>(
+    pub fn draw<T: Send + Sync + 'static, R: Render<T>, W: Write>(
         &mut self,
-        stderr: &mut StderrLock<'_>,
+        writer: &mut W,
         matcher: &mut Matcher,
         render: &R,
         snapshot: &nucleo::Snapshot<T>,
@@ -549,23 +550,23 @@ impl<'a> Compositor<'a> {
             // reset redraw state
             self.needs_redraw = false;
 
-            stderr.execute(BeginSynchronizedUpdate)?;
+            writer.execute(BeginSynchronizedUpdate)?;
 
             // draw the match counts
-            self.draw_match_counts(stderr)?;
+            self.draw_match_counts(writer)?;
 
             // draw matches if there is space; the height check is required otherwise the
             // `recompute` function will panic
             if self.dimensions.max_draw_height() != 0 {
-                self.draw_matches(stderr, matcher, render, snapshot, buffer)?;
+                self.draw_matches(writer, matcher, render, snapshot, buffer)?;
             }
 
             // render the prompt string
-            self.draw_prompt(stderr)?;
+            self.draw_prompt(writer)?;
 
             // flush to terminal
-            stderr.flush()?;
-            stderr.execute(EndSynchronizedUpdate)?;
+            writer.flush()?;
+            writer.execute(EndSynchronizedUpdate)?;
         };
 
         Ok(())
