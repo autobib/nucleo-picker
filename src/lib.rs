@@ -123,37 +123,38 @@ use crate::{
 /// calculations are performed to keep track of the amount of space that it takes on the screen to
 /// display a given item.
 ///
-/// The main exception is that tabs (`\t`) and carriage returns (`\r`) which are not bound in a
-/// windows-style newline (i.e. `\r\n`) are not supported correctly. Mainly, width calculations
-/// will most likely be incorrect since the offset from printing a `\t` depends on the position
-/// within the screen, and a free-standing carriage return acts as a cursor movement to the start
-/// of the line. In other words, tab and carriage returns are more like context-dependent cursor
-/// movements rather than printed character.
+/// The main exeption is control characters which are not newlines (`\n` or `\r\n`). Even visible
+/// control characters, such as tabs (`\t`) will cause issues: width calculations will most likely
+/// be incorrect since the amount of space a tab occupies depends on its position within the
+/// screen.
 ///
-/// It is best to avoid such characters tabs in your rendered format. If you do not have control
+/// It is best to avoid such characters in your rendered format. If you do not have control
 /// over the incoming data, the most robust solution is likely to perform substitutions during
 /// rendering.
 /// ```
 /// # use nucleo_picker::Render;
 /// use std::borrow::Cow;
 ///
-/// pub struct TabReplaceRenderer;
+/// fn renderable(c: char) -> bool {
+///     !c.is_control() || c == '\n'
+/// }
 ///
-/// impl<T: AsRef<str>> Render<T> for TabReplaceRenderer {
+/// struct ControlReplaceRenderer;
+///
+/// impl<T: AsRef<str>> Render<T> for ControlReplaceRenderer {
 ///     type Str<'a>
 ///         = Cow<'a, str>
 ///     where
 ///         T: 'a;
 ///
 ///     fn render<'a>(&self, item: &'a T) -> Self::Str<'a> {
-///         let item_ref = item.as_ref();
+///         let mut str = Cow::Borrowed(item.as_ref());
 ///
-///         if item_ref.contains('\t') {
-///             // replace tabs with two spaces
-///             Cow::Owned(item_ref.replace('\t', "  "))
-///         } else {
-///             Cow::Borrowed(item_ref)
+///         if str.contains(|c| !renderable(c)) {
+///             str.to_mut().retain(renderable);
 ///         }
+///
+///         str
 ///     }
 /// }
 /// ```
