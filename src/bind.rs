@@ -14,6 +14,7 @@ pub enum Event {
     MoveToStart,
     MoveToEnd,
     Backspace,
+    Delete,
     Quit,
     Abort,
     Resize(u16, u16),
@@ -58,6 +59,7 @@ pub fn convert(event: CrosstermEvent) -> Option<Event> {
             KeyCode::Char(ch) => Some(Event::Insert(ch)),
             KeyCode::Backspace => Some(Event::Backspace),
             KeyCode::Enter => Some(Event::Select),
+            KeyCode::Delete => Some(Event::Delete),
             _ => None,
         },
         CrosstermEvent::Key(KeyEvent {

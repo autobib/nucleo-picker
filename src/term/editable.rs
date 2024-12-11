@@ -28,8 +28,10 @@ fn normalize_char(ch: char) -> Option<(char, usize)> {
 pub enum Edit {
     /// Insert a [`char`] at the current cursor position.
     Insert(char),
-    /// Delete a [`char`] immediately preceding the current cursor position.
+    /// Delete a grapheme immediately preceding the current cursor position.
     Backspace,
+    /// Delete a grapheme immediately following the current cursor position.
+    Delete,
     /// Paste a [`String`] at the current cursor position.
     Paste(String),
     /// Move the cursor left.
@@ -266,6 +268,14 @@ impl EditableString {
                 normalize_query_string(&mut s);
                 self.insert(&s)
             }
+            Edit::Delete => match self.contents[self.offset..].graphemes(true).next() {
+                Some(next) => {
+                    self.contents
+                        .replace_range(self.offset..self.offset + next.len(), "");
+                    true
+                }
+                None => false,
+            },
             Edit::Backspace => {
                 let delete_until = self.offset;
                 if self.move_cursor(CursorMovement::Left) {

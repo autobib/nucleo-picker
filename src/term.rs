@@ -301,6 +301,12 @@ impl<'a> Compositor<'a> {
                             append = false;
                         }
                     }
+                    Event::Delete => {
+                        if self.edit_prompt(Edit::Delete) {
+                            update_prompt = true;
+                            append = false;
+                        }
+                    }
                     Event::Quit => return Ok(EventSummary::Quit),
                     Event::Resize(width, height) => {
                         self.resize(width, height);
@@ -478,7 +484,6 @@ impl<'a> Compositor<'a> {
     /// Draw the prompt string
     fn draw_prompt(&self, stderr: &mut StderrLock<'_>) -> Result<(), io::Error> {
         let (contents, shift) = self.prompt.view();
-        println!("{contents:?}");
 
         stderr
             .queue(self.dimensions.move_to_prompt())?
