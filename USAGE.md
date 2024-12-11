@@ -32,21 +32,24 @@ The query syntax is also documented in the [nucleo-matcher](https://docs.rs/nucl
 
 
 ## Keyboard shortcuts
-Generally speaking, we attempt to follow the bash keyboard shortcut conventions.
+Generally speaking, we attempt to follow the bash-like or vim-like keyboard shortcut conventions.
+Most of these bindings are standard, with the exception of `ctrl + o`.
 
 Key bindings(s)         | Action
 ------------------------|--------------------
 ctrl + c                | Abort
 esc, ctrl + g, ctrl + q | Quit (no selection)
+⏎, shift + ⏎            | Select and Quit
 ↑, ctrl + k, ctrl + p   | Selection Up
 ↓, ctrl + j, ctrl + n   | Selection Down
 ←, ctrl + b             | Cursor Left
 →, ctrl + f             | Cursor Right
 ctrl + a, ⇱             | Cursor To Start
 ctrl + e                | Cursor To End
+ctrl + u                | Clear Before Cursor
+ctrl + o                | Clear After Cursor
 ⌫, ctrl + h, shift + ⌫  | Backspace
 ␡, fn + ␡               | Delete
-⏎, shift + ⏎            | Select and Quit
 
 
 ## Scroll and paste
