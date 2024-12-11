@@ -36,8 +36,12 @@ pub enum Edit {
     Paste(String),
     /// Move the cursor left.
     Left,
+    /// Move the cursor left an entire word.
+    WordLeft,
     /// Move the cursor right.
     Right,
+    /// Move the cursor right an entire word.
+    WordRight,
     /// Move the cursor to the start.
     ToStart,
     /// Move the cursor to the end.
@@ -47,10 +51,14 @@ pub enum Edit {
 /// A movement to apply to an [`EditableString`].
 #[derive(Debug, PartialEq, Eq)]
 enum CursorMovement {
-    /// Move the cursor left by a given number of characters.
+    /// Move the cursor left.
     Left,
-    /// Move the cursor right by a given number of characters.
+    /// Move the cursor left an entire word.
+    WordLeft,
+    /// Move the cursor right.
     Right,
+    /// Move the cursor right an entire word.
+    WordRight,
     /// Move the cursor to the start.
     ToStart,
     /// Move the cursor to the end.
@@ -174,6 +182,30 @@ impl EditableString {
         true
     }
 
+    #[inline]
+    fn move_left(&self, width: usize) -> u16 {
+        // check if we would hit the beginning of the string
+        let mut total_left_width = 0;
+        let mut graphemes = self.contents[..self.offset].graphemes(true).rev();
+        let left_padding = loop {
+            match graphemes.next() {
+                Some(g) => {
+                    total_left_width += g.width();
+                    if total_left_width >= self.left_padding as usize {
+                        break self.left_padding;
+                    }
+                }
+                None => {
+                    break total_left_width as u16;
+                }
+            }
+        };
+
+        self.screen_offset
+            .saturating_sub(width.try_into().unwrap_or(u16::MAX))
+            .max(left_padding)
+    }
+
     /// Move the cursor.
     #[inline]
     #[allow(clippy::needless_pass_by_value)]
@@ -186,27 +218,21 @@ impl EditableString {
                 {
                     Some((new_offset, gp)) => {
                         self.offset = new_offset;
-                        // check if we would hit the beginning of the string
-                        let mut total_left_width = 0;
-                        let mut graphemes = self.contents[..self.offset].graphemes(true).rev();
-                        let left_padding = loop {
-                            match graphemes.next() {
-                                Some(g) => {
-                                    total_left_width += g.width();
-                                    if total_left_width >= self.left_padding as usize {
-                                        break self.left_padding;
-                                    }
-                                }
-                                None => {
-                                    break total_left_width as u16;
-                                }
-                            }
-                        };
-
-                        self.screen_offset = self
-                            .screen_offset
-                            .saturating_sub(gp.width().try_into().unwrap_or(u16::MAX))
-                            .max(left_padding);
+                        self.screen_offset = self.move_left(gp.width());
+                        true
+                    }
+                    None => false,
+                }
+            }
+            CursorMovement::WordLeft => {
+                match self.contents[..self.offset]
+                    .unicode_word_indices()
+                    .next_back()
+                {
+                    Some((new_offset, _)) => {
+                        let step_width = self.contents[new_offset..self.offset].width();
+                        self.offset = new_offset;
+                        self.screen_offset = self.move_left(step_width);
                         true
                     }
                     None => false,
@@ -220,6 +246,21 @@ impl EditableString {
                 }
                 None => false,
             },
+            CursorMovement::WordRight => {
+                let mut word_indices = self.contents[self.offset..].unicode_word_indices();
+                if word_indices.next().is_some() {
+                    let next_offset = word_indices
+                        .next()
+                        .map(|(s, _)| self.offset + s)
+                        .unwrap_or(self.contents.len());
+                    let step_width = self.contents[self.offset..next_offset].width();
+                    self.offset = next_offset;
+                    self.increase_by_width(step_width);
+                    true
+                } else {
+                    false
+                }
+            }
             CursorMovement::ToStart => {
                 if self.offset == 0 {
                     false
@@ -254,7 +295,9 @@ impl EditableString {
     pub fn edit(&mut self, e: Edit) -> bool {
         match e {
             Edit::Left => self.move_cursor(CursorMovement::Left),
+            Edit::WordLeft => self.move_cursor(CursorMovement::WordLeft),
             Edit::Right => self.move_cursor(CursorMovement::Right),
+            Edit::WordRight => self.move_cursor(CursorMovement::WordRight),
             Edit::ToStart => self.move_cursor(CursorMovement::ToStart),
             Edit::ToEnd => self.move_cursor(CursorMovement::ToEnd),
             Edit::Insert(ch) => {
@@ -420,6 +463,21 @@ mod tests {
         assert_eq!(editable.view(), ("2345", 0));
         editable.edit(Edit::Right);
         assert_eq!(editable.view(), ("3456", 0));
+    }
+
+    #[test]
+    fn test_word_movement() {
+        let mut editable = EditableString::new(100, 2);
+        editable.edit(Edit::Paste("one two".to_owned()));
+        editable.edit(Edit::WordLeft);
+        editable.edit(Edit::WordLeft);
+        assert_eq!(editable.screen_offset, 0);
+        editable.edit(Edit::WordRight);
+        assert_eq!(editable.screen_offset, 4);
+        editable.edit(Edit::WordRight);
+        assert_eq!(editable.screen_offset, 7);
+        editable.edit(Edit::WordRight);
+        assert_eq!(editable.screen_offset, 7);
     }
 
     #[test]
