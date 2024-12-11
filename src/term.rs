@@ -307,8 +307,20 @@ impl<'a> Compositor<'a> {
                             append = false;
                         }
                     }
+                    Event::ClearBefore => {
+                        if self.edit_prompt(Edit::ClearBefore) {
+                            update_prompt = true;
+                            append = false;
+                        }
+                    }
                     Event::Delete => {
                         if self.edit_prompt(Edit::Delete) {
+                            update_prompt = true;
+                            append = false;
+                        }
+                    }
+                    Event::ClearAfter => {
+                        if self.edit_prompt(Edit::ClearAfter) {
                             update_prompt = true;
                             append = false;
                         }

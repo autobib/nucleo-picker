@@ -46,6 +46,10 @@ pub enum Edit {
     ToStart,
     /// Move the cursor to the end.
     ToEnd,
+    /// Delete everything before the cursor.
+    ClearBefore,
+    /// Delete everything after the cursor.
+    ClearAfter,
 }
 
 /// A movement to apply to an [`EditableString`].
@@ -311,6 +315,25 @@ impl EditableString {
                 normalize_query_string(&mut s);
                 self.insert(&s)
             }
+            Edit::Backspace => {
+                let delete_until = self.offset;
+                if self.move_cursor(CursorMovement::Left) {
+                    self.contents.replace_range(self.offset..delete_until, "");
+                    true
+                } else {
+                    false
+                }
+            }
+            Edit::ClearBefore => {
+                if self.offset == 0 {
+                    false
+                } else {
+                    self.contents.replace_range(..self.offset, "");
+                    self.offset = 0;
+                    self.screen_offset = 0;
+                    true
+                }
+            }
             Edit::Delete => match self.contents[self.offset..].graphemes(true).next() {
                 Some(next) => {
                     self.contents
@@ -319,13 +342,12 @@ impl EditableString {
                 }
                 None => false,
             },
-            Edit::Backspace => {
-                let delete_until = self.offset;
-                if self.move_cursor(CursorMovement::Left) {
-                    self.contents.replace_range(self.offset..delete_until, "");
-                    true
-                } else {
+            Edit::ClearAfter => {
+                if self.offset == self.contents.len() {
                     false
+                } else {
+                    self.contents.truncate(self.offset);
+                    true
                 }
             }
         }
@@ -478,6 +500,21 @@ mod tests {
         assert_eq!(editable.screen_offset, 7);
         editable.edit(Edit::WordRight);
         assert_eq!(editable.screen_offset, 7);
+    }
+
+    #[test]
+    fn test_clear() {
+        let mut editable = EditableString::new(7, 2);
+        editable.edit(Edit::Paste("Ａbcde".to_owned()));
+        editable.edit(Edit::ToStart);
+        editable.edit(Edit::Right);
+        editable.edit(Edit::Right);
+        editable.edit(Edit::ClearAfter);
+        assert_eq!(editable.contents, "Ａb");
+        editable.edit(Edit::Insert('c'));
+        editable.edit(Edit::Left);
+        editable.edit(Edit::ClearBefore);
+        assert_eq!(editable.contents, "c");
     }
 
     #[test]

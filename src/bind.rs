@@ -16,7 +16,9 @@ pub enum Event {
     MoveToStart,
     MoveToEnd,
     Backspace,
+    ClearBefore,
     Delete,
+    ClearAfter,
     Quit,
     Abort,
     Resize(u16, u16),
@@ -28,33 +30,6 @@ pub enum Event {
 /// Convert any [`crossterm::event::Event`] that we handle.
 pub fn convert(event: CrosstermEvent) -> Option<Event> {
     match event {
-        CrosstermEvent::Key(KeyEvent {
-            kind: KeyEventKind::Press,
-            modifiers: KeyModifiers::CONTROL,
-            code,
-            ..
-        }) => match code {
-            KeyCode::Char('c') => Some(Event::Abort),
-            KeyCode::Char('g' | 'q') => Some(Event::Quit),
-            KeyCode::Char('k' | 'p') => Some(Event::MoveUp),
-            KeyCode::Char('j' | 'n') => Some(Event::MoveDown),
-            KeyCode::Char('b') => Some(Event::MoveLeft),
-            KeyCode::Char('f') => Some(Event::MoveRight),
-            KeyCode::Char('a') => Some(Event::MoveToStart),
-            KeyCode::Char('e') => Some(Event::MoveToEnd),
-            KeyCode::Char('h') => Some(Event::Backspace),
-            _ => None,
-        },
-        CrosstermEvent::Key(KeyEvent {
-            kind: KeyEventKind::Press,
-            modifiers: KeyModifiers::ALT,
-            code,
-            ..
-        }) => match code {
-            KeyCode::Char('f') => Some(Event::MoveWordRight),
-            KeyCode::Char('b') => Some(Event::MoveWordLeft),
-            _ => None,
-        },
         CrosstermEvent::Key(KeyEvent {
             kind: KeyEventKind::Press,
             modifiers: KeyModifiers::NONE,
@@ -72,6 +47,35 @@ pub fn convert(event: CrosstermEvent) -> Option<Event> {
             KeyCode::Backspace => Some(Event::Backspace),
             KeyCode::Enter => Some(Event::Select),
             KeyCode::Delete => Some(Event::Delete),
+            _ => None,
+        },
+        CrosstermEvent::Key(KeyEvent {
+            kind: KeyEventKind::Press,
+            modifiers: KeyModifiers::CONTROL,
+            code,
+            ..
+        }) => match code {
+            KeyCode::Char('c') => Some(Event::Abort),
+            KeyCode::Char('g' | 'q') => Some(Event::Quit),
+            KeyCode::Char('k' | 'p') => Some(Event::MoveUp),
+            KeyCode::Char('j' | 'n') => Some(Event::MoveDown),
+            KeyCode::Char('b') => Some(Event::MoveLeft),
+            KeyCode::Char('f') => Some(Event::MoveRight),
+            KeyCode::Char('a') => Some(Event::MoveToStart),
+            KeyCode::Char('e') => Some(Event::MoveToEnd),
+            KeyCode::Char('h') => Some(Event::Backspace),
+            KeyCode::Char('u') => Some(Event::ClearBefore),
+            KeyCode::Char('o') => Some(Event::ClearAfter),
+            _ => None,
+        },
+        CrosstermEvent::Key(KeyEvent {
+            kind: KeyEventKind::Press,
+            modifiers: KeyModifiers::ALT,
+            code,
+            ..
+        }) => match code {
+            KeyCode::Char('f') => Some(Event::MoveWordRight),
+            KeyCode::Char('b') => Some(Event::MoveWordLeft),
             _ => None,
         },
         CrosstermEvent::Key(KeyEvent {
