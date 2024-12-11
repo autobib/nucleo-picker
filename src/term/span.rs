@@ -1,5 +1,5 @@
 use std::{
-    io::{self, StderrLock},
+    io::{self, Write},
     iter::once,
     marker::PhantomData,
     ops::Range,
@@ -188,7 +188,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
     /// Print the header for each line, which is either two spaces or styled indicator. This also
     /// sets the highlighting features for the given line.
     #[inline]
-    fn start_line(stderr: &mut StderrLock<'_>, selected: bool) -> Result<(), io::Error> {
+    fn start_line<W: Write>(stderr: &mut W, selected: bool) -> Result<(), io::Error> {
         if selected {
             // print the line as bold, and with a 'selection' marker
             stderr
@@ -204,8 +204,8 @@ impl<'a, P: Processor> Spanned<'a, P> {
 
     /// Queue a string slice for printing to stderr, either highlighted or printed.
     #[inline]
-    fn print_span(
-        stderr: &mut StderrLock<'_>,
+    fn print_span<W: Write>(
+        stderr: &mut W,
         to_print: &str,
         highlight: bool,
     ) -> Result<(), io::Error> {
@@ -220,7 +220,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
     /// Clean up after printing the line by resetting any display styling, clearing any trailing
     /// characters, and moving to the next line.
     #[inline]
-    fn finish_line(stderr: &mut StderrLock<'_>) -> Result<(), io::Error> {
+    fn finish_line<W: Write>(stderr: &mut W) -> Result<(), io::Error> {
         stderr
             .queue(SetAttribute(Attribute::Reset))?
             .queue(Clear(ClearType::UntilNewLine))?
@@ -231,9 +231,9 @@ impl<'a, P: Processor> Spanned<'a, P> {
     /// Print for display into a terminal with width `max_width`, and with styling to match if the
     /// item is selected or not.
     #[inline]
-    pub fn queue_print(
+    pub fn queue_print<W: Write>(
         &self,
-        stderr: &mut StderrLock<'_>,
+        stderr: &mut W,
         selected: bool,
         max_width: u16,
         highlight_padding: u16,
@@ -270,9 +270,9 @@ impl<'a, P: Processor> Spanned<'a, P> {
     /// Print a single line (represented as a slice of [`Span`]) to the terminal screen, with the
     /// given `offset` and the width of the screen in columns, as `capacity`.
     #[inline]
-    fn queue_print_line(
+    fn queue_print_line<W: Write>(
         &self,
-        stderr: &mut StderrLock<'_>,
+        stderr: &mut W,
         line: &[Span],
         offset: usize,
         capacity: u16,

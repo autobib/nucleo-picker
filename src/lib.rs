@@ -32,7 +32,7 @@ mod term;
 
 use std::{
     borrow::Cow,
-    io::{self, IsTerminal},
+    io::{self, BufWriter, IsTerminal, Write},
     iter::Extend,
     num::NonZero,
     sync::Arc,
@@ -490,17 +490,17 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     pub fn pick(&mut self) -> Result<Option<&T>, io::Error> {
         let stderr = io::stderr().lock();
         if stderr.is_terminal() {
-            self.pick_inner(Self::default_frame_interval(), stderr)
+            self.pick_inner(Self::default_frame_interval(), BufWriter::new(stderr))
         } else {
             Err(io::Error::new(io::ErrorKind::Other, "is not interactive"))
         }
     }
 
     /// The actual picker implementation.
-    fn pick_inner(
+    fn pick_inner<W: Write>(
         &mut self,
         interval: Duration,
-        mut stderr: io::StderrLock<'_>,
+        mut writer: W,
     ) -> Result<Option<&T>, io::Error> {
         let mut term = Compositor::new(size()?, &self.picker_config);
         term.set_prompt(&self.query);
@@ -509,7 +509,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         let mut matcher = nucleo::Matcher::new(self.config.clone());
 
         enable_raw_mode()?;
-        execute!(stderr, EnterAlternateScreen, EnableBracketedPaste)?;
+        execute!(writer, EnterAlternateScreen, EnableBracketedPaste)?;
 
         let selection = loop {
             let deadline = Instant::now() + interval;
@@ -550,7 +550,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
 
             // redraw the screen
             term.draw(
-                &mut stderr,
+                &mut writer,
                 &mut matcher,
                 self.render.as_ref(),
                 self.matcher.snapshot(),
@@ -562,7 +562,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         };
 
         disable_raw_mode()?;
-        execute!(stderr, DisableBracketedPaste, LeaveAlternateScreen)?;
+        execute!(writer, DisableBracketedPaste, LeaveAlternateScreen)?;
         selection
     }
 }
