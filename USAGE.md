@@ -45,6 +45,7 @@ esc, ctrl + g, ctrl + q | Quit (no selection)
 ctrl + a, ⇱             | Cursor To Start
 ctrl + e                | Cursor To End
 ⌫, ctrl + h, shift + ⌫  | Backspace
+␡, fn + ␡               | Delete
 ⏎, shift + ⏎            | Select and Quit
 
 
