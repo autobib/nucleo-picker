@@ -292,8 +292,14 @@ impl<'a> Compositor<'a> {
                     Event::MoveLeft => {
                         self.edit_prompt(Edit::Left);
                     }
+                    Event::MoveWordLeft => {
+                        self.edit_prompt(Edit::WordLeft);
+                    }
                     Event::MoveRight => {
                         self.edit_prompt(Edit::Right);
+                    }
+                    Event::MoveWordRight => {
+                        self.edit_prompt(Edit::WordRight);
                     }
                     Event::Backspace => {
                         if self.edit_prompt(Edit::Backspace) {

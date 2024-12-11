@@ -8,7 +8,9 @@ use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent, KeyEventKind,
 #[derive(Debug, PartialEq, Eq)]
 pub enum Event {
     MoveLeft,
+    MoveWordLeft,
     MoveRight,
+    MoveWordRight,
     MoveUp,
     MoveDown,
     MoveToStart,
@@ -41,6 +43,16 @@ pub fn convert(event: CrosstermEvent) -> Option<Event> {
             KeyCode::Char('a') => Some(Event::MoveToStart),
             KeyCode::Char('e') => Some(Event::MoveToEnd),
             KeyCode::Char('h') => Some(Event::Backspace),
+            _ => None,
+        },
+        CrosstermEvent::Key(KeyEvent {
+            kind: KeyEventKind::Press,
+            modifiers: KeyModifiers::ALT,
+            code,
+            ..
+        }) => match code {
+            KeyCode::Char('f') => Some(Event::MoveWordRight),
+            KeyCode::Char('b') => Some(Event::MoveWordLeft),
             _ => None,
         },
         CrosstermEvent::Key(KeyEvent {
