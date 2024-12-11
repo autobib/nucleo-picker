@@ -9,12 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Added configuration for prompt padding and scroll padding.
+- Key-bindings to go forward and backward by word, and to clear before and after cursor.
+- Support deleting next character (i.e. `Delete` on windows, and `fn + delete` on MacOS).
 
 ### Deprecated
 - `PickerOptions::right_highlight_padding` has been deprecated; use `PickerOptions::highlight_padding` instead.
 
 ### Fixed
-- Fixed highlight padding to correctly fill for highlight matches very close to the end of the screen
+- Fixed highlight padding to correctly fill for highlight matches very close to the end of the screen.
+- Proper handling of graphemes and multi-width characters in the prompt string (#4).
+- Removed some unnecessary features from dependencies.
 
 ## [0.6.1] - 2024-12-04
 
