@@ -30,6 +30,8 @@ pub enum Edit {
     Insert(char),
     /// Delete a grapheme immediately preceding the current cursor position.
     Backspace,
+    /// Delete the word immediately preceding the current cursor position.
+    BackspaceWord,
     /// Delete a grapheme immediately following the current cursor position.
     Delete,
     /// Paste a [`String`] at the current cursor position.
@@ -318,6 +320,15 @@ impl EditableString {
             Edit::Backspace => {
                 let delete_until = self.offset;
                 if self.move_cursor(CursorMovement::Left) {
+                    self.contents.replace_range(self.offset..delete_until, "");
+                    true
+                } else {
+                    false
+                }
+            }
+            Edit::BackspaceWord => {
+                let delete_until = self.offset;
+                if self.move_cursor(CursorMovement::WordLeft) {
                     self.contents.replace_range(self.offset..delete_until, "");
                     true
                 } else {
