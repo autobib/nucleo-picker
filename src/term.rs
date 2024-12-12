@@ -307,6 +307,12 @@ impl<'a> Compositor<'a> {
                             append = false;
                         }
                     }
+                    Event::BackspaceWord => {
+                        if self.edit_prompt(Edit::BackspaceWord) {
+                            update_prompt = true;
+                            append = false;
+                        }
+                    }
                     Event::ClearBefore => {
                         if self.edit_prompt(Edit::ClearBefore) {
                             update_prompt = true;
