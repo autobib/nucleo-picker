@@ -332,6 +332,11 @@ impl<'a> Compositor<'a> {
                         }
                     }
                     Event::Quit => return Ok(EventSummary::Quit),
+                    Event::QuitIfEmpty => {
+                        if self.prompt.is_empty() {
+                            return Ok(EventSummary::Quit);
+                        }
+                    }
                     Event::Resize(width, height) => {
                         self.resize(width, height);
                     }
