@@ -39,6 +39,7 @@ Key bindings(s)         | Action
 ------------------------|--------------------
 ctrl + c                | Abort
 esc, ctrl + g, ctrl + q | Quit (no selection)
+ctrl + d                | Quit If Query Empty (no selection)
 ⏎, shift + ⏎            | Select and Quit
 ↑, ctrl + k, ctrl + p   | Selection Up
 ↓, ctrl + j, ctrl + n   | Selection Down
@@ -49,6 +50,7 @@ ctrl + e                | Cursor To End
 ctrl + u                | Clear Before Cursor
 ctrl + o                | Clear After Cursor
 ⌫, ctrl + h, shift + ⌫  | Backspace
+ctrl + w                | Backspace Word
 ␡, fn + ␡               | Delete
 
 

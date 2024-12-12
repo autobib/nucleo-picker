@@ -21,6 +21,7 @@ pub enum Event {
     Delete,
     ClearAfter,
     Quit,
+    QuitIfEmpty,
     Abort,
     Resize(u16, u16),
     Insert(char),
@@ -57,6 +58,7 @@ pub fn convert(event: CrosstermEvent) -> Option<Event> {
             ..
         }) => match code {
             KeyCode::Char('c') => Some(Event::Abort),
+            KeyCode::Char('d') => Some(Event::QuitIfEmpty),
             KeyCode::Char('g' | 'q') => Some(Event::Quit),
             KeyCode::Char('k' | 'p') => Some(Event::MoveUp),
             KeyCode::Char('j' | 'n') => Some(Event::MoveDown),

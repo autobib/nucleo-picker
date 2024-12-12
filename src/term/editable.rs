@@ -95,6 +95,11 @@ impl EditableString {
         }
     }
 
+    /// Whether or not the prompt is empty.
+    pub fn is_empty(&self) -> bool {
+        self.contents.is_empty()
+    }
+
     /// Return the prompt contents as well as an 'offset' which is required in the presence of an
     /// initial grapheme that is too large to fit at the beginning of the screen.
     pub fn view(&self) -> (&str, u16) {
