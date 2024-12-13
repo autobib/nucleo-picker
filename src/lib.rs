@@ -528,12 +528,15 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                         );
                     }
                     EventSummary::Select => {
-                        break Ok(term
-                            .selection()
-                            .try_into()
-                            .ok()
-                            .and_then(|idx| self.matcher.snapshot().get_matched_item(idx))
-                            .map(|it| it.data));
+                        if let Some(index) = term.selection() {
+                            break Ok(Some(
+                                self.matcher
+                                    .snapshot()
+                                    .get_matched_item(index)
+                                    .unwrap()
+                                    .data,
+                            ));
+                        }
                     }
                     EventSummary::Quit => {
                         break Ok(None);
