@@ -210,8 +210,13 @@ impl<'a> Compositor<'a> {
     }
 
     /// Return the current index of the selection, if any.
-    pub fn selection(&self) -> usize {
-        self.selection
+    #[inline]
+    pub fn selection(&self) -> Option<u32> {
+        if self.selection < self.matched_item_count as usize {
+            Some(self.selection as u32)
+        } else {
+            None
+        }
     }
 
     /// Increment the current item selection without exceeding the provided bound.
