@@ -4,16 +4,15 @@
 //! matching can be done while the picker is populated.
 use std::{borrow::Cow, env::args, io, path::PathBuf, thread::spawn};
 
-use ignore::{DirEntry, Walk};
+use ignore::{DirEntry, WalkBuilder, WalkState};
 use nucleo_picker::{nucleo::Config, PickerOptions, Render};
 
-#[derive(Clone)]
 pub struct DirEntryRender;
 
 impl Render<DirEntry> for DirEntryRender {
     type Str<'a> = Cow<'a, str>;
 
-    // Render a `DirEntry` using its internal path buffer.
+    /// Render a `DirEntry` using its internal path buffer.
     fn render<'a>(&self, value: &'a DirEntry) -> Self::Str<'a> {
         value.path().to_string_lossy()
     }
@@ -36,9 +35,15 @@ fn main() -> io::Result<()> {
     // populate from a separate thread to avoid locking the picker interface
     let injector = picker.injector();
     spawn(move || {
-        for entry in Walk::new(root).filter_map(Result::ok) {
-            injector.push(entry);
-        }
+        WalkBuilder::new(root).build_parallel().run(|| {
+            let injector = injector.clone();
+            Box::new(move |walk_res| {
+                if let Ok(dir) = walk_res {
+                    injector.push(dir);
+                }
+                WalkState::Continue
+            })
+        });
     });
 
     match picker.pick()? {
