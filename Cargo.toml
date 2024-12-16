@@ -1,7 +1,7 @@
 [package]
 authors = ["Alex Rutar <alex@rutar.org>"]
 categories = ["command-line-interface"]
-description = "A fuzzy picker tui library based on nucleo"
+description = "A performant and Unicode-aware fuzzy picker tui library"
 edition = "2021"
 keywords = ["cli"]
 license = "MIT OR Apache-2.0"
