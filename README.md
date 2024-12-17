@@ -2,7 +2,7 @@
 [![Documentation](https://img.shields.io/badge/docs.rs-nucleo--picker-66c2a5?labelColor=555555&logoColor=white&logo=data:image/svg+xml;base64,PHN2ZyByb2xlPSJpbWciIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDUxMiA1MTIiPjxwYXRoIGZpbGw9IiNmNWY1ZjUiIGQ9Ik00ODguNiAyNTAuMkwzOTIgMjE0VjEwNS41YzAtMTUtOS4zLTI4LjQtMjMuNC0zMy43bC0xMDAtMzcuNWMtOC4xLTMuMS0xNy4xLTMuMS0yNS4zIDBsLTEwMCAzNy41Yy0xNC4xIDUuMy0yMy40IDE4LjctMjMuNCAzMy43VjIxNGwtOTYuNiAzNi4yQzkuMyAyNTUuNSAwIDI2OC45IDAgMjgzLjlWMzk0YzAgMTMuNiA3LjcgMjYuMSAxOS45IDMyLjJsMTAwIDUwYzEwLjEgNS4xIDIyLjEgNS4xIDMyLjIgMGwxMDMuOS01MiAxMDMuOSA1MmMxMC4xIDUuMSAyMi4xIDUuMSAzMi4yIDBsMTAwLTUwYzEyLjItNi4xIDE5LjktMTguNiAxOS45LTMyLjJWMjgzLjljMC0xNS05LjMtMjguNC0yMy40LTMzLjd6TTM1OCAyMTQuOGwtODUgMzEuOXYtNjguMmw4NS0zN3Y3My4zek0xNTQgMTA0LjFsMTAyLTM4LjIgMTAyIDM4LjJ2LjZsLTEwMiA0MS40LTEwMi00MS40di0uNnptODQgMjkxLjFsLTg1IDQyLjV2LTc5LjFsODUtMzguOHY3NS40em0wLTExMmwtMTAyIDQxLjQtMTAyLTQxLjR2LS42bDEwMi0zOC4yIDEwMiAzOC4ydi42em0yNDAgMTEybC04NSA0Mi41di03OS4xbDg1LTM4Ljh2NzUuNHptMC0xMTJsLTEwMiA0MS40LTEwMi00MS40di0uNmwxMDItMzguMiAxMDIgMzguMnYuNnoiPjwvcGF0aD48L3N2Zz4K)](https://docs.rs/nucleo-picker/)
 
 # nucleo-picker
-A [Rust](https://www.rust-lang.org/) library which enables you to incorporate a highly performant and Unicode-aware fuzzy picker directly in your own terminal application.
+A native [Rust](https://www.rust-lang.org/) library which enables you to incorporate a highly performant and Unicode-aware fuzzy picker directly in your own terminal application.
 
 This library provides a TUI for the [`nucleo`](https://docs.rs/nucleo/latest/nucleo/) crate with an interface similar to the [fzf](https://github.com/junegunn/fzf) command-line tool.
 
@@ -35,7 +35,7 @@ Why use this library instead of a general-purpose fuzzy-finder such as `fzf` or 
   - Customizable rendering of crate-local and foreign types with the `Render` trait.
 
 ## Example
-Implement a heavily simplified `fzf` clone in 30 lines of code.
+Implement a heavily simplified `fzf` clone in 25 lines of code.
 Try it out with:
 ```
 cargo build --release --example fzf
@@ -57,9 +57,8 @@ fn main() -> io::Result<()> {
     let injector = picker.injector();
     spawn(move || {
         for line in io::stdin().lock().lines() {
-            match line {
-                Ok(s) => injector.push(s),
-                Err(_) => {}
+            if let Ok(s) = line {
+                injector.push(s);
             }
         }
     });
