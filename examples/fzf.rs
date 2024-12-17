@@ -16,10 +16,9 @@ fn main() -> io::Result<()> {
     let injector = picker.injector();
     spawn(move || {
         for line in io::stdin().lock().lines() {
-            match line {
-                Ok(s) => injector.push(s),
-                // silently drop io errors!
-                Err(_) => {}
+            // silently drop IO errors!
+            if let Ok(s) = line {
+                injector.push(s);
             }
         }
     });
