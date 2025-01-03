@@ -159,7 +159,7 @@ use crate::{
 /// }
 /// ```
 ///
-/// ## Performance considations
+/// ## Performance considerations
 /// Generally speaking, this crate assumes that the [`Render`] implementation is quite
 /// fast. For each item, the [`Render`] implementation is first called to generate the match
 /// objects, and then if the item is not ASCII, [`Render`] is called again in order to render
