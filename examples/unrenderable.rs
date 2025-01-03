@@ -27,7 +27,7 @@ fn main() -> Result<()> {
     let injector = picker.injector();
     for ctrl in control_chars {
         let hex_ctrl = format!("{:X}", ctrl as u32);  // Convert the char to a u32 and format as hex
-        let option = format!("hex is {} control {} |",hex_ctrl, ctrl);
+        let option = format!("hex is {} rendered is {} EOL",hex_ctrl, ctrl);
         injector.push(option);
     }
 
