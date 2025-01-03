@@ -3,7 +3,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// Mutate a given string in-place, removing ASCII control characters and converting newlines,
 /// carriage returns, and TABs to ASCII space.
-pub fn normalize_query_string(s: &mut String) {
+pub fn normalize_prompt_string(s: &mut String) {
     *s = s
         .chars()
         .filter_map(normalize_char)
@@ -262,8 +262,7 @@ impl EditableString {
                 if word_indices.next().is_some() {
                     let next_offset = word_indices
                         .next()
-                        .map(|(s, _)| self.offset + s)
-                        .unwrap_or(self.contents.len());
+                        .map_or(self.contents.len(), |(s, _)| self.offset + s);
                     let step_width = self.contents[self.offset..next_offset].width();
                     self.offset = next_offset;
                     self.increase_by_width(step_width);
@@ -319,7 +318,7 @@ impl EditableString {
                 }
             }
             Edit::Paste(mut s) => {
-                normalize_query_string(&mut s);
+                normalize_prompt_string(&mut s);
                 self.insert(&s)
             }
             Edit::Backspace => {
@@ -546,17 +545,17 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_query() {
+    fn test_normalize_prompt() {
         let mut s = "a\nb".to_owned();
-        normalize_query_string(&mut s);
+        normalize_prompt_string(&mut s);
         assert_eq!(s, "a b");
 
         let mut s = "ｏ\nｏ".to_owned();
-        normalize_query_string(&mut s);
+        normalize_prompt_string(&mut s);
         assert_eq!(s, "ｏ ｏ");
 
         let mut s = "a\n\u{07}ｏ".to_owned();
-        normalize_query_string(&mut s);
+        normalize_prompt_string(&mut s);
         assert_eq!(s, "a ｏ");
     }
 

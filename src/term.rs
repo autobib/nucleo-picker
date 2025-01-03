@@ -6,7 +6,7 @@
 
 mod editable;
 mod item;
-mod layout;
+mod matcher;
 mod span;
 mod unicode;
 
@@ -24,21 +24,21 @@ use crossterm::{
     ExecutableCommand, QueueableCommand,
 };
 use nucleo::{
+    self as nc,
     pattern::{CaseMatching, Normalization},
-    Matcher,
 };
 
-pub use self::editable::normalize_query_string;
+pub use self::editable::normalize_prompt_string;
 use self::{
     editable::{Edit, EditableString},
     item::RenderedItem,
-    layout::{Layout, VariableSizeBuffer},
+    matcher::{ItemSize, Matcher, VariableSizeBuffer},
     span::{Head, KeepLines, Spanned, Tail},
     unicode::{AsciiProcessor, Span, UnicodeProcessor},
 };
 use crate::{
-    bind::{convert, Event},
-    // component::{Edit, EditableString},
+    event::{convert, Event, PromptEvent, SelectionEvent},
+    util::as_u32,
     Render,
 };
 
@@ -63,10 +63,10 @@ struct Dimensions {
     width: u16,
     /// The height of the screen, including the prompt.
     height: u16,
-    /// The padding at the bottom.
-    scroll_padding_bottom: u16,
-    /// The padding at the top.
-    scroll_padding_top: u16,
+    /// The scroll padding.
+    scroll_padding: u16,
+    /// If the screen is reversed.
+    reversed: bool,
 }
 
 impl Dimensions {
@@ -76,23 +76,21 @@ impl Dimensions {
         Self {
             width,
             height,
-            scroll_padding_bottom: scroll_padding,
-            scroll_padding_top: scroll_padding,
+            scroll_padding,
+            reversed: config.reversed,
         }
     }
 
     pub fn move_to_screen_index(&self, index: u16) -> MoveTo {
-        MoveTo(0, self.max_draw_height() - 1 - index)
+        if self.reversed {
+            MoveTo(0, index + 2)
+        } else {
+            MoveTo(0, self.max_draw_height() - 1 - index)
+        }
     }
 
     pub fn move_to_end_of_line(&self) -> MoveToColumn {
         MoveToColumn(self.width - 1)
-    }
-
-    /// The [`MoveTo`] command for setting the cursor at the bottom left corner of the match
-    /// printing area.
-    pub fn move_to_results_start(&self) -> MoveTo {
-        MoveTo(0, self.max_draw_height())
     }
 
     /// The maximum width of the prompt string display window.
@@ -112,7 +110,21 @@ impl Dimensions {
 
     /// The y index of the prompt string.
     fn prompt_y(&self) -> u16 {
-        self.height.saturating_sub(1)
+        if self.reversed {
+            0
+        } else {
+            self.height.saturating_sub(1)
+        }
+    }
+
+    /// The [`MoveTo`] command for setting the cursor at the bottom left corner of the match
+    /// printing area.
+    pub fn move_to_results_start(&self) -> MoveTo {
+        if self.reversed {
+            MoveTo(0, 1)
+        } else {
+            MoveTo(0, self.height.saturating_sub(2))
+        }
     }
 
     /// The command to move to the start of the prompt rendering region.
@@ -131,6 +143,7 @@ impl Dimensions {
 #[non_exhaustive]
 pub struct PickerConfig {
     pub highlight: bool,
+    pub reversed: bool,
     pub case_matching: CaseMatching,
     pub normalization: Normalization,
     pub highlight_padding: u16,
@@ -142,6 +155,7 @@ impl Default for PickerConfig {
     fn default() -> Self {
         Self {
             highlight: true,
+            reversed: false,
             case_matching: CaseMatching::Smart,
             normalization: Normalization::Smart,
             highlight_padding: 3,
@@ -175,8 +189,6 @@ impl CompositorBuffer {
 pub struct Compositor<'a> {
     /// The dimensions of the terminal window.
     dimensions: Dimensions,
-    /// The current position of the selection.
-    selection: usize,
     /// The prompt string.
     prompt: EditableString,
     /// The total number of items.
@@ -188,66 +200,50 @@ pub struct Compositor<'a> {
     /// Configuration for drawing the picker.
     config: &'a PickerConfig,
     /// Stateful representation of the current screen layout.
-    layout: Layout,
+    layout: Matcher,
 }
 
 impl<'a> Compositor<'a> {
     /// The initial state.
-    pub fn new(screen: (u16, u16), config: &'a PickerConfig) -> Self {
-        let dimensions = Dimensions::from_screen(config, screen.0, screen.1);
+    pub fn new((width, height): (u16, u16), config: &'a PickerConfig) -> Self {
+        let dimensions = Dimensions::from_screen(config, width, height);
         let prompt = EditableString::new(dimensions.max_prompt_width(), config.prompt_padding);
+        let layout = Matcher::new(
+            dimensions.max_draw_height(),
+            dimensions.scroll_padding,
+            dimensions.scroll_padding,
+        );
 
         Self {
             dimensions,
-            selection: 0,
             prompt,
             matched_item_count: 0,
             item_count: 0,
             needs_redraw: true,
             config,
-            layout: Layout::default(),
+            layout,
         }
     }
 
     /// Return the current index of the selection, if any.
     #[inline]
     pub fn selection(&self) -> Option<u32> {
-        if self.selection < self.matched_item_count as usize {
-            Some(self.selection as u32)
+        let sel = self.layout.selection();
+
+        if sel < self.matched_item_count {
+            Some(sel)
         } else {
             None
         }
     }
 
-    /// Increment the current item selection without exceeding the provided bound.
-    fn incr_selection(&mut self) {
-        if self.selection < self.matched_item_count.saturating_sub(1) as usize {
-            self.needs_redraw = true;
-            self.selection += 1;
-        }
-    }
-
-    /// Decrement the current item selection.
-    fn decr_selection(&mut self) {
-        if let Some(new) = self.selection.checked_sub(1) {
-            self.needs_redraw = true;
-            self.selection = new;
-        }
-    }
-
     /// Update the draw count from a snapshot.
-    pub fn update<T: Send + Sync + 'static>(
-        &mut self,
-        changed: bool,
-        snapshot: &nucleo::Snapshot<T>,
-    ) {
+    pub fn update<T: Send + Sync + 'static>(&mut self, changed: bool, snapshot: &nc::Snapshot<T>) {
         if changed {
             self.needs_redraw = true;
             self.item_count = snapshot.item_count();
             self.matched_item_count = snapshot.matched_item_count();
-            self.selection = self
-                .selection
-                .min(self.matched_item_count.saturating_sub(1) as usize);
+            self.layout.update_items(snapshot);
         }
     }
 
@@ -271,87 +267,116 @@ impl<'a> Compositor<'a> {
     }
 
     /// Clear the queued events.
-    pub fn handle(&mut self) -> Result<EventSummary, io::Error> {
+    pub fn handle<T: Send + Sync + 'static>(
+        &mut self,
+        snapshot: &nc::Snapshot<T>,
+    ) -> Result<EventSummary, io::Error> {
         let mut update_prompt = false;
         let mut append = true;
 
         while poll(Duration::from_millis(5))? {
             if let Some(event) = convert(read()?) {
                 match event {
-                    Event::Abort => {
-                        return Err(io::Error::new(io::ErrorKind::Other, "keyboard interrupt"))
-                    }
-                    Event::MoveToStart => {
-                        self.edit_prompt(Edit::ToStart);
-                    }
-                    Event::MoveToEnd => {
-                        self.edit_prompt(Edit::ToEnd);
-                    }
-                    Event::Insert(ch) => {
-                        append &= self.prompt.is_appending();
-                        update_prompt |= self.edit_prompt(Edit::Insert(ch));
-                    }
-                    Event::Select => return Ok(EventSummary::Select),
-                    Event::MoveUp => self.incr_selection(),
-                    Event::MoveDown => self.decr_selection(),
-                    Event::MoveLeft => {
-                        self.edit_prompt(Edit::Left);
-                    }
-                    Event::MoveWordLeft => {
-                        self.edit_prompt(Edit::WordLeft);
-                    }
-                    Event::MoveRight => {
-                        self.edit_prompt(Edit::Right);
-                    }
-                    Event::MoveWordRight => {
-                        self.edit_prompt(Edit::WordRight);
-                    }
-                    Event::Backspace => {
-                        if self.edit_prompt(Edit::Backspace) {
-                            update_prompt = true;
-                            append = false;
+                    Event::Prompt(prompt_event) => match prompt_event {
+                        PromptEvent::Left(_) => {
+                            self.edit_prompt(Edit::Left);
                         }
-                    }
-                    Event::BackspaceWord => {
-                        if self.edit_prompt(Edit::BackspaceWord) {
-                            update_prompt = true;
-                            append = false;
+                        PromptEvent::WordLeft(_) => {
+                            self.edit_prompt(Edit::WordLeft);
                         }
-                    }
-                    Event::ClearBefore => {
-                        if self.edit_prompt(Edit::ClearBefore) {
-                            update_prompt = true;
-                            append = false;
+                        PromptEvent::Right(_) => {
+                            self.edit_prompt(Edit::Right);
                         }
-                    }
-                    Event::Delete => {
-                        if self.edit_prompt(Edit::Delete) {
-                            update_prompt = true;
-                            append = false;
+                        PromptEvent::WordRight(_) => {
+                            self.edit_prompt(Edit::WordRight);
                         }
-                    }
-                    Event::ClearAfter => {
-                        if self.edit_prompt(Edit::ClearAfter) {
-                            update_prompt = true;
-                            append = false;
+                        PromptEvent::ToStart => {
+                            self.edit_prompt(Edit::ToStart);
                         }
-                    }
+                        PromptEvent::ToEnd => {
+                            self.edit_prompt(Edit::ToEnd);
+                        }
+                        PromptEvent::Backspace(_) => {
+                            if self.edit_prompt(Edit::Backspace) {
+                                update_prompt = true;
+                                append = false;
+                            }
+                        }
+                        PromptEvent::Delete(_) => {
+                            if self.edit_prompt(Edit::Delete) {
+                                update_prompt = true;
+                                append = false;
+                            }
+                        }
+                        PromptEvent::BackspaceWord(_) => {
+                            if self.edit_prompt(Edit::BackspaceWord) {
+                                update_prompt = true;
+                                append = false;
+                            }
+                        }
+                        PromptEvent::ClearBefore => {
+                            if self.edit_prompt(Edit::ClearBefore) {
+                                update_prompt = true;
+                                append = false;
+                            }
+                        }
+                        PromptEvent::ClearAfter => {
+                            if self.edit_prompt(Edit::ClearAfter) {
+                                update_prompt = true;
+                                append = false;
+                            }
+                        }
+                        PromptEvent::Insert(ch) => {
+                            append &= self.prompt.is_appending();
+                            update_prompt |= self.edit_prompt(Edit::Insert(ch));
+                        }
+                        PromptEvent::Paste(contents) => {
+                            append &= self.prompt.is_appending();
+                            update_prompt |= self.edit_prompt(Edit::Paste(contents));
+                        }
+                    },
+                    Event::Selection(selection_event) => match selection_event {
+                        SelectionEvent::Up(increase) => {
+                            self.needs_redraw |=
+                                self.layout.selection_incr(as_u32(increase), snapshot);
+                        }
+                        SelectionEvent::Down(decrease) => {
+                            self.needs_redraw |=
+                                self.layout.selection_decr(as_u32(decrease), snapshot);
+                        }
+                        SelectionEvent::Reset => {
+                            self.needs_redraw |= self.layout.reset(snapshot);
+                        }
+                    },
                     Event::Quit => return Ok(EventSummary::Quit),
-                    Event::QuitIfEmpty => {
+                    Event::QuitPromptEmpty => {
                         if self.prompt.is_empty() {
                             return Ok(EventSummary::Quit);
                         }
                     }
+                    Event::Abort => {
+                        return Err(io::Error::new(io::ErrorKind::Other, "keyboard interrupt"))
+                    }
+
                     Event::Resize(width, height) => {
-                        self.resize(width, height);
+                        self.needs_redraw = true;
+                        self.dimensions = Dimensions::from_screen(self.config, width, height);
+                        self.layout.resize(
+                            self.dimensions.max_draw_height(),
+                            self.dimensions.scroll_padding,
+                            self.dimensions.scroll_padding,
+                            snapshot,
+                        );
+                        self.prompt.resize(
+                            self.dimensions.max_prompt_width(),
+                            self.config.prompt_padding,
+                        );
                     }
-                    Event::Paste(contents) => {
-                        append &= self.prompt.is_appending();
-                        update_prompt |= self.edit_prompt(Edit::Paste(contents));
-                    }
+                    Event::Select => return Ok(EventSummary::Select),
                 }
             }
         }
+
         Ok(if update_prompt {
             EventSummary::UpdatePrompt(append)
         } else {
@@ -373,9 +398,9 @@ impl<'a> Compositor<'a> {
         buffer: &mut CompositorBuffer,
         max_draw_length: u16,
         config: &PickerConfig,
-        item: &nucleo::Item<'_, T>,
-        snapshot: &nucleo::Snapshot<T>,
-        matcher: &mut nucleo::Matcher,
+        item: &nc::Item<'_, T>,
+        snapshot: &nc::Snapshot<T>,
+        matcher: &mut nc::Matcher,
         height: u16,
         render: &R,
     ) -> Result<(), io::Error> {
@@ -415,11 +440,24 @@ impl<'a> Compositor<'a> {
     fn draw_matches<T: Send + Sync + 'static, R: Render<T>, W: Write>(
         &mut self,
         stderr: &mut W,
-        matcher: &mut Matcher,
+        matcher: &mut nc::Matcher,
         render: &R,
-        snapshot: &nucleo::Snapshot<T>,
+        snapshot: &nc::Snapshot<T>,
         buffer: &mut CompositorBuffer,
     ) -> Result<(), io::Error> {
+        // draw match counts
+        stderr.queue(self.dimensions.move_to_results_start())?;
+        stderr
+            .queue(SetAttribute(Attribute::Italic))?
+            .queue(SetForegroundColor(Color::Green))?
+            .queue(Print("  "))?
+            .queue(Print(self.matched_item_count))?
+            .queue(Print("/"))?
+            .queue(Print(self.item_count))?
+            .queue(SetAttribute(Attribute::Reset))?
+            .queue(ResetColor)?
+            .queue(Clear(ClearType::UntilNewLine))?;
+
         // draw the matches
         if snapshot.matched_item_count() == 0 {
             // erase the matches if there are no matched items
@@ -427,24 +465,18 @@ impl<'a> Compositor<'a> {
                 .queue(MoveToPreviousLine(1))?
                 .queue(self.dimensions.move_to_end_of_line())?
                 .queue(Clear(ClearType::FromCursorUp))?;
-        } else {
+        } else if self.dimensions.max_draw_height() != 0 {
+            // the height check is required otherwise the `recompute` function will panic
+
             // recompute the layout
-            let view = self.layout.recompute(
-                self.dimensions.max_draw_height(),
-                self.dimensions.scroll_padding_bottom,
-                self.dimensions.scroll_padding_top,
-                self.selection as u32,
-                snapshot,
-            );
+            let view = dbg!(self.layout.view());
 
             let mut match_lines_rendered = 0;
-            let mut item_iter = snapshot.matched_items(
-                self.selection as u32 + 1 - view.below.len() as u32
-                    ..=self.selection as u32 + view.above.len() as u32,
-            );
+            let mut item_iter = snapshot.matched_items(self.layout.selection_range());
 
             // render below the selection
             for height in view.below[1..].iter().rev() {
+                let height = *height as u16;
                 match_lines_rendered += height;
                 stderr.queue(
                     self.dimensions
@@ -459,13 +491,13 @@ impl<'a> Compositor<'a> {
                     &item_iter.next().unwrap(),
                     snapshot,
                     matcher,
-                    *height,
+                    height,
                     render,
                 )?;
             }
 
             // render the selection
-            match_lines_rendered += view.below[0];
+            match_lines_rendered += view.below[0] as u16;
             stderr.queue(
                 self.dimensions
                     .move_to_screen_index(match_lines_rendered - 1),
@@ -479,12 +511,13 @@ impl<'a> Compositor<'a> {
                 &item_iter.next().unwrap(),
                 snapshot,
                 matcher,
-                view.below[0],
+                view.below[0] as u16,
                 render,
             )?;
 
             // render above the selection
             for height in view.above {
+                let height = *height as u16;
                 match_lines_rendered += height;
                 stderr.queue(
                     self.dimensions
@@ -499,13 +532,13 @@ impl<'a> Compositor<'a> {
                     &item_iter.next().unwrap(),
                     snapshot,
                     matcher,
-                    *height,
+                    height,
                     render,
                 )?;
             }
 
             // clear above matches if required
-            if match_lines_rendered + 1 < self.dimensions.max_draw_height() {
+            if match_lines_rendered < self.dimensions.max_draw_height() {
                 stderr
                     .queue(self.dimensions.move_to_screen_index(match_lines_rendered))?
                     .queue(self.dimensions.move_to_end_of_line())?
@@ -536,30 +569,14 @@ impl<'a> Compositor<'a> {
         Ok(())
     }
 
-    /// Draw the match counts to the terminal, e.g. `9/43`.
-    fn draw_match_counts<W: Write>(&mut self, writer: &mut W) -> Result<(), io::Error> {
-        writer.queue(self.dimensions.move_to_results_start())?;
-        writer
-            .queue(SetAttribute(Attribute::Italic))?
-            .queue(SetForegroundColor(Color::Green))?
-            .queue(Print("  "))?
-            .queue(Print(self.matched_item_count))?
-            .queue(Print("/"))?
-            .queue(Print(self.item_count))?
-            .queue(SetAttribute(Attribute::Reset))?
-            .queue(ResetColor)?
-            .queue(Clear(ClearType::UntilNewLine))?;
-        Ok(())
-    }
-
     /// Draw the terminal to the screen. This assumes that the draw count has been updated and the
     /// selector index has been properly clamped, or this method will panic!
     pub fn draw<T: Send + Sync + 'static, R: Render<T>, W: Write>(
         &mut self,
         writer: &mut W,
-        matcher: &mut Matcher,
+        matcher: &mut nc::Matcher,
         render: &R,
-        snapshot: &nucleo::Snapshot<T>,
+        snapshot: &nc::Snapshot<T>,
         buffer: &mut CompositorBuffer,
     ) -> Result<(), io::Error> {
         if self.needs_redraw {
@@ -568,14 +585,7 @@ impl<'a> Compositor<'a> {
 
             writer.execute(BeginSynchronizedUpdate)?;
 
-            // draw the match counts
-            self.draw_match_counts(writer)?;
-
-            // draw matches if there is space; the height check is required otherwise the
-            // `recompute` function will panic
-            if self.dimensions.max_draw_height() != 0 {
-                self.draw_matches(writer, matcher, render, snapshot, buffer)?;
-            }
+            self.draw_matches(writer, matcher, render, snapshot, buffer)?;
 
             // render the prompt string
             self.draw_prompt(writer)?;
@@ -586,15 +596,5 @@ impl<'a> Compositor<'a> {
         };
 
         Ok(())
-    }
-
-    /// Resize the terminal state on screen size change.
-    fn resize(&mut self, width: u16, height: u16) {
-        self.needs_redraw = true;
-        self.dimensions = Dimensions::from_screen(self.config, width, height);
-        self.prompt.resize(
-            self.dimensions.max_prompt_width(),
-            self.config.prompt_padding,
-        );
     }
 }

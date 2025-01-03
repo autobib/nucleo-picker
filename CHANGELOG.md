@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [unreleased]
+
+### Changed
+- `PickerOptions::query` has been renamed to `PickerOptions::prompt` for naming consistency.
+- `Picker::update_query` has been renamed to `Picker::update_prompt` for naming consistency.
+
+### Added
+- Reset selection using `ctrl + r`.
+
+### Fixed
+- Fixed screen layout when resizing to prefer higher score elements.
+
 ## [0.6.4] - 2024-12-16
 
 ### Changed

@@ -25,10 +25,12 @@
 #![deny(missing_docs)]
 #![warn(rustdoc::unescaped_backticks)]
 
-mod bind;
+mod event;
+mod incremental;
 mod injector;
 pub mod render;
 mod term;
+mod util;
 
 use std::{
     borrow::Cow,
@@ -56,9 +58,8 @@ use nucleo::{
 pub use nucleo;
 
 pub use crate::injector::Injector;
-use crate::{
-    term::normalize_query_string,
-    term::{Compositor, CompositorBuffer, EventSummary, PickerConfig},
+use crate::term::{
+    normalize_prompt_string, Compositor, CompositorBuffer, EventSummary, PickerConfig,
 };
 
 /// A trait which describes how to render objects for matching and display.
@@ -228,12 +229,12 @@ impl<T, R: for<'a> Fn(&'a T) -> Cow<'a, str>> Render<T> for R {
 ///
 /// let picker: Picker<String, _> = PickerOptions::new()
 ///     .highlight(true)
-///     .query("search")
+///     .prompt("search")
 ///     .picker(StrRenderer);
 /// ```
 pub struct PickerOptions {
     config: nc::Config,
-    query: String,
+    prompt: String,
     threads: Option<NonZero<usize>>,
     picker_config: PickerConfig,
 }
@@ -242,7 +243,7 @@ impl Default for PickerOptions {
     fn default() -> Self {
         Self {
             config: nc::Config::DEFAULT,
-            query: String::new(),
+            prompt: String::new(),
             threads: None,
             picker_config: PickerConfig::default(),
         }
@@ -251,6 +252,8 @@ impl Default for PickerOptions {
 
 impl PickerOptions {
     /// Initialize with default configuration.
+    ///
+    /// Equivalent to the [`Default`] implementation.
     #[must_use]
     #[inline]
     pub fn new() -> Self {
@@ -282,14 +285,25 @@ impl PickerOptions {
             render: render.into(),
             picker_config: self.picker_config,
             config: self.config,
-            query: self.query,
+            prompt: self.prompt,
         }
+    }
+
+    /// Set 'reversed' layout.
+    ///
+    /// Option `true` will put the prompt at the top and render items in descending
+    /// order, and `false` will put the prompt at the bottom and render items in ascending order.
+    #[must_use]
+    #[inline]
+    pub fn reversed(mut self, reversed: bool) -> Self {
+        self.picker_config.reversed = reversed;
+        self
     }
 
     /// Set the number of threads used by the internal matching engine.
     ///
-    /// If `None`, this will default to the number of available processors on your device
-    /// minus 2, with a lower bound of 1.
+    /// If `None`, this will default to a heuristic choice based on the amount of available
+    /// parallelism along with other factors.
     #[must_use]
     #[inline]
     pub fn threads(mut self, threads: Option<NonZero<usize>>) -> Self {
@@ -353,12 +367,22 @@ impl PickerOptions {
         self
     }
 
+    /// Provide a default prompt string.
+    #[must_use]
+    #[inline]
+    #[deprecated(since = "0.6.5", note = "method has been renamed to `prompt`")]
+    pub fn prompt<Q: Into<String>>(mut self, prompt: Q) -> Self {
+        self.prompt = prompt.into();
+        normalize_prompt_string(&mut self.prompt);
+        self
+    }
+
     /// Provide a default query string.
     #[must_use]
     #[inline]
     pub fn query<Q: Into<String>>(mut self, query: Q) -> Self {
-        self.query = query.into();
-        normalize_query_string(&mut self.query);
+        self.prompt = query.into();
+        normalize_prompt_string(&mut self.prompt);
         self
     }
 
@@ -397,7 +421,7 @@ pub struct Picker<T: Send + Sync + 'static, R> {
     render: Arc<R>,
     picker_config: PickerConfig,
     config: nc::Config,
-    query: String,
+    prompt: String,
 }
 
 impl<T: Send + Sync + 'static, R: Render<T>> Extend<T> for Picker<T, R> {
@@ -424,11 +448,22 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// Update the default query string. This is mainly useful for modifying the query string
     /// before re-using the [`Picker`].
     ///
-    /// See also the [`PickerOptions::query`] method to set the query during initialization.
+    /// See also the [`PickerOptions::prompt`] method to set the query during initialization.
+    #[inline]
+    #[deprecated(since = "0.6.5", note = "method has been renamed to `update_prompt`")]
+    pub fn update_prompt<Q: Into<String>>(&mut self, prompt: Q) {
+        self.prompt = prompt.into();
+        normalize_prompt_string(&mut self.prompt);
+    }
+
+    /// Update the default query string. This is mainly useful for modifying the query string
+    /// before re-using the [`Picker`].
+    ///
+    /// See also the [`PickerOptions::prompt`] method to set the query during initialization.
     #[inline]
     pub fn update_query<Q: Into<String>>(&mut self, query: Q) {
-        self.query = query.into();
-        normalize_query_string(&mut self.query);
+        self.prompt = query.into();
+        normalize_prompt_string(&mut self.prompt);
     }
 
     /// Update the internal nucleo configuration.
@@ -503,7 +538,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         mut writer: W,
     ) -> Result<Option<&T>, io::Error> {
         let mut term = Compositor::new(size()?, &self.picker_config);
-        term.set_prompt(&self.query);
+        term.set_prompt(&self.prompt);
 
         let mut buffer = CompositorBuffer::new();
         let mut matcher = nucleo::Matcher::new(self.config.clone());
@@ -515,7 +550,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
             let deadline = Instant::now() + interval;
 
             // process any queued keyboard events and reset pattern if necessary
-            match term.handle() {
+            match term.handle(self.matcher.snapshot()) {
                 Ok(summary) => match summary {
                     EventSummary::Continue => {}
                     EventSummary::UpdatePrompt(append) => {

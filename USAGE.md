@@ -33,7 +33,7 @@ The query syntax is also documented in the [nucleo-matcher](https://docs.rs/nucl
 
 ## Keyboard shortcuts
 Generally speaking, we attempt to follow the bash-like or vim-like keyboard shortcut conventions.
-Most of these bindings are standard, with the exception of `ctrl + o`.
+Most of these bindings are relatively standard, with some exceptions like `ctrl + o` and `ctrl + r`.
 
 Key bindings(s)         | Action
 ------------------------|--------------------
@@ -43,6 +43,7 @@ ctrl + d                | Quit If Query Empty (no selection)
 ⏎, shift + ⏎            | Select and Quit
 ↑, ctrl + k, ctrl + p   | Selection Up
 ↓, ctrl + j, ctrl + n   | Selection Down
+ctrl + r                | Reset Selections
 ←, ctrl + b             | Cursor Left
 →, ctrl + f             | Cursor Right
 ctrl + a, ⇱             | Cursor To Start
