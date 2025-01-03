@@ -43,11 +43,7 @@ cat myfile.txt | ./target/release/examples/fzf
 ```
 The code to create the binary:
 ```rust
-use std::{
-    io::{self, BufRead},
-    process::exit,
-    thread::spawn,
-};
+use std::{io, process::exit, thread::spawn};
 
 use nucleo_picker::{render::StrRenderer, Picker};
 
@@ -56,7 +52,7 @@ fn main() -> io::Result<()> {
 
     let injector = picker.injector();
     spawn(move || {
-        for line in io::stdin().lock().lines() {
+        for line in io::stdin().lines() {
             if let Ok(s) = line {
                 injector.push(s);
             }
