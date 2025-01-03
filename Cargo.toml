@@ -47,3 +47,6 @@ name = "fzf"
 
 [[example]]
 name = "options"
+
+[[example]]
+name = "unrenderable"
