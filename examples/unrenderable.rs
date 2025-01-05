@@ -2,12 +2,13 @@
 //!
 //! This blocking example demonstrates some of the configuration options available to the picker.
 use std::io::Result;
+use std::ops::RangeInclusive;
 
 use nucleo_picker::{nucleo::Config, render::StrRenderer, PickerOptions};
 
-fn list_control_characters() -> Vec<char> {
-    (0x00..=0x1F).map(|i| char::from_u32(i).unwrap()).collect()
-}
+
+const ASCII_CONTROL_CHARS: RangeInclusive<char> = '\x00'..='\x1F';
+
 fn main() -> Result<()> {
     let mut picker = PickerOptions::default()
         // set the configuration to match 'path-like' objects
@@ -16,11 +17,11 @@ fn main() -> Result<()> {
         .query("/var")
         .picker(StrRenderer);
 
-    let control_chars = list_control_characters();
+
 
     // populate the matcher
     let injector = picker.injector();
-    for ctrl in control_chars {
+    for ctrl in ASCII_CONTROL_CHARS {
         let hex_ctrl = format!("{:X}", ctrl as u32); // Convert the char to a u32 and format as hex
         let option = format!("hex is {} rendered is {} EOL", hex_ctrl, ctrl);
         injector.push(option);
