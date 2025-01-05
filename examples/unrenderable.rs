@@ -6,7 +6,6 @@ use std::ops::RangeInclusive;
 
 use nucleo_picker::{nucleo::Config, render::StrRenderer, PickerOptions};
 
-
 const ASCII_CONTROL_CHARS: RangeInclusive<char> = '\x00'..='\x1F';
 
 fn main() -> Result<()> {
@@ -16,8 +15,6 @@ fn main() -> Result<()> {
         // set the default query string to `/var`
         .query("/var")
         .picker(StrRenderer);
-
-
 
     // populate the matcher
     let injector = picker.injector();
