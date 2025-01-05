@@ -19,7 +19,7 @@ fn main() -> Result<()> {
     // populate the matcher
     let injector = picker.injector();
     for ctrl in ASCII_CONTROL_CHARS {
-        let hex_ctrl = format!("{:X}", ctrl as u32); // Convert the char to a u32 and format as hex
+        let hex_ctrl = format!("0x{:X}", ctrl as u8); // Convert the char to a u32 and format as hex
         let option = format!("hex is {} rendered is {} EOL", hex_ctrl, ctrl);
         injector.push(option);
     }
