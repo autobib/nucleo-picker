@@ -1,9 +1,10 @@
-use super::ScreenAlignment;
+use super::Previous;
 use crate::incremental::ExtendIncremental;
 
 #[inline]
 pub fn items(
-    previous: ScreenAlignment,
+    previous: Previous,
+    padding_top: u16,
     mut sizes_below_incl: impl ExtendIncremental,
     mut sizes_above: impl ExtendIncremental,
 ) {
@@ -14,7 +15,7 @@ pub fn items(
     let mut total_remaining = previous.size;
 
     // render the selection
-    total_remaining -= sizes_below_incl.extend_bounded(total_remaining - previous.padding_top, 1);
+    total_remaining -= sizes_below_incl.extend_bounded(total_remaining - padding_top, 1);
 
     // render any space below the selection, attempting to reserve 'previous.above' space if
     // possible

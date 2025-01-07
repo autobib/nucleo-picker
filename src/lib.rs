@@ -25,11 +25,13 @@
 #![deny(missing_docs)]
 #![warn(rustdoc::unescaped_backticks)]
 
+mod component;
 mod event;
 mod incremental;
 mod injector;
+mod match_list;
+mod prompt;
 pub mod render;
-mod term;
 mod util;
 
 use std::{
@@ -43,11 +45,14 @@ use std::{
 };
 
 use crossterm::{
-    event::{DisableBracketedPaste, EnableBracketedPaste},
+    cursor::MoveTo,
+    event::{poll, read, DisableBracketedPaste, EnableBracketedPaste},
     execute,
     terminal::{
-        disable_raw_mode, enable_raw_mode, size, EnterAlternateScreen, LeaveAlternateScreen,
+        disable_raw_mode, enable_raw_mode, size, BeginSynchronizedUpdate, EndSynchronizedUpdate,
+        EnterAlternateScreen, LeaveAlternateScreen,
     },
+    ExecutableCommand, QueueableCommand,
 };
 use nucleo::{
     self as nc,
@@ -55,12 +60,15 @@ use nucleo::{
     Nucleo,
 };
 
-pub use nucleo;
+use crate::{
+    component::{Component, Status},
+    event::{convert, Event},
+    match_list::{MatchList, MatchListConfig},
+    prompt::{Prompt, PromptConfig},
+};
 
 pub use crate::injector::Injector;
-use crate::term::{
-    normalize_prompt_string, Compositor, CompositorBuffer, EventSummary, PickerConfig,
-};
+pub use nucleo;
 
 /// A trait which describes how to render objects for matching and display.
 ///
@@ -236,7 +244,8 @@ pub struct PickerOptions {
     config: nc::Config,
     prompt: String,
     threads: Option<NonZero<usize>>,
-    picker_config: PickerConfig,
+    match_list_config: MatchListConfig,
+    prompt_config: PromptConfig,
 }
 
 impl Default for PickerOptions {
@@ -245,7 +254,8 @@ impl Default for PickerOptions {
             config: nc::Config::DEFAULT,
             prompt: String::new(),
             threads: None,
-            picker_config: PickerConfig::default(),
+            match_list_config: MatchListConfig::default(),
+            prompt_config: PromptConfig::default(),
         }
     }
 }
@@ -262,15 +272,15 @@ impl PickerOptions {
 
     /// Convert into a [`Picker`].
     #[must_use]
-    pub fn picker<T: Send + Sync + 'static, R>(self, render: R) -> Picker<T, R> {
-        let matcher = Nucleo::new(
+    pub fn picker<T: Send + Sync + 'static, R: Render<T>>(self, render: R) -> Picker<T, R> {
+        let engine = Nucleo::new(
             self.config.clone(),
             Arc::new(|| {}),
             // nucleo's API is a bit weird here in that it does not accept `NonZero<usize>`
             self.threads
                 .or_else(|| {
                     // Reserve two threads:
-                    // 1. for populating the macher
+                    // 1. for populating the matcher
                     // 2. for rendering the terminal UI and handling user input
                     available_parallelism()
                         .ok()
@@ -280,29 +290,32 @@ impl PickerOptions {
             1,
         );
 
-        Picker {
-            matcher,
-            render: render.into(),
-            picker_config: self.picker_config,
-            config: self.config,
-            prompt: self.prompt,
-        }
+        let mut match_list =
+            MatchList::new(self.match_list_config, self.config, engine, render.into());
+
+        let mut prompt = Prompt::new(self.prompt_config);
+
+        // set the prompt
+        match_list.reparse(&self.prompt);
+        prompt.set_prompt(self.prompt);
+
+        Picker { match_list, prompt }
     }
 
     /// Set 'reversed' layout.
     ///
-    /// Option `true` will put the prompt at the top and render items in descending
-    /// order, and `false` will put the prompt at the bottom and render items in ascending order.
+    /// Option `false` (default) will put the prompt at the bottom and render items in ascending
+    /// order. Option `true` will put the prompt at the top and render items in descending
     #[must_use]
     #[inline]
     pub fn reversed(mut self, reversed: bool) -> Self {
-        self.picker_config.reversed = reversed;
+        self.match_list_config.reversed = reversed;
         self
     }
 
     /// Set the number of threads used by the internal matching engine.
     ///
-    /// If `None`, this will default to a heuristic choice based on the amount of available
+    /// If `None` (default), use a heuristic choice based on the amount of available
     /// parallelism along with other factors.
     #[must_use]
     #[inline]
@@ -311,7 +324,7 @@ impl PickerOptions {
         self
     }
 
-    /// Set the internal matcher configuration.
+    /// Set the internal match engine configuration (default to [`nucleo::Config::DEFAULT`]).
     #[must_use]
     #[inline]
     pub fn config(mut self, config: nc::Config) -> Self {
@@ -319,70 +332,69 @@ impl PickerOptions {
         self
     }
 
-    /// Whether or not to highlight matches.
+    /// Whether or not to highlight matches (default to `true`).
     #[must_use]
     #[inline]
     pub fn highlight(mut self, highlight: bool) -> Self {
-        self.picker_config.highlight = highlight;
+        self.match_list_config.highlight = highlight;
         self
     }
 
-    /// How much space to leave when rendering match highlighting.
+    /// How much space to leave when rendering match highlighting (default to `3`).
     #[must_use]
     #[inline]
     pub fn highlight_padding(mut self, size: u16) -> Self {
-        self.picker_config.highlight_padding = size;
+        self.match_list_config.highlight_padding = size;
         self
     }
 
-    /// How much space to leave around the selection when scrolling.
+    /// How much space to leave around the selection when scrolling (default to `3`).
     #[must_use]
     #[inline]
     pub fn scroll_padding(mut self, size: u16) -> Self {
-        self.picker_config.scroll_padding = size;
+        self.match_list_config.scroll_padding = size;
         self
     }
 
-    /// How much space to leave around the cursor.
+    /// How much space to leave around the cursor (default to `2`).
     #[must_use]
     #[inline]
     pub fn prompt_padding(mut self, size: u16) -> Self {
-        self.picker_config.prompt_padding = size;
+        self.prompt_config.padding = size;
         self
     }
 
-    /// How to treat case mismatch.
+    /// How to treat case mismatch (default to [`CaseMatching::default`]).
     #[must_use]
     #[inline]
     pub fn case_matching(mut self, case_matching: CaseMatching) -> Self {
-        self.picker_config.case_matching = case_matching;
+        self.match_list_config.case_matching = case_matching;
         self
     }
 
-    /// How to perform Unicode normalization.
+    /// How to perform Unicode normalization (default to [`Normalization::default`]).
     #[must_use]
+    #[deprecated(since = "0.6.5", note = "method has been renamed to `prompt`")]
     #[inline]
     pub fn normalization(mut self, normalization: Normalization) -> Self {
-        self.picker_config.normalization = normalization;
+        self.match_list_config.normalization = normalization;
         self
     }
 
-    /// Provide a default prompt string.
+    /// Provide a default prompt string (default to `""`).
     #[must_use]
     #[inline]
-    #[deprecated(since = "0.6.5", note = "method has been renamed to `prompt`")]
     pub fn prompt<Q: Into<String>>(mut self, prompt: Q) -> Self {
         self.prompt = prompt.into();
-        normalize_prompt_string(&mut self.prompt);
         self
     }
 
     /// Provide a default query string.
     #[must_use]
+    #[deprecated(since = "0.6.5", note = "method has been renamed to `prompt`")]
     #[inline]
     pub fn query<Q: Into<String>>(mut self, query: Q) -> Self {
         self.prompt = query.into();
-        normalize_prompt_string(&mut self.prompt);
         self
     }
 
@@ -394,18 +406,18 @@ impl PickerOptions {
         note = "method has been renamed to `highlight_padding`"
     )]
     pub fn right_highlight_padding(mut self, size: u16) -> Self {
-        self.picker_config.highlight_padding = size;
+        self.match_list_config.highlight_padding = size;
         self
     }
 }
 
 /// A fuzzy matching interactive item picker.
 ///
-/// The parameter `T` is the item type and the parameter `R` is the [renderer](Render), which describes how
-/// to represent `T` in the matcher.
+/// The parameter `T` is the item type and the parameter `R` is the [renderer](Render), which
+/// describes how to represent `T` in the match list.
 ///
 /// Initialize a picker with [`Picker::new`], or with custom configuration using
-/// [`PickerOptions`], and add elements to the picker using a [`Injector`] returned
+/// [`PickerOptions`], and add elements to the picker using an [`Injector`] returned
 /// by the [`Picker::injector`] method.
 /// ```
 /// use nucleo_picker::{render::StrRenderer, Picker};
@@ -416,12 +428,16 @@ impl PickerOptions {
 ///
 /// See also the [usage
 /// examples](https://github.com/autobib/nucleo-picker/tree/master/examples).
+///
+/// ## A note on memory usage
+/// Initializing a picker is a relatively expensive operation since the internal match engine uses
+/// an arena-based memory approach to minimize allocator costs, and this memory is initialized when
+/// the picker is created.
+///
+/// To re-use the picker without additional start-up costs, use the [`Picker::restart`] method.
 pub struct Picker<T: Send + Sync + 'static, R> {
-    matcher: Nucleo<T>,
-    render: Arc<R>,
-    picker_config: PickerConfig,
-    config: nc::Config,
-    prompt: String,
+    match_list: MatchList<T, R>,
+    prompt: Prompt,
 }
 
 impl<T: Send + Sync + 'static, R: Render<T>> Extend<T> for Picker<T, R> {
@@ -452,8 +468,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     #[inline]
     #[deprecated(since = "0.6.5", note = "method has been renamed to `update_prompt`")]
     pub fn update_prompt<Q: Into<String>>(&mut self, prompt: Q) {
-        self.prompt = prompt.into();
-        normalize_prompt_string(&mut self.prompt);
+        self.prompt.set_prompt(prompt);
     }
 
     /// Update the default query string. This is mainly useful for modifying the query string
@@ -462,37 +477,38 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// See also the [`PickerOptions::prompt`] method to set the query during initialization.
     #[inline]
     pub fn update_query<Q: Into<String>>(&mut self, query: Q) {
-        self.prompt = query.into();
-        normalize_prompt_string(&mut self.prompt);
+        self.prompt.set_prompt(query);
     }
 
     /// Update the internal nucleo configuration.
     #[inline]
     pub fn update_config(&mut self, config: nc::Config) {
-        self.matcher.update_config(config);
+        self.match_list.update_nucleo_config(config);
     }
 
-    /// Restart the matcher engine, disconnecting all active injectors.
+    /// Restart the match engine, disconnecting all active injectors.
     ///
     /// Internally, this is a call to [`Nucleo::restart`] with `clear_snapshot = true`.
     /// See the documentation for [`Nucleo::restart`] for more detail.
     pub fn restart(&mut self) {
-        self.matcher.restart(true);
+        self.match_list.restart();
     }
 
     /// Restart the matcher engine, disconnecting all active injectors and replacing the internal
     /// renderer.
     ///
+    /// The provided [`Render`] implementation must be the same type as the one originally
+    /// provided; this is most useful for stateful renderers.
+    ///
     /// See [`Picker::restart`] and [`Nucleo::restart`] for more detail.
     pub fn reset_renderer(&mut self, render: R) {
-        self.restart();
-        self.render = render.into();
+        self.match_list.reset_renderer(render);
     }
 
     /// Get an [`Injector`] to send items to the picker.
     #[must_use]
     pub fn injector(&self) -> Injector<T, R> {
-        Injector::new(self.matcher.injector(), self.render.clone())
+        self.match_list.injector()
     }
 
     /// A convenience method to obtain the rendered version of an item as it would appear in the
@@ -502,7 +518,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// to the picker.
     #[inline]
     pub fn render<'a>(&self, item: &'a T) -> <R as Render<T>>::Str<'a> {
-        self.render.render(item)
+        self.match_list.render(item)
     }
 
     /// Open the interactive picker prompt and return the picked item, if any.
@@ -537,63 +553,92 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         interval: Duration,
         mut writer: W,
     ) -> Result<Option<&T>, io::Error> {
-        let mut term = Compositor::new(size()?, &self.picker_config);
-        term.set_prompt(&self.prompt);
-
-        let mut buffer = CompositorBuffer::new();
-        let mut matcher = nucleo::Matcher::new(self.config.clone());
-
         enable_raw_mode()?;
         execute!(writer, EnterAlternateScreen, EnableBracketedPaste)?;
 
-        let selection = loop {
+        let mut prompt_needs_redraw = true;
+        let mut match_list_needs_redraw = true;
+
+        let selection = 's: loop {
             let deadline = Instant::now() + interval;
 
-            // process any queued keyboard events and reset pattern if necessary
-            match term.handle(self.matcher.snapshot()) {
-                Ok(summary) => match summary {
-                    EventSummary::Continue => {}
-                    EventSummary::UpdatePrompt(append) => {
-                        self.matcher.pattern.reparse(
-                            0,
-                            term.prompt_contents(),
-                            self.picker_config.case_matching,
-                            self.picker_config.normalization,
-                            append,
-                        );
-                    }
-                    EventSummary::Select => {
-                        if let Some(index) = term.selection() {
-                            break Ok(Some(
-                                self.matcher
-                                    .snapshot()
-                                    .get_matched_item(index)
-                                    .unwrap()
-                                    .data,
-                            ));
+            // handle any events
+            while poll(Duration::from_millis(5))? {
+                if let Some(event) = convert(read()?) {
+                    match event {
+                        Event::Prompt(prompt_event) => {
+                            let prompt_status = self.prompt.handle(prompt_event);
+                            prompt_needs_redraw |= prompt_status.needs_redraw();
+                            if prompt_status.contents_changed {
+                                self.match_list.reparse(self.prompt.contents());
+                                match_list_needs_redraw = true;
+                            }
+                        }
+                        Event::MatchList(matcher_event) => {
+                            match_list_needs_redraw |=
+                                self.match_list.handle(matcher_event).needs_redraw();
+                        }
+                        Event::Quit => {
+                            break 's Ok(None);
+                        }
+                        Event::QuitPromptEmpty => {
+                            if self.prompt.is_empty() {
+                                break 's Ok(None);
+                            }
+                        }
+                        Event::Abort => {
+                            break 's Err(io::Error::other("keyboard interrupt"));
+                        }
+                        Event::Resize(_, _) => {
+                            // the resize events are handled automatically when drawing the screen;
+                            // we just need to indicate that a redraw is required
+                            prompt_needs_redraw = true;
+                            match_list_needs_redraw = true;
+                        }
+                        Event::Select => {
+                            // TODO: workaround for the borrow checker not understanding that
+                            // the `None` variant does not borrow from the `match_list`
+                            //
+                            // maybe works when polonius is merged
+                            if !self.match_list.is_empty() {
+                                let item = self.match_list.selected_item().unwrap();
+                                break 's Ok(Some(item.data));
+                            }
                         }
                     }
-                    EventSummary::Quit => {
-                        break Ok(None);
-                    }
-                },
-                // capture the internal error, so we can still attempt to clean up the terminal
-                // afterwards
-                Err(err) => break Err(err),
-            };
+                };
+            }
 
-            // increment the matcher and update state
-            let status = self.matcher.tick(10);
-            term.update(status.changed, self.matcher.snapshot());
+            match_list_needs_redraw |= self.match_list.update().needs_redraw();
 
-            // redraw the screen
-            term.draw(
-                &mut writer,
-                &mut matcher,
-                self.render.as_ref(),
-                self.matcher.snapshot(),
-                &mut buffer,
-            )?;
+            let (width, height) = size()?;
+
+            if width >= 1 && (prompt_needs_redraw || match_list_needs_redraw) {
+                writer.execute(BeginSynchronizedUpdate)?;
+
+                if prompt_needs_redraw && height >= 1 {
+                    prompt_needs_redraw = false;
+
+                    writer.queue(MoveTo(0, height - 1))?;
+
+                    self.prompt.draw(width, 1, &mut writer)?;
+                }
+
+                if match_list_needs_redraw && height >= 2 {
+                    match_list_needs_redraw = false;
+
+                    writer.queue(MoveTo(0, 0))?;
+
+                    self.match_list.draw(width, height - 1, &mut writer)?;
+                }
+
+                // reset the cursor position
+                writer.queue(MoveTo(self.prompt.screen_offset() + 2, height - 1))?;
+
+                // flush to terminal
+                writer.flush()?;
+                writer.execute(EndSynchronizedUpdate)?;
+            }
 
             // wait if frame rendering finishes early
             sleep(deadline - Instant::now());

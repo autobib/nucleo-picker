@@ -1,9 +1,9 @@
-use super::ScreenAlignment;
+use super::Previous;
 use crate::incremental::ExtendIncremental;
 
 #[inline]
 pub fn larger(
-    previous: ScreenAlignment,
+    previous: Previous,
     mut total_remaining: u16,
     mut sizes_below_incl: impl ExtendIncremental,
     mut sizes_above: impl ExtendIncremental,
@@ -19,7 +19,7 @@ pub fn larger(
 
 #[inline]
 pub fn smaller(
-    previous: ScreenAlignment,
+    previous: Previous,
     mut total_remaining: u16,
     padding_top: u16,
     mut sizes_below_incl: impl ExtendIncremental,
