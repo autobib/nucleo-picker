@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-use super::{Event, PromptEvent, SelectionEvent};
+use super::{Event, MatchListEvent, PromptEvent};
 
 pub fn bind_default(key_event: KeyEvent) -> Option<Event> {
     match key_event {
@@ -11,8 +11,8 @@ pub fn bind_default(key_event: KeyEvent) -> Option<Event> {
             ..
         } => match code {
             KeyCode::Esc => Some(Event::Quit),
-            KeyCode::Up => Some(Event::Selection(SelectionEvent::Up(1))),
-            KeyCode::Down => Some(Event::Selection(SelectionEvent::Down(1))),
+            KeyCode::Up => Some(Event::MatchList(MatchListEvent::Up(1))),
+            KeyCode::Down => Some(Event::MatchList(MatchListEvent::Down(1))),
             KeyCode::Left => Some(Event::Prompt(PromptEvent::Left(1))),
             KeyCode::Right => Some(Event::Prompt(PromptEvent::Right(1))),
             KeyCode::Home => Some(Event::Prompt(PromptEvent::ToStart)),
@@ -31,10 +31,10 @@ pub fn bind_default(key_event: KeyEvent) -> Option<Event> {
         } => match code {
             KeyCode::Char('c') => Some(Event::Abort),
             KeyCode::Char('d') => Some(Event::QuitPromptEmpty),
-            KeyCode::Char('r') => Some(Event::Selection(SelectionEvent::Reset)),
+            KeyCode::Char('r') => Some(Event::MatchList(MatchListEvent::Reset)),
             KeyCode::Char('g' | 'q') => Some(Event::Quit),
-            KeyCode::Char('k' | 'p') => Some(Event::Selection(SelectionEvent::Up(1))),
-            KeyCode::Char('j' | 'n') => Some(Event::Selection(SelectionEvent::Down(1))),
+            KeyCode::Char('k' | 'p') => Some(Event::MatchList(MatchListEvent::Up(1))),
+            KeyCode::Char('j' | 'n') => Some(Event::MatchList(MatchListEvent::Down(1))),
             KeyCode::Char('b') => Some(Event::Prompt(PromptEvent::Left(1))),
             KeyCode::Char('f') => Some(Event::Prompt(PromptEvent::Right(1))),
             KeyCode::Char('a') => Some(Event::Prompt(PromptEvent::ToStart)),

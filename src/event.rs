@@ -8,49 +8,8 @@ mod debounced;
 
 use crossterm::event::Event as CrosstermEvent;
 
-/// An event that modifies the prompt.
-#[derive(Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum PromptEvent {
-    /// Move the cursor `usize` graphemes to the left.
-    Left(usize),
-    /// Move the cursor `usize` Unicode words to the left.
-    WordLeft(usize),
-    /// Move the cursor `usize` graphemes to the right.
-    Right(usize),
-    /// Move the cursor `usize` Unicode words to the right.
-    WordRight(usize),
-    /// Move the cursor to the start.
-    ToStart,
-    /// Move the cursor to the start.
-    ToEnd,
-    /// Delete `usize` graphemes immediately preceding the cursor.
-    Backspace(usize),
-    /// Delete `usize` graphemes immediately following the cursor.
-    Delete(usize),
-    /// Delete `usize` Unicode words immediately preceding the cursor.
-    BackspaceWord(usize),
-    /// Clear everything before the cursor.
-    ClearBefore,
-    /// Clear everything after the cursor.
-    ClearAfter,
-    /// Insert a character at the cursor position.
-    Insert(char),
-    /// Paste a string at the cursor position.
-    Paste(String),
-}
-
-/// An event that modifies the selection in the match list.
-#[derive(Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum SelectionEvent {
-    /// Move the selection up `usize` items.
-    Up(usize),
-    /// Move the selection down `usize` items.
-    Down(usize),
-    /// Reset the selection to the start of the match list.
-    Reset,
-}
+pub use crate::match_list::MatchListEvent;
+pub use crate::prompt::PromptEvent;
 
 /// An event which controls the picker behaviour.
 #[derive(Debug, PartialEq, Eq)]
@@ -59,7 +18,7 @@ pub enum Event {
     /// Modify the prompt.
     Prompt(PromptEvent),
     /// Modify the list of matches.
-    Selection(SelectionEvent),
+    MatchList(MatchListEvent),
     /// Quit the picker (no selection).
     Quit,
     /// Quit the picker (no selection) if the prompt is empty.

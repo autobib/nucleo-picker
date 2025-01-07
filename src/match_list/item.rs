@@ -1,7 +1,7 @@
 use memchr::memchr_iter;
 use nucleo::{Item, Snapshot, Utf32Str};
 
-use super::{ItemSize, VariableSizeBuffer};
+use super::{ItemList, ItemSize};
 use crate::Render;
 
 impl<T> ItemSize for Item<'_, T> {
@@ -23,7 +23,7 @@ impl<T> ItemSize for Item<'_, T> {
     }
 }
 
-impl<T: Send + Sync + 'static> VariableSizeBuffer for Snapshot<T> {
+impl<T: Send + Sync + 'static> ItemList for Snapshot<T> {
     type Item<'a>
         = Item<'a, T>
     where

@@ -12,3 +12,8 @@ pub fn as_usize<T: TryInto<usize>>(num: T) -> usize {
 pub fn as_u32<T: TryInto<u32>>(num: T) -> u32 {
     num.try_into().unwrap_or(u32::MAX)
 }
+
+#[inline]
+pub fn as_u16<T: TryInto<u16>>(num: T) -> u16 {
+    num.try_into().unwrap_or(u16::MAX)
+}

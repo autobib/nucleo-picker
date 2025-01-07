@@ -381,13 +381,13 @@ mod tests {
             let mut lines = Vec::new();
 
             if is_unicode_safe(input) {
-                spans_from_indices::<UnicodeProcessor>(&indices, &input, &mut spans, &mut lines);
+                spans_from_indices::<UnicodeProcessor>(&indices, input, &mut spans, &mut lines);
                 assert_matching_vecs(&spans, &expected_spans);
                 assert_matching_vecs(&lines, &expected_lines);
             }
 
             if is_ascii_safe(input) {
-                spans_from_indices::<AsciiProcessor>(&indices, &input, &mut spans, &mut lines);
+                spans_from_indices::<AsciiProcessor>(&indices, input, &mut spans, &mut lines);
                 assert_matching_vecs(&spans, &expected_spans);
                 assert_matching_vecs(&lines, &expected_lines);
             }
