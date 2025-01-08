@@ -4,12 +4,12 @@
 //! keybindings.
 
 mod bind;
-mod debounced;
 
 use crossterm::event::Event as CrosstermEvent;
 
 pub use crate::match_list::MatchListEvent;
 pub use crate::prompt::PromptEvent;
+pub use self::bind::keybind_default;
 
 /// An event which controls the picker behaviour.
 #[derive(Debug, PartialEq, Eq)]
@@ -33,7 +33,7 @@ pub enum Event {
 
 pub(crate) fn convert(event: CrosstermEvent) -> Option<Event> {
     match event {
-        CrosstermEvent::Key(key_event) => bind::bind_default(key_event),
+        CrosstermEvent::Key(key_event) => keybind_default(key_event),
         CrosstermEvent::Resize(_, _) => Some(Event::Redraw),
         CrosstermEvent::Paste(contents) => Some(Event::Prompt(PromptEvent::Paste(contents))),
         _ => None,

@@ -564,24 +564,25 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         Ok(())
     }
 
+    /// Render the frame, specifying which parts of the frame need to be re-drawn.
     fn render_frame<W: Write>(
         &mut self,
         writer: &mut W,
-        prompt_needs_redraw: bool,
-        match_list_needs_redraw: bool,
+        redraw_prompt: bool,
+        redraw_match_list: bool,
     ) -> io::Result<()> {
         let (width, height) = size()?;
 
-        if width >= 1 && (prompt_needs_redraw || match_list_needs_redraw) {
+        if width >= 1 && (redraw_prompt || redraw_match_list) {
             writer.execute(BeginSynchronizedUpdate)?;
 
-            if prompt_needs_redraw && height >= 1 {
+            if redraw_prompt && height >= 1 {
                 writer.queue(MoveTo(0, height - 1))?;
 
                 self.prompt.draw(width, 1, writer)?;
             }
 
-            if match_list_needs_redraw && height >= 2 {
+            if redraw_match_list && height >= 2 {
                 writer.queue(MoveTo(0, 0))?;
 
                 self.match_list.draw(width, height - 1, writer)?;
@@ -619,17 +620,17 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         // render the first frame
         self.match_list.update(5);
         self.render_frame(&mut writer, true, true)?;
-        let mut last_frame_rendered_time = Instant::now();
+        let mut last_redraw = Instant::now();
 
-        let mut prompt_needs_redraw = false;
-        let mut match_list_needs_redraw = false;
+        let mut redraw_prompt = false;
+        let mut redraw_match_list = false;
 
         let selection = 's: loop {
             let mut lazy_match_list = LazyMatchList::new(&mut self.match_list);
             let mut lazy_prompt = LazyPrompt::new(&mut self.prompt);
 
             // wait for events, but do not exceed the frame length
-            while poll(last_frame_rendered_time + interval - Instant::now())? {
+            while poll(last_redraw + interval - Instant::now())? {
                 if let Some(event) = convert(read()?) {
                     match event {
                         Event::Prompt(prompt_event) => {
@@ -650,8 +651,8 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                             break 's Err(io::Error::other("keyboard interrupt"));
                         }
                         Event::Redraw => {
-                            prompt_needs_redraw = true;
-                            match_list_needs_redraw = true;
+                            redraw_prompt = true;
+                            redraw_match_list = true;
                         }
                         Event::Select => {
                             // TODO: workaround for the borrow checker not understanding that
@@ -674,27 +675,27 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
             let match_list_status = lazy_match_list.finish();
 
             // update draw status
-            prompt_needs_redraw |= prompt_status.needs_redraw();
-            match_list_needs_redraw |= match_list_status.needs_redraw();
+            redraw_prompt |= prompt_status.needs_redraw();
+            redraw_match_list |= match_list_status.needs_redraw();
 
             // check if the prompt changed: if so, reparse the match list
             if prompt_status.contents_changed {
                 self.match_list.reparse(self.prompt.contents());
-                match_list_needs_redraw = true;
+                redraw_match_list = true;
             }
 
             // update the item list
-            match_list_needs_redraw |= self.match_list.update(10).needs_redraw();
+            redraw_match_list |= self.match_list.update(10).needs_redraw();
 
             // render the frame
-            self.render_frame(&mut writer, prompt_needs_redraw, match_list_needs_redraw)?;
+            self.render_frame(&mut writer, redraw_prompt, redraw_match_list)?;
 
             // reset the redraw markers
-            prompt_needs_redraw = false;
-            match_list_needs_redraw = false;
+            redraw_prompt = false;
+            redraw_match_list = false;
 
             // reset the frame timer
-            last_frame_rendered_time = Instant::now();
+            last_redraw = Instant::now();
         };
 
         Self::cleanup_screen(&mut writer)?;
