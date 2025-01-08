@@ -39,6 +39,7 @@ use std::{
     io::{self, BufWriter, IsTerminal, Write},
     iter::Extend,
     num::NonZero,
+    panic::{set_hook, take_hook},
     sync::Arc,
     thread::{available_parallelism, sleep},
     time::{Duration, Instant},
@@ -547,14 +548,35 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         }
     }
 
+    /// Initialize the alternate screen.
+    fn init_screen<W: Write>(writer: &mut W) -> io::Result<()> {
+        enable_raw_mode()?;
+        execute!(writer, EnterAlternateScreen, EnableBracketedPaste)?;
+        Ok(())
+    }
+
+    /// Cleanup the alternate screen when finished.
+    fn cleanup_screen<W: Write>(writer: &mut W) -> io::Result<()> {
+        disable_raw_mode()?;
+        execute!(writer, DisableBracketedPaste, LeaveAlternateScreen)?;
+        Ok(())
+    }
+
     /// The actual picker implementation.
     fn pick_inner<W: Write>(
         &mut self,
         interval: Duration,
         mut writer: W,
     ) -> Result<Option<&T>, io::Error> {
-        enable_raw_mode()?;
-        execute!(writer, EnterAlternateScreen, EnableBracketedPaste)?;
+        // set panic hook in case the `Render` implementation panics
+        let original_hook = take_hook();
+        set_hook(Box::new(move |panic_info| {
+            // intentionally ignore errors here since we're already in a panic
+            let _ = Self::cleanup_screen(&mut io::stderr());
+            original_hook(panic_info);
+        }));
+
+        Self::init_screen(&mut writer)?;
 
         let mut prompt_needs_redraw = true;
         let mut match_list_needs_redraw = true;
@@ -644,8 +666,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
             sleep(deadline - Instant::now());
         };
 
-        disable_raw_mode()?;
-        execute!(writer, DisableBracketedPaste, LeaveAlternateScreen)?;
+        Self::cleanup_screen(&mut writer)?;
         selection
     }
 }
