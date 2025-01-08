@@ -36,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Added configuration for prompt padding and scroll padding.
-- Key-bindings to go forward and backward by word, and to clear before and after cursor.
+- Added key-bindings to go forward and backward by word, and to clear before and after cursor.
 - Support deleting next character (i.e. `Delete` on windows, and `fn + delete` on MacOS).
 
 ### Deprecated

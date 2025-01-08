@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use super::{Event, MatchListEvent, PromptEvent};
 
-pub fn bind_default(key_event: KeyEvent) -> Option<Event> {
+pub fn keybind_default(key_event: KeyEvent) -> Option<Event> {
     match key_event {
         KeyEvent {
             kind: KeyEventKind::Press,
