@@ -29,6 +29,7 @@ mod component;
 mod event;
 mod incremental;
 mod injector;
+mod lazy;
 mod match_list;
 mod prompt;
 pub mod render;
@@ -41,7 +42,7 @@ use std::{
     num::NonZero,
     panic::{set_hook, take_hook},
     sync::Arc,
-    thread::{available_parallelism, sleep},
+    thread::available_parallelism,
     time::{Duration, Instant},
 };
 
@@ -64,6 +65,7 @@ use nucleo::{
 use crate::{
     component::{Component, Status},
     event::{convert, Event},
+    lazy::{LazyMatchList, LazyPrompt},
     match_list::{MatchList, MatchListConfig},
     prompt::{Prompt, PromptConfig},
 };
@@ -562,6 +564,42 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         Ok(())
     }
 
+    fn render_frame<W: Write>(
+        &mut self,
+        writer: &mut W,
+        prompt_needs_redraw: bool,
+        match_list_needs_redraw: bool,
+    ) -> io::Result<()> {
+        let (width, height) = size()?;
+
+        if width >= 1 && (prompt_needs_redraw || match_list_needs_redraw) {
+            writer.execute(BeginSynchronizedUpdate)?;
+
+            if prompt_needs_redraw && height >= 1 {
+                writer.queue(MoveTo(0, height - 1))?;
+
+                self.prompt.draw(width, 1, writer)?;
+            }
+
+            if match_list_needs_redraw && height >= 2 {
+                writer.queue(MoveTo(0, 0))?;
+
+                self.match_list.draw(width, height - 1, writer)?;
+            }
+
+            // reset the cursor position
+            writer.queue(MoveTo(self.prompt.screen_offset() + 2, height - 1))?;
+
+            // flush to terminal
+            writer.flush()?;
+            writer.execute(EndSynchronizedUpdate)?;
+
+            println!("Rendered frame!");
+        };
+
+        Ok(())
+    }
+
     /// The actual picker implementation.
     fn pick_inner<W: Write>(
         &mut self,
@@ -578,42 +616,40 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
 
         Self::init_screen(&mut writer)?;
 
-        let mut prompt_needs_redraw = true;
-        let mut match_list_needs_redraw = true;
+        // render the first frame
+        self.match_list.update(5);
+        self.render_frame(&mut writer, true, true)?;
+        let mut last_frame_rendered_time = Instant::now();
+
+        let mut prompt_needs_redraw = false;
+        let mut match_list_needs_redraw = false;
 
         let selection = 's: loop {
-            let deadline = Instant::now() + interval;
+            let mut lazy_match_list = LazyMatchList::new(&mut self.match_list);
+            let mut lazy_prompt = LazyPrompt::new(&mut self.prompt);
 
-            // handle any events
-            while poll(Duration::from_millis(5))? {
+            // wait for events, but do not exceed the frame length
+            while poll(last_frame_rendered_time + interval - Instant::now())? {
                 if let Some(event) = convert(read()?) {
                     match event {
                         Event::Prompt(prompt_event) => {
-                            let prompt_status = self.prompt.handle(prompt_event);
-                            prompt_needs_redraw |= prompt_status.needs_redraw();
-                            if prompt_status.contents_changed {
-                                self.match_list.reparse(self.prompt.contents());
-                                match_list_needs_redraw = true;
-                            }
+                            lazy_prompt.handle(prompt_event);
                         }
-                        Event::MatchList(matcher_event) => {
-                            match_list_needs_redraw |=
-                                self.match_list.handle(matcher_event).needs_redraw();
+                        Event::MatchList(match_list_event) => {
+                            lazy_match_list.handle(match_list_event);
                         }
                         Event::Quit => {
                             break 's Ok(None);
                         }
                         Event::QuitPromptEmpty => {
-                            if self.prompt.is_empty() {
+                            if lazy_prompt.is_empty() {
                                 break 's Ok(None);
                             }
                         }
                         Event::Abort => {
                             break 's Err(io::Error::other("keyboard interrupt"));
                         }
-                        Event::Resize(_, _) => {
-                            // the resize events are handled automatically when drawing the screen;
-                            // we just need to indicate that a redraw is required
+                        Event::Redraw => {
                             prompt_needs_redraw = true;
                             match_list_needs_redraw = true;
                         }
@@ -622,8 +658,10 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                             // the `None` variant does not borrow from the `match_list`
                             //
                             // maybe works when polonius is merged
-                            if !self.match_list.is_empty() {
-                                let item = self.match_list.selected_item().unwrap();
+                            if !lazy_match_list.is_empty() {
+                                // the cursor may have moved
+                                let n = lazy_match_list.selection();
+                                let item = self.match_list.get_item(n).unwrap();
                                 break 's Ok(Some(item.data));
                             }
                         }
@@ -631,39 +669,32 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                 };
             }
 
-            match_list_needs_redraw |= self.match_list.update().needs_redraw();
+            // clear out any buffered events
+            let prompt_status = lazy_prompt.finish();
+            let match_list_status = lazy_match_list.finish();
 
-            let (width, height) = size()?;
+            // update draw status
+            prompt_needs_redraw |= prompt_status.needs_redraw();
+            match_list_needs_redraw |= match_list_status.needs_redraw();
 
-            if width >= 1 && (prompt_needs_redraw || match_list_needs_redraw) {
-                writer.execute(BeginSynchronizedUpdate)?;
-
-                if prompt_needs_redraw && height >= 1 {
-                    prompt_needs_redraw = false;
-
-                    writer.queue(MoveTo(0, height - 1))?;
-
-                    self.prompt.draw(width, 1, &mut writer)?;
-                }
-
-                if match_list_needs_redraw && height >= 2 {
-                    match_list_needs_redraw = false;
-
-                    writer.queue(MoveTo(0, 0))?;
-
-                    self.match_list.draw(width, height - 1, &mut writer)?;
-                }
-
-                // reset the cursor position
-                writer.queue(MoveTo(self.prompt.screen_offset() + 2, height - 1))?;
-
-                // flush to terminal
-                writer.flush()?;
-                writer.execute(EndSynchronizedUpdate)?;
+            // check if the prompt changed: if so, reparse the match list
+            if prompt_status.contents_changed {
+                self.match_list.reparse(self.prompt.contents());
+                match_list_needs_redraw = true;
             }
 
-            // wait if frame rendering finishes early
-            sleep(deadline - Instant::now());
+            // update the item list
+            match_list_needs_redraw |= self.match_list.update(10).needs_redraw();
+
+            // render the frame
+            self.render_frame(&mut writer, prompt_needs_redraw, match_list_needs_redraw)?;
+
+            // reset the redraw markers
+            prompt_needs_redraw = false;
+            match_list_needs_redraw = false;
+
+            // reset the frame timer
+            last_frame_rendered_time = Instant::now();
         };
 
         Self::cleanup_screen(&mut writer)?;

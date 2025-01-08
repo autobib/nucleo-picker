@@ -1,4 +1,6 @@
-pub trait Status {
+use std::ops::BitOrAssign;
+
+pub trait Status: BitOrAssign + Default {
     fn needs_redraw(&self) -> bool;
 }
 
