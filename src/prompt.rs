@@ -98,12 +98,13 @@ pub enum PromptEvent {
     Insert(char),
     /// Paste a string at the cursor position.
     Paste(String),
-    /// Set the prompt to the value at the string and move the cursor to the end.
+    /// Reset the prompt and move the cursor to the end.
     #[allow(unused)]
-    Set(String),
+    Reset(String),
 }
 
 impl PromptEvent {
+    /// Whether or not the event is a cursor movement that does not edit the prompt string.
     pub fn is_cursor_movement(&self) -> bool {
         matches!(
             &self,
@@ -134,7 +135,7 @@ enum CursorMovement {
     ToEnd,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PromptConfig {
     pub padding: u16,
 }
@@ -411,7 +412,7 @@ impl Component for Prompt {
         let mut contents_changed = false;
 
         let needs_redraw = match e {
-            PromptEvent::Set(s) => {
+            PromptEvent::Reset(s) => {
                 self.set_prompt(s);
                 true
             }
