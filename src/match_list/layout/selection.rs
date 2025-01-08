@@ -1,9 +1,9 @@
-use super::Previous;
+use super::MatchListState;
 use crate::{incremental::ExtendIncremental, util::as_usize};
 
 #[inline]
 pub fn incr(
-    previous: Previous,
+    previous: MatchListState,
     cursor: u32,
     padding_top: u16,
     mut sizes_below_incl: impl ExtendIncremental,
@@ -32,7 +32,7 @@ pub fn incr(
 
 #[inline]
 pub fn decr(
-    previous: Previous,
+    previous: MatchListState,
     cursor: u32,
     padding_top: u16,
     padding_bottom: u16,

@@ -118,7 +118,7 @@ impl<C: OrderedCollection, I: Iterator<Item = usize>> Incremental<C, I> {
         mut limit_steps: D,
     ) -> u16 {
         while remaining > 0 {
-            if limit_steps.is_finished() && !self.sizes.next_is_not_new() {
+            if limit_steps.is_finished() && !self.sizes.is_incomplete() {
                 return remaining;
             }
 
