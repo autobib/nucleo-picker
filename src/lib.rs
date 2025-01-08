@@ -243,7 +243,6 @@ impl<T, R: for<'a> Fn(&'a T) -> Cow<'a, str>> Render<T> for R {
 ///     .prompt("search")
 ///     .picker(StrRenderer);
 /// ```
-#[derive(Debug, Clone)]
 pub struct PickerOptions {
     config: nc::Config,
     prompt: String,
@@ -251,6 +250,7 @@ pub struct PickerOptions {
     interval: Duration,
     match_list_config: MatchListConfig,
     prompt_config: PromptConfig,
+    on_abort: Box<dyn Fn() -> io::Result<()>>,
 }
 
 impl Default for PickerOptions {
@@ -262,6 +262,7 @@ impl Default for PickerOptions {
             interval: Duration::from_millis(15),
             match_list_config: MatchListConfig::default(),
             prompt_config: PromptConfig::default(),
+            on_abort: Box::new(|| Err(io::Error::other("keyboard interrupt"))),
         }
     }
 }
@@ -309,6 +310,7 @@ impl PickerOptions {
             match_list,
             prompt,
             interval: self.interval,
+            on_abort: self.on_abort,
         }
     }
 
@@ -320,6 +322,14 @@ impl PickerOptions {
     #[inline]
     pub fn reversed(mut self, reversed: bool) -> Self {
         self.match_list_config.reversed = reversed;
+        self
+    }
+
+    /// Set a custom handler called when the picker receives an [`Event::Abort`].
+    #[must_use]
+    #[inline]
+    pub fn on_abort(mut self, on_abort: Box<dyn Fn() -> io::Result<()>>) -> Self {
+        self.on_abort = on_abort;
         self
     }
 
@@ -458,6 +468,7 @@ pub struct Picker<T: Send + Sync + 'static, R> {
     match_list: MatchList<T, R>,
     prompt: Prompt,
     interval: Duration,
+    on_abort: Box<dyn Fn() -> io::Result<()>>,
 }
 
 impl<T: Send + Sync + 'static, R: Render<T>> Extend<T> for Picker<T, R> {
@@ -683,7 +694,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                             }
                         }
                         Event::Abort => {
-                            break 'selection Err(io::Error::other("keyboard interrupt"));
+                            break 'selection (self.on_abort)().map(|()| None);
                         }
                         Event::Redraw => {
                             redraw_prompt = true;

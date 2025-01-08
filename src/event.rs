@@ -228,7 +228,7 @@ impl<F: Fn(KeyEvent) -> Option<Event>> StdinEventSender<F> {
 
     /// Watch for events until either the receiver is dropped (in which case `Ok(())` is returned),
     /// or there is an IO error.
-    pub fn watch(&self) -> Result<(), io::Error> {
+    pub fn watch(&self) -> io::Result<()> {
         loop {
             if let Some(event) = convert_crossterm_event(read()?, &self.keybind) {
                 if self.sender.send(event).is_err() {

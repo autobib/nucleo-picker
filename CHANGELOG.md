@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Customize keybindings using a `StdinReader`.
   - Drive the picker using a `mpsc` channel.
   - Implement your own `EventSource` for total customization.
-- `PickerOptions` can now be cloned.
+- New `PickerOptions::on_abort` to pass a custom function which is called when the picker aborts.
 
 ### Fixed
 - Fixed screen layout when resizing to prefer higher score elements.
