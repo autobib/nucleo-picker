@@ -26,7 +26,7 @@ pub enum Event {
     /// Abort the picker (error).
     Abort,
     /// Resize the screen.
-    Resize(u16, u16),
+    Redraw,
     /// Quit the picker and select the given item.
     Select,
 }
@@ -34,7 +34,7 @@ pub enum Event {
 pub(crate) fn convert(event: CrosstermEvent) -> Option<Event> {
     match event {
         CrosstermEvent::Key(key_event) => bind::bind_default(key_event),
-        CrosstermEvent::Resize(width, height) => Some(Event::Resize(width, height)),
+        CrosstermEvent::Resize(_, _) => Some(Event::Redraw),
         CrosstermEvent::Paste(contents) => Some(Event::Prompt(PromptEvent::Paste(contents))),
         _ => None,
     }

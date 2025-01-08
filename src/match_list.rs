@@ -326,9 +326,19 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
         self.nucleo.snapshot().matched_item_count() == 0
     }
 
-    /// Get the item corresponding to the selection, or `None` if there are no matched items.
-    pub fn selected_item(&self) -> Option<nc::Item<'_, T>> {
-        self.nucleo.snapshot().get_matched_item(self.selection)
+    pub fn selection(&self) -> u32 {
+        self.selection
+    }
+
+    pub fn max_selection(&self) -> u32 {
+        self.nucleo
+            .snapshot()
+            .matched_item_count()
+            .saturating_sub(1)
+    }
+
+    pub fn get_item(&self, n: u32) -> Option<nc::Item<'_, T>> {
+        self.nucleo.snapshot().get_matched_item(n)
     }
 
     /// Return the range corresponding to the matched items visible on the screen.
@@ -384,8 +394,8 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
     }
 
     /// Check if the internal match workers have returned any new updates for matched items.
-    pub fn update(&mut self) -> bool {
-        let status = self.nucleo.tick(10);
+    pub fn update(&mut self, millis: u64) -> bool {
+        let status = self.nucleo.tick(millis);
         if status.changed {
             self.update_items();
         }
@@ -436,19 +446,17 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
         }
     }
 
-    /// Increment the selection by the given amount.
-    pub fn selection_incr(&mut self, increase: u32) -> bool {
+    #[inline]
+    pub fn set_selection(&mut self, new_selection: u32) -> bool {
         let buffer = self.nucleo.snapshot();
-
-        let new_selection = self
-            .selection
-            .saturating_add(increase)
-            .min(buffer.total().saturating_sub(1));
+        let new_selection = new_selection.min(buffer.total().saturating_sub(1));
 
         let previous = self.state();
         let padding = self.padding(self.size);
 
-        if new_selection != self.selection {
+        if new_selection == 0 {
+            self.reset()
+        } else if new_selection > self.selection {
             let sizes_below_incl = buffer.sizes_lower_inclusive(new_selection, &mut self.below);
             let sizes_above = buffer.sizes_higher(new_selection, &mut self.above);
 
@@ -467,20 +475,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
             self.selection = new_selection;
 
             true
-        } else {
-            false
-        }
-    }
-
-    /// Decrement the selection by the given amount.
-    pub fn selection_decr(&mut self, decrease: u32) -> bool {
-        let buffer = self.nucleo.snapshot();
-        let new_selection = self.selection.saturating_sub(decrease);
-
-        let previous = self.state();
-        let padding = self.padding(self.size);
-
-        if new_selection != self.selection {
+        } else if new_selection < self.selection {
             let sizes_below_incl = buffer.sizes_lower_inclusive(new_selection, &mut self.below);
             let sizes_above = buffer.sizes_higher(new_selection, &mut self.above);
 
@@ -503,5 +498,22 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
         } else {
             false
         }
+    }
+
+    /// Increment the selection by the given amount.
+    pub fn selection_incr(&mut self, increase: u32) -> bool {
+        let new_selection = self
+            .selection
+            .saturating_add(increase)
+            .min(self.nucleo.snapshot().total().saturating_sub(1));
+
+        self.set_selection(new_selection)
+    }
+
+    /// Decrement the selection by the given amount.
+    pub fn selection_decr(&mut self, decrease: u32) -> bool {
+        let new_selection = self.selection.saturating_sub(decrease);
+
+        self.set_selection(new_selection)
     }
 }
