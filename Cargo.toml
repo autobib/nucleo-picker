@@ -22,6 +22,7 @@ unicode-width = { version = "0.2", default-features = false }
 serde = { version = "1.0", optional = true }
 
 [dev-dependencies]
+crossbeam = "0.8.4"
 ignore = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -31,6 +32,9 @@ redundant_closure_for_method_calls = "warn"
 same_functions_in_if_condition = "warn"
 semicolon_if_nothing_returned = "warn"
 uninlined_format_args = "warn"
+
+[[example]]
+name = "custom_io"
 
 [[example]]
 name = "find"

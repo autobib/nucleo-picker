@@ -209,7 +209,7 @@ impl<'a> LazyPrompt<'a> {
                         self.swap_and_process_buffer(event);
                     }
                 },
-                PromptEvent::Set(_) => {
+                PromptEvent::Reset(_) => {
                     // a 'set' event overwrites any other event since it resets the buffer
                     *buffered = event;
                 }

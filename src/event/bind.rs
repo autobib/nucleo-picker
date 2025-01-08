@@ -1,7 +1,12 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use super::{Event, MatchListEvent, PromptEvent};
 
+/// The default keybindings.
+///
+/// These are the keybindings used in the [`Default`] implementation for
+/// [`StdinReader`](super::StdinReader).
+#[inline]
 pub fn keybind_default(key_event: KeyEvent) -> Option<Event> {
     match key_event {
         KeyEvent {
@@ -66,6 +71,19 @@ pub fn keybind_default(key_event: KeyEvent) -> Option<Event> {
             KeyCode::Enter => Some(Event::Select),
             _ => None,
         },
+        _ => None,
+    }
+}
+
+/// Convert a crossterm event into an [`Event`], mapping key events with the giving key bindings.
+pub fn convert_crossterm_event<F: Fn(KeyEvent) -> Option<Event>>(
+    ct_event: CrosstermEvent,
+    keybind: F,
+) -> Option<Event> {
+    match ct_event {
+        CrosstermEvent::Key(key_event) => (keybind)(key_event),
+        CrosstermEvent::Resize(_, _) => Some(Event::Redraw),
+        CrosstermEvent::Paste(contents) => Some(Event::Prompt(PromptEvent::Paste(contents))),
         _ => None,
     }
 }

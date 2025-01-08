@@ -26,7 +26,7 @@
 #![warn(rustdoc::unescaped_backticks)]
 
 mod component;
-mod event;
+pub mod event;
 mod incremental;
 mod injector;
 mod lazy;
@@ -48,7 +48,7 @@ use std::{
 
 use crossterm::{
     cursor::MoveTo,
-    event::{poll, read, DisableBracketedPaste, EnableBracketedPaste},
+    event::{DisableBracketedPaste, EnableBracketedPaste},
     execute,
     terminal::{
         disable_raw_mode, enable_raw_mode, size, BeginSynchronizedUpdate, EndSynchronizedUpdate,
@@ -64,7 +64,7 @@ use nucleo::{
 
 use crate::{
     component::{Component, Status},
-    event::{convert, Event},
+    event::{Event, EventSource, RecvError, StdinReader},
     lazy::{LazyMatchList, LazyPrompt},
     match_list::{MatchList, MatchListConfig},
     prompt::{Prompt, PromptConfig},
@@ -243,10 +243,12 @@ impl<T, R: for<'a> Fn(&'a T) -> Cow<'a, str>> Render<T> for R {
 ///     .prompt("search")
 ///     .picker(StrRenderer);
 /// ```
+#[derive(Debug, Clone)]
 pub struct PickerOptions {
     config: nc::Config,
     prompt: String,
     threads: Option<NonZero<usize>>,
+    interval: Duration,
     match_list_config: MatchListConfig,
     prompt_config: PromptConfig,
 }
@@ -257,6 +259,7 @@ impl Default for PickerOptions {
             config: nc::Config::DEFAULT,
             prompt: String::new(),
             threads: None,
+            interval: Duration::from_millis(15),
             match_list_config: MatchListConfig::default(),
             prompt_config: PromptConfig::default(),
         }
@@ -302,7 +305,11 @@ impl PickerOptions {
         match_list.reparse(&self.prompt);
         prompt.set_prompt(self.prompt);
 
-        Picker { match_list, prompt }
+        Picker {
+            match_list,
+            prompt,
+            interval: self.interval,
+        }
     }
 
     /// Set 'reversed' layout.
@@ -313,6 +320,18 @@ impl PickerOptions {
     #[inline]
     pub fn reversed(mut self, reversed: bool) -> Self {
         self.match_list_config.reversed = reversed;
+        self
+    }
+
+    /// Set how long each frame should last.
+    ///
+    /// This is the reciprocal of the refresh rate. The default value is
+    /// `Duration::from_millis(15)`, which corresponds to a refresh rate of approximately 67 frames
+    /// per second. It is not recommended to set this to a value less than 8ms.
+    #[must_use]
+    #[inline]
+    pub fn frame_interval(mut self, interval: Duration) -> Self {
+        self.interval = interval;
         self
     }
 
@@ -377,7 +396,6 @@ impl PickerOptions {
 
     /// How to perform Unicode normalization (default to [`Normalization::default`]).
     #[must_use]
-    #[deprecated(since = "0.6.5", note = "method has been renamed to `prompt`")]
     #[inline]
     pub fn normalization(mut self, normalization: Normalization) -> Self {
         self.match_list_config.normalization = normalization;
@@ -395,7 +413,6 @@ impl PickerOptions {
     /// Provide a default query string.
     #[must_use]
     #[deprecated(since = "0.6.5", note = "method has been renamed to `prompt`")]
-    #[inline]
     pub fn query<Q: Into<String>>(mut self, query: Q) -> Self {
         self.prompt = query.into();
         self
@@ -403,7 +420,6 @@ impl PickerOptions {
 
     /// How much space to leave after rendering the rightmost highlight.
     #[must_use]
-    #[inline]
     #[deprecated(
         since = "0.6.2",
         note = "method has been renamed to `highlight_padding`"
@@ -441,6 +457,7 @@ impl PickerOptions {
 pub struct Picker<T: Send + Sync + 'static, R> {
     match_list: MatchList<T, R>,
     prompt: Prompt,
+    interval: Duration,
 }
 
 impl<T: Send + Sync + 'static, R: Render<T>> Extend<T> for Picker<T, R> {
@@ -457,11 +474,6 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     #[must_use]
     pub fn new(render: R) -> Self {
         PickerOptions::default().picker(render)
-    }
-
-    /// Default frame interval of 16ms, or ~60 FPS.
-    const fn default_frame_interval() -> Duration {
-        Duration::from_millis(16)
     }
 
     /// Update the default query string. This is mainly useful for modifying the query string
@@ -534,6 +546,12 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// In particular, while the picker is interactive, any other thread which attempts to write to
     /// stderr will block. Note that `stdin` and `stdout` will remain fully interactive.
     ///
+    /// ## IO customization
+    ///
+    /// To further customize the IO behaviour of the picker, such as to provide your own writer
+    /// (for instance to write to [`Stdout`](std::io::Stdout) instead) or use custom keybindings,
+    /// see the [`pick_with_io`](Self::pick_with_io) method instead.
+    ///
     /// # Errors
     /// Underlying IO errors from the standard library or [`crossterm`] will be propogated.
     ///
@@ -541,10 +559,10 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     ///
     /// 1. stderr is not interactive, in which case the message will be `"is not interactive"`
     /// 2. the user presses `CTRL-C`, in which case the message will be `"keyboard interrupt"`
-    pub fn pick(&mut self) -> Result<Option<&T>, io::Error> {
+    pub fn pick(&mut self) -> io::Result<Option<&T>> {
         let stderr = io::stderr().lock();
         if stderr.is_terminal() {
-            self.pick_inner(Self::default_frame_interval(), BufWriter::new(stderr))
+            self.pick_with_io(StdinReader::default(), &mut BufWriter::new(stderr))
         } else {
             Err(io::Error::new(io::ErrorKind::Other, "is not interactive"))
         }
@@ -594,45 +612,62 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
             // flush to terminal
             writer.flush()?;
             writer.execute(EndSynchronizedUpdate)?;
-
-            println!("Rendered frame!");
         };
 
         Ok(())
     }
 
-    /// The actual picker implementation.
-    fn pick_inner<W: Write>(
+    /// Run the picker with a custom event source and writer.
+    ///
+    /// The picker is rendered using the given writer. In most situations, you want to check that
+    /// the writer is interactive using, for instance, [`IsTerminal`]. The picker reads
+    /// events from the [`EventSource`] to update the screen. See the docs for [`EventSource`]
+    /// for more detail.
+    ///
+    /// ## Defaults
+    /// The [`pick`](Self::pick) method is internally a call to this method:
+    ///
+    /// - The event source is a default [`StdinReader`].
+    /// - The writer is a [`StderrLock`](std::io::StderrLock) guarded by an interactivity check
+    ///   using [`IsTerminal`].
+    ///
+    /// ## Example
+    /// Run the picker on [`Stdout`](std::io::Stdout) with no interactivity checks, and quitting
+    /// gracefully on `ctrl + c`.
+    /// ```no_run
+    #[doc = include_str!("../examples/custom_io.rs")]
+    /// ```
+    pub fn pick_with_io<E: EventSource, W: io::Write>(
         &mut self,
-        interval: Duration,
-        mut writer: W,
-    ) -> Result<Option<&T>, io::Error> {
+        event_source: E,
+        writer: &mut W,
+    ) -> io::Result<Option<&T>> {
         // set panic hook in case the `Render` implementation panics
         let original_hook = take_hook();
         set_hook(Box::new(move |panic_info| {
-            // intentionally ignore errors here since we're already in a panic
+            // intentionally ignore errors here since we're already panicking
             let _ = Self::cleanup_screen(&mut io::stderr());
             original_hook(panic_info);
         }));
 
-        Self::init_screen(&mut writer)?;
+        Self::init_screen(writer)?;
 
         // render the first frame
         self.match_list.update(5);
-        self.render_frame(&mut writer, true, true)?;
+        self.render_frame(writer, true, true)?;
         let mut last_redraw = Instant::now();
 
         let mut redraw_prompt = false;
         let mut redraw_match_list = false;
 
-        let selection = 's: loop {
+        let selection = 'selection: loop {
             let mut lazy_match_list = LazyMatchList::new(&mut self.match_list);
             let mut lazy_prompt = LazyPrompt::new(&mut self.prompt);
 
-            // wait for events, but do not exceed the frame length
-            while poll(last_redraw + interval - Instant::now())? {
-                if let Some(event) = convert(read()?) {
-                    match event {
+            // process new events, but do not exceed the frame interval
+            'event: loop {
+                match event_source.recv_timeout(last_redraw + self.interval - Instant::now()) {
+                    Ok(event) => match event {
                         Event::Prompt(prompt_event) => {
                             lazy_prompt.handle(prompt_event);
                         }
@@ -640,15 +675,15 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                             lazy_match_list.handle(match_list_event);
                         }
                         Event::Quit => {
-                            break 's Ok(None);
+                            break 'selection Ok(None);
                         }
                         Event::QuitPromptEmpty => {
                             if lazy_prompt.is_empty() {
-                                break 's Ok(None);
+                                break 'selection Ok(None);
                             }
                         }
                         Event::Abort => {
-                            break 's Err(io::Error::other("keyboard interrupt"));
+                            break 'selection Err(io::Error::other("keyboard interrupt"));
                         }
                         Event::Redraw => {
                             redraw_prompt = true;
@@ -663,11 +698,14 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                                 // the cursor may have moved
                                 let n = lazy_match_list.selection();
                                 let item = self.match_list.get_item(n).unwrap();
-                                break 's Ok(Some(item.data));
+                                break 'selection Ok(Some(item.data));
                             }
                         }
-                    }
-                };
+                    },
+                    Err(RecvError::Timeout) => break 'event,
+                    Err(RecvError::Disconnected) => return Err(io::Error::other("disconnected")),
+                    Err(RecvError::IO(io_err)) => return Err(io_err),
+                }
             }
 
             // clear out any buffered events
@@ -685,10 +723,13 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
             }
 
             // update the item list
-            redraw_match_list |= self.match_list.update(10).needs_redraw();
+            redraw_match_list |= self
+                .match_list
+                .update(2 * self.interval.as_millis() as u64 / 3)
+                .needs_redraw();
 
             // render the frame
-            self.render_frame(&mut writer, redraw_prompt, redraw_match_list)?;
+            self.render_frame(writer, redraw_prompt, redraw_match_list)?;
 
             // reset the redraw markers
             redraw_prompt = false;
@@ -698,7 +739,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
             last_redraw = Instant::now();
         };
 
-        Self::cleanup_screen(&mut writer)?;
+        Self::cleanup_screen(writer)?;
         selection
     }
 }

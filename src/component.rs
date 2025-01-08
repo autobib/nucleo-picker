@@ -11,8 +11,11 @@ impl Status for bool {
 }
 
 pub trait Component {
+    /// The event that this component can handle.
     type Event;
 
+    /// The status of the component after handling an event, such as whether or not the component
+    /// needs to be redrawn. Supports updating.
     type Status: Status;
 
     /// Update the component state in response to the given event, returning whether or not the
