@@ -129,7 +129,7 @@ trait ItemListExt: ItemList {
 impl<B: ItemList> ItemListExt for B {}
 
 /// Context from the previous render used to update the screen correctly.
-struct Previous {
+struct MatchListState {
     selection: u32,
     above: u16,
     size: u16,
@@ -141,9 +141,9 @@ struct Previous {
 pub struct MatchListConfig {
     /// Whether or not to do match highlighting.
     pub highlight: bool,
-    /// If the screen is reversed.
+    /// Whether or not the screen is reversed.
     pub reversed: bool,
-    /// The amount of padding for the highlights.
+    /// The amount of padding around highlighted matches.
     pub highlight_padding: u16,
     /// The amount of padding when scrolling.
     pub scroll_padding: u16,
@@ -165,6 +165,9 @@ impl Default for MatchListConfig {
         }
     }
 }
+
+/// A buffer to hold match highlight information and cached line information in an underlying
+/// string slice.
 pub struct IndexBuffer {
     /// Spans used to render items.
     spans: Vec<Span>,
@@ -175,6 +178,7 @@ pub struct IndexBuffer {
 }
 
 impl IndexBuffer {
+    /// Create a new buffer.
     pub fn new() -> Self {
         Self {
             spans: Vec::with_capacity(16),
@@ -184,13 +188,17 @@ impl IndexBuffer {
     }
 }
 
-/// Stateful representation of the screen layout.
+/// A component for representing the list of successful matches.
+///
+/// This component has two main parts: the internal [`nucleo::Nucleo`] match engine, as well as a
+/// stateful representation of the match items which are currently on the screen. See the module
+/// level documentation for more detail.
 pub struct MatchList<T: Send + Sync + 'static, R> {
+    /// The current selection; this corresponds to a valid index if and only if the current
+    /// snapshot has more than one element.
     selection: u32,
-    // above: u16,
+    /// The size of the screen last time the screen changed.
     size: u16,
-    /// Whether or not the layout is 'reversed'.
-    reversed: bool,
     /// The layout buffer below and including the matched item.
     below: Vec<usize>,
     /// The layout buffer above the matched item.
@@ -210,9 +218,10 @@ pub struct MatchList<T: Send + Sync + 'static, R> {
 }
 
 impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
+    /// Initialize a new [`MatchList`] with the provided configuration and initial state.
     pub fn new(
         config: MatchListConfig,
-        matcher_config: nc::Config,
+        nucleo_config: nc::Config,
         nucleo: nc::Nucleo<T>,
         render: Arc<R>,
     ) -> Self {
@@ -221,56 +230,65 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
             selection: 0,
             below: Vec::with_capacity(128),
             above: Vec::with_capacity(128),
-            reversed: false,
             config,
             nucleo,
-            matcher: nc::Matcher::new(matcher_config),
+            matcher: nc::Matcher::new(nucleo_config),
             render,
             scratch: IndexBuffer::new(),
             prompt: String::with_capacity(32),
         }
     }
 
+    /// A convenience function to render a given item using the internal [`Render`] implementation.
     pub fn render<'a>(&self, item: &'a T) -> <R as Render<T>>::Str<'a> {
         self.render.render(item)
     }
 
+    /// Replace the renderer with a new instance, immediately restarting the matcher engine.
     pub fn reset_renderer(&mut self, render: R) {
         self.restart();
         self.render = render.into();
     }
 
+    /// Get an [`Injector`] to add new match elements.
     pub fn injector(&self) -> Injector<T, R> {
         Injector::new(self.nucleo.injector(), self.render.clone())
     }
 
+    /// Clear all of the items and restart the match engine.
     pub fn restart(&mut self) {
         self.nucleo.restart(true);
         self.reset();
     }
 
+    /// Replace the internal [`nucleo`] configuration.
     pub fn update_nucleo_config(&mut self, config: nc::Config) {
         self.nucleo.update_config(config);
     }
 
-    fn state(&self) -> Previous {
-        Previous {
+    /// Returns a self-contained representation of the screen state required for correct layout
+    /// update computations.
+    fn state(&self) -> MatchListState {
+        MatchListState {
             selection: self.selection,
             above: self.size - self.below.iter().sum::<usize>() as u16,
             size: self.size,
         }
     }
 
+    /// The total amount of whitespace present in the displayed match list.
     fn whitespace(&self) -> u16 {
         self.size
             - self.below.iter().sum::<usize>() as u16
             - self.above.iter().sum::<usize>() as u16
     }
 
+    /// The amount of padding corresponding to the provided size.
     pub fn padding(&self, size: u16) -> u16 {
         self.config.scroll_padding.min(size.saturating_sub(1) / 2)
     }
 
+    /// Replace the prompt string with an updated value.
     pub fn reparse(&mut self, new: &str) {
         // appending if the new value has the previous value as a prefix and also does not end in a
         // trailing unescaped '\\'
@@ -303,14 +321,17 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
         self.prompt = new.to_owned();
     }
 
+    /// Whether or not the list of items is empty.
     pub fn is_empty(&self) -> bool {
         self.nucleo.snapshot().matched_item_count() == 0
     }
 
+    /// Get the item corresponding to the selection, or `None` if there are no matched items.
     pub fn selected_item(&self) -> Option<nc::Item<'_, T>> {
         self.nucleo.snapshot().get_matched_item(self.selection)
     }
 
+    /// Return the range corresponding to the matched items visible on the screen.
     pub fn selection_range(&self) -> std::ops::RangeInclusive<u32> {
         self.selection + 1 - self.below.len() as u32..=self.selection + self.above.len() as u32
     }
@@ -344,7 +365,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
         let sizes_below_incl = buffer.sizes_lower_inclusive(self.selection, &mut self.below);
         let sizes_above = buffer.sizes_higher(self.selection, &mut self.above);
 
-        if self.reversed {
+        if self.config.reversed {
             if self.size <= total_size {
                 todo!();
             } else {
@@ -362,6 +383,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
         self.size = total_size;
     }
 
+    /// Check if the internal match workers have returned any new updates for matched items.
     pub fn update(&mut self) -> bool {
         let status = self.nucleo.tick(10);
         if status.changed {
@@ -376,7 +398,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
         let padding = self.padding(self.size);
         if self.selection != 0 {
             let sizes_below_incl = buffer.sizes_lower_inclusive(0, &mut self.below);
-            if self.reversed {
+            if self.config.reversed {
                 reset::reset_rev(self.size, sizes_below_incl);
             } else {
                 let sizes_above = buffer.sizes_higher(0, &mut self.above);
@@ -402,7 +424,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
             let sizes_below_incl = buffer.sizes_lower_inclusive(self.selection, &mut self.below);
             let sizes_above = buffer.sizes_higher(self.selection, &mut self.above);
 
-            if self.reversed {
+            if self.config.reversed {
                 todo!()
             } else {
                 update::items(previous, padding, sizes_below_incl, sizes_above);
@@ -430,7 +452,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
             let sizes_below_incl = buffer.sizes_lower_inclusive(new_selection, &mut self.below);
             let sizes_above = buffer.sizes_higher(new_selection, &mut self.above);
 
-            if self.reversed {
+            if self.config.reversed {
                 todo!()
             } else {
                 selection::incr(
@@ -462,7 +484,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
             let sizes_below_incl = buffer.sizes_lower_inclusive(new_selection, &mut self.below);
             let sizes_above = buffer.sizes_higher(new_selection, &mut self.above);
 
-            if self.reversed {
+            if self.config.reversed {
                 todo!()
             } else {
                 selection::decr(

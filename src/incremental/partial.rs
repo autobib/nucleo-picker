@@ -19,6 +19,7 @@ pub struct IncrementalIterator<I: Iterator<Item = usize>> {
 
 impl<I: Iterator<Item = usize>> IncrementalIterator<I> {
     /// Returns a new [`IncrementalIterator`], consuming the given iterator.
+    #[inline]
     pub fn new<J: IntoIterator<IntoIter = I>>(iter: J) -> Self {
         Self {
             iter: iter.into_iter(),
@@ -27,20 +28,25 @@ impl<I: Iterator<Item = usize>> IncrementalIterator<I> {
     }
 
     /// Returns whether or not the next call to [`next_partial`](Self::next_partial) will
-    /// yield a [`Partial`] with `new = false`.
+    /// yield a [`Partial`] with `new = false`; that is, the previously returned size is
+    /// incomplete.
     ///
     /// If this method returns false, [`next_partial`](Self::next_partial) could either return
-    /// `None` or a [`Partial`] with `new = false` if called with `limit = 0`.
-    pub fn next_is_not_new(&self) -> bool {
+    /// `None` or a [`Partial`] with `new = false` if called with `limit = 0`. If the internal
+    /// iterator is not finished and `limit > 0`, the next call will return a [`Partial`] with
+    /// `new = true`.
+    #[inline]
+    pub fn is_incomplete(&self) -> bool {
         self.partial > 0
     }
 
     /// Return the next [`Partial`] constrained by the provided limit.
     ///
-    /// # Guarantees
-    /// 1. The returned [`Partial`] contains a `size` that is bounded above by limit.
+    /// # API Guarantees
+    /// 1. The returned [`Partial`] contains a `size` that is bounded above by `limit`.
     /// 2. The first returned value from a newly constructed [`IncrementalIterator`] is
     ///    either `None`, or a [`Partial`] with `new == true`.
+    #[inline]
     pub fn next_partial(&mut self, limit: u16) -> Option<Partial> {
         if self.partial > 0 {
             Some(Partial {
@@ -104,13 +110,13 @@ mod tests {
 
         ap.assert(2, 1, true);
         ap.assert(5, 5, true);
-        assert!(ap.partial.next_is_not_new());
+        assert!(ap.partial.is_incomplete());
         ap.assert(1, 1, false);
-        assert!(ap.partial.next_is_not_new());
+        assert!(ap.partial.is_incomplete());
         ap.assert(1, 1, false);
         ap.assert(3, 3, true);
         ap.assert(1, 1, true);
-        assert!(ap.partial.next_is_not_new());
+        assert!(ap.partial.is_incomplete());
         ap.assert(8, 1, false);
         ap.assert(4, 4, true);
         ap.assert(0, 0, false);
