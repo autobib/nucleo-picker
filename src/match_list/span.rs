@@ -190,7 +190,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
     /// Print the header for each line, which is either two spaces or styled indicator. This also
     /// sets the highlighting features for the given line.
     #[inline]
-    fn start_line<W: Write + ?Sized>(stderr: &mut W, selected: bool) -> Result<(), io::Error> {
+    fn start_line<W: Write + ?Sized>(stderr: &mut W, selected: bool) -> io::Result<()> {
         if selected {
             // print the line as bold, and with a 'selection' marker
             stderr
@@ -210,7 +210,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
         stderr: &mut W,
         to_print: &str,
         highlight: bool,
-    ) -> Result<(), io::Error> {
+    ) -> io::Result<()> {
         if highlight {
             stderr.queue(PrintStyledContent(to_print.cyan()))?;
         } else {
@@ -222,7 +222,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
     /// Clean up after printing the line by resetting any display styling, clearing any trailing
     /// characters, and moving to the next line.
     #[inline]
-    fn finish_line<W: Write + ?Sized>(stderr: &mut W) -> Result<(), io::Error> {
+    fn finish_line<W: Write + ?Sized>(stderr: &mut W) -> io::Result<()> {
         stderr
             .queue(SetAttribute(Attribute::Reset))?
             .queue(Clear(ClearType::UntilNewLine))?
@@ -239,7 +239,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
         selected: bool,
         max_width: u16,
         highlight_padding: u16,
-    ) -> Result<(), io::Error> {
+    ) -> io::Result<()> {
         if self.max_line_bytes() <= max_width.saturating_sub(highlight_padding) as usize {
             // Fast path: all of the lines are short, so we can just render them without any unicode width
             // checks. This should be the case for the majority of situations, unless the screen is
@@ -278,7 +278,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
         line: &[Span],
         offset: usize,
         capacity: u16,
-    ) -> Result<(), io::Error> {
+    ) -> io::Result<()> {
         let mut remaining_capacity = capacity;
 
         // do not print ellipsis if line is empty or the screen is extremely narrow
