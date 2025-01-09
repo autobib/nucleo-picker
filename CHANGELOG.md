@@ -21,7 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Customize keybindings using a `StdinReader`.
   - Drive the picker using a `mpsc` channel.
   - Implement your own `EventSource` for total customization.
-- New `PickerOptions::on_abort` to pass a custom function which is called when the picker aborts.
+- New examples to demonstrate the new IO customization:
+  - `custom_io` for a basic example
+  - `fzf_err_handling` to use channels for event propagation
+- Reversed rendering with `PickerOptions::reversed`
 
 ### Deprecated
 - `PickerOptions::query` has been renamed to `PickerOptions::prompt` for naming consistency.
