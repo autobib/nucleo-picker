@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Reset selection using `ctrl + r`.
 - New `PickerOptions::frame_interval` option to customize the refresh rate of the picker.
-- New `Picker::pick_with_io` function that allows much greater IO customization.
+- New `Picker::pick_with_io` and `Picker::pick_with_keybind` functions that allows much greater IO customization.
   - Provide your own `Writer`.
   - Customize keybindings using a `StdinReader`.
   - Drive the picker using a `mpsc` channel.

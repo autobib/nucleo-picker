@@ -48,7 +48,7 @@ use std::{
 
 use crossterm::{
     cursor::MoveTo,
-    event::{DisableBracketedPaste, EnableBracketedPaste},
+    event::{DisableBracketedPaste, EnableBracketedPaste, KeyEvent},
     execute,
     terminal::{
         disable_raw_mode, enable_raw_mode, size, BeginSynchronizedUpdate, EndSynchronizedUpdate,
@@ -64,7 +64,7 @@ use nucleo::{
 
 use crate::{
     component::{Component, Status},
-    event::{Event, EventSource, RecvError, StdinReader},
+    event::{keybind_default, Event, EventSource, RecvError, StdinReader},
     lazy::{LazyMatchList, LazyPrompt},
     match_list::{MatchList, MatchListConfig},
     prompt::{Prompt, PromptConfig},
@@ -326,6 +326,8 @@ impl PickerOptions {
     }
 
     /// Set a custom handler called when the picker receives an [`Event::Abort`].
+    ///
+    /// By default, this event is raised when the user presses `ctrl + c`
     #[must_use]
     #[inline]
     pub fn on_abort(mut self, on_abort: Box<dyn Fn() -> io::Result<()>>) -> Self {
@@ -561,7 +563,35 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     ///
     /// To further customize the IO behaviour of the picker, such as to provide your own writer
     /// (for instance to write to [`Stdout`](std::io::Stdout) instead) or use custom keybindings,
-    /// see the [`pick_with_io`](Self::pick_with_io) method instead.
+    /// see the [`pick_with_io`](Self::pick_with_io)  and
+    /// [`pick_with_keybind`](Self::pick_with_keybind) methods.
+    ///
+    /// # Errors
+    /// Underlying IO errors from the standard library or [`crossterm`] will be propogated.
+    ///
+    /// This fails with an [`io::ErrorKind::Other`] if:
+    ///
+    /// 1. stderr is not interactive, in which case the message will be `"is not interactive"`
+    /// 2. the user presses `ctrl + c`, in which case the message will be `"keyboard interrupt"`
+    ///
+    /// If a custom `on_abort` hook has been passed during configuration, the behaviour when
+    /// `ctrl + c` is pressed may be different.
+    #[inline]
+    pub fn pick(&mut self) -> io::Result<Option<&T>> {
+        self.pick_with_keybind(keybind_default)
+    }
+
+    /// Open the interactive picker prompt and return the picked item, if any. Uses the provided
+    /// keybindings for the interactive picker.
+    ///
+    /// The picker prompt is rendered in an alternate screen using the `stderr` file handle. See
+    /// the [`pick`](Self::pick) method for more detail.
+    ///
+    /// To further customize event generation, see the [`pick_with_io`](Self::pick_with_io) method.
+    ///
+    /// ## Defaults
+    /// The [`pick`](Self::pick) method is internally a call to this method with keybindings
+    /// provided by [`keybind_default`].
     ///
     /// # Errors
     /// Underlying IO errors from the standard library or [`crossterm`] will be propogated.
@@ -570,16 +600,21 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     ///
     /// 1. stderr is not interactive, in which case the message will be `"is not interactive"`
     /// 2. the user presses `CTRL-C`, in which case the message will be `"keyboard interrupt"`
-    pub fn pick(&mut self) -> io::Result<Option<&T>> {
+    #[inline]
+    pub fn pick_with_keybind<F: Fn(KeyEvent) -> Option<Event>>(
+        &mut self,
+        keybind: F,
+    ) -> io::Result<Option<&T>> {
         let stderr = io::stderr().lock();
         if stderr.is_terminal() {
-            self.pick_with_io(StdinReader::default(), &mut BufWriter::new(stderr))
+            self.pick_with_io(StdinReader::new(keybind), &mut BufWriter::new(stderr))
         } else {
             Err(io::Error::new(io::ErrorKind::Other, "is not interactive"))
         }
     }
 
     /// Initialize the alternate screen.
+    #[inline]
     fn init_screen<W: Write>(writer: &mut W) -> io::Result<()> {
         enable_raw_mode()?;
         execute!(writer, EnterAlternateScreen, EnableBracketedPaste)?;
@@ -587,6 +622,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     }
 
     /// Cleanup the alternate screen when finished.
+    #[inline]
     fn cleanup_screen<W: Write>(writer: &mut W) -> io::Result<()> {
         disable_raw_mode()?;
         execute!(writer, DisableBracketedPaste, LeaveAlternateScreen)?;
@@ -594,6 +630,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     }
 
     /// Render the frame, specifying which parts of the frame need to be re-drawn.
+    #[inline]
     fn render_frame<W: Write>(
         &mut self,
         writer: &mut W,
@@ -714,7 +751,11 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                         }
                     },
                     Err(RecvError::Timeout) => break 'event,
-                    Err(RecvError::Disconnected) => return Err(io::Error::other("disconnected")),
+                    Err(RecvError::Disconnected) => {
+                        return Err(io::Error::other(
+                            "event stream disconnected while picker still running",
+                        ))
+                    }
                     Err(RecvError::IO(io_err)) => return Err(io_err),
                 }
             }
