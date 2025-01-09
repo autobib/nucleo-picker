@@ -11,10 +11,11 @@ Some of the examples may require arguments or feature flags to run properly; see
 
 ## Directory
 
-File                       | Description
----------------------------|------------
-[blocking.rs](blocking.rs) | A basic blocking example with a very small number of matches.
-[find.rs](find.rs)         | A basic [find](https://en.wikipedia.org/wiki/Find_(Unix)) implementation with fuzzy matching on resulting items.
-[fzf.rs](fzf.rs)           | A simple [fzf](https://github.com/junegunn/fzf) clone which reads lines from STDIN and presents for matching.
-[options.rs](options.rs)   | Some customization examples of the picker.
-[serde.rs](serde.rs)       | Use `serde` to deserialize picker items from input.
+File                         | Description
+-----------------------------|------------
+[blocking.rs](blocking.rs)   | A basic blocking example with a very small number of matches.
+[custom_io.rs](custom_io.rs) | Customize IO with keybindings and alternative writer.
+[find.rs](find.rs)           | A basic [find](https://en.wikipedia.org/wiki/Find_(Unix)) implementation with fuzzy matching on resulting items.
+[fzf.rs](fzf.rs)             | A simple [fzf](https://github.com/junegunn/fzf) clone which reads lines from STDIN and presents for matching.
+[options.rs](options.rs)     | Some customization examples of the picker.
+[serde.rs](serde.rs)         | Use `serde` to deserialize picker items from input.
