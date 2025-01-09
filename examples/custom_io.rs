@@ -37,12 +37,8 @@ fn main() -> io::Result<()> {
     // launch the interactive picker with the customized keybindings, and draw the picker on
     // standard output
     match picker.pick_with_io(StdinReader::new(keybind_no_abort), &mut std::io::stdout())? {
-        Some(opt) => {
-            println!("Your preferred architect is: '{opt}'");
-        }
-        None => {
-            println!("No architect selected!");
-        }
+        Some(opt) => println!("Your preferred architect is: '{opt}'"),
+        None => println!("No architect selected!"),
     }
 
     Ok(())

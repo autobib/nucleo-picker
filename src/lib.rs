@@ -26,6 +26,7 @@
 #![warn(rustdoc::unescaped_backticks)]
 
 mod component;
+pub mod error;
 pub mod event;
 mod incremental;
 mod injector;
@@ -64,6 +65,7 @@ use nucleo::{
 
 use crate::{
     component::{Component, Status},
+    error::{PickError, Result},
     event::{keybind_default, Event, EventSource, RecvError, StdinReader},
     lazy::{LazyMatchList, LazyPrompt},
     match_list::{MatchList, MatchListConfig},
@@ -250,7 +252,6 @@ pub struct PickerOptions {
     interval: Duration,
     match_list_config: MatchListConfig,
     prompt_config: PromptConfig,
-    on_abort: Box<dyn Fn() -> io::Result<()>>,
 }
 
 impl Default for PickerOptions {
@@ -262,7 +263,6 @@ impl Default for PickerOptions {
             interval: Duration::from_millis(15),
             match_list_config: MatchListConfig::default(),
             prompt_config: PromptConfig::default(),
-            on_abort: Box::new(|| Err(io::Error::other("keyboard interrupt"))),
         }
     }
 }
@@ -310,7 +310,6 @@ impl PickerOptions {
             match_list,
             prompt,
             interval: self.interval,
-            on_abort: self.on_abort,
         }
     }
 
@@ -322,16 +321,6 @@ impl PickerOptions {
     #[inline]
     pub fn reversed(mut self, reversed: bool) -> Self {
         self.match_list_config.reversed = reversed;
-        self
-    }
-
-    /// Set a custom handler called when the picker receives an [`Event::Abort`].
-    ///
-    /// By default, this event is raised when the user presses `ctrl + c`
-    #[must_use]
-    #[inline]
-    pub fn on_abort(mut self, on_abort: Box<dyn Fn() -> io::Result<()>>) -> Self {
-        self.on_abort = on_abort;
         self
     }
 
@@ -460,17 +449,30 @@ impl PickerOptions {
 /// See also the [usage
 /// examples](https://github.com/autobib/nucleo-picker/tree/master/examples).
 ///
+/// ## Picker variants
+/// The picker can be run in a number of different modes.
+///
+/// 1. The simplest (and most common) method is to use [`Picker::pick`].
+/// 2. If you wish to customize keybindings, use [`Picker::pick_with_keybind`].
+/// 3. If you wish to customize all IO to the picker, use [`Picker::pick_with_io`].
+///
 /// ## A note on memory usage
 /// Initializing a picker is a relatively expensive operation since the internal match engine uses
 /// an arena-based memory approach to minimize allocator costs, and this memory is initialized when
 /// the picker is created.
 ///
 /// To re-use the picker without additional start-up costs, use the [`Picker::restart`] method.
+///
+/// # Example
+/// Run the picker on [`Stdout`](std::io::Stdout) with no interactivity checks, and quitting
+/// gracefully on `ctrl + c`.
+/// ```no_run
+#[doc = include_str!("../examples/custom_io.rs")]
+/// ```
 pub struct Picker<T: Send + Sync + 'static, R> {
     match_list: MatchList<T, R>,
     prompt: Prompt,
     interval: Duration,
-    on_abort: Box<dyn Fn() -> io::Result<()>>,
 }
 
 impl<T: Send + Sync + 'static, R: Render<T>> Extend<T> for Picker<T, R> {
@@ -567,17 +569,17 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// [`pick_with_keybind`](Self::pick_with_keybind) methods.
     ///
     /// # Errors
-    /// Underlying IO errors from the standard library or [`crossterm`] will be propogated.
+    /// Underlying IO errors from the standard library or [`crossterm`] will be propogated with the
+    /// [`PickError::IO`] variant.
     ///
-    /// This fails with an [`io::ErrorKind::Other`] if:
+    /// This fails with another [`PickError`] variant if:
     ///
-    /// 1. stderr is not interactive, in which case the message will be `"is not interactive"`
-    /// 2. the user presses `ctrl + c`, in which case the message will be `"keyboard interrupt"`
+    /// 1. stderr is not interactive, in which case it will be a [`PickError::NotInteractive`].
+    /// 2. the user presses `ctrl + c`, in which case the message will be [`PickError::Aborted`].
     ///
-    /// If a custom `on_abort` hook has been passed during configuration, the behaviour when
-    /// `ctrl + c` is pressed may be different.
+    /// This method will **never** return [`PickError::Disconnected`].
     #[inline]
-    pub fn pick(&mut self) -> io::Result<Option<&T>> {
+    pub fn pick(&mut self) -> Result<Option<&T>> {
         self.pick_with_keybind(keybind_default)
     }
 
@@ -594,28 +596,32 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// provided by [`keybind_default`].
     ///
     /// # Errors
-    /// Underlying IO errors from the standard library or [`crossterm`] will be propogated.
+    /// Underlying IO errors from the standard library or [`crossterm`] will be propogated with the
+    /// [`PickError::IO`] variant.
     ///
-    /// This fails with an [`io::ErrorKind::Other`] if:
+    /// This fails with another [`PickError`] variant if:
     ///
-    /// 1. stderr is not interactive, in which case the message will be `"is not interactive"`
-    /// 2. the user presses `CTRL-C`, in which case the message will be `"keyboard interrupt"`
+    /// 1. stderr is not interactive, in which case it will be a [`PickError::NotInteractive`]
+    /// 2. a keybinding results in an [`Event::Abort`] action, in which case the message will be
+    ///    [`PickError::Aborted`].
+    ///
+    /// This method will **never** return [`PickError::Disconnected`].
     #[inline]
     pub fn pick_with_keybind<F: Fn(KeyEvent) -> Option<Event>>(
         &mut self,
         keybind: F,
-    ) -> io::Result<Option<&T>> {
+    ) -> Result<Option<&T>> {
         let stderr = io::stderr().lock();
         if stderr.is_terminal() {
             self.pick_with_io(StdinReader::new(keybind), &mut BufWriter::new(stderr))
         } else {
-            Err(io::Error::new(io::ErrorKind::Other, "is not interactive"))
+            Err(PickError::NotInteractive)
         }
     }
 
     /// Initialize the alternate screen.
     #[inline]
-    fn init_screen<W: Write>(writer: &mut W) -> io::Result<()> {
+    fn init_screen<W: Write>(writer: &mut W) -> Result<()> {
         enable_raw_mode()?;
         execute!(writer, EnterAlternateScreen, EnableBracketedPaste)?;
         Ok(())
@@ -679,17 +685,24 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// - The writer is a [`StderrLock`](std::io::StderrLock) guarded by an interactivity check
     ///   using [`IsTerminal`].
     ///
-    /// ## Example
-    /// Run the picker on [`Stdout`](std::io::Stdout) with no interactivity checks, and quitting
-    /// gracefully on `ctrl + c`.
-    /// ```no_run
-    #[doc = include_str!("../examples/custom_io.rs")]
-    /// ```
+    /// # Errors
+    /// Underlying IO errors from the standard library or [`crossterm`] will be propogated with the
+    /// [`PickError::IO`] variant.
+    ///
+    /// Whether or not this fails with another [`PickError`] variant depends on the [`EventSource`]
+    /// implementation.
+    ///
+    /// 1. If [`EventSource::recv_timeout`] fails with a [`RecvError::Disconnected`], the error
+    ///    returned will be [`PickError::Disconnected`].
+    /// 2. The message will be [`PickError::Aborted`] if the [`Picker`] receives an
+    ///    [`Event::Abort`].
+    ///
+    /// This method will **never** return [`PickError::NotInteractive`].
     pub fn pick_with_io<E: EventSource, W: io::Write>(
         &mut self,
         event_source: E,
         writer: &mut W,
-    ) -> io::Result<Option<&T>> {
+    ) -> Result<Option<&T>> {
         // set panic hook in case the `Render` implementation panics
         let original_hook = take_hook();
         set_hook(Box::new(move |panic_info| {
@@ -730,9 +743,6 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                                 break 'selection Ok(None);
                             }
                         }
-                        Event::Abort => {
-                            break 'selection (self.on_abort)().map(|()| None);
-                        }
                         Event::Redraw => {
                             redraw_prompt = true;
                             redraw_match_list = true;
@@ -749,14 +759,15 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                                 break 'selection Ok(Some(item.data));
                             }
                         }
+                        Event::Abort => {
+                            break 'selection Err(PickError::Aborted);
+                        }
                     },
                     Err(RecvError::Timeout) => break 'event,
                     Err(RecvError::Disconnected) => {
-                        return Err(io::Error::other(
-                            "event stream disconnected while picker still running",
-                        ))
+                        return Err(PickError::Disconnected);
                     }
-                    Err(RecvError::IO(io_err)) => return Err(io_err),
+                    Err(RecvError::IO(io_err)) => return Err(PickError::IO(io_err)),
                 }
             }
 

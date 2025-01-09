@@ -52,12 +52,8 @@ fn main() -> Result<()> {
 
     // open interactive prompt
     match picker.pick()? {
-        Some(poem) => {
-            println!("'{}' by {}", poem.title, poem.author);
-        }
-        None => {
-            println!("Nothing selected!");
-        }
+        Some(poem) => println!("'{}' by {}", poem.title, poem.author),
+        None => println!("Nothing selected!"),
     }
 
     Ok(())
