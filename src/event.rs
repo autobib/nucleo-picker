@@ -132,7 +132,7 @@ impl From<RecvTimeoutError> for RecvError {
 pub trait EventSource {
     /// Receive a new event, timing out after the provided duration.
     ///
-    /// If the receive times out, the implementation should return a [`RecvError::Timeout`].
+    /// If the receiver times out, the implementation should return a [`RecvError::Timeout`].
     /// If the receiver cannot receive any more events, the implementation should return a
     /// [`RecvError::Disconnected`]. Otherwise, return one of the other variants.
     fn recv_timeout(&self, duration: Duration) -> Result<Event, RecvError>;
@@ -233,6 +233,11 @@ impl<F: Fn(KeyEvent) -> Option<Event>> StdinEventSender<F> {
     /// Initialize a new [`StdinEventSender`] with the given keybindings in the provided channel.
     pub fn new(sender: Sender<Event>, keybind: F) -> Self {
         Self { sender, keybind }
+    }
+
+    /// Convert into the inner [`Sender<Event>`] to send further events when finished.
+    pub fn into_sender(self) -> Sender<Event> {
+        self.sender
     }
 
     /// Watch for events until either the receiver is dropped (in which case `Ok(())` is returned),

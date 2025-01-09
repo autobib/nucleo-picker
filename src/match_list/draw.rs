@@ -15,7 +15,7 @@ use crate::{
 };
 
 use crossterm::{
-    cursor::{MoveToColumn, MoveToNextLine, MoveToPreviousLine},
+    cursor::{MoveToColumn, MoveToNextLine},
     style::{Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor},
     terminal::{Clear, ClearType},
     QueueableCommand,
@@ -73,6 +73,66 @@ fn draw_single_match<
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, W: io::Write + ?Sized>(
+    writer: &mut W,
+    buffer: &mut IndexBuffer,
+    config: &MatchListConfig,
+    snapshot: &nc::Snapshot<T>,
+    matcher: &mut nc::Matcher,
+    render: &R,
+    match_list_width: u16,
+    above: &[usize],
+    below: &[usize],
+    mut item_iter: impl Iterator<Item = nc::Item<'a, T>>,
+) -> io::Result<()> {
+    // render above the selection
+    for item_height in above.iter().rev() {
+        let next_item = item_iter.next().unwrap();
+        draw_single_match::<T, R, Tail, W, false>(
+            writer,
+            buffer,
+            match_list_width,
+            config,
+            &next_item,
+            snapshot,
+            matcher,
+            as_u16(*item_height),
+            render,
+        )?;
+    }
+
+    // render the selection
+    draw_single_match::<T, R, Head, W, true>(
+        writer,
+        buffer,
+        match_list_width,
+        config,
+        &item_iter.next().unwrap(),
+        snapshot,
+        matcher,
+        as_u16(below[0]),
+        render,
+    )?;
+
+    // render below the selection
+    for item_height in below[1..].iter() {
+        draw_single_match::<T, R, Head, W, false>(
+            writer,
+            buffer,
+            match_list_width,
+            config,
+            &item_iter.next().unwrap(),
+            snapshot,
+            matcher,
+            as_u16(*item_height),
+            render,
+        )?;
+    }
+
+    Ok(())
+}
+
 fn draw_match_counts<W: io::Write + ?Sized>(
     writer: &mut W,
     matched: u32,
@@ -99,8 +159,20 @@ impl<T: Send + Sync + 'static, R: Render<T>> Component for MatchList<T, R> {
 
     fn handle(&mut self, e: Self::Event) -> bool {
         match e {
-            MatchListEvent::Up(incr) => self.selection_incr(as_u32(incr)),
-            MatchListEvent::Down(decr) => self.selection_decr(as_u32(decr)),
+            MatchListEvent::Up(n) => {
+                if self.config.reversed {
+                    self.selection_decr(as_u32(n))
+                } else {
+                    self.selection_incr(as_u32(n))
+                }
+            }
+            MatchListEvent::Down(n) => {
+                if self.config.reversed {
+                    self.selection_incr(as_u32(n))
+                } else {
+                    self.selection_decr(as_u32(n))
+                }
+            }
             MatchListEvent::Reset => self.reset(),
         }
     }
@@ -119,74 +191,58 @@ impl<T: Send + Sync + 'static, R: Render<T>> Component for MatchList<T, R> {
         }
 
         let snapshot = self.nucleo.snapshot();
-
-        // draw the matches
         let matched_item_count = snapshot.matched_item_count();
 
+        // draw the matches
         if height == 1 {
             draw_match_counts(writer, matched_item_count, snapshot.item_count())?;
-        } else if matched_item_count == 0 {
-            writer.queue(MoveToNextLine(height - 1))?;
+        } else if self.config.reversed {
             draw_match_counts(writer, matched_item_count, snapshot.item_count())?;
-            writer
-                .queue(MoveToPreviousLine(1))?
-                .queue(MoveToColumn(width - 1))?
-                .queue(Clear(ClearType::FromCursorUp))?;
-        } else {
-            let total_whitespace = self.whitespace();
+            writer.queue(MoveToNextLine(1))?;
 
-            // skip / clear whitespace if necessary
-            if total_whitespace != 0 {
-                writer
-                    .queue(MoveToNextLine(self.whitespace()))?
-                    .queue(MoveToColumn(width - 1))?
-                    .queue(Clear(ClearType::FromCursorUp))?
-                    .queue(MoveToColumn(0))?;
-            }
-
-            let mut item_iter = snapshot.matched_items(self.selection_range()).rev();
-
-            // render above the selection
-            for item_height in self.above.iter().rev() {
-                let next_item = item_iter.next().unwrap();
-                draw_single_match::<T, R, Tail, W, false>(
+            if matched_item_count != 0 {
+                let item_iter = snapshot.matched_items(self.selection_range());
+                draw_matches(
                     writer,
                     &mut self.scratch,
-                    match_list_width,
                     &self.config,
-                    &next_item,
                     snapshot,
                     &mut self.matcher,
-                    as_u16(*item_height),
-                    &self.render,
+                    self.render.as_ref(),
+                    match_list_width,
+                    &self.above,
+                    &self.below,
+                    item_iter,
                 )?;
             }
 
-            // render the selection
-            draw_single_match::<T, R, Head, W, true>(
-                writer,
-                &mut self.scratch,
-                match_list_width,
-                &self.config,
-                &item_iter.next().unwrap(),
-                snapshot,
-                &mut self.matcher,
-                as_u16(self.below[0]),
-                &self.render,
-            )?;
+            writer
+                .queue(MoveToColumn(0))?
+                .queue(Clear(ClearType::FromCursorDown))?;
+        } else {
+            let mut total_whitespace = self.whitespace();
 
-            // render below the selection
-            for item_height in self.below[1..].iter() {
-                draw_single_match::<T, R, Head, W, false>(
+            // skip / clear whitespace if necessary
+            while total_whitespace > 0 {
+                total_whitespace -= 1;
+                writer
+                    .queue(Clear(ClearType::UntilNewLine))?
+                    .queue(MoveToNextLine(1))?;
+            }
+
+            if matched_item_count != 0 {
+                let item_iter = snapshot.matched_items(self.selection_range()).rev();
+                draw_matches(
                     writer,
                     &mut self.scratch,
-                    match_list_width,
                     &self.config,
-                    &item_iter.next().unwrap(),
                     snapshot,
                     &mut self.matcher,
-                    as_u16(*item_height),
-                    &self.render,
+                    self.render.as_ref(),
+                    match_list_width,
+                    &self.above,
+                    &self.below,
+                    item_iter,
                 )?;
             }
 

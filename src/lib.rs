@@ -65,7 +65,7 @@ use nucleo::{
 
 use crate::{
     component::{Component, Status},
-    error::{PickError, Result},
+    error::PickError,
     event::{keybind_default, Event, EventSource, RecvError, StdinReader},
     lazy::{LazyMatchList, LazyPrompt},
     match_list::{MatchList, MatchListConfig},
@@ -297,6 +297,8 @@ impl PickerOptions {
             1,
         );
 
+        let reversed = self.match_list_config.reversed;
+
         let mut match_list =
             MatchList::new(self.match_list_config, self.config, engine, render.into());
 
@@ -310,6 +312,7 @@ impl PickerOptions {
             match_list,
             prompt,
             interval: self.interval,
+            reversed,
         }
     }
 
@@ -473,6 +476,7 @@ pub struct Picker<T: Send + Sync + 'static, R> {
     match_list: MatchList<T, R>,
     prompt: Prompt,
     interval: Duration,
+    reversed: bool,
 }
 
 impl<T: Send + Sync + 'static, R: Render<T>> Extend<T> for Picker<T, R> {
@@ -579,7 +583,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     ///
     /// This method will **never** return [`PickError::Disconnected`].
     #[inline]
-    pub fn pick(&mut self) -> Result<Option<&T>> {
+    pub fn pick(&mut self) -> Result<Option<&T>, PickError> {
         self.pick_with_keybind(keybind_default)
     }
 
@@ -610,7 +614,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     pub fn pick_with_keybind<F: Fn(KeyEvent) -> Option<Event>>(
         &mut self,
         keybind: F,
-    ) -> Result<Option<&T>> {
+    ) -> Result<Option<&T>, PickError> {
         let stderr = io::stderr().lock();
         if stderr.is_terminal() {
             self.pick_with_io(StdinReader::new(keybind), &mut BufWriter::new(stderr))
@@ -621,7 +625,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
 
     /// Initialize the alternate screen.
     #[inline]
-    fn init_screen<W: Write>(writer: &mut W) -> Result<()> {
+    fn init_screen<W: Write>(writer: &mut W) -> Result<(), PickError> {
         enable_raw_mode()?;
         execute!(writer, EnterAlternateScreen, EnableBracketedPaste)?;
         Ok(())
@@ -645,23 +649,28 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     ) -> io::Result<()> {
         let (width, height) = size()?;
 
+        let (prompt_row, match_list_row) = if self.reversed {
+            (0, 1)
+        } else {
+            (height - 1, 0)
+        };
+
         if width >= 1 && (redraw_prompt || redraw_match_list) {
             writer.execute(BeginSynchronizedUpdate)?;
 
-            if redraw_prompt && height >= 1 {
-                writer.queue(MoveTo(0, height - 1))?;
-
-                self.prompt.draw(width, 1, writer)?;
-            }
-
             if redraw_match_list && height >= 2 {
-                writer.queue(MoveTo(0, 0))?;
+                writer.queue(MoveTo(0, match_list_row))?;
 
                 self.match_list.draw(width, height - 1, writer)?;
             }
 
-            // reset the cursor position
-            writer.queue(MoveTo(self.prompt.screen_offset() + 2, height - 1))?;
+            if redraw_prompt && height >= 1 {
+                writer.queue(MoveTo(0, prompt_row))?;
+
+                self.prompt.draw(width, 1, writer)?;
+            }
+
+            writer.queue(MoveTo(self.prompt.screen_offset() + 2, prompt_row))?;
 
             // flush to terminal
             writer.flush()?;
@@ -702,7 +711,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         &mut self,
         event_source: E,
         writer: &mut W,
-    ) -> Result<Option<&T>> {
+    ) -> Result<Option<&T>, PickError> {
         // set panic hook in case the `Render` implementation panics
         let original_hook = take_hook();
         set_hook(Box::new(move |panic_info| {

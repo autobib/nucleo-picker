@@ -44,15 +44,24 @@ struct LayoutView<'a> {
 }
 
 impl MatchListTester {
-    fn init(size: u16, max_padding: u16) -> Self {
+    fn init_inner(size: u16, max_padding: u16, reversed: bool) -> Self {
         let nc = Nucleo::new(Config::DEFAULT, Arc::new(|| {}), Some(1), 1);
         let mut mc = MatchListConfig::default();
         mc.scroll_padding = max_padding;
+        mc.reversed = reversed;
 
         let mut match_list = MatchList::new(mc, Config::DEFAULT, nc, StrRenderer.into());
         match_list.resize(size);
 
         Self { match_list }
+    }
+
+    fn init(size: u16, max_padding: u16) -> Self {
+        Self::init_inner(size, max_padding, false)
+    }
+
+    fn init_rev(size: u16, max_padding: u16) -> Self {
+        Self::init_inner(size, max_padding, true)
     }
 
     fn update(&mut self, lc: Action) {
@@ -89,6 +98,13 @@ impl MatchListTester {
             println!("* * * * * *\n{}", item.data);
         }
     }
+
+    #[allow(unused)]
+    fn debug_items_rev(&self) {
+        for item in self.match_list.nucleo.snapshot().matched_items(..) {
+            println!("* * * * * *\n{}", item.data);
+        }
+    }
 }
 
 macro_rules! assert_layout {
@@ -111,11 +127,28 @@ fn basic() {
     assert_layout!(lt, Incr(1), &[1, 2], &[]);
     assert_layout!(lt, Reset, &[2], &[1]);
     assert_layout!(lt, Incr(1), &[1, 2], &[]);
+    assert_layout!(lt, Incr(1), &[1, 2], &[]);
+
+    let mut lt = MatchListTester::init_rev(6, 2);
+    assert_layout!(lt, Update(&["12\n34", "ab"]), &[2, 1], &[]);
+    assert_layout!(lt, Incr(1), &[1], &[2]);
+    assert_layout!(lt, Reset, &[2, 1], &[]);
+    assert_layout!(lt, Incr(1), &[1], &[2]);
+    assert_layout!(lt, Incr(1), &[1], &[2]);
 }
 
 #[test]
 fn size_and_item_edge_cases() {
     let mut lt = MatchListTester::init(6, 2);
+    assert_layout!(lt, Incr(1), &[], &[]);
+    assert_layout!(lt, Decr(1), &[], &[]);
+    assert_layout!(lt, Update(&[]), &[], &[]);
+    assert_layout!(lt, Resize(0), &[], &[]);
+    assert_layout!(lt, Resize(1), &[], &[]);
+    assert_layout!(lt, Update(&["a"]), &[1], &[]);
+    assert_layout!(lt, Resize(0), &[], &[]);
+
+    let mut lt = MatchListTester::init_rev(6, 2);
     assert_layout!(lt, Incr(1), &[], &[]);
     assert_layout!(lt, Decr(1), &[], &[]);
     assert_layout!(lt, Update(&[]), &[], &[]);
@@ -131,6 +164,11 @@ fn small() {
     assert_layout!(lt, Update(&["12", "a\nb"]), &[1], &[2]);
     assert_layout!(lt, Incr(1), &[2, 1], &[]);
     assert_layout!(lt, Decr(1), &[1], &[2]);
+
+    let mut lt = MatchListTester::init_rev(5, 1);
+    assert_layout!(lt, Update(&["12", "a\nb"]), &[1, 2], &[]);
+    assert_layout!(lt, Incr(1), &[2], &[1]);
+    assert_layout!(lt, Decr(1), &[1, 2], &[]);
 }
 
 #[test]
@@ -150,6 +188,35 @@ fn item_change() {
     assert_layout!(lt, Incr(1), &[1, 2], &[1]);
     assert_layout!(lt, Update(&["0", "1", "2", "3"]), &[1, 1], &[1, 1]);
     assert_layout!(lt, Update(&[]), &[], &[]);
+
+    let mut lt = MatchListTester::init_rev(4, 1);
+    assert_layout!(
+        lt,
+        Update(&["0\n1\n2\n3\n4\n5", "0\n1", "0\n1", "0\n1\n2\n3"]),
+        &[4],
+        &[]
+    );
+    assert_layout!(lt, Incr(1), &[2], &[2]);
+    assert_layout!(lt, Update(&["0\n0", "1"]), &[1], &[2]);
+    assert_layout!(lt, Update(&["0\n0", "1\n1"]), &[2], &[2]);
+    assert_layout!(lt, Update(&["0"]), &[1], &[]);
+    assert_layout!(lt, Update(&["0\n0\n0\n0", "1", "2", "3"]), &[4], &[]);
+    assert_layout!(lt, Incr(1), &[1, 1], &[2]);
+    assert_layout!(lt, Update(&["0", "1", "2", "3"]), &[1, 1, 1], &[1]);
+    assert_layout!(lt, Update(&[]), &[], &[]);
+}
+
+#[test]
+fn rev_incl_selection() {
+    let mut lt = MatchListTester::init_rev(5, 1);
+    assert_layout!(
+        lt,
+        Update(&["0", "1", "2", "3", "4", "5\n5\n5"]),
+        &[1, 1, 1, 1, 1],
+        &[]
+    );
+    assert_layout!(lt, Incr(4), &[1, 1], &[1, 1, 1]);
+    assert_layout!(lt, Incr(1), &[3], &[1, 1]);
 }
 
 #[test]
@@ -164,6 +231,16 @@ fn resize_basic() {
     assert_layout!(lt, Incr(5), &[1, 1, 1, 1], &[]);
     assert_layout!(lt, Resize(3), &[1, 1], &[]);
     assert_layout!(lt, Resize(5), &[1, 1, 1, 1], &[]);
+
+    let mut lt = MatchListTester::init_rev(5, 1);
+    assert_layout!(
+        lt,
+        Update(&["0", "1", "2", "3", "4", "5"]),
+        &[1, 1, 1, 1, 1],
+        &[]
+    );
+    assert_layout!(lt, Incr(5), &[1], &[1, 1, 1]);
+    assert_layout!(lt, Resize(3), &[1], &[1]);
 }
 
 #[test]
@@ -179,6 +256,18 @@ fn resize_with_padding_change() {
     assert_layout!(lt, Incr(2), &[2, 1], &[1]);
     assert_layout!(lt, Resize(8), &[2, 1, 3], &[2]);
     assert_layout!(lt, Resize(4), &[2, 1], &[1]);
+
+    let mut lt = MatchListTester::init_rev(10, 2);
+    assert_layout!(
+        lt,
+        Update(&["0\n0\n0", "1", "2\n2", "3\n3\n3\n3"]),
+        &[3, 1, 2, 4],
+        &[]
+    );
+    assert_layout!(lt, Resize(4), &[3, 1], &[]);
+    assert_layout!(lt, Incr(2), &[2], &[1, 1]);
+    assert_layout!(lt, Resize(8), &[2, 2], &[1, 3]);
+    assert_layout!(lt, Resize(4), &[2], &[1, 1]);
 }
 
 #[test]
@@ -187,6 +276,11 @@ fn item_alignment() {
     assert_layout!(lt, Update(&["0\n1\n2\n", "0\n1", "0\n1"]), &[4], &[2, 2]);
     assert_layout!(lt, Incr(2), &[2, 2, 4], &[]);
     assert_layout!(lt, Decr(1), &[2, 4], &[2]);
+
+    let mut lt = MatchListTester::init_rev(20, 3);
+    assert_layout!(lt, Update(&["0\n1\n2\n", "0\n1", "0\n1"]), &[4, 2, 2], &[]);
+    assert_layout!(lt, Incr(2), &[2], &[2, 4]);
+    assert_layout!(lt, Decr(1), &[2, 2], &[4]);
 }
 
 #[test]
@@ -198,7 +292,6 @@ fn scrolldown() {
         &[1],
         &[1, 1, 1, 1, 1, 1, 1]
     );
-
     assert_layout!(lt, Incr(100), &[1, 1, 1, 1, 1, 1], &[]);
     assert_layout!(lt, Decr(1), &[1, 1, 1, 1, 1], &[1]);
     assert_layout!(lt, Decr(1), &[1, 1, 1, 1], &[1, 1]);
@@ -209,6 +302,23 @@ fn scrolldown() {
     assert_layout!(lt, Decr(1), &[1, 1], &[1, 1, 1, 1, 1, 1]);
     assert_layout!(lt, Decr(1), &[1], &[1, 1, 1, 1, 1, 1, 1]);
     assert_layout!(lt, Decr(1), &[1], &[1, 1, 1, 1, 1, 1, 1]);
+
+    let mut lt = MatchListTester::init_rev(8, 2);
+    assert_layout!(
+        lt,
+        Update(&["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]),
+        &[1, 1, 1, 1, 1, 1, 1, 1],
+        &[]
+    );
+    assert_layout!(lt, Incr(100), &[1], &[1, 1, 1, 1, 1]);
+    assert_layout!(lt, Decr(1), &[1, 1], &[1, 1, 1, 1]);
+    assert_layout!(lt, Decr(1), &[1, 1, 1], &[1, 1, 1]);
+    assert_layout!(lt, Decr(1), &[1, 1, 1, 1], &[1, 1]);
+    assert_layout!(lt, Decr(1), &[1, 1, 1, 1, 1], &[1, 1]);
+    assert_layout!(lt, Decr(1), &[1, 1, 1, 1, 1, 1], &[1, 1]);
+    assert_layout!(lt, Decr(3), &[1, 1, 1, 1, 1, 1], &[1, 1]);
+    assert_layout!(lt, Decr(1), &[1, 1, 1, 1, 1, 1, 1], &[1]);
+    assert_layout!(lt, Decr(1), &[1, 1, 1, 1, 1, 1, 1, 1], &[]);
 }
 
 #[test]
@@ -220,7 +330,6 @@ fn scrollback() {
         &[2],
         &[1, 1, 1]
     );
-
     assert_layout!(lt, Incr(3), &[1, 1, 1, 1], &[1]);
     assert_layout!(lt, Incr(1), &[1, 1, 1, 1], &[1]);
     assert_layout!(lt, Incr(1), &[2, 1, 1], &[]);
@@ -230,6 +339,23 @@ fn scrollback() {
     assert_layout!(lt, Decr(1), &[1, 1], &[1, 1, 1]);
     assert_layout!(lt, Decr(1), &[1, 1], &[1, 1, 1]);
     assert_layout!(lt, Decr(1), &[2], &[1, 1, 1]);
+
+    let mut lt = MatchListTester::init_rev(5, 1);
+    assert_layout!(
+        lt,
+        Update(&["12\n34", "ab", "c", "d", "e", "f\ng"]),
+        &[2, 1, 1, 1],
+        &[]
+    );
+    assert_layout!(lt, Incr(3), &[1, 1], &[1, 1, 1]);
+    assert_layout!(lt, Incr(1), &[1, 1], &[1, 1, 1]);
+    assert_layout!(lt, Incr(1), &[2], &[1, 1, 1]);
+    assert_layout!(lt, Decr(1), &[1, 2], &[1, 1]);
+    assert_layout!(lt, Incr(1), &[2], &[1, 1, 1]);
+    assert_layout!(lt, Decr(2), &[1, 1, 2], &[1]);
+    assert_layout!(lt, Decr(1), &[1, 1, 1, 1], &[1]);
+    assert_layout!(lt, Decr(1), &[1, 1, 1, 1], &[1]);
+    assert_layout!(lt, Decr(1), &[2, 1, 1, 1], &[]);
 }
 
 #[test]
@@ -248,6 +374,21 @@ fn multiline_jitter() {
     assert_layout!(lt, Decr(1), &[2, 4, 1], &[2]);
     assert_layout!(lt, Decr(1), &[4, 1], &[2, 2]);
     assert_layout!(lt, Incr(1), &[2, 4, 1], &[2]);
+
+    let mut lt = MatchListTester::init_rev(10, 3);
+    assert_layout!(
+        lt,
+        Update(&["a", "b", "0\n1\n2\n3", "0\n1", "0\n1"]),
+        &[1, 1, 4, 2, 2],
+        &[]
+    );
+    assert_layout!(lt, Incr(1), &[1, 4, 2, 2], &[1]);
+    assert_layout!(lt, Incr(1), &[4, 2, 2], &[1, 1]);
+    assert_layout!(lt, Incr(1), &[2, 2], &[4, 1, 1]);
+    assert_layout!(lt, Incr(1), &[2], &[2, 4]);
+    assert_layout!(lt, Decr(1), &[2, 2], &[4]);
+    assert_layout!(lt, Decr(1), &[4, 2, 2], &[1, 1]);
+    assert_layout!(lt, Incr(1), &[2, 2], &[4, 1, 1]);
 }
 
 #[test]
@@ -271,4 +412,18 @@ fn scroll_mid() {
     assert_layout!(lt, Incr(1), &[1, 1, 1, 1], &[1, 1, 1]);
     assert_layout!(lt, Decr(2), &[1, 1], &[1, 1, 1, 1, 1]);
     assert_layout!(lt, Incr(20), &[1, 1, 1, 1, 1, 1], &[]);
+
+    let mut lt = MatchListTester::init_rev(5, 1);
+    assert_layout!(
+        lt,
+        Update(&["0", "1", "2", "3", "4", "5", "6", "7"]),
+        &[1, 1, 1, 1, 1],
+        &[]
+    );
+    assert_layout!(lt, Incr(4), &[1, 1], &[1, 1, 1]);
+    assert_layout!(lt, Decr(2), &[1, 1, 1, 1], &[1]);
+    assert_layout!(lt, Incr(1), &[1, 1, 1], &[1, 1]);
+    assert_layout!(lt, Decr(1), &[1, 1, 1, 1], &[1]);
+    assert_layout!(lt, Resize(7), &[1, 1, 1, 1, 1], &[1, 1]);
+    assert_layout!(lt, Decr(1), &[1, 1, 1, 1, 1, 1], &[1]);
 }
