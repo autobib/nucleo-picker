@@ -8,8 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [unreleased]
 
 ### Changed
-- `PickerOptions::query` has been renamed to `PickerOptions::prompt` for naming consistency.
-- `Picker::update_query` has been renamed to `Picker::update_prompt` for naming consistency.
+- **Breaking** `Picker::pick` now returns an `error::PickError` instead of an `io::Error`.
+  The new error type is required to more faithfully represent the possible failure modes of a custom `EventSource` implementation.
+  There is a `From<error::PickError> for io::Error` implementation to minimize breakage of existing code.
+  However, the corresponding `io::Error::other` message contents have now changed to respect the new error types.
 
 ### Added
 - Reset selection using `ctrl + r`.
@@ -21,18 +23,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Implement your own `EventSource` for total customization.
 - New `PickerOptions::on_abort` to pass a custom function which is called when the picker aborts.
 
+### Deprecated
+- `PickerOptions::query` has been renamed to `PickerOptions::prompt` for naming consistency.
+- `Picker::update_query` has been renamed to `Picker::update_prompt` for naming consistency.
+
 ### Fixed
 - Fixed screen layout when resizing to prefer higher score elements.
 - Uses panic hook to correctly clean up screen if the picker panics.
 
 ## [0.6.4] - 2024-12-16
 
-### Changed
-- Picker longer quits when pressing 'Enter' with no matches
-
 ### Added
 - The picker now quits on `ctrl + d` if the query is empty.
 - Add "Backspace Word" on `ctrl + w`.
+
+### Fixed
+- Picker no longer quits when pressing 'Enter' with no matches
 
 ## [0.6.3] - 2024-12-11
 

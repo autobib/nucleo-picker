@@ -30,6 +30,15 @@ pub use crate::match_list::MatchListEvent;
 pub use crate::prompt::PromptEvent;
 
 /// An event which controls the picker behaviour.
+///
+/// ## Redraws
+/// In most cases, it is not necessary to manually send an [`Event::Redraw`] since the default
+/// behaviour of the picker is to automatically redraw on each frame if the state of the screen
+/// would change when handling an event, or when the item list is updated internally.
+///
+/// There is no `Resize` variant since the screen size is automatically checked immediately before
+/// drawing to the screen. If you are generating your own events, propogate a screen resize as a
+/// [`Event::Redraw`], which will force a redraw to respect the new screen size.
 #[derive(Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Event {
@@ -43,7 +52,7 @@ pub enum Event {
     QuitPromptEmpty,
     /// Abort the picker (error).
     Abort,
-    /// Resize the screen.
+    /// Redraw the screen.
     Redraw,
     /// Quit the picker and select the given item.
     Select,
@@ -107,11 +116,11 @@ impl From<RecvTimeoutError> for RecvError {
 /// use crossbeam::channel::{Receiver, RecvTimeoutError};
 /// use nucleo_picker::event::{Event, EventSource, RecvError};
 ///
-/// struct ReceiverWrapper {
+/// struct EventReceiver {
 ///     inner: Receiver<Event>
 /// }
 ///
-/// impl EventSource for ReceiverWrapper {
+/// impl EventSource for EventReceiver {
 ///     fn recv_timeout(&self, duration: Duration) -> Result<Event, RecvError> {
 ///         self.inner.recv_timeout(duration).map_err(|err| match err {
 ///             RecvTimeoutError::Timeout => RecvError::Timeout,
