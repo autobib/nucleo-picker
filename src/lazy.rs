@@ -29,6 +29,17 @@ impl<'a, T: Send + Sync + 'static, R: Render<T>> LazyMatchList<'a, T, R> {
         self.buffered_selection
     }
 
+    fn decr(&mut self, n: usize) {
+        self.buffered_selection = self.buffered_selection.saturating_sub(as_u32(n));
+    }
+
+    fn incr(&mut self, n: usize) {
+        self.buffered_selection = self
+            .buffered_selection
+            .saturating_add(as_u32(n))
+            .min(self.match_list.max_selection());
+    }
+
     /// Handle an event.
     ///
     /// Note that this may not actually apply the event change to the underlying [`MatchList`]; you
@@ -37,13 +48,18 @@ impl<'a, T: Send + Sync + 'static, R: Render<T>> LazyMatchList<'a, T, R> {
     pub fn handle(&mut self, event: MatchListEvent) {
         match event {
             MatchListEvent::Up(n) => {
-                self.buffered_selection = self
-                    .buffered_selection
-                    .saturating_add(as_u32(n))
-                    .min(self.match_list.max_selection());
+                if self.match_list.reversed() {
+                    self.decr(n);
+                } else {
+                    self.incr(n);
+                }
             }
             MatchListEvent::Down(n) => {
-                self.buffered_selection = self.buffered_selection.saturating_sub(as_u32(n));
+                if self.match_list.reversed() {
+                    self.incr(n);
+                } else {
+                    self.decr(n);
+                }
             }
             MatchListEvent::Reset => {
                 self.buffered_selection = 0;

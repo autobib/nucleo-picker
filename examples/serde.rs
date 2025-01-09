@@ -7,9 +7,13 @@
 //! ```bash
 //! cargo run --release --example serde --features serde
 //! ```
-use std::{io::Result, thread::spawn};
+//! To try out the 'reversed' rendering, add the '--reversed' command line option:
+//! ```bash
+//! cargo run --release --example serde --features serde -- --reversed
+//! ```
+use std::{env::args, io::Result, thread::spawn};
 
-use nucleo_picker::{Picker, Render};
+use nucleo_picker::{PickerOptions, Render};
 use serde::{de::DeserializeSeed, Deserialize};
 use serde_json::Deserializer;
 
@@ -33,7 +37,14 @@ impl Render<Poem> for PoemRenderer {
 }
 
 fn main() -> Result<()> {
-    let mut picker = Picker::new(PoemRenderer);
+    // "argument parsing"
+    let opts = PickerOptions::new();
+    let picker_opts = match args().nth(1) {
+        Some(s) if s == "--reversed" => opts.reversed(true),
+        _ => opts,
+    };
+
+    let mut picker = picker_opts.picker(PoemRenderer);
     let injector = picker.injector();
 
     spawn(move || {

@@ -87,7 +87,6 @@ pub trait ItemList {
     fn total(&self) -> u32;
 
     /// An iterator over items below the cursor, iterating downwards.
-    #[allow(unused)]
     fn lower(&self, cursor: u32) -> impl DoubleEndedIterator<Item = Self::Item<'_>>;
 
     /// An iterator over items below and including the cursor, iterating downwards.
@@ -97,13 +96,23 @@ pub trait ItemList {
     fn higher(&self, cursor: u32) -> impl DoubleEndedIterator<Item = Self::Item<'_>>;
 
     /// An iterator over items above and including the cursor, iterating upwards.
-    #[allow(unused)]
     fn higher_inclusive(&self, selection: u32) -> impl DoubleEndedIterator<Item = Self::Item<'_>>;
 }
 
 /// An automatic extension trait for an [`ItemList`].
 trait ItemListExt: ItemList {
-    /// Wrap the item sizes returned by [`below`](ItemList::lower)
+    /// Wrap the item sizes returned by [`lower`](ItemList::lower)
+    /// into a [`Incremental`].
+    fn sizes_lower<'a>(
+        &self,
+        cursor: u32,
+        vec: &'a mut Vec<usize>,
+    ) -> Incremental<&'a mut Vec<usize>, impl Iterator<Item = usize>> {
+        vec.clear();
+        Incremental::new(vec, self.lower(cursor).map(|item| item.size()))
+    }
+
+    /// Wrap the item sizes returned by [`lower_inclusive`](ItemList::lower_inclusive)
     /// into a [`Incremental`].
     fn sizes_lower_inclusive<'a>(
         &self,
@@ -114,7 +123,7 @@ trait ItemListExt: ItemList {
         Incremental::new(vec, self.lower_inclusive(cursor).map(|item| item.size()))
     }
 
-    /// Wrap the item sizes returned by [`above`](ItemList::higher)
+    /// Wrap the item sizes returned by [`higher`](ItemList::higher)
     /// into an [`Incremental`].
     fn sizes_higher<'a>(
         &self,
@@ -124,13 +133,26 @@ trait ItemListExt: ItemList {
         vec.clear();
         Incremental::new(vec, self.higher(cursor).map(|item| item.size()))
     }
+
+    /// Wrap the item sizes returned by [`higher_inclusive`](ItemList::higher)
+    /// into an [`Incremental`].
+    fn sizes_higher_inclusive<'a>(
+        &self,
+        cursor: u32,
+        vec: &'a mut Vec<usize>,
+    ) -> Incremental<&'a mut Vec<usize>, impl Iterator<Item = usize>> {
+        vec.clear();
+        Incremental::new(vec, self.higher_inclusive(cursor).map(|item| item.size()))
+    }
 }
 
 impl<B: ItemList> ItemListExt for B {}
 
 /// Context from the previous render used to update the screen correctly.
+#[derive(Debug)]
 struct MatchListState {
     selection: u32,
+    below: u16,
     above: u16,
     size: u16,
 }
@@ -239,6 +261,10 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
         }
     }
 
+    pub fn reversed(&self) -> bool {
+        self.config.reversed
+    }
+
     /// A convenience function to render a given item using the internal [`Render`] implementation.
     pub fn render<'a>(&self, item: &'a T) -> <R as Render<T>>::Str<'a> {
         self.render.render(item)
@@ -269,9 +295,12 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
     /// Returns a self-contained representation of the screen state required for correct layout
     /// update computations.
     fn state(&self) -> MatchListState {
+        let below = self.below.iter().sum::<usize>() as u16;
+        let above = self.above.iter().sum::<usize>() as u16;
         MatchListState {
             selection: self.selection,
-            above: self.size - self.below.iter().sum::<usize>() as u16,
+            below: self.size - above,
+            above: self.size - below,
             size: self.size,
         }
     }
@@ -343,7 +372,11 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
 
     /// Return the range corresponding to the matched items visible on the screen.
     pub fn selection_range(&self) -> std::ops::RangeInclusive<u32> {
-        self.selection + 1 - self.below.len() as u32..=self.selection + self.above.len() as u32
+        if self.config.reversed {
+            self.selection - self.above.len() as u32..=self.selection + self.below.len() as u32 - 1
+        } else {
+            self.selection + 1 - self.below.len() as u32..=self.selection + self.above.len() as u32
+        }
     }
 
     /// Recompute the match layout when the screen size has changed.
@@ -368,21 +401,34 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
 
         let mut previous = self.state();
 
-        // since the padding could change, make sure the value of 'above' is valid for the new
-        // padding values
-        previous.above = previous.above.clamp(padding, total_size - padding - 1);
-
-        let sizes_below_incl = buffer.sizes_lower_inclusive(self.selection, &mut self.below);
-        let sizes_above = buffer.sizes_higher(self.selection, &mut self.above);
-
         if self.config.reversed {
+            // since the padding could change, make sure the value of 'below' is valid for the new
+            // padding values
+            previous.below = previous.below.clamp(padding, total_size - padding - 1);
+
+            let sizes_below_incl = buffer.sizes_higher_inclusive(self.selection, &mut self.below);
+            let sizes_above = buffer.sizes_lower(self.selection, &mut self.above);
+
             if self.size <= total_size {
-                todo!();
+                resize::larger_rev(previous, total_size, padding, sizes_below_incl, sizes_above);
             } else {
-                todo!();
+                resize::smaller_rev(
+                    previous,
+                    total_size,
+                    padding,
+                    padding,
+                    sizes_below_incl,
+                    sizes_above,
+                );
             }
         } else {
-            #[allow(clippy::collapsible_else_if)]
+            // since the padding could change, make sure the value of 'above' is valid for the new
+            // padding values
+            previous.above = previous.above.clamp(padding, total_size - padding - 1);
+
+            let sizes_below_incl = buffer.sizes_lower_inclusive(self.selection, &mut self.below);
+            let sizes_above = buffer.sizes_higher(self.selection, &mut self.above);
+
             if self.size <= total_size {
                 resize::larger(previous, total_size, sizes_below_incl, sizes_above);
             } else {
@@ -407,11 +453,15 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
         let buffer = self.nucleo.snapshot();
         let padding = self.padding(self.size);
         if self.selection != 0 {
-            let sizes_below_incl = buffer.sizes_lower_inclusive(0, &mut self.below);
             if self.config.reversed {
+                let sizes_below_incl = buffer.sizes_higher_inclusive(0, &mut self.below);
+                self.above.clear();
+
                 reset::reset_rev(self.size, sizes_below_incl);
             } else {
+                let sizes_below_incl = buffer.sizes_lower_inclusive(0, &mut self.below);
                 let sizes_above = buffer.sizes_higher(0, &mut self.above);
+
                 reset::reset(self.size, padding, sizes_below_incl, sizes_above);
             }
 
@@ -431,12 +481,17 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
         let padding = self.padding(self.size);
 
         if buffer.total() > 0 {
-            let sizes_below_incl = buffer.sizes_lower_inclusive(self.selection, &mut self.below);
-            let sizes_above = buffer.sizes_higher(self.selection, &mut self.above);
-
             if self.config.reversed {
-                todo!()
+                let sizes_below_incl =
+                    buffer.sizes_higher_inclusive(self.selection, &mut self.below);
+                let sizes_above = buffer.sizes_lower(self.selection, &mut self.above);
+
+                update::items_rev(previous, padding, sizes_below_incl, sizes_above);
             } else {
+                let sizes_below_incl =
+                    buffer.sizes_lower_inclusive(self.selection, &mut self.below);
+                let sizes_above = buffer.sizes_higher(self.selection, &mut self.above);
+
                 update::items(previous, padding, sizes_below_incl, sizes_above);
             }
         } else {
@@ -457,12 +512,23 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
         if new_selection == 0 {
             self.reset()
         } else if new_selection > self.selection {
-            let sizes_below_incl = buffer.sizes_lower_inclusive(new_selection, &mut self.below);
-            let sizes_above = buffer.sizes_higher(new_selection, &mut self.above);
-
             if self.config.reversed {
-                todo!()
+                let sizes_below_incl =
+                    buffer.sizes_higher_inclusive(new_selection, &mut self.below);
+                let sizes_above = buffer.sizes_lower(new_selection, &mut self.above);
+
+                selection::incr_rev(
+                    previous,
+                    new_selection,
+                    padding,
+                    padding,
+                    sizes_below_incl,
+                    sizes_above,
+                );
             } else {
+                let sizes_below_incl = buffer.sizes_lower_inclusive(new_selection, &mut self.below);
+                let sizes_above = buffer.sizes_higher(new_selection, &mut self.above);
+
                 selection::incr(
                     previous,
                     new_selection,
@@ -476,12 +542,22 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
 
             true
         } else if new_selection < self.selection {
-            let sizes_below_incl = buffer.sizes_lower_inclusive(new_selection, &mut self.below);
-            let sizes_above = buffer.sizes_higher(new_selection, &mut self.above);
-
             if self.config.reversed {
-                todo!()
+                let sizes_below_incl =
+                    buffer.sizes_higher_inclusive(new_selection, &mut self.below);
+                let sizes_above = buffer.sizes_lower(new_selection, &mut self.above);
+
+                selection::decr_rev(
+                    previous,
+                    new_selection,
+                    padding,
+                    sizes_below_incl,
+                    sizes_above,
+                );
             } else {
+                let sizes_below_incl = buffer.sizes_lower_inclusive(new_selection, &mut self.below);
+                let sizes_above = buffer.sizes_higher(new_selection, &mut self.above);
+
                 selection::decr(
                     previous,
                     new_selection,

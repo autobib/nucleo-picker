@@ -23,9 +23,6 @@
 
 use std::io;
 
-/// A custom [`Result`] alias for the error type internal to this crate.
-pub type Result<T> = std::result::Result<T, PickError>;
-
 /// An error which may be returned while running the picker interactively.
 ///
 /// The error type is (in spirit) an [`io::Error`], but with more precise variants not present in

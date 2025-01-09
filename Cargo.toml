@@ -37,6 +37,9 @@ uninlined_format_args = "warn"
 name = "custom_io"
 
 [[example]]
+name = "fzf_err_handling"
+
+[[example]]
 name = "find"
 
 [[example]]
