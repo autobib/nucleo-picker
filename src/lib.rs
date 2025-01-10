@@ -748,6 +748,10 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                         Event::MatchList(match_list_event) => {
                             lazy_match_list.handle(match_list_event);
                         }
+                        Event::Redraw => {
+                            redraw_prompt = true;
+                            redraw_match_list = true;
+                        }
                         Event::Quit => {
                             break 'selection Ok(None);
                         }
@@ -755,10 +759,6 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                             if lazy_prompt.is_empty() {
                                 break 'selection Ok(None);
                             }
-                        }
-                        Event::Redraw => {
-                            redraw_prompt = true;
-                            redraw_match_list = true;
                         }
                         Event::Select => {
                             // TODO: workaround for the borrow checker not understanding that
@@ -781,9 +781,9 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                     },
                     Err(RecvError::Timeout) => break 'event,
                     Err(RecvError::Disconnected) => {
-                        return Err(PickError::Disconnected);
+                        break 'selection Err(PickError::Disconnected);
                     }
-                    Err(RecvError::IO(io_err)) => return Err(PickError::IO(io_err)),
+                    Err(RecvError::IO(io_err)) => break 'selection Err(PickError::IO(io_err)),
                 }
             }
 
