@@ -199,12 +199,13 @@ pub fn spans_from_indices<P: Processor>(
         let (middle, _) = grapheme_index_iter
             .nth(left - iter_step_count)
             .expect("Match index does not correspond to grapheme!");
-        let end = if let Some((end, _)) = grapheme_index_iter.nth(right - left) {
-            // + 2, since `nth` is zero-indexed and we called it twice
-            iter_step_count = right + 2;
-            end
-        } else {
-            rendered.len()
+        let end = match grapheme_index_iter.nth(right - left) {
+            Some((end, _)) => {
+                // + 2, since `nth` is zero-indexed and we called it twice
+                iter_step_count = right + 2;
+                end
+            }
+            _ => rendered.len(),
         };
 
         insert_unmatched_spans(

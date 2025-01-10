@@ -1,3 +1,5 @@
+use std::error::Error as StdError;
+
 use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use super::{Event, MatchListEvent, PromptEvent};
@@ -6,8 +8,18 @@ use super::{Event, MatchListEvent, PromptEvent};
 ///
 /// These are the keybindings used in the [`Default`] implementation for
 /// [`StdinReader`](super::StdinReader).
+///
+/// # Generic parameter
+/// This function is generic over the type parameter `A`, which is the associated type
+/// [`AbortErr`](super::EventSource::AbortErr) of an [`EventSource`](super::EventSource).
+/// However, the type parameter does not appear anywhere in the function arguments since an
+/// [`Event::Abort`] is never produced by the default keybindings. This type parameter is simply
+/// here for flexibility to generate events of a particular type when used in situations where `A`
+/// is not the default `!`.
 #[inline]
-pub fn keybind_default(key_event: KeyEvent) -> Option<Event> {
+pub fn keybind_default<A: StdError + Send + Sync + 'static>(
+    key_event: KeyEvent,
+) -> Option<Event<A>> {
     match key_event {
         KeyEvent {
             kind: KeyEventKind::Press,
@@ -34,7 +46,7 @@ pub fn keybind_default(key_event: KeyEvent) -> Option<Event> {
             code,
             ..
         } => match code {
-            KeyCode::Char('c') => Some(Event::Abort),
+            KeyCode::Char('c') => Some(Event::UserInterrupt),
             KeyCode::Char('d') => Some(Event::QuitPromptEmpty),
             KeyCode::Char('r') => Some(Event::MatchList(MatchListEvent::Reset)),
             KeyCode::Char('g' | 'q') => Some(Event::Quit),
@@ -76,10 +88,13 @@ pub fn keybind_default(key_event: KeyEvent) -> Option<Event> {
 }
 
 /// Convert a crossterm event into an [`Event`], mapping key events with the giving key bindings.
-pub fn convert_crossterm_event<F: Fn(KeyEvent) -> Option<Event>>(
+pub fn convert_crossterm_event<
+    A: StdError + Send + Sync + 'static,
+    F: Fn(KeyEvent) -> Option<Event<A>>,
+>(
     ct_event: CrosstermEvent,
     keybind: F,
-) -> Option<Event> {
+) -> Option<Event<A>> {
     match ct_event {
         CrosstermEvent::Key(key_event) => (keybind)(key_event),
         CrosstermEvent::Resize(_, _) => Some(Event::Redraw),

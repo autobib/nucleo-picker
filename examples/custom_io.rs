@@ -9,7 +9,7 @@ use nucleo_picker::{
 
 /// Keybindings which use the default keybindings, but instead of aborting on `ctrl + c`,
 /// simply perform a normal quit action.
-fn keybind_no_abort(key_event: KeyEvent) -> Option<Event> {
+fn keybind_no_interrupt(key_event: KeyEvent) -> Option<Event> {
     match key_event {
         KeyEvent {
             kind: KeyEventKind::Press,
@@ -36,7 +36,10 @@ fn main() -> io::Result<()> {
 
     // launch the interactive picker with the customized keybindings, and draw the picker on
     // standard output
-    match picker.pick_with_io(StdinReader::new(keybind_no_abort), &mut std::io::stdout())? {
+    match picker.pick_with_io(
+        StdinReader::new(keybind_no_interrupt),
+        &mut std::io::stdout(),
+    )? {
         Some(opt) => println!("Your preferred architect is: '{opt}'"),
         None => println!("No architect selected!"),
     }
