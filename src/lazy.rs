@@ -4,7 +4,7 @@ use crate::{
     match_list::MatchList,
     prompt::{Prompt, PromptStatus},
     util::as_u32,
-    Render,
+    Injector, Render,
 };
 
 pub struct LazyMatchList<'a, T: Send + Sync + 'static, R: Render<T>> {
@@ -19,6 +19,12 @@ impl<'a, T: Send + Sync + 'static, R: Render<T>> LazyMatchList<'a, T, R> {
             match_list,
             buffered_selection,
         }
+    }
+
+    pub fn restart(&mut self) -> Injector<T, R> {
+        self.match_list.restart();
+        self.buffered_selection = 0;
+        self.match_list.injector()
     }
 
     pub fn is_empty(&self) -> bool {

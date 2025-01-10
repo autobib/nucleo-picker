@@ -15,7 +15,7 @@ use super::{Event, MatchListEvent, PromptEvent};
 /// here for flexibility to generate events of a particular type when used in situations where `A`
 /// is not the default `!`.
 #[inline]
-pub fn keybind_default<A>(key_event: KeyEvent) -> Option<Event<A>> {
+pub fn keybind_default<T, R, A>(key_event: KeyEvent) -> Option<Event<T, R, A>> {
     match key_event {
         KeyEvent {
             kind: KeyEventKind::Press,
@@ -84,10 +84,10 @@ pub fn keybind_default<A>(key_event: KeyEvent) -> Option<Event<A>> {
 }
 
 /// Convert a crossterm event into an [`Event`], mapping key events with the giving key bindings.
-pub fn convert_crossterm_event<A, F: Fn(KeyEvent) -> Option<Event<A>>>(
+pub fn convert_crossterm_event<T, R, A, F: Fn(KeyEvent) -> Option<Event<T, R, A>>>(
     ct_event: CrosstermEvent,
     keybind: F,
-) -> Option<Event<A>> {
+) -> Option<Event<T, R, A>> {
     match ct_event {
         CrosstermEvent::Key(key_event) => (keybind)(key_event),
         CrosstermEvent::Resize(_, _) => Some(Event::Redraw),
