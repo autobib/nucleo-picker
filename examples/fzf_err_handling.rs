@@ -14,7 +14,6 @@ use std::{
 };
 
 use nucleo_picker::{
-    error::PickError,
     event::{Event, StdinEventSender},
     render::StrRenderer,
     Picker,
@@ -103,32 +102,17 @@ fn main() -> io::Result<()> {
     });
 
     match picker.pick_with_io(receiver, &mut stderr) {
-        Ok(Some(it)) => println!("{it}"),
+        Ok(Some(item)) => {
+            println!("{item}");
+            Ok(())
+        }
         Ok(None) => exit(1),
         Err(e) => {
-            match e {
-                PickError::UserInterrupted => eprintln!("keyboard interrupt!"),
-                PickError::Aborted(e) => {
-                    // this is our custom error type, `AppError`, which we sent in one of the error
-                    // paths in the other threads
-                    eprintln!("{e}");
-                }
-                // the next three match arms could be omitted
-                PickError::IO(io_err) => return Err(io_err),
-                PickError::Disconnected => {
-                    unreachable!("Abort always event sent before closing the channel")
-                }
-                PickError::NotInteractive => {
-                    unreachable!("Interactive checks not performed with `pick_with_io`")
-                }
-                // we cannot match exhaustively; since the error implements `std::error::Error` we
-                // can just print it.
-                e => eprintln!("{e}"),
-                // Another option is to instead propagate as an io error
-                // e => return Err(e.into()),
-            }
+            // the 'factor' convenience method splits the error into a
+            // `Result<A, PickError<Infallible>>`; so we just need to handle our application error.
+            let app_err = e.factor()?;
+            eprintln!("{app_err}");
             exit(1);
         }
     }
-    Ok(())
 }
