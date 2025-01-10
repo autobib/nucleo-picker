@@ -9,7 +9,7 @@ use nucleo_picker::{
 
 /// Keybindings which use the default keybindings, but instead of aborting on `ctrl + c`,
 /// simply perform a normal quit action.
-fn keybind_no_interrupt(key_event: KeyEvent) -> Option<Event> {
+fn keybind_no_interrupt<T, R>(key_event: KeyEvent) -> Option<Event<T, R>> {
     match key_event {
         KeyEvent {
             kind: KeyEventKind::Press,

@@ -531,7 +531,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         self.match_list.restart();
     }
 
-    /// Restart the matcher engine, disconnecting all active injectors and replacing the internal
+    /// Restart the match engine, disconnecting all active injectors and replacing the internal
     /// renderer.
     ///
     /// The provided [`Render`] implementation must be the same type as the one originally
@@ -612,7 +612,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     ///
     /// This method will **never** return [`PickError::Disconnected`].
     #[inline]
-    pub fn pick_with_keybind<F: Fn(KeyEvent) -> Option<Event>>(
+    pub fn pick_with_keybind<F: Fn(KeyEvent) -> Option<Event<T, R>>>(
         &mut self,
         keybind: F,
     ) -> Result<Option<&T>, PickError> {
@@ -710,7 +710,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         writer: &mut W,
     ) -> Result<Option<&T>, PickError<A>>
     where
-        E: EventSource<AbortErr = A>,
+        E: EventSource<T, R, AbortErr = A>,
         W: io::Write,
     {
         // set panic hook in case the `Render` implementation panics
@@ -769,6 +769,12 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                                 let item = self.match_list.get_item(n).unwrap();
                                 break 'selection Ok(Some(item.data));
                             }
+                        }
+                        Event::Restart(sender) => {
+                            if sender.send(lazy_match_list.restart()).is_err() {
+                                break 'selection Err(PickError::Disconnected);
+                            }
+                            redraw_match_list = true;
                         }
                         Event::UserInterrupt => {
                             break 'selection Err(PickError::UserInterrupted);

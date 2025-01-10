@@ -284,7 +284,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
     /// Clear all of the items and restart the match engine.
     pub fn restart(&mut self) {
         self.nucleo.restart(true);
-        self.reset();
+        self.update_items();
     }
 
     /// Replace the internal [`nucleo`] configuration.
@@ -449,7 +449,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
     }
 
     /// Reset the layout, setting the cursor to '0' and rendering the items.
-    fn reset(&mut self) -> bool {
+    pub fn reset(&mut self) -> bool {
         let buffer = self.nucleo.snapshot();
         let padding = self.padding(self.size);
         if self.selection != 0 {
