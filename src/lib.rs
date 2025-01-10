@@ -583,7 +583,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// This method also fails with:
     ///
     /// 1. [`PickError::NotInteractive`] if stderr is not interactive.
-    /// 2. [`PickError::UserInterrupted`] if the user presses keyboard interrupt.
+    /// 2. [`PickError::UserInterrupted`] if the user presses `ctrl + c`.
     ///
     /// This method will **never** return [`PickError::Disconnected`].
     #[inline]
@@ -598,12 +598,11 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// the [`pick`](Self::pick) method for more detail.
     ///
     /// To further customize event generation, see the [`pick_with_io`](Self::pick_with_io) method.
-    ///
-    /// ## Defaults
     /// The [`pick`](Self::pick) method is internally a call to this method with keybindings
     /// provided by [`keybind_default`].
     ///
     /// # Errors
+    ///
     /// Underlying IO errors from the standard library or [`crossterm`] will be propagated with the
     /// [`PickError::IO`] variant.
     ///
@@ -683,33 +682,29 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         Ok(())
     }
 
-    /// Run the picker with a custom event source and writer.
+    /// Run the picker interactively with a custom event source and writer.
     ///
     /// The picker is rendered using the given writer. In most situations, you want to check that
     /// the writer is interactive using, for instance, [`IsTerminal`]. The picker reads
     /// events from the [`EventSource`] to update the screen. See the docs for [`EventSource`]
     /// for more detail.
     ///
-    /// ## Defaults
-    /// The [`pick`](Self::pick) method is internally a call to this method:
-    ///
-    /// - The event source is a default [`StdinReader`].
-    /// - The writer is a [`StderrLock`](std::io::StderrLock) guarded by an interactivity check
-    ///   using [`IsTerminal`].
-    ///
     /// # Errors
     /// Underlying IO errors from the standard library or [`crossterm`] will be propagated with the
     /// [`PickError::IO`] variant.
     ///
     /// Whether or not this fails with another [`PickError`] variant depends on the [`EventSource`]
-    /// implementation.
+    /// implementation:
     ///
     /// 1. If [`EventSource::recv_timeout`] fails with a [`RecvError::Disconnected`], the error
     ///    returned will be [`PickError::Disconnected`].
-    /// 2. The message will be [`PickError::Aborted`] if the [`Picker`] receives an
+    /// 2. The error will be [`PickError::UserInterrupted`] if the [`Picker`] receives an
+    ///    [`Event::UserInterrupt`].
+    /// 3. The error will be [`PickError::Aborted`] if the [`Picker`] receives an
     ///    [`Event::Abort`].
     ///
-    /// This method will **never** return [`PickError::NotInteractive`].
+    /// This method will **never** return [`PickError::NotInteractive`] since interactivity checks
+    /// are not done.
     pub fn pick_with_io<A, E, W>(
         &mut self,
         event_source: E,
