@@ -20,7 +20,7 @@
 //! }
 //! ```
 
-use std::{convert::Infallible, error::Error as StdError, io};
+use std::{convert::Infallible, error::Error as StdError, fmt, io};
 
 /// An error which may be returned while running the picker interactively.
 ///
@@ -99,8 +99,8 @@ impl<A> PickError<A> {
     }
 }
 
-impl<A: StdError> std::fmt::Display for PickError<A> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<A: fmt::Display> fmt::Display for PickError<A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             PickError::IO(error) => error.fmt(f),
             PickError::Disconnected => {
@@ -117,12 +117,16 @@ impl<A: StdError> std::fmt::Display for PickError<A> {
 
 impl<A: StdError> StdError for PickError<A> {}
 
-impl<A: StdError> From<io::Error> for PickError<A> {
+impl<A> From<io::Error> for PickError<A> {
     fn from(err: io::Error) -> Self {
         Self::IO(err)
     }
 }
 
+// ideally we would like to replace these two conversions with a blanket implementation
+// `impl<A: Into<io::Error>> From<PickError<A>> for io::Error`; however, currently there is no
+// implementation of `From<!> for T` for a variety of reasons; so we are stuck with doing this for
+// maximal compabitility since in the vast majority of cases, `A = !`.
 impl From<PickError> for io::Error {
     fn from(err: PickError) -> Self {
         match err {

@@ -13,7 +13,7 @@
 //! - The [`StdinReader`], for automatically reading events from standard input, with customizable
 //!   keybindings.
 //! - The [`StdinEventSender`] to read events from standard input and send them through a
-//!  [mpsc channel](std::sync::mpsc::channel).
+//!   [mpsc channel](std::sync::mpsc::channel).
 //! - The [default keybindings](keybind_default).
 //!
 //! For a somewhat comprehensive example, see the [extended fzf
@@ -23,7 +23,6 @@ mod bind;
 
 use std::{
     convert::Infallible,
-    error::Error as StdError,
     io,
     sync::mpsc::{Receiver, RecvTimeoutError, Sender},
     time::Duration,
@@ -158,7 +157,7 @@ impl From<RecvTimeoutError> for RecvError {
 ///     inner: Receiver<Event<A>>
 /// }
 ///
-/// impl<A: std::error::Error + Send + Sync + 'static> EventSource for EventReceiver<A> {
+/// impl<A> EventSource for EventReceiver<A> {
 ///     type AbortErr = A;
 ///
 ///     fn recv_timeout(&self, duration: Duration) -> Result<Event<A>, RecvError> {
@@ -241,7 +240,7 @@ impl From<RecvTimeoutError> for RecvError {
 /// ```
 pub trait EventSource {
     /// The application-defined abort error propagated to the picker.
-    type AbortErr: StdError + Send + Sync + 'static;
+    type AbortErr;
 
     /// Receive a new event, timing out after the provided duration.
     ///
@@ -251,7 +250,7 @@ pub trait EventSource {
     fn recv_timeout(&self, duration: Duration) -> Result<Event<Self::AbortErr>, RecvError>;
 }
 
-impl<A: StdError + Send + Sync + 'static> EventSource for Receiver<Event<A>> {
+impl<A> EventSource for Receiver<Event<A>> {
     type AbortErr = A;
 
     fn recv_timeout(&self, duration: Duration) -> Result<Event<A>, RecvError> {
@@ -299,13 +298,13 @@ pub struct StdinReader<A = Infallible, F = fn(KeyEvent) -> Option<Event<A>>> {
     _abort: std::marker::PhantomData<A>,
 }
 
-impl<A: StdError + Send + Sync + 'static> Default for StdinReader<A> {
+impl<A> Default for StdinReader<A> {
     fn default() -> Self {
         Self::new(keybind_default)
     }
 }
 
-impl<A: StdError + Send + Sync + 'static, F: Fn(KeyEvent) -> Option<Event<A>>> StdinReader<A, F> {
+impl<A, F: Fn(KeyEvent) -> Option<Event<A>>> StdinReader<A, F> {
     /// Create a new [`StdinReader`] with keybindings provided by the given closure.
     pub fn new(keybind: F) -> Self {
         Self {
@@ -315,9 +314,7 @@ impl<A: StdError + Send + Sync + 'static, F: Fn(KeyEvent) -> Option<Event<A>>> S
     }
 }
 
-impl<A: StdError + Send + Sync + 'static, F: Fn(KeyEvent) -> Option<Event<A>>> EventSource
-    for StdinReader<A, F>
-{
+impl<A, F: Fn(KeyEvent) -> Option<Event<A>>> EventSource for StdinReader<A, F> {
     type AbortErr = A;
 
     fn recv_timeout(&self, duration: Duration) -> Result<Event<A>, RecvError> {
@@ -340,7 +337,7 @@ pub struct StdinEventSender<A = Infallible, F = fn(KeyEvent) -> Option<Event<A>>
     keybind: F,
 }
 
-impl<A: StdError + Send + Sync + 'static> StdinEventSender<A> {
+impl<A> StdinEventSender<A> {
     /// Initialize a new [`StdinEventSender`] with default keybindings in the provided channel.
     pub fn with_default_keybindings(sender: Sender<Event<A>>) -> Self {
         Self {
@@ -350,9 +347,7 @@ impl<A: StdError + Send + Sync + 'static> StdinEventSender<A> {
     }
 }
 
-impl<A: StdError + Send + Sync + 'static, F: Fn(KeyEvent) -> Option<Event<A>>>
-    StdinEventSender<A, F>
-{
+impl<A, F: Fn(KeyEvent) -> Option<Event<A>>> StdinEventSender<A, F> {
     /// Initialize a new [`StdinEventSender`] with the given keybindings in the provided channel.
     pub fn new(sender: Sender<Event<A>>, keybind: F) -> Self {
         Self { sender, keybind }
