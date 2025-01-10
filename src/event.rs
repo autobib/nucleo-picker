@@ -3,8 +3,8 @@
 //! This module defines the core [`Event`] type handled by a [`Picker`](crate::Picker), which
 //! defines an interactive update to the picker state.
 //!
-//! By default, the [`Picker::pick`](crate::Picker::pick) reads events from the terminal and maps
-//! those events to [`Event`]s. The process of reading events is encapsulated in the
+//! By default, the [`Picker::pick`](crate::Picker::pick) watches for terminal events (such as key
+//! presses) and maps them to [`Event`]s. The process of reading events is encapsulated in the
 //! [`EventSource`] trait, which you can implement yourself and pass directly to the picker using
 //! the [`Picker::pick_with_io`](crate::Picker::pick_with_io).
 //!
@@ -12,9 +12,11 @@
 //! - The [`EventSource`] trait.
 //! - The [`StdinReader`], for automatically reading events from standard input, with customizable
 //!   keybindings.
-//! - The [default keybindings](keybind_default)
+//! - The [`StdinEventSender`] to read events from standard input and send them through a
+//!  [mpsc channel](std::sync::mpsc::channel).
+//! - The [default keybindings](keybind_default).
 //!
-//! For a more comprehensive example, visit the [extended fzf
+//! For a somewhat comprehensive example, see the [extended fzf
 //! example](https://github.com/autobib/nucleo-picker/blob/master/examples/fzf_err_handling.rs) on GitHub.
 
 mod bind;
