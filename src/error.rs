@@ -49,7 +49,7 @@ use std::{convert::Infallible, error::Error as StdError, io};
 /// [`Picker::pick_with_io`](crate::Picker::pick_with_io).
 #[derive(Debug)]
 #[non_exhaustive]
-pub enum PickError<A: StdError + Send + Sync + 'static = Infallible> {
+pub enum PickError<A = Infallible> {
     /// A read or write resulted in an IO error.
     IO(io::Error),
     /// The event stream disconnected while the picker was still running.
@@ -62,7 +62,7 @@ pub enum PickError<A: StdError + Send + Sync + 'static = Infallible> {
     Aborted(A),
 }
 
-impl<A: StdError + Send + Sync + 'static> std::fmt::Display for PickError<A> {
+impl<A: StdError> std::fmt::Display for PickError<A> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PickError::IO(error) => error.fmt(f),
@@ -78,9 +78,9 @@ impl<A: StdError + Send + Sync + 'static> std::fmt::Display for PickError<A> {
     }
 }
 
-impl<A: StdError + Send + Sync + 'static> std::error::Error for PickError<A> {}
+impl<A: StdError> StdError for PickError<A> {}
 
-impl<A: StdError + Send + Sync + 'static> From<io::Error> for PickError<A> {
+impl<A: StdError> From<io::Error> for PickError<A> {
     fn from(err: io::Error) -> Self {
         Self::IO(err)
     }

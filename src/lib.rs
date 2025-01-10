@@ -716,9 +716,9 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         writer: &mut W,
     ) -> Result<Option<&T>, PickError<A>>
     where
+        A: StdError + Send + Sync + 'static,
         E: EventSource<AbortErr = A>,
         W: io::Write,
-        A: StdError + Send + Sync + 'static,
     {
         // set panic hook in case the `Render` implementation panics
         let original_hook = take_hook();
@@ -730,10 +730,11 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
 
         Self::init_screen(writer)?;
 
+        let mut frame_start = Instant::now();
+
         // render the first frame
         self.match_list.update(5);
         self.render_frame(writer, true, true)?;
-        let mut last_redraw = Instant::now();
 
         let mut redraw_prompt = false;
         let mut redraw_match_list = false;
@@ -744,7 +745,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
 
             // process new events, but do not exceed the frame interval
             'event: loop {
-                match event_source.recv_timeout(last_redraw + self.interval - Instant::now()) {
+                match event_source.recv_timeout(frame_start + self.interval - Instant::now()) {
                     Ok(event) => match event {
                         Event::Prompt(prompt_event) => {
                             lazy_prompt.handle(prompt_event);
@@ -791,6 +792,10 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                 }
             }
 
+            // we have to set 'frame_start' immediately after processing events, so that the
+            // render time is also included
+            frame_start = Instant::now();
+
             // clear out any buffered events
             let prompt_status = lazy_prompt.finish();
             let match_list_status = lazy_match_list.finish();
@@ -817,9 +822,6 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
             // reset the redraw markers
             redraw_prompt = false;
             redraw_match_list = false;
-
-            // reset the frame timer
-            last_redraw = Instant::now();
         };
 
         Self::cleanup_screen(writer)?;
