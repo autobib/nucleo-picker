@@ -420,7 +420,7 @@ impl PickerOptions {
 
     /// Provide a default query string.
     #[must_use]
-    #[deprecated(since = "0.6.5", note = "method has been renamed to `prompt`")]
+    #[deprecated(since = "0.7.0", note = "method has been renamed to `prompt`")]
     pub fn query<Q: Into<String>>(mut self, query: Q) -> Self {
         self.prompt = query.into();
         self
@@ -504,7 +504,6 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     ///
     /// See also the [`PickerOptions::prompt`] method to set the query during initialization.
     #[inline]
-    #[deprecated(since = "0.6.5", note = "method has been renamed to `update_prompt`")]
     pub fn update_prompt<Q: Into<String>>(&mut self, prompt: Q) {
         self.prompt.set_prompt(prompt);
     }
@@ -514,6 +513,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     ///
     /// See also the [`PickerOptions::prompt`] method to set the query during initialization.
     #[inline]
+    #[deprecated(since = "0.7.0", note = "method has been renamed to `update_prompt`")]
     pub fn update_query<Q: Into<String>>(&mut self, query: Q) {
         self.prompt.set_prompt(query);
     }
