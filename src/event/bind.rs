@@ -1,5 +1,3 @@
-use std::error::Error as StdError;
-
 use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use super::{Event, MatchListEvent, PromptEvent};
@@ -17,9 +15,7 @@ use super::{Event, MatchListEvent, PromptEvent};
 /// here for flexibility to generate events of a particular type when used in situations where `A`
 /// is not the default `!`.
 #[inline]
-pub fn keybind_default<A: StdError + Send + Sync + 'static>(
-    key_event: KeyEvent,
-) -> Option<Event<A>> {
+pub fn keybind_default<A>(key_event: KeyEvent) -> Option<Event<A>> {
     match key_event {
         KeyEvent {
             kind: KeyEventKind::Press,
@@ -88,10 +84,7 @@ pub fn keybind_default<A: StdError + Send + Sync + 'static>(
 }
 
 /// Convert a crossterm event into an [`Event`], mapping key events with the giving key bindings.
-pub fn convert_crossterm_event<
-    A: StdError + Send + Sync + 'static,
-    F: Fn(KeyEvent) -> Option<Event<A>>,
->(
+pub fn convert_crossterm_event<A, F: Fn(KeyEvent) -> Option<Event<A>>>(
     ct_event: CrosstermEvent,
     keybind: F,
 ) -> Option<Event<A>> {

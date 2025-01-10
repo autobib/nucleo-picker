@@ -41,7 +41,6 @@ mod util;
 
 use std::{
     borrow::Cow,
-    error::Error as StdError,
     io::{self, BufWriter, IsTerminal, Write},
     iter::Extend,
     num::NonZero,
@@ -711,7 +710,6 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         writer: &mut W,
     ) -> Result<Option<&T>, PickError<A>>
     where
-        A: StdError + Send + Sync + 'static,
         E: EventSource<AbortErr = A>,
         W: io::Write,
     {

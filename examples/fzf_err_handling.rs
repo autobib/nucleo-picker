@@ -5,8 +5,8 @@
 //!
 //! Unlike the `fzf` example, this example forwards IO errors to the picker thread and tells it to
 //! disconnect.
+
 use std::{
-    fmt,
     io::{self, IsTerminal},
     process::exit,
     sync::mpsc::channel,
@@ -19,28 +19,14 @@ use nucleo_picker::{
     Picker,
 };
 
-/// The custom error type for our application. We could just use an `io::Error` directly since it
-/// already satisfies all of the trait bounds required by an `EventSource`, but for demonstration
-/// purposes we also add more context to the IO error with a custom wrapper type.
+/// The custom error type for our application. We could just use an `io::Error` directly (and also
+/// benefit from free error propogation), but for demonstration purposes we also add more context
+/// to the IO error with a custom wrapper type.
 #[derive(Debug)]
 enum AppError {
     Key(io::Error),
     Stdin(io::Error),
 }
-
-impl fmt::Display for AppError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            AppError::Key(io_err) => write!(f, "IO error during keyboard input: {io_err}"),
-            AppError::Stdin(io_err) => {
-                write!(f, "IO error when reading from standard input: {io_err}")
-            }
-        }
-    }
-}
-
-// We must implement `std::error::Error` to satisfy the abort error type bounds
-impl std::error::Error for AppError {}
 
 fn main() -> io::Result<()> {
     let mut picker = Picker::new(StrRenderer);
@@ -110,8 +96,12 @@ fn main() -> io::Result<()> {
         Err(e) => {
             // the 'factor' convenience method splits the error into a
             // `Result<A, PickError<Infallible>>`; so we just need to handle our application error.
-            let app_err = e.factor()?;
-            eprintln!("{app_err}");
+            match e.factor()? {
+                AppError::Key(io_err) => eprintln!("IO error during keyboard input: {io_err}"),
+                AppError::Stdin(io_err) => {
+                    eprintln!("IO error when reading from standard input: {io_err}")
+                }
+            }
             exit(1);
         }
     }
