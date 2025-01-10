@@ -108,7 +108,7 @@ impl MatchListTester {
 }
 
 macro_rules! assert_layout {
-    ($lt:ident, $op:expr, $below:expr, $above:expr) => {
+    ($lt:ident, $op:expr_2021, $below:expr_2021, $above:expr_2021) => {
         $lt.update($op);
         assert_eq!(
             $lt.view(),

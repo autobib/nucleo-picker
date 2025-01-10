@@ -6,6 +6,9 @@
 //! In short, initialize a [`Picker`] using [`PickerOptions`] and describe how the items
 //! should be represented by implementing [`Render`], or use a [built-in renderer](render).
 //!
+//! For more complex use-cases and integration with an existing application, see the
+//! [`event`] module.
+//!
 //! ## Usage examples
 //! For more usage examples, visit the [examples
 //! folder](https://github.com/autobib/nucleo-picker/tree/master/examples) on GitHub.
@@ -38,6 +41,7 @@ mod util;
 
 use std::{
     borrow::Cow,
+    error::Error as StdError,
     io::{self, BufWriter, IsTerminal, Write},
     iter::Extend,
     num::NonZero,
@@ -576,10 +580,10 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// Underlying IO errors from the standard library or [`crossterm`] will be propogated with the
     /// [`PickError::IO`] variant.
     ///
-    /// This fails with another [`PickError`] variant if:
+    /// This method also fails with:
     ///
-    /// 1. stderr is not interactive, in which case it will be a [`PickError::NotInteractive`].
-    /// 2. the user presses `ctrl + c`, in which case the message will be [`PickError::Aborted`].
+    /// 1. [`PickError::NotInteractive`] if stderr is not interactive.
+    /// 2. [`PickError::UserInterrupted`] if the user presses keyboard interrupt.
     ///
     /// This method will **never** return [`PickError::Disconnected`].
     #[inline]
@@ -603,11 +607,10 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// Underlying IO errors from the standard library or [`crossterm`] will be propogated with the
     /// [`PickError::IO`] variant.
     ///
-    /// This fails with another [`PickError`] variant if:
+    /// This method also fails with:
     ///
-    /// 1. stderr is not interactive, in which case it will be a [`PickError::NotInteractive`]
-    /// 2. a keybinding results in an [`Event::Abort`] action, in which case the message will be
-    ///    [`PickError::Aborted`].
+    /// 1. [`PickError::NotInteractive`] if stderr is not interactive.
+    /// 2. [`PickError::UserInterrupted`] if a keybinding results in a [`Event::UserInterrupt`],
     ///
     /// This method will **never** return [`PickError::Disconnected`].
     #[inline]
@@ -625,7 +628,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
 
     /// Initialize the alternate screen.
     #[inline]
-    fn init_screen<W: Write>(writer: &mut W) -> Result<(), PickError> {
+    fn init_screen<W: Write>(writer: &mut W) -> io::Result<()> {
         enable_raw_mode()?;
         execute!(writer, EnterAlternateScreen, EnableBracketedPaste)?;
         Ok(())
@@ -707,11 +710,16 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     ///    [`Event::Abort`].
     ///
     /// This method will **never** return [`PickError::NotInteractive`].
-    pub fn pick_with_io<E: EventSource, W: io::Write>(
+    pub fn pick_with_io<A, E, W>(
         &mut self,
         event_source: E,
         writer: &mut W,
-    ) -> Result<Option<&T>, PickError> {
+    ) -> Result<Option<&T>, PickError<A>>
+    where
+        E: EventSource<AbortErr = A>,
+        W: io::Write,
+        A: StdError + Send + Sync + 'static,
+    {
         // set panic hook in case the `Render` implementation panics
         let original_hook = take_hook();
         set_hook(Box::new(move |panic_info| {
@@ -768,8 +776,11 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                                 break 'selection Ok(Some(item.data));
                             }
                         }
-                        Event::Abort => {
-                            break 'selection Err(PickError::Aborted);
+                        Event::UserInterrupt => {
+                            break 'selection Err(PickError::UserInterrupted);
+                        }
+                        Event::Abort(err) => {
+                            break 'selection Err(PickError::Aborted(err));
                         }
                     },
                     Err(RecvError::Timeout) => break 'event,
