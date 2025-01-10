@@ -577,7 +577,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// [`pick_with_keybind`](Self::pick_with_keybind) methods.
     ///
     /// # Errors
-    /// Underlying IO errors from the standard library or [`crossterm`] will be propogated with the
+    /// Underlying IO errors from the standard library or [`crossterm`] will be propagated with the
     /// [`PickError::IO`] variant.
     ///
     /// This method also fails with:
@@ -604,7 +604,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// provided by [`keybind_default`].
     ///
     /// # Errors
-    /// Underlying IO errors from the standard library or [`crossterm`] will be propogated with the
+    /// Underlying IO errors from the standard library or [`crossterm`] will be propagated with the
     /// [`PickError::IO`] variant.
     ///
     /// This method also fails with:
@@ -698,7 +698,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     ///   using [`IsTerminal`].
     ///
     /// # Errors
-    /// Underlying IO errors from the standard library or [`crossterm`] will be propogated with the
+    /// Underlying IO errors from the standard library or [`crossterm`] will be propagated with the
     /// [`PickError::IO`] variant.
     ///
     /// Whether or not this fails with another [`PickError`] variant depends on the [`EventSource`]

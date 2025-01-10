@@ -45,7 +45,7 @@ pub use crate::{match_list::MatchListEvent, prompt::PromptEvent};
 /// would change when handling an event, or when the item list is updated internally.
 ///
 /// There is no `Resize` variant since the screen size is automatically checked immediately before
-/// drawing to the screen. If you are generating your own events, propogate a screen resize as a
+/// drawing to the screen. If you are generating your own events, propagate a screen resize as a
 /// [`Event::Redraw`], which will force a redraw to respect the new screen size.
 ///
 /// ## Custom aborts
@@ -133,7 +133,7 @@ impl From<RecvTimeoutError> for RecvError {
 ///
 /// ## Associated `AbortErr` type
 /// The associated `AbortErr` type defines the application-specific error type which may be
-/// propogated directly to the picker. This is the same type as present in
+/// propagated directly to the picker. This is the same type as present in
 /// [`PickError::Aborted`](crate::error::PickError) as well as [`Event::Abort`].
 ///
 /// If you do not need to construct this variant at all, you should set `AbortErr = !` so that
@@ -226,7 +226,7 @@ impl From<RecvTimeoutError> for RecvError {
 ///             Ok(s) => injector.push(s),
 ///             Err(io_err) => {
 ///                 // if we encounter an IO error, we send the corresponding error
-///                 // to the picker so that it can abort and propogate the error
+///                 // to the picker so that it can abort and propagate the error
 ///                 //
 ///                 // here, it is also safe to simply ignore the IO error since the picker will
 ///                 // remain interactive with the items it has already received.
@@ -238,7 +238,7 @@ impl From<RecvTimeoutError> for RecvError {
 /// });
 /// ```
 pub trait EventSource {
-    /// The application-defined abort error propogated to the picker.
+    /// The application-defined abort error propagated to the picker.
     type AbortErr: StdError + Send + Sync + 'static;
 
     /// Receive a new event, timing out after the provided duration.
