@@ -17,9 +17,9 @@ Why use this library instead of a general-purpose fuzzy-finder such as `fzf` or 
    Instead of reading from a SQLite database with `sqlite3` and then parsing raw text, read directly into in-memory data structures with [`rusqlite`](https://docs.rs/rusqlite/latest/rusqlite/) and render the in-memory objects in the picker.
 2. **Skip the subprocess overhead and improve startup time.**
    Instead of starting up a subprocess to call `fzf`, have the picker integrated directly into your binary.
-2. **Distinguish items from their matcher representation.**
+3. **Distinguish items from their matcher representation.**
    Instead of writing your data structure to a string, passing it to `fzf`, and then parsing the resulting match string back into your data structure, directly obtain the original data structure when matching is complete.
-3. **Don't spend time debugging terminal rendering edge cases.**
+4. **Don't spend time debugging terminal rendering edge cases.**
    Out-of-the-box, `nucleo-picker` handles terminal rendering subtleties such as *multiline rendering*, *double-width Unicode*, *automatic overflow scrollthrough*, and *grapheme-aware query input* so you don't have to.
 
 ## Features
@@ -27,12 +27,16 @@ Why use this library instead of a general-purpose fuzzy-finder such as `fzf` or 
 - Robust rendering:
   - Full Unicode handling with [Unicode text segmentation](https://crates.io/crates/unicode-segmentation) and [Unicode width](https://crates.io/crates/unicode-width).
   - Match highlighting with automatic scroll-through.
-  - Correctly render multi-line or overflowed items.
+  - Correctly render multi-line or overflowed items, with standard and reversed item order.
   - Responsive interface with batched keyboard input.
 - Ergonomic API:
   - Fully concurrent lock- and wait-free streaming of input items.
   - Generic `Picker` for any type `T` which is `Send + Sync + 'static`.
   - Customizable rendering of crate-local and foreign types with the `Render` trait.
+- Fully configurable event system:
+  - Easily customizable keybindings.
+  - Run the picker concurrently with a your application using a flexible `Event` system supporting standard picker operations, along with more complex features such as *interactive restarting*.
+  - Flexible error propagation generics so your application errors can interface cleanly with the picker.
 
 ## Example
 Implement a heavily simplified `fzf` clone in 25 lines of code.
