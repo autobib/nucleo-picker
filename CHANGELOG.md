@@ -16,16 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Reset selection using `ctrl + r`.
 - New `PickerOptions::frame_interval` option to customize the refresh rate of the picker.
+- Reversed rendering with `PickerOptions::reversed`
 - New `Picker::pick_with_io` and `Picker::pick_with_keybind` functions that allows much greater IO customization.
   - Provide your own `Writer`.
   - Customize keybindings using a `StdinReader`.
   - Drive the picker using a `mpsc` channel.
   - Propagate custom errors to the picker from other threads.
   - Implement your own `EventSource` for total customization.
-- New examples to demonstrate the new IO customization:
+  - Interactively restart the picker with new items.
+- New examples to demonstrate the `Event` system
   - `custom_io` for a basic example
   - `fzf_err_handling` to use channels for event propagation
-- Reversed rendering with `PickerOptions::reversed`
+  - `restart` to demonstrate interactive restarting (with extended example `restart_ext`)
 
 ### Deprecated
 - `PickerOptions::query` has been renamed to `PickerOptions::prompt` for naming consistency.
