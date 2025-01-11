@@ -47,6 +47,9 @@ name = "find"
 name = "restart"
 
 [[example]]
+name = "restart_ext"
+
+[[example]]
 name = "blocking"
 
 [[example]]

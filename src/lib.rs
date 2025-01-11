@@ -527,6 +527,11 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     ///
     /// Internally, this is a call to [`Nucleo::restart`] with `clear_snapshot = true`.
     /// See the documentation for [`Nucleo::restart`] for more detail.
+    ///
+    /// This method is mainly useful for re-using the picker for multiple matches since the
+    /// internal memory buffers are preserved. To restart the picker during interactive use, see
+    /// the [`Event`] documentation or the [restart
+    /// example](https://github.com/autobib/nucleo-picker/blob/master/examples/restart.rs).
     pub fn restart(&mut self) {
         self.match_list.restart();
     }

@@ -28,19 +28,21 @@ fn main() -> io::Result<()> {
         exit(1);
     }
 
-    // Create a thread to regenerate the number list in response to 'restart' events.
-    //
-    // Generating 100 random `u32`s is extremely fast so we do not need to worry about keeping
-    // up with restart events. For slower and more resource-intensive event generation, in
-    // practice one would regularly check the channel using `receiver.try_recv` for new
-    // restart events while feeding the picker with items to check if the current computation
-    // should be halted and restarted on a new injector.
+    // the channel which will be used to communicate restart requests between the picker and the item
+    // source (in our case, a thread generating random `u32`s)
     let (sync_sender, receiver) = sync_channel(8);
 
     // immediately send an injector down the channel so that the screen renders with some choices;
     // this is infallible since we know that the receiver has not yet been dropped at this point
     let _ = sync_sender.send(picker.injector());
 
+    // Create a thread to regenerate the number list in response to 'restart' events.
+    //
+    // Generating 100 random `u32`s is extremely fast so we do not need to worry about keeping
+    // up with restart events. For slower and more resource-intensive item generation, in
+    // practice one would regularly check the channel using `receiver.try_recv` for new
+    // restart events to check if the current computation should be halted and restarted on a
+    // new injector. See the `restart_ext` example for this implementation.
     spawn(move || {
         let mut rng = thread_rng();
 
@@ -53,19 +55,24 @@ fn main() -> io::Result<()> {
         }
     });
 
-    // Initialize a source to watch for keyboard events.
+    // Initialize an event source to watch for keyboard events.
     //
-    // It would also be possible to generate the new events directly inside the closure,
-    // instead of passing the events to a separate thread. However, if generating new
-    // items were to take a long time, we do not want to lag user input and block watching
-    // for new keyboard events. In this specific example, it would be fine.
-    let event_source = StdinReader::new(move |key_event: KeyEvent| match key_event {
+    // It is also possible to process restart events in the same thread used to process keyboard
+    // events. However, if generating new items were to take a long time, we do not want to lag
+    // user input and block watching for new keyboard events. In this specific example, it would
+    // be fine.
+    let event_source = StdinReader::new(move |key_event| match key_event {
         KeyEvent {
             kind: KeyEventKind::Press,
             modifiers: KeyModifiers::CONTROL,
             code: KeyCode::Char('n'),
             ..
-        } => Some(Event::Restart::<_, _>(sync_sender.clone())),
+        } => {
+            // we create the restart event on `ctrl + n`. we pass the 'sender' end of our
+            // channel so that the picker forwards the new injectors resulting from a restart
+            // to our other thread which is only watching for restart events
+            Some(Event::Restart::<_, _>(sync_sender.clone()))
+        }
         e => keybind_default(e),
     });
 
