@@ -3,10 +3,10 @@
 //! This module defines the core [`Event`] type handled by a [`Picker`](crate::Picker), which
 //! defines an interactive update to the picker state.
 //!
-//! By default, the [`Picker::pick`](crate::Picker::pick) watches for terminal events (such as key
-//! presses) and maps them to [`Event`]s. The process of reading events is encapsulated in the
-//! [`EventSource`] trait, which you can implement yourself and pass directly to the picker using
-//! the [`Picker::pick_with_io`](crate::Picker::pick_with_io).
+//! By default, the interactive picker launched by [`Picker::pick`](crate::Picker::pick) watches
+//! for terminal events (such as key presses) and maps them to [`Event`]s. The process of reading
+//! events is encapsulated in the [`EventSource`] trait, which you can implement yourself and pass
+//! directly to the picker using the [`Picker::pick_with_io`](crate::Picker::pick_with_io).
 //!
 //! Jump to:
 //! - The [`EventSource`] trait.
@@ -14,10 +14,13 @@
 //!   keybindings.
 //! - The [`StdinEventSender`] to read events from standard input and send them through a
 //!   [mpsc channel](std::sync::mpsc::channel).
-//! - The [default keybindings](keybind_default).
+//! - The [default keybindings](keybind_default), which are also useful to provide fallbacks for
+//!   keybind customization
 //!
-//! For a somewhat comprehensive example, see the [extended fzf
-//! example](https://github.com/autobib/nucleo-picker/blob/master/examples/fzf_err_handling.rs) on GitHub.
+//! For somewhat comprehensive examples, see the [extended fzf
+//! example](https://github.com/autobib/nucleo-picker/blob/master/examples/fzf_err_handling.rs) or
+//! the [restart
+//! example](https://github.com/autobib/nucleo-picker/blob/master/examples/restart.rs).
 
 mod bind;
 
@@ -39,9 +42,14 @@ pub use crate::{match_list::MatchListEvent, prompt::PromptEvent};
 
 /// An event which controls the picker behaviour.
 ///
-/// Most events are explained directly in the enum documentation. A few special cases require a bit
-/// more detail: [redraw](#redraw), [application-defined abort](#application-defined-abort),
-/// and [restart](#restart)
+/// The type parameters `T` and `R` are the item type and the [`Render`](crate::Render)
+/// implementation specific to the picker respectively. The type parameter `A` is the
+/// application-defined error which can be used to conveniently propagate application errors
+/// independent of the picker to the main thread where the picker is running.
+///
+/// Most events are explained directly in the enum variant documentation. A few special cases
+/// require a bit more detail: [redraw](#redraw),
+/// [application-defined abort](#application-defined-abort), and [restart](#restart)
 ///
 /// ## Redraw
 /// In most cases, it is not necessary to manually send an [`Event::Redraw`] since the default
@@ -55,12 +63,12 @@ pub use crate::{match_list::MatchListEvent, prompt::PromptEvent};
 /// ## Application-defined abort
 /// The abort event is a special event used to propagate errors from the application to the picker.
 /// When the picker receives an abort event, it immediately terminates and passes the abort event
-/// onwards using the [`PickError::Aborted`](crate::error::PickError::Aborted)
+/// onwards inside the [`PickError::Aborted`](crate::error::PickError::Aborted) error variant.
 ///
 /// By default, the associated type parameter is `!`, which means that [`Event::Abort`] cannot be
 /// constructed in ordinary circumstances. In order to generate [`Event::Abort`], you must use the
 /// [`Picker::pick_with_io`](crate::Picker::pick_with_io) method and pass an appropriate
-/// [`EventSource`] implementation.
+/// [`EventSource`] which generates your desired errors.
 ///
 /// The provided [`EventSource`] implementations, namely [`StdinReader`] and
 /// [`mpsc::Receiver`](std::sync::mpsc::Receiver), are both generic over the same type parameter
@@ -68,7 +76,7 @@ pub use crate::{match_list::MatchListEvent, prompt::PromptEvent};
 ///
 /// ## Restart
 /// The [`Event::Restart`] is used to restart the picker while it is still running. After a
-/// restart, all previously created [`Injector`]s become invalidated. To receive a new
+/// restart, all previously created [`Injector`]s become invalidated. Therefore to receive a valid
 /// [`Injector`], the caller must provide the [`SyncSender`] end of a channel created by
 /// [`mpsc::sync_channel`](std::sync::mpsc::sync_channel).
 ///
@@ -85,10 +93,16 @@ pub use crate::{match_list::MatchListEvent, prompt::PromptEvent};
 /// you can use a channel with a size of 0 as long as you immediately call
 /// [`Receiver::recv`](std::sync::mpsc::Receiver::recv) on the corresponding receiver end so that
 /// the corresponding 'send' call does not block and reduce interactivity of the picker interface
-/// unnecessarily. Otherwise, using a larger buffer size (tuned to the requirements of your
+/// unnecessarily. Otherwise, using an appropriate buffer size (tuned to the requirements of your
 /// application) is recommended.
 ///
-/// For an implementation example, see the [restart
+/// Using a very large buffer size is somewhat of an anti-pattern since the buffer queue
+/// being completely filled means that the restart events are far outdated anyway. For
+/// restart-intensive applications in which generation of items on each restart is slow, the item
+/// source should periodically check the channel for new restart events and intterupt current
+/// processing to prioritize any new restarts.
+///
+/// For a detailed implementation example, see the [restart
 /// example](https://github.com/autobib/nucleo-picker/blob/master/examples/restart.rs).
 #[non_exhaustive]
 pub enum Event<T, R, A = Infallible> {
