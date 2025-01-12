@@ -1,8 +1,8 @@
 //! # Errors during interactive picker usage
 //! This module contains the custom error type [`PickError`] returned by the
 //! [`Picker::pick`](crate::Picker::pick) method, and siblings `Picker::pick_*`. The error type is
-//! comprehensive and the individual picker method used may or may not result in the corresponding
-//! errors.
+//! comprehensive and the individual picker method used may or may not result in the particular
+//! error variants.
 //!
 //! See the [`PickError`] documentation for more detail.
 //!
@@ -59,7 +59,7 @@ use std::{convert::Infallible, error::Error as StdError, fmt, io};
 pub enum PickError<A = Infallible> {
     /// A read or write resulted in an IO error.
     IO(io::Error),
-    /// The event stream disconnected while the picker was still running.
+    /// A necessary channel disconnected while the picker was still running.
     Disconnected,
     /// The picker quit at the user's request.
     UserInterrupted,
@@ -78,11 +78,11 @@ impl<A> PickError<A> {
     /// your application error.
     /// ```
     /// # use nucleo_picker::error::PickError;
-    /// use std::{error, io};
+    /// use std::{fmt::Display, io};
     ///
     /// // Even though `PickError<A>` need not satisfy `Into<io::Error>`, `PickError<!>`
     /// // always does.
-    /// fn print_or_propogate<A: error::Error>(pick_err: PickError<A>) -> Result<(), io::Error> {
+    /// fn print_or_propogate<A: Display>(pick_err: PickError<A>) -> Result<(), io::Error> {
     ///     let app_err = pick_err.factor()?;
     ///     eprintln!("{app_err}");
     ///     Ok(())

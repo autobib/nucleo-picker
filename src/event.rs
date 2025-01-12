@@ -1,4 +1,4 @@
-//! # Event handling
+//! # Extended event handling
 //!
 //! This module defines the core [`Event`] type handled by a [`Picker`](crate::Picker), which
 //! defines an interactive update to the picker state.
@@ -37,7 +37,7 @@ use crossterm::event::{poll, read, KeyEvent};
 use self::bind::convert_crossterm_event;
 
 pub use self::bind::keybind_default;
-pub use crate::{match_list::MatchListEvent, prompt::PromptEvent};
+pub use crate::{match_list::MatchListEvent, observer::Observer, prompt::PromptEvent};
 
 /// An event which controls the picker behaviour.
 ///
@@ -77,8 +77,7 @@ pub use crate::{match_list::MatchListEvent, prompt::PromptEvent};
 /// The [`Event::Restart`] is used to restart the picker while it is still running. After a
 /// restart, all previously created [`Injector`][i]s become invalidated. Therefore to receive a valid
 /// [`Injector`][i], the caller must watch for new injectors using the
-/// [`Observer`](crate::observer::Observer) returned by
-/// [`Picker::injector_observer`](crate::Picker::injector_observer`).
+/// [`Observer`] returned by [`Picker::injector_observer`](crate::Picker::injector_observer`).
 ///
 /// When the [`Event::Restart`] is processed by the picker, it will clear the item list and
 /// immediately update the observer with the new [`Injector`][i]. If the send fails because
