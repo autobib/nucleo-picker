@@ -64,10 +64,14 @@ impl<T> Drop for Notifier<T> {
     }
 }
 
-/// An `Observer` watching for a single event `T`.
+/// An `Observer` watching for a single message `T`.
 ///
-/// The channel may be updated when not observed. It always contains the most recent message. An
-/// `Observer` can be cheaply cloned and shared across threads.
+/// This is similar to the 'receiver' end of a channel of length 1, but instead of blocking, the
+/// 'sender' always overwrites any element in the channel. In particular, any message obtain by
+/// [`recv`](Observer::recv) or [`try_recv`](Observer::try_recv) is guaranteed to be the most
+/// up-to-date at the moment when the message is received.
+///
+/// The channel may be updated when not observed. Receiving a message moves it out of the observer.
 pub struct Observer<T> {
     inner: Arc<(Channel<T>, Condvar)>,
 }
@@ -111,7 +115,7 @@ impl<T> Observer<T> {
 
     /// Optimistically receive a message if one is available without blocking the current thread.
     ///
-    /// This operation can fail if there is no message or if the channel is disconnected.
+    /// This operation will fail if there is no message or if there are are no remaining senders.
     pub fn try_recv(&self) -> Result<T, TryRecvError> {
         let (lock, _) = &*self.inner;
         let mut channel = lock.lock();
