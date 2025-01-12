@@ -35,6 +35,7 @@ mod incremental;
 mod injector;
 mod lazy;
 mod match_list;
+pub mod observer;
 mod prompt;
 pub mod render;
 mod util;
@@ -65,6 +66,7 @@ use nucleo::{
     pattern::{CaseMatching, Normalization},
     Nucleo,
 };
+use observer::{Notifier, Observer};
 
 use crate::{
     component::{Component, Status},
@@ -316,6 +318,7 @@ impl PickerOptions {
             prompt,
             interval: self.interval,
             reversed,
+            restart_notifier: None,
         }
     }
 
@@ -480,6 +483,7 @@ pub struct Picker<T: Send + Sync + 'static, R> {
     prompt: Prompt,
     interval: Duration,
     reversed: bool,
+    restart_notifier: Option<Notifier<Injector<T, R>>>,
 }
 
 impl<T: Send + Sync + 'static, R: Render<T>> Extend<T> for Picker<T, R> {
@@ -515,6 +519,21 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     #[deprecated(since = "0.7.0", note = "method has been renamed to `update_prompt`")]
     pub fn update_query<Q: Into<String>>(&mut self, query: Q) {
         self.prompt.set_prompt(query);
+    }
+
+    /// Obtain an injector observer, which is a channel to which new injectors will be sent when the
+    /// picker processes a restart event. If `with_injector` is `true`, the channel is intialized
+    /// with an injector currently valid for the picker on creation.
+    ///
+    /// See the [`event::Event`] documentation for more detail.
+    pub fn injector_observer(&mut self, with_injector: bool) -> Observer<Injector<T, R>> {
+        let (notifier, observer) = if with_injector {
+            observer::occupied_channel(self.injector())
+        } else {
+            observer::channel()
+        };
+        self.restart_notifier = Some(notifier);
+        observer
     }
 
     /// Update the internal nucleo configuration.
@@ -617,7 +636,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     ///
     /// This method will **never** return [`PickError::Disconnected`].
     #[inline]
-    pub fn pick_with_keybind<F: Fn(KeyEvent) -> Option<Event<T, R>>>(
+    pub fn pick_with_keybind<F: Fn(KeyEvent) -> Option<Event>>(
         &mut self,
         keybind: F,
     ) -> Result<Option<&T>, PickError> {
@@ -709,13 +728,13 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     ///
     /// This method will **never** return [`PickError::NotInteractive`] since interactivity checks
     /// are not done.
-    pub fn pick_with_io<A, E, W>(
+    pub fn pick_with_io<E, W>(
         &mut self,
         event_source: E,
         writer: &mut W,
-    ) -> Result<Option<&T>, PickError<A>>
+    ) -> Result<Option<&T>, PickError<<E as EventSource>::AbortErr>>
     where
-        E: EventSource<T, R, AbortErr = A>,
+        E: EventSource,
         W: io::Write,
     {
         // set panic hook in case the `Render` implementation panics
@@ -775,12 +794,16 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                                 break 'selection Ok(Some(item.data));
                             }
                         }
-                        Event::Restart(sender) => {
-                            if sender.send(lazy_match_list.restart()).is_err() {
-                                break 'selection Err(PickError::Disconnected);
+                        Event::Restart => match self.restart_notifier {
+                            Some(ref notifier) => {
+                                if notifier.push(lazy_match_list.restart()).is_err() {
+                                    break 'selection Err(PickError::Disconnected);
+                                } else {
+                                    redraw_match_list = true;
+                                }
                             }
-                            redraw_match_list = true;
-                        }
+                            None => break 'selection Err(PickError::Disconnected),
+                        },
                         Event::UserInterrupt => {
                             break 'selection Err(PickError::UserInterrupted);
                         }

@@ -28,7 +28,7 @@ use std::{
     convert::Infallible,
     io,
     marker::PhantomData,
-    sync::mpsc::{Receiver, RecvTimeoutError, Sender, SyncSender},
+    sync::mpsc::{Receiver, RecvTimeoutError, Sender},
     time::Duration,
 };
 
@@ -37,7 +37,6 @@ use crossterm::event::{poll, read, KeyEvent};
 use self::bind::convert_crossterm_event;
 
 pub use self::bind::keybind_default;
-use crate::Injector;
 pub use crate::{match_list::MatchListEvent, prompt::PromptEvent};
 
 /// An event which controls the picker behaviour.
@@ -76,36 +75,28 @@ pub use crate::{match_list::MatchListEvent, prompt::PromptEvent};
 ///
 /// ## Restart
 /// The [`Event::Restart`] is used to restart the picker while it is still running. After a
-/// restart, all previously created [`Injector`]s become invalidated. Therefore to receive a valid
-/// [`Injector`], the caller must provide the [`SyncSender`] end of a channel created by
-/// [`mpsc::sync_channel`](std::sync::mpsc::sync_channel).
+/// restart, all previously created [`Injector`][i]s become invalidated. Therefore to receive a valid
+/// [`Injector`][i], the caller must watch for new injectors using the
+/// [`Observer`](crate::observer::Observer) returned by
+/// [`Picker::injector_observer`](crate::Picker::injector_observer`).
 ///
 /// When the [`Event::Restart`] is processed by the picker, it will clear the item list and
-/// immediately block to send the new injector through the channel. If the send fails because the
-/// receiver end has been dropped, the picker will fail with
-/// [`PickError::Disconnected`](crate::error::PickError::Disconnected).
+/// immediately update the observer with the new [`Injector`][i]. If the send fails because
+/// there is no receiver, the picker will fail with
+/// [`PickError::Disconnected`](crate::error::PickError::Disconnected). Note that the observer is
+/// essentially a bounded channel of length 1; and the picker will overwrite any previously pushed
+/// [`Injector`][i] when pushing the updated one to the channel. In particular, the [`Injector`][i]
+/// in the channel (if any) is always the most up-to-date.
 ///
-/// At most one [`Injector`] will be sent down the channel each time the picker receives an
-/// [`Event::Restart`]. It is possible that no [`Injector`] will be sent if the picker exists
+/// It is possible that no [`Injector`][i] will be sent if the picker exists
 /// or disconnects before the event is processed.
-///
-/// If you are processing the restart events in the same thread in which the events are generated,
-/// you can use a channel with a size of 0 as long as you immediately call
-/// [`Receiver::recv`](std::sync::mpsc::Receiver::recv) on the corresponding receiver end so that
-/// the corresponding 'send' call does not block and reduce interactivity of the picker interface
-/// unnecessarily. Otherwise, using an appropriate buffer size (tuned to the requirements of your
-/// application) is recommended.
-///
-/// Using a very large buffer size is somewhat of an anti-pattern since the buffer queue
-/// being completely filled means that the restart events are far outdated anyway. For
-/// restart-intensive applications in which generation of items on each restart is slow, the item
-/// source should periodically check the channel for new restart events and intterupt current
-/// processing to prioritize any new restarts.
 ///
 /// For a detailed implementation example, see the [restart
 /// example](https://github.com/autobib/nucleo-picker/blob/master/examples/restart.rs).
+///
+/// [i]: crate::Injector
 #[non_exhaustive]
-pub enum Event<T, R, A = Infallible> {
+pub enum Event<A = Infallible> {
     /// Modify the prompt.
     Prompt(PromptEvent),
     /// Modify the list of matches.
@@ -122,8 +113,8 @@ pub enum Event<T, R, A = Infallible> {
     Redraw,
     /// Quit the picker and select the given item.
     Select,
-    /// Restart the picker and receive a new [`Injector`] on the channel.
-    Restart(SyncSender<Injector<T, R>>),
+    /// Restart the picker, invalidating all existing injectors.
+    Restart,
 }
 
 /// The result of waiting for an update from an [`EventSource`] with a timeout.
@@ -196,14 +187,14 @@ impl From<RecvTimeoutError> for RecvError {
 /// use crossbeam::channel::{Receiver, RecvTimeoutError};
 /// use nucleo_picker::event::{Event, EventSource, RecvError};
 ///
-/// struct EventReceiver<T, R, A> {
-///     inner: Receiver<Event<T, R, A>>
+/// struct EventReceiver<A> {
+///     inner: Receiver<Event<A>>
 /// }
 ///
-/// impl<T, R, A> EventSource<T, R> for EventReceiver<T, R, A> {
+/// impl<A> EventSource for EventReceiver<A> {
 ///     type AbortErr = A;
 ///
-///     fn recv_timeout(&self, duration: Duration) -> Result<Event<T, R, A>, RecvError> {
+///     fn recv_timeout(&self, duration: Duration) -> Result<Event<A>, RecvError> {
 ///         self.inner.recv_timeout(duration).map_err(|err| match err {
 ///             RecvTimeoutError::Timeout => RecvError::Timeout,
 ///             RecvTimeoutError::Disconnected => RecvError::Disconnected,
@@ -241,10 +232,7 @@ impl From<RecvTimeoutError> for RecvError {
 /// let mut picker = Picker::new(StrRenderer);
 ///
 /// // spawn a stdin watcher to read keyboard events and send them to the channel
-/// // type annotations are only needed here since we do not run the picker with the 'receiver' end,
-/// // in the example, which would be enough to determine all of the parameters
-/// let stdin_watcher: StdinEventSender<String, StrRenderer, io::Error> =
-///     StdinEventSender::with_default_keybindings(sender.clone());
+/// let stdin_watcher = StdinEventSender::with_default_keybindings(sender.clone());
 /// spawn(move || match stdin_watcher.watch() {
 ///     Ok(()) => {
 ///         // this path occurs when the picker quits and the receiver is dropped so there
@@ -285,7 +273,7 @@ impl From<RecvTimeoutError> for RecvError {
 ///     }
 /// });
 /// ```
-pub trait EventSource<T, R> {
+pub trait EventSource {
     /// The application-defined abort error propagated to the picker.
     type AbortErr;
 
@@ -294,13 +282,13 @@ pub trait EventSource<T, R> {
     /// If the receiver times out, the implementation should return a [`RecvError::Timeout`].
     /// If the receiver cannot receive any more events, the implementation should return a
     /// [`RecvError::Disconnected`]. Otherwise, return one of the other variants.
-    fn recv_timeout(&self, duration: Duration) -> Result<Event<T, R, Self::AbortErr>, RecvError>;
+    fn recv_timeout(&self, duration: Duration) -> Result<Event<Self::AbortErr>, RecvError>;
 }
 
-impl<T, R, A> EventSource<T, R> for Receiver<Event<T, R, A>> {
+impl<A> EventSource for Receiver<Event<A>> {
     type AbortErr = A;
 
-    fn recv_timeout(&self, duration: Duration) -> Result<Event<T, R, A>, RecvError> {
+    fn recv_timeout(&self, duration: Duration) -> Result<Event<A>, RecvError> {
         self.recv_timeout(duration).map_err(From::from)
     }
 }
@@ -327,7 +315,7 @@ impl<T, R, A> EventSource<T, R> for Receiver<Event<T, R, A>> {
 /// /// Keybindings which use the default keybindings, but instead of interrupting on `ctrl + c`,
 /// /// instead performs a normal quit action. Generic over all possible `Event` type parameters
 /// /// for flexibility.
-/// fn keybind_no_interrupt<T, R, A>(key_event: KeyEvent) -> Option<Event<T, R, A>> {
+/// fn keybind_no_interrupt<A>(key_event: KeyEvent) -> Option<Event<A>> {
 ///     match key_event {
 ///         KeyEvent {
 ///             kind: KeyEventKind::Press,
@@ -339,37 +327,31 @@ impl<T, R, A> EventSource<T, R> for Receiver<Event<T, R, A>> {
 ///     }
 /// }
 /// ```
-pub struct StdinReader<T, R, A = Infallible, F = fn(KeyEvent) -> Option<Event<T, R, A>>> {
+pub struct StdinReader<A = Infallible, F = fn(KeyEvent) -> Option<Event<A>>> {
     keybind: F,
-    _item: PhantomData<T>,
-    _render: PhantomData<R>,
     _abort: PhantomData<A>,
 }
 
-impl<T, R, A> Default for StdinReader<T, R, A> {
+impl<A> Default for StdinReader<A> {
     fn default() -> Self {
         Self::new(keybind_default)
     }
 }
 
-impl<T, R, A, F: Fn(KeyEvent) -> Option<Event<T, R, A>>> StdinReader<T, R, A, F> {
+impl<A, F: Fn(KeyEvent) -> Option<Event<A>>> StdinReader<A, F> {
     /// Create a new [`StdinReader`] with keybindings provided by the given closure.
     pub fn new(keybind: F) -> Self {
         Self {
             keybind,
-            _item: PhantomData,
-            _render: PhantomData,
             _abort: PhantomData,
         }
     }
 }
 
-impl<T, R, A, F: Fn(KeyEvent) -> Option<Event<T, R, A>>> EventSource<T, R>
-    for StdinReader<T, R, A, F>
-{
+impl<A, F: Fn(KeyEvent) -> Option<Event<A>>> EventSource for StdinReader<A, F> {
     type AbortErr = A;
 
-    fn recv_timeout(&self, duration: Duration) -> Result<Event<T, R, A>, RecvError> {
+    fn recv_timeout(&self, duration: Duration) -> Result<Event<A>, RecvError> {
         if poll(duration)? {
             if let Some(event) = convert_crossterm_event(read()?, &self.keybind) {
                 return Ok(event);
@@ -384,14 +366,14 @@ impl<T, R, A, F: Fn(KeyEvent) -> Option<Event<T, R, A>>> EventSource<T, R>
 ///
 /// The internal implementation is identical to the [`StdinReader`] struct, but instead of
 /// generating the events directly, sends them to the channel.
-pub struct StdinEventSender<T, R, A = Infallible, F = fn(KeyEvent) -> Option<Event<T, R, A>>> {
-    sender: Sender<Event<T, R, A>>,
+pub struct StdinEventSender<A = Infallible, F = fn(KeyEvent) -> Option<Event<A>>> {
+    sender: Sender<Event<A>>,
     keybind: F,
 }
 
-impl<T, R, A> StdinEventSender<T, R, A> {
+impl<A> StdinEventSender<A> {
     /// Initialize a new [`StdinEventSender`] with default keybindings in the provided channel.
-    pub fn with_default_keybindings(sender: Sender<Event<T, R, A>>) -> Self {
+    pub fn with_default_keybindings(sender: Sender<Event<A>>) -> Self {
         Self {
             sender,
             keybind: keybind_default,
@@ -399,14 +381,14 @@ impl<T, R, A> StdinEventSender<T, R, A> {
     }
 }
 
-impl<T, R, A, F: Fn(KeyEvent) -> Option<Event<T, R, A>>> StdinEventSender<T, R, A, F> {
+impl<A, F: Fn(KeyEvent) -> Option<Event<A>>> StdinEventSender<A, F> {
     /// Initialize a new [`StdinEventSender`] with the given keybindings in the provided channel.
-    pub fn new(sender: Sender<Event<T, R, A>>, keybind: F) -> Self {
+    pub fn new(sender: Sender<Event<A>>, keybind: F) -> Self {
         Self { sender, keybind }
     }
 
     /// Convert into the inner [`Sender<Event>`] to send further events when finished.
-    pub fn into_sender(self) -> Sender<Event<T, R, A>> {
+    pub fn into_sender(self) -> Sender<Event<A>> {
         self.sender
     }
 

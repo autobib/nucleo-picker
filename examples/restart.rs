@@ -4,9 +4,9 @@
 //! one of the options, or press `ctrl + n` to receive a new list of random integers.
 
 use std::{
+    convert::Infallible,
     io::{self, IsTerminal},
     process::exit,
-    sync::mpsc::sync_channel,
     thread::spawn,
 };
 
@@ -28,13 +28,9 @@ fn main() -> io::Result<()> {
         exit(1);
     }
 
-    // the channel which will be used to communicate restart requests between the picker and the item
-    // source (in our case, a thread generating random `u32`s)
-    let (sync_sender, receiver) = sync_channel(8);
-
-    // immediately send an injector down the channel so that the screen renders with some choices;
-    // this is infallible since we know that the receiver has not yet been dropped at this point
-    let _ = sync_sender.send(picker.injector());
+    // get a restart observer, which will be sent the new injectors when the picker processes a
+    // `Restart` event; we initialize with an injector so that items are sent immediately
+    let observer = picker.injector_observer(true);
 
     // Create a thread to regenerate the number list in response to 'restart' events.
     //
@@ -48,7 +44,7 @@ fn main() -> io::Result<()> {
 
         // block when waiting for new events, since we have nothing else to do. If the match does
         // not succeed, it means the channel dropped so we can shut down this thread.
-        while let Ok(mut injector) = receiver.recv() {
+        while let Ok(mut injector) = observer.recv() {
             // the restart event here is an injector for the picker; send the new items to the
             // injector every time we witness the event
             injector.extend((&mut rng).sample_iter(Standard).take(100));
@@ -71,7 +67,7 @@ fn main() -> io::Result<()> {
             // we create the restart event on `ctrl + n`. we pass the 'sender' end of our
             // channel so that the picker forwards the new injectors resulting from a restart
             // to our other thread which is only watching for restart events
-            Some(Event::Restart::<_, _>(sync_sender.clone()))
+            Some(Event::<Infallible>::Restart)
         }
         e => keybind_default(e),
     });

@@ -11,11 +11,11 @@
 //! only documentation here is for the changes relative to the `restart` example.
 
 use std::{
+    convert::Infallible,
     io::{self, IsTerminal},
     process::exit,
-    sync::mpsc::{sync_channel, TryRecvError},
-    thread::sleep,
-    thread::spawn,
+    sync::mpsc::TryRecvError,
+    thread::{sleep, spawn},
     time::Duration,
 };
 
@@ -42,14 +42,15 @@ fn main() -> io::Result<()> {
         exit(1);
     }
 
-    let (sync_sender, receiver) = sync_channel::<nucleo_picker::Injector<u32, _>>(8);
+    // Do not initialize with an injector since we will send it ourself
+    let observer = picker.injector_observer(false);
 
     let injector = picker.injector();
     spawn(move || {
         const NUM_ITEMS: usize = 1000;
 
-        // because of the delay, generating 1000 `u32`s will take about 5 seconds, which is clearly
-        // way too long to be done in a single frame. Therefore after generating each random number
+        // because of the delay, generating 1000 `u32`s will take about 5 seconds, which is way
+        // too long to be done in a single frame. Therefore after generating each random number
         // we check for a restart event before continuing.
 
         // In this example, coming up with the check frequency is quite easy since we know the
@@ -63,7 +64,7 @@ fn main() -> io::Result<()> {
         let mut remaining_items = NUM_ITEMS;
 
         loop {
-            match receiver.try_recv() {
+            match observer.try_recv() {
                 Ok(new_injector) => {
                     // we received a new injector so we should immediately start sending `u32`s to
                     // it instead
@@ -76,7 +77,7 @@ fn main() -> io::Result<()> {
                         // picker
                         remaining_items -= 1;
                         current_injector.push(slow_random());
-                    } else if let Ok(new_injector) = receiver.recv() {
+                    } else if let Ok(new_injector) = observer.recv() {
                         // we have sent all of the necessary data; but we cannot simply skip this
                         // branch or we will spin-loop and consume unnecessary CPU cycles. Instead,
                         // we should block and wait for the next restart event since we have
@@ -102,7 +103,7 @@ fn main() -> io::Result<()> {
             modifiers: KeyModifiers::CONTROL,
             code: KeyCode::Char('n'),
             ..
-        } => Some(Event::Restart::<_, _>(sync_sender.clone())),
+        } => Some(Event::<Infallible>::Restart),
         e => keybind_default(e),
     });
 

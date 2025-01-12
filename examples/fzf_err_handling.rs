@@ -77,7 +77,7 @@ fn main() -> io::Result<()> {
                         // if we encounter an IO error, we send the corresponding error
                         // to the picker so that it can abort and propogate the error
                         //
-                        // alternatively, it would also be safe to simply ignore the IO error
+                        // it would also be fine to return but not send an abort event
                         // since the picker will remain interactive with the items it has
                         // already received.
                         let _ = sender.send(Event::Abort(AppError::Stdin(io_err)));
