@@ -325,7 +325,7 @@ impl PickerOptions {
     /// Set 'reversed' layout.
     ///
     /// Option `false` (default) will put the prompt at the bottom and render items in ascending
-    /// order. Option `true` will put the prompt at the top and render items in descending
+    /// order. Option `true` will put the prompt at the top and render items in descending order.
     #[must_use]
     #[inline]
     pub fn reversed(mut self, reversed: bool) -> Self {

@@ -1,8 +1,8 @@
 //! # Errors during interactive picker usage
 //! This module contains the custom error type [`PickError`] returned by the
 //! [`Picker::pick`](crate::Picker::pick) method, and siblings `Picker::pick_*`. The error type is
-//! comprehensive and the individual picker method used may or may not result in the particular
-//! error variants.
+//! comprehensive and the individual picker method used may or may not result in particular error
+//! variants.
 //!
 //! See the [`PickError`] documentation for more detail.
 //!
@@ -22,7 +22,7 @@
 
 use std::{convert::Infallible, error::Error as StdError, fmt, io};
 
-/// An error which may be returned while running the picker interactively.
+/// An error which may occur while running the picker interactively.
 ///
 /// This is marked non-exhaustive since more variants may be added in the future. It is recommended
 /// to handle the errors that are relevant to your application and propagate any remaining errors
@@ -31,7 +31,7 @@ use std::{convert::Infallible, error::Error as StdError, fmt, io};
 /// ## Type parameter for `Aborted` variant
 /// The [`PickError::Aborted`] variant can be used by the application to propagate errors to the
 /// picker; the application-defined error type is the type parameter `A`. By default, `A = !`
-/// which means this type of abort will *never occur* and can be ignored during pattern matching.
+/// which means this type of error will *never occur* and can be ignored during pattern matching.
 ///
 /// This library will never generate an abort error directly. In order to pass errors downstream to
 /// the picker, the application can define an abort error type using the
