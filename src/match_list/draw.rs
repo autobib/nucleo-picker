@@ -15,7 +15,7 @@ use crate::{
 };
 
 use crossterm::{
-    cursor::{MoveToColumn, MoveToNextLine},
+    cursor::MoveToNextLine,
     style::{Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor},
     terminal::{Clear, ClearType},
     QueueableCommand,
@@ -87,14 +87,13 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, W: io::Write + ?Size
     mut item_iter: impl Iterator<Item = nc::Item<'a, T>>,
 ) -> io::Result<()> {
     // render above the selection
-    for item_height in above.iter().rev() {
-        let next_item = item_iter.next().unwrap();
-        draw_single_match::<T, R, Tail, W, false>(
+    for (item_height, item) in above.iter().rev().zip(item_iter.by_ref()) {
+        draw_single_match::<_, _, Tail, _, false>(
             writer,
             buffer,
             match_list_width,
             config,
-            &next_item,
+            &item,
             snapshot,
             matcher,
             as_u16(*item_height),
@@ -103,7 +102,7 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, W: io::Write + ?Size
     }
 
     // render the selection
-    draw_single_match::<T, R, Head, W, true>(
+    draw_single_match::<_, _, Head, _, true>(
         writer,
         buffer,
         match_list_width,
@@ -116,13 +115,13 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, W: io::Write + ?Size
     )?;
 
     // render below the selection
-    for item_height in below[1..].iter() {
-        draw_single_match::<T, R, Head, W, false>(
+    for (item_height, item) in below[1..].iter().zip(item_iter.by_ref()) {
+        draw_single_match::<_, _, Head, _, false>(
             writer,
             buffer,
             match_list_width,
             config,
-            &item_iter.next().unwrap(),
+            &item,
             snapshot,
             matcher,
             as_u16(*item_height),
@@ -193,6 +192,8 @@ impl<T: Send + Sync + 'static, R: Render<T>> Component for MatchList<T, R> {
         let snapshot = self.nucleo.snapshot();
         let matched_item_count = snapshot.matched_item_count();
 
+        let mut total_whitespace = self.whitespace();
+
         // draw the matches
         if height == 1 {
             draw_match_counts(writer, matched_item_count, snapshot.item_count())?;
@@ -216,12 +217,10 @@ impl<T: Send + Sync + 'static, R: Render<T>> Component for MatchList<T, R> {
                 )?;
             }
 
-            writer
-                .queue(MoveToColumn(0))?
-                .queue(Clear(ClearType::FromCursorDown))?;
+            if total_whitespace > 0 {
+                writer.queue(Clear(ClearType::FromCursorDown))?;
+            }
         } else {
-            let mut total_whitespace = self.whitespace();
-
             // skip / clear whitespace if necessary
             while total_whitespace > 0 {
                 total_whitespace -= 1;
