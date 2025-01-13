@@ -21,7 +21,7 @@ Why use this library instead of a general-purpose fuzzy-finder such as `fzf` or 
    Instead of writing your data structure to a string, passing it to `fzf`, and then parsing the resulting match string back into your data structure, directly obtain the original data structure when matching is complete.
 4. **Don't spend time debugging terminal rendering edge cases.**
    Out-of-the-box, `nucleo-picker` handles terminal rendering subtleties such as *multiline rendering*, *double-width Unicode*, *automatic overflow scrollthrough*, and *grapheme-aware query input* so you don't have to.
-5. **Easily support complex use cases using events.**
+5. **Handle support complex use cases using events.**
    `nucleo-picker` exposes a fully-featured [event system](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/enum.Event.html) which can be used to drive the picker.
    This lets you [*customize keybindings*](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/struct.StdinReader.html), support [*interactive restarts*](https://docs.rs/nucleo-picker/0.7.0-alpha.3/nucleo_picker/event/enum.Event.html#restart), and much more by implementing the `EventSource` trait.
    Simplified versions of such features are available in [fzf](https://github.com/junegunn/fzf) but essentially require manual configuration via an embedded DSL.

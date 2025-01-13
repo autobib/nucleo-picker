@@ -82,7 +82,7 @@ pub enum PromptEvent {
     WordRight(usize),
     /// Move the cursor to the start.
     ToStart,
-    /// Move the cursor to the start.
+    /// Move the cursor to the end.
     ToEnd,
     /// Delete `usize` graphemes immediately preceding the cursor.
     Backspace(usize),
@@ -94,11 +94,11 @@ pub enum PromptEvent {
     ClearBefore,
     /// Clear everything after the cursor.
     ClearAfter,
-    /// Insert a character at the cursor position.
+    /// Insert a character at the cursor.
     Insert(char),
-    /// Paste a string at the cursor position.
+    /// Paste a string at the cursor.
     Paste(String),
-    /// Reset the query string and move the cursor to the end.
+    /// Reset the prompt to a new string and move the cursor to the end.
     Reset(String),
 }
 
