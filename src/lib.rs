@@ -247,7 +247,7 @@ impl<T, R: for<'a> Fn(&'a T) -> Cow<'a, str>> Render<T> for R {
 ///
 /// let picker: Picker<String, _> = PickerOptions::new()
 ///     .highlight(true)
-///     .prompt("search")
+///     .query("search")
 ///     .picker(StrRenderer);
 /// ```
 pub struct PickerOptions {
