@@ -252,7 +252,7 @@ impl<T, R: for<'a> Fn(&'a T) -> Cow<'a, str>> Render<T> for R {
 /// ```
 pub struct PickerOptions {
     config: nc::Config,
-    prompt: String,
+    query: String,
     threads: Option<NonZero<usize>>,
     interval: Duration,
     match_list_config: MatchListConfig,
@@ -263,7 +263,7 @@ impl Default for PickerOptions {
     fn default() -> Self {
         Self {
             config: nc::Config::DEFAULT,
-            prompt: String::new(),
+            query: String::new(),
             threads: None,
             interval: Duration::from_millis(15),
             match_list_config: MatchListConfig::default(),
@@ -310,8 +310,8 @@ impl PickerOptions {
         let mut prompt = Prompt::new(self.prompt_config);
 
         // set the prompt
-        match_list.reparse(&self.prompt);
-        prompt.set_prompt(self.prompt);
+        match_list.reparse(&self.query);
+        prompt.set_query(self.query);
 
         Picker {
             match_list,
@@ -412,19 +412,11 @@ impl PickerOptions {
         self
     }
 
-    /// Provide a default prompt string (default to `""`).
+    /// Provide an initial query string for the prompt (default to `""`).
     #[must_use]
     #[inline]
-    pub fn prompt<Q: Into<String>>(mut self, prompt: Q) -> Self {
-        self.prompt = prompt.into();
-        self
-    }
-
-    /// Provide a default query string.
-    #[must_use]
-    #[deprecated(since = "0.7.0", note = "method has been renamed to `prompt`")]
     pub fn query<Q: Into<String>>(mut self, query: Q) -> Self {
-        self.prompt = query.into();
+        self.query = query.into();
         self
     }
 
@@ -507,18 +499,8 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     ///
     /// See also the [`PickerOptions::prompt`] method to set the prompt during initialization.
     #[inline]
-    pub fn update_prompt<Q: Into<String>>(&mut self, prompt: Q) {
-        self.prompt.set_prompt(prompt);
-    }
-
-    /// Update the default query string. This is mainly useful for modifying the query string
-    /// before re-using the [`Picker`].
-    ///
-    /// See also the [`PickerOptions::prompt`] method to set the query during initialization.
-    #[inline]
-    #[deprecated(since = "0.7.0", note = "method has been renamed to `update_prompt`")]
     pub fn update_query<Q: Into<String>>(&mut self, query: Q) {
-        self.prompt.set_prompt(query);
+        self.prompt.set_query(query);
     }
 
     /// Returns an [`Observer`] containing up-to-date [`Injector`]s for this picker. For example,

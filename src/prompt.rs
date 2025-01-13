@@ -249,7 +249,7 @@ impl Prompt {
     }
 
     /// Reset the prompt, moving the cursor to the end.
-    pub fn set_prompt<Q: Into<String>>(&mut self, prompt: Q) {
+    pub fn set_query<Q: Into<String>>(&mut self, prompt: Q) {
         self.contents = prompt.into();
         normalize_prompt_string(&mut self.contents);
         self.offset = self.contents.len();
@@ -413,7 +413,7 @@ impl Component for Prompt {
 
         let needs_redraw = match e {
             PromptEvent::Reset(s) => {
-                self.set_prompt(s);
+                self.set_query(s);
                 true
             }
             PromptEvent::Left(n) => self.move_cursor(CursorMovement::Left(n)),
