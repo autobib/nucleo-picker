@@ -1,7 +1,7 @@
 //! # Picker with interactive restarts
 //!
 //! Generates a list of 100 random `u32`s to be selected. The user can either select
-//! one of the options, or press `ctrl + n` to receive a new list of random integers.
+//! one of the options, or press `ctrl + r` to receive a new list of random integers.
 
 use std::{
     convert::Infallible,
@@ -61,7 +61,7 @@ fn main() -> io::Result<()> {
         KeyEvent {
             kind: KeyEventKind::Press,
             modifiers: KeyModifiers::CONTROL,
-            code: KeyCode::Char('n'),
+            code: KeyCode::Char('r'),
             ..
         } => {
             // we create the restart event on `ctrl + n`. since this invalidates existing

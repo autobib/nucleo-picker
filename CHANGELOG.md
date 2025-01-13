@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   However, the corresponding `io::Error::other` message contents have now changed to respect the new error types.
 
 ### Added
-- Reset selection using `ctrl + r`.
+- Reset selection to beginning of match list `ctrl + 0`.
 - New `PickerOptions::frame_interval` option to customize the refresh rate of the picker.
 - Reversed rendering with `PickerOptions::reversed`
 - New `Picker::pick_with_io` and `Picker::pick_with_keybind` functions that allows much greater IO customization.
@@ -23,7 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Drive the picker using a `mpsc` channel.
   - Propagate custom errors to the picker from other threads.
   - Implement your own `EventSource` for total customization.
-  - Interactively restart the picker with new items.
+- Support for interactive restarting
+  - Initialize a restart using `Event::Restart`.
+  - Watch for new `Injector`s using the `Observer` returned by `Picker::injector_observer`.
 - New examples to demonstrate the `Event` system
   - `custom_io` for a basic example
   - `fzf_err_handling` to use channels for event propagation

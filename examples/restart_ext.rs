@@ -3,8 +3,8 @@
 //! Generates a list of 1000 random `u32`s to be selected but with intentionally introduced delay
 //! to imitate 'work' being done in the background.
 //!
-//! The user can either select one of the options, or press `ctrl + n` to receive a new list of
-//! random integers. Try pressing `ctrl + n` very rapidly; new numbers will be generated even before
+//! The user can either select one of the options, or press `ctrl + r` to receive a new list of
+//! random integers. Try pressing `ctrl + r` very rapidly; new numbers will be generated even before
 //! the previous list has finished rendering.
 //!
 //! This is a more complex version of the `restart` example; it is better to start there first. The
@@ -103,7 +103,7 @@ fn main() -> io::Result<()> {
         KeyEvent {
             kind: KeyEventKind::Press,
             modifiers: KeyModifiers::CONTROL,
-            code: KeyCode::Char('n'),
+            code: KeyCode::Char('r'),
             ..
         } => Some(Event::<Infallible>::Restart),
         e => keybind_default(e),
