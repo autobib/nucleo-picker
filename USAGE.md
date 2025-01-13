@@ -43,7 +43,7 @@ ctrl + d                | Quit If Query Empty (no selection)
 ⏎, shift + ⏎            | Select and Quit
 ↑, ctrl + k, ctrl + p   | Selection Up
 ↓, ctrl + j, ctrl + n   | Selection Down
-ctrl + 0                | Reset Selections
+ctrl + 0                | Reset Selection Scroll
 ←, ctrl + b             | Cursor Left
 →, ctrl + f             | Cursor Right
 ctrl + a, ⇱             | Cursor To Start

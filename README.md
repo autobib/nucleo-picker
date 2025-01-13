@@ -22,8 +22,9 @@ Why use this library instead of a general-purpose fuzzy-finder such as `fzf` or 
 4. **Don't spend time debugging terminal rendering edge cases.**
    Out-of-the-box, `nucleo-picker` handles terminal rendering subtleties such as *multiline rendering*, *double-width Unicode*, *automatic overflow scrollthrough*, and *grapheme-aware query input* so you don't have to.
 5. **Support advanced uses cases using events.**
-   `nucleo-picker` exposes a fully-featured event system which can be used to drive the picker.
-   This lets you *customize keybindings*, support *interactive restarts*, or more complex cases by implementing the `EventSource` trait.
+   `nucleo-picker` exposes a fully-featured [event system](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/enum.Event.html) which can be used to drive the picker.
+   This lets you [*customize keybindings*](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/struct.StdinReader.html), support [*interactive restarts*](https://docs.rs/nucleo-picker/0.7.0-alpha.3/nucleo_picker/event/enum.Event.html#restart), and much more by implementing the `EventSource` trait.
+   Simplified versions of such features are available in [fzf](https://github.com/junegunn/fzf) but essentially require manual configuration via an embedded DSL.
 
 ## Features
 - [Highly optimized matching](https://github.com/helix-editor/nucleo).
@@ -34,12 +35,12 @@ Why use this library instead of a general-purpose fuzzy-finder such as `fzf` or 
   - Responsive interface with batched keyboard input.
 - Ergonomic API:
   - Fully concurrent lock- and wait-free streaming of input items.
-  - Generic `Picker` for any type `T` which is `Send + Sync + 'static`.
-  - Customizable rendering of crate-local and foreign types with the `Render` trait.
+  - Generic [`Picker`](https://docs.rs/nucleo-picker/latest/nucleo_picker/struct.Picker.html) for any type `T` which is `Send + Sync + 'static`.
+  - [Customizable rendering](https://docs.rs/nucleo-picker/latest/nucleo_picker/trait.Render.html) of crate-local and foreign types with the `Render` trait.
 - Fully configurable event system:
   - Easily customizable keybindings.
-  - Run the picker concurrently with your application using a fully-featured `Event` system, with optional support for complex features such as *interactive restarting*.
-  - Flexible error propagation generics so your application errors can interface cleanly with the picker.
+  - Run the picker concurrently with your application using a fully-featured [`Event` system](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/enum.Event.html), with optional support for complex features such as [*interactive restarting*](https://docs.rs/nucleo-picker/0.7.0-alpha.3/nucleo_picker/event/enum.Event.html#restart).
+  - Optional and flexible [error propagation generics](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/enum.Event.html#application-defined-abort) so your application errors can interface cleanly with the picker.
 
 ## Example
 Implement a heavily simplified `fzf` clone in 25 lines of code.
@@ -82,8 +83,13 @@ fn main() -> io::Result<()> {
 }
 ```
 
+
 ## Related crates
+
 This crate mainly exists as a result of the author's annoyance with pretty much every fuzzy picker TUI in the rust ecosystem.
+As far as I am aware, the fully-exposed [event system](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/enum.Event.html) is unique to this crate.
+Beyond this, here is a brief comparison:
+
 - [skim](https://docs.rs/skim/latest/skim/)'s `Arc<dyn SkimItem>` is inconvenient for a [variety of reasons](https://rutar.org/writing/using-closure-traits-to-simplify-rust-api/).
   `skim` also has a large number of dependencies and is designed more as a binary than a library.
 - [fuzzypicker](https://docs.rs/fuzzypicker/latest/fuzzypicker/) is based on `skim` and inherits `skim`'s problems.
@@ -93,5 +99,4 @@ This crate mainly exists as a result of the author's annoyance with pretty much 
   The terminal handling also has a few strange bugs.
 
 ## Disclaimer
-The feature set of this library is quite minimal (by design) but may be expanded in the future.
-There are a currently a few known problems which have not been addressed (see the [issues page on GitHub](https://github.com/autobib/nucleo-picker/issues) for a list).
+There are a currently a few known problems which have not been addressed (see the [issues page on GitHub](https://github.com/autobib/nucleo-picker/issues) for a list). Issues and contributions are welcome!
