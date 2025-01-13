@@ -494,10 +494,12 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         PickerOptions::default().picker(render)
     }
 
-    /// Update the default prompt. This is mainly useful for modifying the prompt string
+    /// Update the default query string. This is mainly useful for modifying the query string
     /// before re-using the [`Picker`].
     ///
-    /// See also the [`PickerOptions::prompt`] method to set the prompt during initialization.
+    /// See the [`PickerOptions::query`] method to set the query during initialization, and
+    /// [`PromptEvent::Reset`](event::PromptEvent::Reset) to reset the query during interactive
+    /// use.
     #[inline]
     pub fn update_query<Q: Into<String>>(&mut self, query: Q) {
         self.prompt.set_query(query);

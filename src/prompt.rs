@@ -98,8 +98,7 @@ pub enum PromptEvent {
     Insert(char),
     /// Paste a string at the cursor position.
     Paste(String),
-    /// Reset the prompt and move the cursor to the end.
-    #[allow(unused)]
+    /// Reset the query string and move the cursor to the end.
     Reset(String),
 }
 
