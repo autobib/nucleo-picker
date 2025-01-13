@@ -22,7 +22,6 @@ use nucleo_picker::{
 /// The custom error type for our application. We could just use an `io::Error` directly (and also
 /// benefit from free error propogation), but for demonstration purposes we also add more context
 /// to the IO error with a custom wrapper type.
-#[derive(Debug)]
 enum AppError {
     Key(io::Error),
     Stdin(io::Error),

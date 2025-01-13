@@ -64,9 +64,9 @@ fn main() -> io::Result<()> {
             code: KeyCode::Char('n'),
             ..
         } => {
-            // we create the restart event on `ctrl + n`. we pass the 'sender' end of our
-            // channel so that the picker forwards the new injectors resulting from a restart
-            // to our other thread which is only watching for restart events
+            // we create the restart event on `ctrl + n`. since this invalidates existing
+            // injectors, a new injector is immediately sent to the observer which we are watching
+            // in the other thread
             Some(Event::<Infallible>::Restart)
         }
         e => keybind_default(e),

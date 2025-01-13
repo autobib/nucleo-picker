@@ -86,6 +86,8 @@ fn main() -> io::Result<()> {
                         current_injector = new_injector;
                         remaining_items = NUM_ITEMS;
                     } else {
+                        // observer.recv() returned an error, means the channel disconnected so we
+                        // can shut down this thread
                         return;
                     }
                 }
