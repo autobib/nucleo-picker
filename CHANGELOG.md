@@ -31,10 +31,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `fzf_err_handling` to use channels for event propagation
   - `restart` to demonstrate interactive restarting (with extended example `restart_ext`)
 
-### Deprecated
-- `PickerOptions::query` has been renamed to `PickerOptions::prompt` for naming consistency.
-- `Picker::update_query` has been renamed to `Picker::update_prompt` for naming consistency.
-
 ### Fixed
 - Fixed screen layout when resizing to prefer higher score elements.
 - Uses panic hook to correctly clean up screen if the picker panics.

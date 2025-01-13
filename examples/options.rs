@@ -10,7 +10,7 @@ fn main() -> Result<()> {
         // set the configuration to match 'path-like' objects
         .config(Config::DEFAULT.match_paths())
         // set the default prompt to `/var`
-        .prompt("/var")
+        .query("/var")
         .picker(StrRenderer);
 
     let choices = vec![
