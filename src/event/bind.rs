@@ -44,7 +44,7 @@ pub fn keybind_default<A>(key_event: KeyEvent) -> Option<Event<A>> {
         } => match code {
             KeyCode::Char('c') => Some(Event::UserInterrupt),
             KeyCode::Char('d') => Some(Event::QuitPromptEmpty),
-            KeyCode::Char('r') => Some(Event::MatchList(MatchListEvent::Reset)),
+            KeyCode::Char('0') => Some(Event::MatchList(MatchListEvent::Reset)),
             KeyCode::Char('g' | 'q') => Some(Event::Quit),
             KeyCode::Char('k' | 'p') => Some(Event::MatchList(MatchListEvent::Up(1))),
             KeyCode::Char('j' | 'n') => Some(Event::MatchList(MatchListEvent::Down(1))),
