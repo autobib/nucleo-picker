@@ -21,6 +21,9 @@ Why use this library instead of a general-purpose fuzzy-finder such as `fzf` or 
    Instead of writing your data structure to a string, passing it to `fzf`, and then parsing the resulting match string back into your data structure, directly obtain the original data structure when matching is complete.
 4. **Don't spend time debugging terminal rendering edge cases.**
    Out-of-the-box, `nucleo-picker` handles terminal rendering subtleties such as *multiline rendering*, *double-width Unicode*, *automatic overflow scrollthrough*, and *grapheme-aware query input* so you don't have to.
+5. **Support advanced uses cases using events.**
+   `nucleo-picker` exposes a fully-featured event system which can be used to drive the picker.
+   This lets you *customize keybindings*, support *interactive restarts*, or more complex cases by implementing the `EventSource` trait.
 
 ## Features
 - [Highly optimized matching](https://github.com/helix-editor/nucleo).
@@ -35,7 +38,7 @@ Why use this library instead of a general-purpose fuzzy-finder such as `fzf` or 
   - Customizable rendering of crate-local and foreign types with the `Render` trait.
 - Fully configurable event system:
   - Easily customizable keybindings.
-  - Run the picker concurrently with a your application using a flexible `Event` system supporting standard picker operations, along with more complex features such as *interactive restarting*.
+  - Run the picker concurrently with your application using a fully-featured `Event` system, with optional support for complex features such as *interactive restarting*.
   - Flexible error propagation generics so your application errors can interface cleanly with the picker.
 
 ## Example
