@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2025-01-14
+
+### Changed
+- **Breaking** The `EventSource` trait method `recv_timeout` now takes a mutable self-reference.
+  This is to allow an `EventSource` implementation to maintain internal state.
+
+### Added
+- Keybindings are now permitted to be `FnMut` rather than just `Fn`.
+
 ## [0.7.0] - 2025-01-13
 
 ### Changed

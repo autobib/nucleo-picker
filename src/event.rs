@@ -193,7 +193,7 @@ impl From<RecvTimeoutError> for RecvError {
 /// impl<A> EventSource for EventReceiver<A> {
 ///     type AbortErr = A;
 ///
-///     fn recv_timeout(&self, duration: Duration) -> Result<Event<A>, RecvError> {
+///     fn recv_timeout(&mut self, duration: Duration) -> Result<Event<A>, RecvError> {
 ///         self.inner.recv_timeout(duration).map_err(|err| match err {
 ///             RecvTimeoutError::Timeout => RecvError::Timeout,
 ///             RecvTimeoutError::Disconnected => RecvError::Disconnected,
@@ -381,6 +381,24 @@ impl<A> StdinEventSender<A> {
     }
 }
 
+impl<A, F: Fn(KeyEvent) -> Option<Event<A>>> StdinEventSender<A, F> {
+    /// Watch for events until either the receiver is dropped (in which case `Ok(())` is returned),
+    /// or there is an IO error while reading from standard input. This method will block the
+    /// current thread until the channel disconnects or a read fails.
+    ///
+    /// This method is only compatible with keybindings which do not mutate internal state. For a
+    /// version which permits mutation, see [`watch_mut`](Self::watch_mut).
+    pub fn watch(&self) -> io::Result<()> {
+        loop {
+            if let Some(event) = convert_crossterm_event(read()?, &self.keybind) {
+                if self.sender.send(event).is_err() {
+                    return Ok(());
+                }
+            }
+        }
+    }
+}
+
 impl<A, F: FnMut(KeyEvent) -> Option<Event<A>>> StdinEventSender<A, F> {
     /// Initialize a new [`StdinEventSender`] with the given keybindings in the provided channel.
     pub fn new(sender: Sender<Event<A>>, keybind: F) -> Self {
@@ -395,7 +413,10 @@ impl<A, F: FnMut(KeyEvent) -> Option<Event<A>>> StdinEventSender<A, F> {
     /// Watch for events until either the receiver is dropped (in which case `Ok(())` is returned),
     /// or there is an IO error while reading from standard input. This method will block the
     /// current thread until the channel disconnects or a read fails.
-    pub fn watch(&mut self) -> io::Result<()> {
+    ///
+    /// If the mutable self reference is inconvenient and your keybindings do not mutate internal
+    /// state, use [`watch`](Self::watch).
+    pub fn watch_mut(&mut self) -> io::Result<()> {
         loop {
             if let Some(event) = convert_crossterm_event(read()?, &mut self.keybind) {
                 if self.sender.send(event).is_err() {
