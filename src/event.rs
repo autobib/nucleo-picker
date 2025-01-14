@@ -293,8 +293,9 @@ impl<A> EventSource for Receiver<Event<A>> {
 }
 
 /// An [`EventSource`] implementation which reads events from [`io::Stdin`] and maps key
-/// events to events using an internal keybinding. The default implementation uses the
-/// [`keybind_default`] function for keybindings.
+/// events to events using a keybind closure.
+///
+/// The default implementation uses the [`keybind_default`] function for keybindings.
 ///
 /// ## Customizing keybindings
 ///
