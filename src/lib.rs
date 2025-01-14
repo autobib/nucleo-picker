@@ -624,7 +624,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     ///
     /// This method will **never** return [`PickError::Disconnected`].
     #[inline]
-    pub fn pick_with_keybind<F: Fn(KeyEvent) -> Option<Event>>(
+    pub fn pick_with_keybind<F: FnMut(KeyEvent) -> Option<Event>>(
         &mut self,
         keybind: F,
     ) -> Result<Option<&T>, PickError> {
@@ -718,7 +718,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// are not done.
     pub fn pick_with_io<E, W>(
         &mut self,
-        event_source: E,
+        mut event_source: E,
         writer: &mut W,
     ) -> Result<Option<&T>, PickError<<E as EventSource>::AbortErr>>
     where

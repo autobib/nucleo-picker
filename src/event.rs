@@ -281,14 +281,14 @@ pub trait EventSource {
     /// If the receiver times out, the implementation should return a [`RecvError::Timeout`].
     /// If the receiver cannot receive any more events, the implementation should return a
     /// [`RecvError::Disconnected`]. Otherwise, return one of the other variants.
-    fn recv_timeout(&self, duration: Duration) -> Result<Event<Self::AbortErr>, RecvError>;
+    fn recv_timeout(&mut self, duration: Duration) -> Result<Event<Self::AbortErr>, RecvError>;
 }
 
 impl<A> EventSource for Receiver<Event<A>> {
     type AbortErr = A;
 
-    fn recv_timeout(&self, duration: Duration) -> Result<Event<A>, RecvError> {
-        self.recv_timeout(duration).map_err(From::from)
+    fn recv_timeout(&mut self, duration: Duration) -> Result<Event<A>, RecvError> {
+        Receiver::recv_timeout(self, duration).map_err(From::from)
     }
 }
 
@@ -338,7 +338,7 @@ impl<A> Default for StdinReader<A> {
     }
 }
 
-impl<A, F: Fn(KeyEvent) -> Option<Event<A>>> StdinReader<A, F> {
+impl<A, F: FnMut(KeyEvent) -> Option<Event<A>>> StdinReader<A, F> {
     /// Create a new [`StdinReader`] with keybindings provided by the given closure.
     pub fn new(keybind: F) -> Self {
         Self {
@@ -348,12 +348,12 @@ impl<A, F: Fn(KeyEvent) -> Option<Event<A>>> StdinReader<A, F> {
     }
 }
 
-impl<A, F: Fn(KeyEvent) -> Option<Event<A>>> EventSource for StdinReader<A, F> {
+impl<A, F: FnMut(KeyEvent) -> Option<Event<A>>> EventSource for StdinReader<A, F> {
     type AbortErr = A;
 
-    fn recv_timeout(&self, duration: Duration) -> Result<Event<A>, RecvError> {
+    fn recv_timeout(&mut self, duration: Duration) -> Result<Event<A>, RecvError> {
         if poll(duration)? {
-            if let Some(event) = convert_crossterm_event(read()?, &self.keybind) {
+            if let Some(event) = convert_crossterm_event(read()?, &mut self.keybind) {
                 return Ok(event);
             }
         };
@@ -381,7 +381,7 @@ impl<A> StdinEventSender<A> {
     }
 }
 
-impl<A, F: Fn(KeyEvent) -> Option<Event<A>>> StdinEventSender<A, F> {
+impl<A, F: FnMut(KeyEvent) -> Option<Event<A>>> StdinEventSender<A, F> {
     /// Initialize a new [`StdinEventSender`] with the given keybindings in the provided channel.
     pub fn new(sender: Sender<Event<A>>, keybind: F) -> Self {
         Self { sender, keybind }
@@ -393,10 +393,11 @@ impl<A, F: Fn(KeyEvent) -> Option<Event<A>>> StdinEventSender<A, F> {
     }
 
     /// Watch for events until either the receiver is dropped (in which case `Ok(())` is returned),
-    /// or there is an IO error.
-    pub fn watch(&self) -> io::Result<()> {
+    /// or there is an IO error while reading from standard input. This method will block the
+    /// current thread until the channel disconnects or a read fails.
+    pub fn watch(&mut self) -> io::Result<()> {
         loop {
-            if let Some(event) = convert_crossterm_event(read()?, &self.keybind) {
+            if let Some(event) = convert_crossterm_event(read()?, &mut self.keybind) {
                 if self.sender.send(event).is_err() {
                     return Ok(());
                 }
