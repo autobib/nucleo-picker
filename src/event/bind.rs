@@ -84,9 +84,9 @@ pub fn keybind_default<A>(key_event: KeyEvent) -> Option<Event<A>> {
 }
 
 /// Convert a crossterm event into an [`Event`], mapping key events with the giving key bindings.
-pub fn convert_crossterm_event<A, F: Fn(KeyEvent) -> Option<Event<A>>>(
+pub fn convert_crossterm_event<A, F: FnMut(KeyEvent) -> Option<Event<A>>>(
     ct_event: CrosstermEvent,
-    keybind: F,
+    mut keybind: F,
 ) -> Option<Event<A>> {
     match ct_event {
         CrosstermEvent::Key(key_event) => (keybind)(key_event),
