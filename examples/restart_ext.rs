@@ -56,7 +56,7 @@ fn main() -> io::Result<()> {
         // In this example, coming up with the check frequency is quite easy since we know the
         // delay is 5ms, which is approximately the frame interval. In practice, with
         // computation-heavy item generation, tuning the check frequency to happen approximately
-        // twice per frame can be very challenging. Note that the `receiver.try_recv` call is very
+        // twice per frame can be very challenging. Note that the `receiver.try_recv` call is quite
         // cheap so it is better to err towards overeager checks than infrequent checks.
 
         // the current active injector
