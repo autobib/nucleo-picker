@@ -70,6 +70,11 @@ impl<T, R: Render<T>> Injector<T, R> {
             columns[0] = self.render.render(s).as_ref().into();
         });
     }
+
+    /// Returns a reference to the renderer internal to the picker.
+    pub fn renderer(&self) -> &R {
+        &self.render
+    }
 }
 
 impl<T, R: Render<T>> Extend<T> for Injector<T, R> {
