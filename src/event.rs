@@ -41,10 +41,8 @@ pub use crate::{match_list::MatchListEvent, observer::Observer, prompt::PromptEv
 
 /// An event which controls the picker behaviour.
 ///
-/// The type parameters `T` and `R` are the item type and the [`Render`](crate::Render)
-/// implementation specific to the picker respectively. The type parameter `A` is the
-/// application-defined error which can be used to conveniently propagate application errors
-/// independent of the picker to the main thread where the picker is running.
+/// The type parameter `A` is the application-defined error which can be used to propagate
+/// application errors to the main thread where the picker is running.
 ///
 /// Most events are explained directly in the enum variant documentation. A few special cases
 /// require a bit more detail: [redraw](#redraw),
@@ -75,20 +73,20 @@ pub use crate::{match_list::MatchListEvent, observer::Observer, prompt::PromptEv
 ///
 /// ## Restart
 /// The [`Event::Restart`] is used to restart the picker while it is still running. After a
-/// restart, all previously created [`Injector`][i]s become invalidated. Therefore to receive a valid
-/// [`Injector`][i], the caller must watch for new injectors using the
-/// [`Observer`] returned by [`Picker::injector_observer`](crate::Picker::injector_observer`).
+/// restart, all previously created [`Injector`][i]s become invalidated and the match list is
+/// cleared on the next frame. Therefore to receive a valid [`Injector`][i], the caller must
+/// watch for new injectors using the [`Observer`] returned by
+/// [`Picker::injector_observer`](crate::Picker::injector_observer`).
 ///
 /// When the [`Event::Restart`] is processed by the picker, it will clear the item list and
 /// immediately update the observer with the new [`Injector`][i]. If the send fails because
 /// there is no receiver, the picker will fail with
-/// [`PickError::Disconnected`](crate::error::PickError::Disconnected). Note that the observer is
-/// essentially a bounded channel of length 1; and the picker will overwrite any previously pushed
-/// [`Injector`][i] when pushing the updated one to the channel. In particular, the [`Injector`][i]
-/// in the channel (if any) is always the most up-to-date.
+/// [`PickError::Disconnected`](crate::error::PickError::Disconnected).The picker will overwrite any
+/// previously pushed [`Injector`][i] when pushing the updated one to the channel. In particular,
+/// the [`Injector`][i] in the channel (if any) is always the most up-to-date.
 ///
-/// It is possible that no [`Injector`][i] will be sent if the picker exists
-/// or disconnects before the event is processed.
+/// It is possible that no [`Injector`][i] will be sent if the picker exits or disconnects
+/// before the event is processed.
 ///
 /// For a detailed implementation example, see the [restart
 /// example](https://github.com/autobib/nucleo-picker/blob/master/examples/restart.rs).
