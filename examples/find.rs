@@ -47,13 +47,9 @@ fn main() -> io::Result<()> {
     });
 
     match picker.pick()? {
-        Some(entry) => {
-            // the matched `entry` is `&DirEntry`
-            println!("Path of selected file: '{}'", entry.path().display());
-        }
-        None => {
-            println!("No file selected!");
-        }
+        // the matched `entry` is `&DirEntry`
+        Some(entry) => println!("Path of selected file: '{}'", entry.path().display()),
+        None => println!("No file selected!"),
     }
 
     Ok(())

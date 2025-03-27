@@ -31,12 +31,8 @@ fn main() -> io::Result<()> {
 
     // open interactive prompt
     match picker.pick()? {
-        Some(opt) => {
-            println!("You selected: '{opt}'");
-        }
-        None => {
-            println!("Nothing selected!");
-        }
+        Some(opt) => println!("You selected: '{opt}'"),
+        None => println!("Nothing selected!"),
     }
 
     Ok(())

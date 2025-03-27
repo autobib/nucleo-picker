@@ -5,14 +5,58 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.4] - 2024-12-16
+## [0.8.1] - 2025-02-07
+
+### Added
+- Added method `Injector::renderer` to get a reference to the `Render` implementation internal to the picker.
+
+## [0.8.0] - 2025-01-14
 
 ### Changed
-- Picker longer quits when pressing 'Enter' with no matches
+- **Breaking** The `EventSource` trait method `recv_timeout` now takes a mutable self-reference.
+  This is to allow an `EventSource` implementation to maintain internal state.
+
+### Added
+- Keybindings are now permitted to be `FnMut` rather than just `Fn`.
+
+## [0.7.0] - 2025-01-13
+
+### Changed
+- **Breaking** `Picker::pick` now returns an `error::PickError` instead of an `io::Error`.
+  The new error type is required to more faithfully represent the possible failure modes of a custom `EventSource` implementation.
+  There is a `From<error::PickError> for io::Error` implementation to minimize breakage of existing code.
+  However, the corresponding `io::Error::other` message contents have now changed to respect the new error types.
+
+### Added
+- Reset selection to beginning of match list `ctrl + 0`.
+- New `PickerOptions::frame_interval` option to customize the refresh rate of the picker.
+- Reversed rendering with `PickerOptions::reversed`
+- New `Picker::pick_with_io` and `Picker::pick_with_keybind` functions that allows much greater IO customization.
+  - Provide your own `Writer`.
+  - Customize keybindings using a `StdinReader`.
+  - Drive the picker using a `mpsc` channel.
+  - Propagate custom errors to the picker from other threads.
+  - Implement your own `EventSource` for total customization.
+- Support for interactive restarting
+  - Initialize a restart using `Event::Restart`.
+  - Watch for new `Injector`s using the `Observer` returned by `Picker::injector_observer`.
+- New examples to demonstrate the `Event` system
+  - `custom_io` for a basic example
+  - `fzf_err_handling` to use channels for event propagation
+  - `restart` to demonstrate interactive restarting (with extended example `restart_ext`)
+
+### Fixed
+- Fixed screen layout when resizing to prefer higher score elements.
+- Uses panic hook to correctly clean up screen if the picker panics.
+
+## [0.6.4] - 2024-12-16
 
 ### Added
 - The picker now quits on `ctrl + d` if the query is empty.
 - Add "Backspace Word" on `ctrl + w`.
+
+### Fixed
+- Picker no longer quits when pressing 'Enter' with no matches
 
 ## [0.6.3] - 2024-12-11
 
@@ -24,7 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Added configuration for prompt padding and scroll padding.
-- Key-bindings to go forward and backward by word, and to clear before and after cursor.
+- Added key-bindings to go forward and backward by word, and to clear before and after cursor.
 - Support deleting next character (i.e. `Delete` on windows, and `fn + delete` on MacOS).
 
 ### Deprecated

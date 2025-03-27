@@ -10,11 +10,14 @@ use super::Render;
 /// the [`Picker`](super::Picker) using the [`push`](Injector::push) method. For convenience, an
 /// injector also implements [`Extend`] if you want to add items from an iterator.
 ///
-/// ### `DeserializeSeed` implementation
+/// ## `DeserializeSeed` implementation
 /// If your items are being read from an external source and deserialized within the
 /// [`serde`](::serde) framework, you may find it convenient to enable the `serde` optional feature.
 /// With this feature enabled, an injector implements
 /// [`DeserializeSeed`](::serde::de::DeserializeSeed) and expects a sequence of picker items.
+/// The [`DeserializeSeed`](::serde::de::DeserializeSeed) implementation sends the items to the
+/// picker immediately, without waiting for the entire file to be deserialized (or even loaded into
+/// memory).
 /// ```
 /// use nucleo_picker::{render::StrRenderer, Picker, Render};
 /// use serde::{de::DeserializeSeed, Deserialize};
@@ -34,7 +37,7 @@ use super::Render;
 /// let mut picker: Picker<String, _> = Picker::new(StrRenderer);
 /// let injector = picker.injector();
 ///
-/// // in practice, you might read from a file or a socket and use
+/// // in practice, you would read from a file or a socket and use
 /// // `Deserializer::from_reader` instead, and run this in a separate thread
 /// injector
 ///     .deserialize(&mut Deserializer::from_str(input))
@@ -66,6 +69,11 @@ impl<T, R: Render<T>> Injector<T, R> {
         self.inner.push(item, |s, columns| {
             columns[0] = self.render.render(s).as_ref().into();
         });
+    }
+
+    /// Returns a reference to the renderer internal to the picker.
+    pub fn renderer(&self) -> &R {
+        &self.render
     }
 }
 
