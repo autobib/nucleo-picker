@@ -70,8 +70,10 @@ impl KeepLines for Head {
     }
 }
 
+#[cfg(test)]
 struct All;
 
+#[cfg(test)]
 impl KeepLines for All {
     fn subslice<'a>(&self, lines: &'a [Range<usize>]) -> &'a [Range<usize>] {
         lines
