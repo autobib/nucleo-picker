@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+### Added
+- Added method `Picker::query` to obtain the contents of the query string internal to the picker.
+
 ### Changed
 - **Breaking** The `Picker::restart` method clears the query string.
 - Migrated to Rust Edition 2024.
