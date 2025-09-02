@@ -3,7 +3,7 @@
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::module_name_repetitions)]
 
-use std::{iter::repeat, ops::Range};
+use std::ops::Range;
 
 use memchr::memchr_iter;
 
@@ -106,7 +106,7 @@ impl Processor for AsciiProcessor {
     #[inline]
     fn grapheme_index_widths(input: &str) -> impl Iterator<Item = (usize, usize)> {
         debug_assert!(is_ascii_safe(input));
-        repeat(1).take(input.len()).enumerate()
+        std::iter::repeat_n(1, input.len()).enumerate()
     }
 
     #[inline]
