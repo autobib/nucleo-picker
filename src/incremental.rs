@@ -8,7 +8,7 @@ pub trait OrderedCollection {
     /// Append an item to the collection.
     fn append(&mut self, item: usize);
 
-    /// Get a mutable reference to the last element in the collection.
+    /// Get an exclusive reference to the last element in the collection.
     ///
     /// ## Safety
     /// Must be valid if and only if there was a previous call to `append`.

@@ -509,6 +509,15 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         self.match_list.reparse(self.prompt.contents());
     }
 
+    /// Returns the contents of the query string internal to the picker.
+    ///
+    /// If called after running `Picker::pick`, this will contain the contents of the query string
+    /// at the moment that the item was selected or the picker quit.
+    #[must_use]
+    pub fn query(&self) -> &str {
+        self.prompt.contents()
+    }
+
     /// Returns an [`Observer`] containing up-to-date [`Injector`]s for this picker. For example,
     /// this is the channel to which new injectors will be sent when the picker processes a
     /// [restart event](Event::Restart). See the [`Event`] documentation for more detail.
