@@ -506,6 +506,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     #[inline]
     pub fn update_query<Q: Into<String>>(&mut self, query: Q) {
         self.prompt.set_query(query);
+        self.match_list.reparse(self.prompt.contents());
     }
 
     /// Returns an [`Observer`] containing up-to-date [`Injector`]s for this picker. For example,
@@ -517,6 +518,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     ///
     /// If `with_injector` is `true`, the channel is intialized with an injector currently valid
     /// for the picker on creation.
+    #[must_use]
     pub fn injector_observer(&mut self, with_injector: bool) -> Observer<Injector<T, R>> {
         let (notifier, observer) = if with_injector {
             observer::occupied_channel(self.injector())
@@ -533,7 +535,8 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         self.match_list.update_nucleo_config(config);
     }
 
-    /// Restart the match engine, disconnecting all active injectors.
+    /// Restart the match engine, disconnecting all active injectors and clearing the existing
+    /// search query.
     ///
     /// Internally, this is a call to [`Nucleo::restart`] with `clear_snapshot = true`.
     /// See the documentation for [`Nucleo::restart`] for more detail.
@@ -544,6 +547,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// example](https://github.com/autobib/nucleo-picker/blob/master/examples/restart.rs).
     pub fn restart(&mut self) {
         self.match_list.restart();
+        self.update_query("");
     }
 
     /// Restart the match engine, disconnecting all active injectors and replacing the internal
