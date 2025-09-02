@@ -93,7 +93,7 @@ pub use nucleo;
 /// mutability, global state, I/O, or unsafe code.
 ///
 /// If purism is violated, internal index computations which depend on the rendered format
-/// will become invalid and the picker may either panic or return incorrect results. Note that such
+/// will become invalid and the picker may panic or return incorrect results. Note that such
 /// errors are encapsulated within the picker and will not result in undefined behaviour.
 ///
 /// ## Examples

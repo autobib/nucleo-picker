@@ -67,7 +67,7 @@ impl<T> Drop for Notifier<T> {
 /// An `Observer` watching for a single message `T`.
 ///
 /// This is similar to the 'receiver' end of a channel of length 1, but instead of blocking, the
-/// 'sender' always overwrites any element in the channel. In particular, any message obtain by
+/// 'sender' always overwrites any element in the channel. In particular, any message obtained by
 /// [`recv`](Observer::recv) or [`try_recv`](Observer::try_recv) is guaranteed to be the most
 /// up-to-date at the moment when the message is received.
 ///

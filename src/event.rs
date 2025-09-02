@@ -42,7 +42,7 @@ pub use crate::{match_list::MatchListEvent, observer::Observer, prompt::PromptEv
 /// An event which controls the picker behaviour.
 ///
 /// The type parameter `A` is the application-defined error which can be used to propagate
-/// application errors to the main thread where the picker is running.
+/// application errors to the thread where the picker is running.
 ///
 /// Most events are explained directly in the enum variant documentation. A few special cases
 /// require a bit more detail: [redraw](#redraw),
@@ -81,7 +81,7 @@ pub use crate::{match_list::MatchListEvent, observer::Observer, prompt::PromptEv
 /// When the [`Event::Restart`] is processed by the picker, it will clear the item list and
 /// immediately update the observer with the new [`Injector`][i]. If the send fails because
 /// there is no receiver, the picker will fail with
-/// [`PickError::Disconnected`](crate::error::PickError::Disconnected).The picker will overwrite any
+/// [`PickError::Disconnected`](crate::error::PickError::Disconnected). The picker will overwrite any
 /// previously pushed [`Injector`][i] when pushing the updated one to the channel. In particular,
 /// the [`Injector`][i] in the channel (if any) is always the most up-to-date.
 ///
