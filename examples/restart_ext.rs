@@ -21,9 +21,9 @@ use std::{
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use nucleo_picker::{
-    event::{keybind_default, Event, StdinReader},
-    render::DisplayRenderer,
     Picker,
+    event::{Event, StdinReader, keybind_default},
+    render::DisplayRenderer,
 };
 use rand::random;
 

@@ -5,7 +5,7 @@
 use std::{borrow::Cow, env::args, io, path::PathBuf, thread::spawn};
 
 use ignore::{DirEntry, WalkBuilder, WalkState};
-use nucleo_picker::{nucleo::Config, PickerOptions, Render};
+use nucleo_picker::{PickerOptions, Render, nucleo::Config};
 
 pub struct DirEntryRender;
 

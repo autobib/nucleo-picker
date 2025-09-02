@@ -12,11 +12,11 @@ use std::{
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use nucleo_picker::{
-    event::{keybind_default, Event, StdinReader},
-    render::DisplayRenderer,
     Picker,
+    event::{Event, StdinReader, keybind_default},
+    render::DisplayRenderer,
 };
-use rand::{distributions::Standard, thread_rng, Rng};
+use rand::{Rng, distributions::Standard, thread_rng};
 
 fn main() -> io::Result<()> {
     let mut picker: Picker<u32, _> = Picker::new(DisplayRenderer);

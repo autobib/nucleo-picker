@@ -52,26 +52,25 @@ use std::{
 };
 
 use crossterm::{
+    ExecutableCommand, QueueableCommand,
     cursor::MoveTo,
     event::{DisableBracketedPaste, EnableBracketedPaste, KeyEvent},
     execute,
     terminal::{
-        disable_raw_mode, enable_raw_mode, size, BeginSynchronizedUpdate, EndSynchronizedUpdate,
-        EnterAlternateScreen, LeaveAlternateScreen,
+        BeginSynchronizedUpdate, EndSynchronizedUpdate, EnterAlternateScreen, LeaveAlternateScreen,
+        disable_raw_mode, enable_raw_mode, size,
     },
-    ExecutableCommand, QueueableCommand,
 };
 use nucleo::{
-    self as nc,
+    self as nc, Nucleo,
     pattern::{CaseMatching, Normalization},
-    Nucleo,
 };
 use observer::{Notifier, Observer};
 
 use crate::{
     component::{Component, Status},
     error::PickError,
-    event::{keybind_default, Event, EventSource, RecvError, StdinReader},
+    event::{Event, EventSource, RecvError, StdinReader, keybind_default},
     lazy::{LazyMatchList, LazyPrompt},
     match_list::{MatchList, MatchListConfig},
     prompt::{Prompt, PromptConfig},

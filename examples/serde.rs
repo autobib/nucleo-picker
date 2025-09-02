@@ -14,7 +14,7 @@
 use std::{env::args, io::Result, thread::spawn};
 
 use nucleo_picker::{PickerOptions, Render};
-use serde::{de::DeserializeSeed, Deserialize};
+use serde::{Deserialize, de::DeserializeSeed};
 use serde_json::Deserializer;
 
 /// The picker item, which also implements [`Deserialize`].

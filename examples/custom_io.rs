@@ -2,9 +2,9 @@ use std::io;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use nucleo_picker::{
-    event::{keybind_default, Event, StdinReader},
-    render::StrRenderer,
     Picker,
+    event::{Event, StdinReader, keybind_default},
+    render::StrRenderer,
 };
 
 /// Keybindings which use the default keybindings, but instead of aborting on `ctrl + c`,

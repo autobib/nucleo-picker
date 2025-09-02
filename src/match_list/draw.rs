@@ -3,22 +3,22 @@ use std::io::{self, Write};
 use nucleo as nc;
 
 use super::{
+    IndexBuffer, MatchList, MatchListConfig, MatchListEvent,
     item::RenderedItem,
     span::{Head, KeepLines, Spanned, Tail},
     unicode::{AsciiProcessor, UnicodeProcessor},
-    IndexBuffer, MatchList, MatchListConfig, MatchListEvent,
 };
 use crate::{
+    Render,
     component::Component,
     util::{as_u16, as_u32},
-    Render,
 };
 
 use crossterm::{
+    QueueableCommand,
     cursor::MoveToNextLine,
     style::{Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor},
     terminal::{Clear, ClearType},
-    QueueableCommand,
 };
 
 /// The inner `match draw` implementation.

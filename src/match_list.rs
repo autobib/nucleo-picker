@@ -51,7 +51,7 @@ use self::{
     layout::{reset, resize, selection, update},
     unicode::Span,
 };
-use crate::{incremental::Incremental, Injector, Render};
+use crate::{Injector, Render, incremental::Incremental};
 
 use nucleo::{
     self as nc,

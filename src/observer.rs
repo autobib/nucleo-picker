@@ -1,8 +1,8 @@
 //! # An observer channel
 use parking_lot::{Condvar, Mutex};
 use std::sync::{
-    mpsc::{RecvError, SendError, TryRecvError},
     Arc,
+    mpsc::{RecvError, SendError, TryRecvError},
 };
 
 type Channel<T> = Mutex<(Option<T>, bool)>;

@@ -8,7 +8,7 @@ use std::{
     thread::spawn,
 };
 
-use nucleo_picker::{render::StrRenderer, Picker};
+use nucleo_picker::{Picker, render::StrRenderer};
 
 fn main() -> io::Result<()> {
     let mut picker = Picker::new(StrRenderer);
