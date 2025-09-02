@@ -14,9 +14,9 @@ use std::{
 };
 
 use nucleo_picker::{
+    Picker,
     event::{Event, StdinEventSender},
     render::StrRenderer,
-    Picker,
 };
 
 /// The custom error type for our application. We could just use an `io::Error` directly (and also

@@ -5,7 +5,7 @@
 //! [`find`](/examples/find.rs) for a (somewhat) more realistic use-case.
 use std::io;
 
-use nucleo_picker::{render::StrRenderer, Picker};
+use nucleo_picker::{Picker, render::StrRenderer};
 
 fn main() -> io::Result<()> {
     let mut picker = Picker::new(StrRenderer);

@@ -2,7 +2,7 @@
 authors = ["Alex Rutar <alex@rutar.org>"]
 categories = ["command-line-interface"]
 description = "A performant and Unicode-aware fuzzy picker tui library"
-edition = "2021"
+edition = "2024"
 keywords = ["cli"]
 license = "MIT OR Apache-2.0"
 name = "nucleo-picker"

@@ -1,10 +1,10 @@
 use crate::{
+    Injector, Render,
     component::Component,
     event::{MatchListEvent, PromptEvent},
     match_list::MatchList,
     prompt::{Prompt, PromptStatus},
     util::as_u32,
-    Injector, Render,
 };
 
 pub struct LazyMatchList<'a, T: Send + Sync + 'static, R: Render<T>> {

@@ -1,5 +1,5 @@
 use super::{
-    super::unicode::{is_ascii_safe, is_unicode_safe, AsciiProcessor, UnicodeProcessor},
+    super::unicode::{AsciiProcessor, UnicodeProcessor, is_ascii_safe, is_unicode_safe},
     *,
 };
 

@@ -85,7 +85,7 @@ impl MatchListTester {
         }
     }
 
-    fn view(&self) -> LayoutView {
+    fn view(&self) -> LayoutView<'_> {
         LayoutView {
             above: &self.match_list.above,
             below: &self.match_list.below,

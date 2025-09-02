@@ -3,7 +3,7 @@
 //! This blocking example demonstrates some of the configuration options available to the picker.
 use std::io::Result;
 
-use nucleo_picker::{nucleo::Config, render::StrRenderer, PickerOptions};
+use nucleo_picker::{PickerOptions, nucleo::Config, render::StrRenderer};
 
 fn main() -> Result<()> {
     let mut picker = PickerOptions::default()

@@ -505,10 +505,10 @@ impl Component for Prompt {
         writer: &mut W,
     ) -> std::io::Result<()> {
         use crossterm::{
+            QueueableCommand,
             cursor::MoveRight,
             style::Print,
             terminal::{Clear, ClearType},
-            QueueableCommand,
         };
 
         writer.queue(Print("> "))?;

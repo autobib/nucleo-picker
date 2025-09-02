@@ -32,7 +32,7 @@ use std::{
     time::Duration,
 };
 
-use crossterm::event::{poll, read, KeyEvent};
+use crossterm::event::{KeyEvent, poll, read};
 
 use self::bind::convert_crossterm_event;
 
@@ -350,10 +350,10 @@ impl<A, F: FnMut(KeyEvent) -> Option<Event<A>>> EventSource for StdinReader<A, F
     type AbortErr = A;
 
     fn recv_timeout(&mut self, duration: Duration) -> Result<Event<A>, RecvError> {
-        if poll(duration)? {
-            if let Some(event) = convert_crossterm_event(read()?, &mut self.keybind) {
-                return Ok(event);
-            }
+        if poll(duration)?
+            && let Some(event) = convert_crossterm_event(read()?, &mut self.keybind)
+        {
+            return Ok(event);
         };
         Err(RecvError::Timeout)
     }
@@ -388,10 +388,10 @@ impl<A, F: Fn(KeyEvent) -> Option<Event<A>>> StdinEventSender<A, F> {
     /// version which permits mutation, see [`watch_mut`](Self::watch_mut).
     pub fn watch(&self) -> io::Result<()> {
         loop {
-            if let Some(event) = convert_crossterm_event(read()?, &self.keybind) {
-                if self.sender.send(event).is_err() {
-                    return Ok(());
-                }
+            if let Some(event) = convert_crossterm_event(read()?, &self.keybind)
+                && self.sender.send(event).is_err()
+            {
+                return Ok(());
             }
         }
     }
@@ -416,10 +416,10 @@ impl<A, F: FnMut(KeyEvent) -> Option<Event<A>>> StdinEventSender<A, F> {
     /// state, use [`watch`](Self::watch).
     pub fn watch_mut(&mut self) -> io::Result<()> {
         loop {
-            if let Some(event) = convert_crossterm_event(read()?, &mut self.keybind) {
-                if self.sender.send(event).is_err() {
-                    return Ok(());
-                }
+            if let Some(event) = convert_crossterm_event(read()?, &mut self.keybind)
+                && self.sender.send(event).is_err()
+            {
+                return Ok(());
             }
         }
     }

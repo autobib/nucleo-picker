@@ -88,8 +88,8 @@ impl<T, R: Render<T>> Extend<T> for Injector<T, R> {
 #[cfg(feature = "serde")]
 mod serde {
     use serde::{
-        de::{DeserializeSeed, Deserializer, SeqAccess, Visitor},
         Deserialize,
+        de::{DeserializeSeed, Deserializer, SeqAccess, Visitor},
     };
 
     use super::Injector;

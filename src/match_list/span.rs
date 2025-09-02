@@ -10,15 +10,15 @@ use std::{
 };
 
 use crossterm::{
+    QueueableCommand,
     cursor::{MoveToColumn, MoveToNextLine},
     style::{
         Attribute, Color, Print, PrintStyledContent, SetAttribute, SetBackgroundColor, Stylize,
     },
     terminal::{Clear, ClearType},
-    QueueableCommand,
 };
 
-use super::unicode::{consume, spans_from_indices, truncate, Processor, Span};
+use super::unicode::{Processor, Span, consume, spans_from_indices, truncate};
 
 const ELLIPSIS: char = '…';
 
@@ -159,7 +159,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
                 // lies before the first highlighted character in each line.
 
                 let mut is_sharp = false; // if the offset cannot be increased because of a
-                                          // highlighted char early in the match
+                // highlighted char early in the match
 
                 for line in self.lines() {
                     // find the 'leftmost' highlighted span.
@@ -180,11 +180,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
 
                 // if the offset is exactly 1, set it to 0 since we can just print the first
                 // character instead of the ellipsis
-                if offset == 1 {
-                    0
-                } else {
-                    offset
-                }
+                if offset == 1 { 0 } else { offset }
             }
         }
     }
