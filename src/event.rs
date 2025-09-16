@@ -286,7 +286,7 @@ impl<A> EventSource for Receiver<Event<A>> {
     type AbortErr = A;
 
     fn recv_timeout(&mut self, duration: Duration) -> Result<Event<A>, RecvError> {
-        Receiver::recv_timeout(self, duration).map_err(From::from)
+        Self::recv_timeout(self, duration).map_err(From::from)
     }
 }
 

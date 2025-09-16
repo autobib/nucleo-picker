@@ -34,6 +34,7 @@ redundant_closure_for_method_calls = "warn"
 same_functions_in_if_condition = "warn"
 semicolon_if_nothing_returned = "warn"
 uninlined_format_args = "warn"
+use_self = "warn"
 
 [[example]]
 name = "custom_io"

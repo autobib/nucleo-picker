@@ -107,12 +107,12 @@ impl PromptEvent {
     pub fn is_cursor_movement(&self) -> bool {
         matches!(
             &self,
-            PromptEvent::Left(_)
-                | PromptEvent::WordLeft(_)
-                | PromptEvent::Right(_)
-                | PromptEvent::WordRight(_)
-                | PromptEvent::ToStart
-                | PromptEvent::ToEnd
+            Self::Left(_)
+                | Self::WordLeft(_)
+                | Self::Right(_)
+                | Self::WordRight(_)
+                | Self::ToStart
+                | Self::ToEnd
         )
     }
 }

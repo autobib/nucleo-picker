@@ -90,11 +90,11 @@ impl<A> PickError<A> {
     /// ```
     pub fn factor(self) -> Result<A, PickError> {
         match self {
-            PickError::IO(error) => Err(PickError::IO(error)),
-            PickError::Disconnected => Err(PickError::Disconnected),
-            PickError::UserInterrupted => Err(PickError::UserInterrupted),
-            PickError::NotInteractive => Err(PickError::NotInteractive),
-            PickError::Aborted(a) => Ok(a),
+            Self::IO(error) => Err(PickError::IO(error)),
+            Self::Disconnected => Err(PickError::Disconnected),
+            Self::UserInterrupted => Err(PickError::UserInterrupted),
+            Self::NotInteractive => Err(PickError::NotInteractive),
+            Self::Aborted(a) => Ok(a),
         }
     }
 }
@@ -102,13 +102,13 @@ impl<A> PickError<A> {
 impl<A: fmt::Display> fmt::Display for PickError<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            PickError::IO(error) => error.fmt(f),
-            PickError::Disconnected => {
+            Self::IO(error) => error.fmt(f),
+            Self::Disconnected => {
                 f.write_str("event source disconnected while picker was still active")
             }
-            PickError::Aborted(err) => write!(f, "received abort: {err}"),
-            PickError::UserInterrupted => f.write_str("keyboard interrupt"),
-            PickError::NotInteractive => {
+            Self::Aborted(err) => write!(f, "received abort: {err}"),
+            Self::UserInterrupted => f.write_str("keyboard interrupt"),
+            Self::NotInteractive => {
                 f.write_str("picker could not start since the screen is not interactive")
             }
         }
@@ -131,13 +131,13 @@ impl From<PickError> for io::Error {
     fn from(err: PickError) -> Self {
         match err {
             PickError::IO(io_err) => io_err,
-            _ => io::Error::other(err),
+            _ => Self::other(err),
         }
     }
 }
 
-impl From<PickError<io::Error>> for io::Error {
-    fn from(err: PickError<io::Error>) -> Self {
+impl From<PickError<Self>> for io::Error {
+    fn from(err: PickError<Self>) -> Self {
         match err.factor() {
             Ok(io_err) => io_err,
             Err(pick_err) => pick_err.into(),
