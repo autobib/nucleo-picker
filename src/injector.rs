@@ -19,6 +19,10 @@ use super::Render;
 /// picker immediately, without waiting for the entire file to be deserialized (or even loaded into
 /// memory).
 /// ```
+/// # #[cfg(not(feature = "serde"))]
+/// # fn main() {}
+/// # #[cfg(feature = "serde")]
+/// # fn main() {
 /// use nucleo_picker::{render::StrRenderer, Picker, Render};
 /// use serde::{de::DeserializeSeed, Deserialize};
 /// use serde_json::Deserializer;
@@ -42,6 +46,7 @@ use super::Render;
 /// injector
 ///     .deserialize(&mut Deserializer::from_str(input))
 ///     .unwrap();
+/// # }
 /// ```
 pub struct Injector<T, R> {
     inner: nc::Injector<T>,
