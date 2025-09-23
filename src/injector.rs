@@ -100,6 +100,7 @@ mod serde {
     use super::Injector;
     use crate::Render;
 
+    #[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
     impl<'de, T, R> Visitor<'de> for &Injector<T, R>
     where
         T: Send + Sync + 'static + Deserialize<'de>,
@@ -123,6 +124,7 @@ mod serde {
         }
     }
 
+    #[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
     impl<'de, T, R> DeserializeSeed<'de> for &Injector<T, R>
     where
         T: Send + Sync + 'static + Deserialize<'de>,
