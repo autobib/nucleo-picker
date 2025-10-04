@@ -45,7 +45,8 @@ struct LayoutView<'a> {
 
 impl MatchListTester {
     fn init_inner(size: u16, max_padding: u16, reversed: bool) -> Self {
-        let nc = Nucleo::new(Config::DEFAULT, Arc::new(|| {}), Some(1), 1);
+        let mut nc = Nucleo::new(Config::DEFAULT, Arc::new(|| {}), Some(1), 1);
+        nc.sort_results(false);
         let mut mc = MatchListConfig::default();
         mc.scroll_padding = max_padding;
         mc.reversed = reversed;
