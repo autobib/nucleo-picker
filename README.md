@@ -23,7 +23,7 @@ Why use this library instead of a general-purpose fuzzy-finder such as `fzf` or 
    Out-of-the-box, `nucleo-picker` handles terminal rendering subtleties such as *multiline rendering*, *double-width Unicode*, *automatic overflow scrollthrough*, and *grapheme-aware query input* so you don't have to.
 5. **Handle complex use cases using events.**
    `nucleo-picker` exposes a fully-featured [event system](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/) which can be used to drive the picker.
-   This lets you [*customize keybindings*](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/struct.StdinReader.html), support [*interactive restarts*](https://docs.rs/nucleo-picker/0.7.0-alpha.3/nucleo_picker/event/enum.Event.html#restart), and much more by implementing the [`EventSource`](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/trait.EventSource.html) trait.
+   This lets you [*customize keybindings*](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/struct.StdinReader.html), support [*interactive restarts*](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/enum.Event.html#restart), and much more by implementing the [`EventSource`](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/trait.EventSource.html) trait.
    Simplified versions of such features are available in [fzf](https://github.com/junegunn/fzf) but essentially require manual configuration via an embedded DSL.
 
 ## Features
@@ -39,7 +39,7 @@ Why use this library instead of a general-purpose fuzzy-finder such as `fzf` or 
   - [Customizable rendering](https://docs.rs/nucleo-picker/latest/nucleo_picker/trait.Render.html) of crate-local and foreign types with the `Render` trait.
 - Fully configurable event system:
   - Easily customizable keybindings.
-  - Run the picker concurrently with your application using a fully-featured [event system](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/), with optional support for complex features such as [*interactive restarting*](https://docs.rs/nucleo-picker/0.7.0-alpha.3/nucleo_picker/event/enum.Event.html#restart).
+  - Run the picker concurrently with your application using a fully-featured [event system](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/), with optional support for complex features such as [*interactive restarting*](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/enum.Event.html#restart).
   - Optional and flexible [error propagation generics](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/enum.Event.html#application-defined-abort) so your application errors can interface cleanly with the picker.
 
 ## Example
