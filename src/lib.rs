@@ -27,6 +27,7 @@
 
 #![deny(missing_docs)]
 #![warn(rustdoc::unescaped_backticks)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod component;
 pub mod error;
@@ -542,17 +543,6 @@ impl PickerOptions {
     #[inline]
     pub fn query<Q: Into<String>>(mut self, query: Q) -> Self {
         self.query = query.into();
-        self
-    }
-
-    /// How much space to leave after rendering the rightmost highlight.
-    #[must_use]
-    #[deprecated(
-        since = "0.6.2",
-        note = "method has been renamed to `highlight_padding`"
-    )]
-    pub const fn right_highlight_padding(mut self, size: u16) -> Self {
-        self.match_list_config.highlight_padding = size;
         self
     }
 }
