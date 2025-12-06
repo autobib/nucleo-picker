@@ -76,6 +76,20 @@ impl<T, R: Render<T>> Injector<T, R> {
         });
     }
 
+    /// Add items from an iterator to the picker, when the number of items in the iterator is known exactly.
+    ///
+    /// This can result in more efficient insertion when inserting a large number of elements in
+    /// a single batch.
+    pub fn extend_exact<I>(&self, iter: I)
+    where
+        I: IntoIterator<Item = T>,
+        <I as IntoIterator>::IntoIter: ExactSizeIterator,
+    {
+        self.inner.extend_exact(iter, |s, columns| {
+            columns[0] = self.render.render(s).as_ref().into();
+        });
+    }
+
     /// Returns a reference to the renderer internal to the picker.
     pub fn renderer(&self) -> &R {
         &self.render
