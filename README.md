@@ -82,6 +82,7 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 ```
+More examples can be found in the [examples directory](examples).
 
 
 ## Related crates
