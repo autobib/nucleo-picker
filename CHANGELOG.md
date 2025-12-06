@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `PickerOptions::reverse_items`: prioritize higher index over lower index items.
 - New method `Injector::extend_exact` for batch insertion when the number of added items is known in advance.
 
+### Removed
+
+- **Breaking** `PickerOptions::right_highlight_padding` (deprecated since `0.6.2`) has been removed.
+
 ### Fixed
 - Fixed missing or incorrect Latin normalization
 
