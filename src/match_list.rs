@@ -333,15 +333,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
                     // the strings are the same so we don't need to do anything
                     return;
                 } else {
-                    // TODO: fixed in nucleo 0.5.1; remove when updated
-                    (self
-                        .prompt
-                        .bytes()
-                        .rev()
-                        .take_while(|ch| *ch == b'\\')
-                        .count()
-                        % 2)
-                        == 0
+                    true
                 }
             }
             None => false,
