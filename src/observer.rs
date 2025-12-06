@@ -37,12 +37,20 @@ impl<T> Notifier<T> {
     /// Push a message to the channel. This overwrites any pre-existing message already in the
     /// channel.
     pub fn push(&self, msg: T) -> Result<(), SendError<T>> {
+        // in principle, this is a TOCTOU error, since the observer could drop in between this
+        // check and the time that the message is pushed to the channel. however, this
+        // is not a serious concern here because this is indistinguishable from the case that
+        // the injector is dropped immediately (without sending any elements) even if it was
+        // successfully received
+        //
+        // this check should be thought of as 'best-effort', instead of actually being critical
+        // for logic.
         if Arc::strong_count(&self.inner) == 1 {
-            // there are no senders so the channel is disconnected
+            // there are no observers so the channel is disconnected
             Err(SendError(msg))
         } else {
             // overwrite the channel with the new message and notify an observer that a message
-            // is avaliable
+            // is available
             let (lock, cvar) = &*self.inner;
             let mut channel = lock.lock();
             channel.0 = Some(msg);
@@ -95,6 +103,8 @@ impl<T> Observer<T> {
             None => {
                 if channel.1 {
                     // the channel is active, so we wait for a notification
+                    // this uses `parking_lot::Condvar`, which is guaranteed not to wake up
+                    // spuriously
                     cvar.wait(&mut channel);
 
                     // we received a notification that there was a change
