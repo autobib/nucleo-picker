@@ -16,7 +16,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 crossterm = { version = "0.28", features = ["use-dev-tty"] }
 memchr = "2.7"
-nucleo = { version = "0.1", package = "ncp-engine" }
+nucleo = { version = "0.1.1", package = "ncp-engine" }
 parking_lot = "0.12.3"
 unicode-segmentation = "1.10"
 unicode-width = { version = "0.2", default-features = false }

@@ -55,7 +55,7 @@ use crate::{Injector, Render, incremental::Incremental};
 
 use nucleo::{
     self as nc,
-    pattern::{CaseMatching, Normalization},
+    pattern::{CaseMatching as NucleoCaseMatching, Normalization as NucleoNormalization},
 };
 
 /// An event that modifies the selection in the match list.
@@ -170,21 +170,27 @@ pub struct MatchListConfig {
     /// The amount of padding when scrolling.
     pub scroll_padding: u16,
     /// Case matching behaviour for matches.
-    pub case_matching: CaseMatching,
+    pub case_matching: NucleoCaseMatching,
     /// Normalization behaviour for matches.
-    pub normalization: Normalization,
+    pub normalization: NucleoNormalization,
 }
 
-impl Default for MatchListConfig {
-    fn default() -> Self {
+impl MatchListConfig {
+    pub const fn new() -> Self {
         Self {
             highlight: true,
             reversed: false,
             highlight_padding: 3,
             scroll_padding: 3,
-            case_matching: CaseMatching::default(),
-            normalization: Normalization::default(),
+            case_matching: NucleoCaseMatching::Smart,
+            normalization: NucleoNormalization::Smart,
         }
+    }
+}
+
+impl Default for MatchListConfig {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

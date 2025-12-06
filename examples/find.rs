@@ -5,7 +5,7 @@
 use std::{borrow::Cow, env::args, io, path::PathBuf, thread::spawn};
 
 use ignore::{DirEntry, WalkBuilder, WalkState};
-use nucleo_picker::{PickerOptions, Render, nucleo::Config};
+use nucleo_picker::{PickerOptions, Render};
 
 pub struct DirEntryRender;
 
@@ -20,9 +20,8 @@ impl Render<DirEntry> for DirEntryRender {
 
 fn main() -> io::Result<()> {
     let mut picker = PickerOptions::default()
-        // See the nucleo configuration for more options:
-        //   https://docs.rs/nucleo/latest/nucleo/struct.Config.html
-        .config(Config::DEFAULT.match_paths())
+        // Enable bonuses for paths.
+        .match_paths()
         // Use our custom renderer for a `DirEntry`
         .picker(DirEntryRender);
 
