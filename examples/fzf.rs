@@ -8,10 +8,57 @@ use std::{
     thread::spawn,
 };
 
-use nucleo_picker::{Picker, render::StrRenderer};
+use argh::FromArgs;
+use nucleo_picker::{CaseMatching, PickerOptions, render::StrRenderer};
+
+/// A basic fzf clone with support for a few options.
+#[derive(FromArgs)]
+struct Args {
+    /// reverse the order of input items
+    #[argh(switch)]
+    tac: bool,
+
+    /// layout: 'default' or 'reverse'
+    #[argh(option, default = "String::from(\"default\")")]
+    layout: String,
+
+    /// disable sorting of results
+    #[argh(switch)]
+    no_sort: bool,
+
+    /// case-insensitive matching
+    #[argh(switch, short = 'i')]
+    ignore_case: bool,
+
+    /// initial query string
+    #[argh(option, short = 'q', default = "String::new()")]
+    query: String,
+}
 
 fn main() -> io::Result<()> {
-    let mut picker = Picker::new(StrRenderer);
+    let args: Args = argh::from_env();
+
+    // Configure picker options based on command-line flags
+    let mut options = PickerOptions::new()
+        .reverse_items(args.tac)
+        .sort_results(!args.no_sort)
+        .query(args.query);
+
+    if args.layout == "reverse" {
+        options = options.reversed(true);
+    } else if args.layout != "default" {
+        eprintln!(
+            "Invalid layout option: {}. Valid choices are 'default' or 'reverse'",
+            args.layout
+        );
+        exit(1);
+    }
+
+    if args.ignore_case {
+        options = options.case_matching(CaseMatching::Ignore);
+    }
+
+    let mut picker = options.picker(StrRenderer);
 
     let injector = picker.injector();
     spawn(move || {
