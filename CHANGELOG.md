@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New options for the sorting the match list, which are particularly useful when the desired behaviour is to *filter* rather than to *sort by score*.
   - `PickerOptions::sort_results`: which enables or disables sorting by score.
   - `PickerOptions::reverse_items`: prioritize higher index over lower index items.
+- New method `Injector::extend_exact` for batch insertion when the number of added items is known in advance.
 
 ### Fixed
 - Fixed missing or incorrect Latin normalization
