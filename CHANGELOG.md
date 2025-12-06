@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Breaking** The underlying `nucleo` crate has been patched with the new [ncp-engine](https://docs.rs/ncp-engine) crate, and is now an implementation detail which will stop being public in `0.11.0`.
+  In order to avoid confusion about the crate naming, the configuration options no longer expose the underlying `nucleo` instance.
+  To migrate:
+  - Use the native `nucleo_picker::PickerOptions::{prefer_prefix, match_paths}` methods.
+  - Use the native `nucleo_picker::{CaseMatching, Normalization}` types in place of `nucleo::pattern::{CaseMatching, Normalization}`.
+  - The `normalize` and `ignore_case` options are already ignored, so there is no replacement.
+    You should instead use `PickerOptions::normalization` and `PickerOptions::case_matching`.
+
+### Added
+- New options for the sorting the match list, which are particularly useful when the desired behaviour is to *filter* rather than to *sort by score*.
+  - `PickerOptions::sort_results`: which enables or disables sorting by score.
+  - `PickerOptions::reverse_items`: prioritize higher index over lower index items.
+
+### Fixed
+- Fixed missing or incorrect Latin normalization
+
+### Added
+- Most configuration options are now available in `const` contexts.
+
 ## [0.9.0] - 2025-09-03
 ### Added
 - Added method `Picker::query` to obtain the contents of the query string internal to the picker.

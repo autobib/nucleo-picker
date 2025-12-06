@@ -3,17 +3,21 @@
 //! This blocking example demonstrates some of the configuration options available to the picker.
 use std::io::Result;
 
-use nucleo_picker::{PickerOptions, nucleo::Config, render::StrRenderer};
+use nucleo_picker::{CaseMatching, PickerOptions, render::StrRenderer};
 
 fn main() -> Result<()> {
     let mut picker = PickerOptions::default()
         // set the configuration to match 'path-like' objects
-        .config(Config::DEFAULT.match_paths())
+        .match_paths()
+        // ignore case when matching
+        .case_matching(CaseMatching::Ignore)
         // set the default prompt to `/var`
         .query("/var")
         .picker(StrRenderer);
 
     let choices = vec![
+        "/var/tmp/a",
+        "/var/tmp/b",
         "/var/tmp",
         "/var",
         "/usr/local",

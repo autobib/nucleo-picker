@@ -63,7 +63,7 @@ use crossterm::{
 };
 use nucleo::{
     self as nc, Nucleo,
-    pattern::{CaseMatching, Normalization},
+    pattern::{CaseMatching as NucleoCaseMatching, Normalization as NucleoNormalization},
 };
 use observer::{Notifier, Observer};
 
@@ -238,6 +238,51 @@ impl<T, R: for<'a> Fn(&'a T) -> Cow<'a, str>> Render<T> for R {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[non_exhaustive]
+/// How to treat a case mismatch between two characters.
+pub enum CaseMatching {
+    /// Characters never match their case folded version (`a != A`).
+    Respect,
+    /// Characters always match their case folded version (`a == A`).
+    Ignore,
+    /// Act like [`Ignore`](CaseMatching::Ignore) if all characters in a pattern atom are
+    /// lowercase and like [`Respect`](CaseMatching::Respect) otherwise.
+    #[default]
+    Smart,
+}
+
+impl CaseMatching {
+    pub(crate) const fn convert(self) -> NucleoCaseMatching {
+        match self {
+            Self::Respect => NucleoCaseMatching::Respect,
+            Self::Ignore => NucleoCaseMatching::Ignore,
+            Self::Smart => NucleoCaseMatching::Smart,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[non_exhaustive]
+/// How to handle Unicode Latin normalization.
+pub enum Normalization {
+    /// Characters never match their normalized version (`a != ä`).
+    Never,
+    /// Act like [`Never`](Normalization::Never) if any character would need to be normalized, and
+    /// otherwise perform normalization (`a == ä` but `ä != a`).
+    #[default]
+    Smart,
+}
+
+impl Normalization {
+    pub(crate) const fn convert(self) -> NucleoNormalization {
+        match self {
+            Self::Never => NucleoNormalization::Never,
+            Self::Smart => NucleoNormalization::Smart,
+        }
+    }
+}
+
 /// Specify configuration options for a [`Picker`].
 ///
 /// Initialize with [`new`](PickerOptions::new) or (equivalently) the
@@ -253,6 +298,26 @@ impl<T, R: for<'a> Fn(&'a T) -> Cow<'a, str>> Render<T> for R {
 ///     .query("search")
 ///     .picker(StrRenderer);
 /// ```
+///
+/// ## Sort order settings
+///
+/// There are three settings which influence the order in which items appear on the screen.
+///
+/// The [`reversed`](Self::reversed) setting only influences the layout: by default, the query is
+/// placed at the bottom of the screen, with the match list rendered bottom-up. If this is set, the query will be placed at the top of the screen, with the match list rendered top-down.
+///
+/// The [`reverse_items`](Self::reverse_items) and [`sort_results`](Self::sort_results) are used to
+/// determine *the order of the items inside the match list*. The order is defined according to the
+/// following table. Here, `Index` refers to the order in which the `picker` received the items
+/// from the [`Injector`]s. If you use exactly one injector, this is guaranteed to be the same as
+/// the insertion order.
+///
+/// | `sort_results` | `reverse_items` | Sort priority                              |
+/// |----------------|-----------------|--------------------------------------------|
+/// | `true`         | `false`         | Score (desc) → Length (asc) → Index (asc)  |
+/// | `true`         | `true`          | Score (desc) → Length (asc) → Index (desc) |
+/// | `false`        | `false`         | Index (asc)                                |
+/// | `false`        | `true`          | Index (desc)                               |
 pub struct PickerOptions {
     config: nc::Config,
     query: String,
@@ -260,35 +325,39 @@ pub struct PickerOptions {
     interval: Duration,
     match_list_config: MatchListConfig,
     prompt_config: PromptConfig,
+    sort_results: bool,
+    reverse_items: bool,
 }
 
 impl Default for PickerOptions {
     fn default() -> Self {
-        Self {
-            config: nc::Config::DEFAULT,
-            query: String::new(),
-            threads: None,
-            interval: Duration::from_millis(15),
-            match_list_config: MatchListConfig::default(),
-            prompt_config: PromptConfig::default(),
-        }
+        Self::new()
     }
 }
 
 impl PickerOptions {
     /// Initialize with default configuration.
     ///
-    /// Equivalent to the [`Default`] implementation.
+    /// Equivalent to the [`Default`] implementation, but as a `const fn`.
     #[must_use]
     #[inline]
-    pub fn new() -> Self {
-        Self::default()
+    pub const fn new() -> Self {
+        Self {
+            config: nc::Config::DEFAULT,
+            query: String::new(),
+            threads: None,
+            interval: Duration::from_millis(15),
+            match_list_config: MatchListConfig::new(),
+            prompt_config: PromptConfig::new(),
+            sort_results: true,
+            reverse_items: false,
+        }
     }
 
     /// Convert into a [`Picker`].
     #[must_use]
     pub fn picker<T: Send + Sync + 'static, R: Render<T>>(self, render: R) -> Picker<T, R> {
-        let engine = Nucleo::new(
+        let engine = Nucleo::with_match_list_config(
             self.config.clone(),
             Arc::new(|| {}),
             // nucleo's API is a bit weird here in that it does not accept `NonZero<usize>`
@@ -303,6 +372,10 @@ impl PickerOptions {
                 })
                 .map(NonZero::get),
             1,
+            nc::MatchListConfig {
+                sort_results: self.sort_results,
+                reverse_items: self.reverse_items,
+            },
         );
 
         let reversed = self.match_list_config.reversed;
@@ -331,8 +404,35 @@ impl PickerOptions {
     /// order. Option `true` will put the prompt at the top and render items in descending order.
     #[must_use]
     #[inline]
-    pub fn reversed(mut self, reversed: bool) -> Self {
+    pub const fn reversed(mut self, reversed: bool) -> Self {
         self.match_list_config.reversed = reversed;
+        self
+    }
+
+    /// Reverse the item insert order.
+    ///
+    /// This changes the index tie-break method to prefer later indices rather than earlier
+    /// indices. This option is typically used with [`sort_results`](Self::sort_results) set
+    /// to `false`, in which case the newest items sent to the picker will be placed
+    /// first, rather than last.
+    ///
+    /// The default is `false`.
+    #[must_use]
+    #[inline]
+    pub const fn reverse_items(mut self, reversed: bool) -> Self {
+        self.reverse_items = reversed;
+        self
+    }
+
+    /// Whether or not to sort matching items by score.
+    ///
+    /// This option is useful when you just want to filter items, but preserve the original order.
+    /// By default, the oldest items will appear at the beginning and the newest items will appear at the end.
+    /// This can be swapped by setting [`reverse_items`](Self::reverse_items) to `true`.
+    #[must_use]
+    #[inline]
+    pub const fn sort_results(mut self, sort: bool) -> Self {
+        self.sort_results = sort;
         self
     }
 
@@ -343,7 +443,7 @@ impl PickerOptions {
     /// per second. It is not recommended to set this to a value less than 8ms.
     #[must_use]
     #[inline]
-    pub fn frame_interval(mut self, interval: Duration) -> Self {
+    pub const fn frame_interval(mut self, interval: Duration) -> Self {
         self.interval = interval;
         self
     }
@@ -354,7 +454,7 @@ impl PickerOptions {
     /// parallelism along with other factors.
     #[must_use]
     #[inline]
-    pub fn threads(mut self, threads: Option<NonZero<usize>>) -> Self {
+    pub const fn threads(mut self, threads: Option<NonZero<usize>>) -> Self {
         self.threads = threads;
         self
     }
@@ -362,15 +462,53 @@ impl PickerOptions {
     /// Set the internal match engine configuration (default to [`nucleo::Config::DEFAULT`]).
     #[must_use]
     #[inline]
+    #[deprecated(
+        since = "0.10.0",
+        note = "Use native methods `prefer_prefix` and `match_paths`. The `normalize` and `ignore_case` settings are never used; use `normalization` and `case_matching` instead."
+    )]
     pub fn config(mut self, config: nc::Config) -> Self {
         self.config = config;
+        self
+    }
+
+    /// How to perform Unicode normalization (defaults to [`Normalization::Smart`]).
+    #[must_use]
+    #[inline]
+    pub const fn normalization(mut self, normalization: Normalization) -> Self {
+        self.match_list_config.normalization = normalization.convert();
+        self
+    }
+
+    /// How to treat case mismatch (defaults to [`CaseMatching::Smart`]).
+    #[must_use]
+    #[inline]
+    pub const fn case_matching(mut self, case_matching: CaseMatching) -> Self {
+        self.match_list_config.case_matching = case_matching.convert();
+        self
+    }
+
+    /// Enable score bonuses appropriate for matching file paths.
+    #[must_use]
+    #[inline]
+    pub const fn match_paths(mut self) -> Self {
+        self.config = self.config.match_paths();
+        self
+    }
+
+    /// Whether to provide a bonus to matches by their distance from the start of the item.
+    ///
+    /// This is disabled by default and only recommended for autocompletion use-cases, where the expectation is that the user is typing the entire match.
+    #[must_use]
+    #[inline]
+    pub const fn prefer_prefix(mut self, prefer_prefix: bool) -> Self {
+        self.config.prefer_prefix = prefer_prefix;
         self
     }
 
     /// Whether or not to highlight matches (default to `true`).
     #[must_use]
     #[inline]
-    pub fn highlight(mut self, highlight: bool) -> Self {
+    pub const fn highlight(mut self, highlight: bool) -> Self {
         self.match_list_config.highlight = highlight;
         self
     }
@@ -378,7 +516,7 @@ impl PickerOptions {
     /// How much space to leave when rendering match highlighting (default to `3`).
     #[must_use]
     #[inline]
-    pub fn highlight_padding(mut self, size: u16) -> Self {
+    pub const fn highlight_padding(mut self, size: u16) -> Self {
         self.match_list_config.highlight_padding = size;
         self
     }
@@ -386,7 +524,7 @@ impl PickerOptions {
     /// How much space to leave around the selection when scrolling (default to `3`).
     #[must_use]
     #[inline]
-    pub fn scroll_padding(mut self, size: u16) -> Self {
+    pub const fn scroll_padding(mut self, size: u16) -> Self {
         self.match_list_config.scroll_padding = size;
         self
     }
@@ -394,24 +532,8 @@ impl PickerOptions {
     /// How much space to leave around the cursor (default to `2`).
     #[must_use]
     #[inline]
-    pub fn prompt_padding(mut self, size: u16) -> Self {
+    pub const fn prompt_padding(mut self, size: u16) -> Self {
         self.prompt_config.padding = size;
-        self
-    }
-
-    /// How to treat case mismatch (default to [`CaseMatching::default`]).
-    #[must_use]
-    #[inline]
-    pub fn case_matching(mut self, case_matching: CaseMatching) -> Self {
-        self.match_list_config.case_matching = case_matching;
-        self
-    }
-
-    /// How to perform Unicode normalization (default to [`Normalization::default`]).
-    #[must_use]
-    #[inline]
-    pub fn normalization(mut self, normalization: Normalization) -> Self {
-        self.match_list_config.normalization = normalization;
         self
     }
 
@@ -429,7 +551,7 @@ impl PickerOptions {
         since = "0.6.2",
         note = "method has been renamed to `highlight_padding`"
     )]
-    pub fn right_highlight_padding(mut self, size: u16) -> Self {
+    pub const fn right_highlight_padding(mut self, size: u16) -> Self {
         self.match_list_config.highlight_padding = size;
         self
     }

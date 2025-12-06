@@ -139,9 +139,15 @@ pub struct PromptConfig {
     pub padding: u16,
 }
 
+impl PromptConfig {
+    pub const fn new() -> Self {
+        Self { padding: 2 }
+    }
+}
+
 impl Default for PromptConfig {
     fn default() -> Self {
-        Self { padding: 2 }
+        Self::new()
     }
 }
 
