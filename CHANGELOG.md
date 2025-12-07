@@ -15,22 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Use the native `nucleo_picker::{CaseMatching, Normalization}` types in place of `nucleo::pattern::{CaseMatching, Normalization}`.
   - The `normalize` and `ignore_case` options are already ignored, so there is no replacement.
     You should instead use `PickerOptions::normalization` and `PickerOptions::case_matching`.
+- **Breaking** `PickerOptions::right_highlight_padding` (deprecated since `0.6.2`) has been removed.
 
 ### Added
 - New options for the sorting the match list, which are particularly useful when the desired behaviour is to *filter* rather than to *sort by score*.
   - `PickerOptions::sort_results`: which enables or disables sorting by score.
   - `PickerOptions::reverse_items`: prioritize higher index over lower index items.
 - New method `Injector::extend_exact` for batch insertion when the number of added items is known in advance.
-
-### Removed
-
-- **Breaking** `PickerOptions::right_highlight_padding` (deprecated since `0.6.2`) has been removed.
+- Most configuration options are now available in `const` contexts.
 
 ### Fixed
-- Fixed missing or incorrect Latin normalization
-
-### Added
-- Most configuration options are now available in `const` contexts.
+- Fixed missing or incorrect Latin character normalization
 
 ## [0.9.0] - 2025-09-03
 ### Added
