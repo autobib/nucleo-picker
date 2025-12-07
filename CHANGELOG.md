@@ -5,10 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.10.0] - 2025-12-07
 
 ### Changed
-- **Breaking** The underlying `nucleo` crate has been patched with the new [ncp-engine](https://docs.rs/ncp-engine) crate, and is now an implementation detail which will stop being public in `0.11.0`.
+- **Breaking** The underlying `nucleo` crate has been patched with the new [ncp-engine](https://docs.rs/ncp-engine) crate, and is now an implementation detail which will stop being public in a future version (likely `0.11.0`).
   In order to avoid confusion about the crate naming, the configuration options no longer expose the underlying `nucleo` instance.
   To migrate:
   - Use the native `nucleo_picker::PickerOptions::{prefer_prefix, match_paths}` methods.

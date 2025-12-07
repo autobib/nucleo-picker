@@ -7,7 +7,7 @@ keywords = ["cli"]
 license = "MIT OR Apache-2.0"
 name = "nucleo-picker"
 repository = "https://github.com/autobib/nucleo-picker"
-version = "0.9.0"
+version = "0.10.0"
 
 [package.metadata.docs.rs]
 all-features = true
