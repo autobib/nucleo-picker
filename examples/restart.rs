@@ -16,7 +16,7 @@ use nucleo_picker::{
     event::{Event, StdinReader, keybind_default},
     render::DisplayRenderer,
 };
-use rand::{Rng, distributions::Standard, thread_rng};
+use rand::{Rng, distr::StandardUniform};
 
 fn main() -> io::Result<()> {
     let mut picker: Picker<u32, _> = Picker::new(DisplayRenderer);
@@ -40,14 +40,14 @@ fn main() -> io::Result<()> {
     // restart events to check if the current computation should be halted and restarted on a
     // new injector. See the `restart_ext` example for this implementation.
     spawn(move || {
-        let mut rng = thread_rng();
+        let mut rng = rand::rng();
 
         // block when waiting for new events, since we have nothing else to do. If the match does
         // not succeed, it means the channel dropped so we can shut down this thread.
         while let Ok(mut injector) = observer.recv() {
             // the restart event here is an injector for the picker; send the new items to the
             // injector every time we witness the event
-            injector.extend((&mut rng).sample_iter(Standard).take(100));
+            injector.extend((&mut rng).sample_iter(StandardUniform).take(100));
         }
     });
 
