@@ -1,7 +1,7 @@
 //! # A generic fuzzy item picker
-//! This is a generic picker implementation based on the [`nucleo::Nucleo`] matching engine. The
-//! crate allows you to incorporate an interactive fuzzy picker TUI (similar in spirit to the very popular
-//! [fzf](https://github.com/junegunn/fzf)) into your own applications.
+//! This crate contains a generic picker implementation that allows you to natively incorporate an
+//! interactive fuzzy picker TUI (similar in spirit to the very popular
+//! [fzf](https://github.com/junegunn/fzf)) directly in your own applications.
 //!
 //! In short, initialize a [`Picker`] using [`PickerOptions`] and describe how the items
 //! should be represented by implementing [`Render`], or use a [built-in renderer](render).
@@ -357,7 +357,7 @@ impl PickerOptions {
 
     /// Convert into a [`Picker`].
     #[must_use]
-    pub fn picker<T: Send + Sync + 'static, R: Render<T>>(self, render: R) -> Picker<T, R> {
+    pub fn picker<T: Send + Sync + 'static, R>(self, render: R) -> Picker<T, R> {
         let engine = Nucleo::with_match_list_config(
             self.config.clone(),
             Arc::new(|| {}),
@@ -602,10 +602,13 @@ impl<T: Send + Sync + 'static, R: Render<T>> Extend<T> for Picker<T, R> {
     }
 }
 
-impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
+impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// Initialize a new picker with default configuration and the provided renderer.
     #[must_use]
-    pub fn new(render: R) -> Self {
+    pub fn new(render: R) -> Self
+    where
+        R: Render<T>,
+    {
         PickerOptions::default().picker(render)
     }
 
@@ -694,7 +697,10 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     /// This is the same as calling [`Render::render`] on the [`Render`] implementation internal
     /// to the picker.
     #[inline]
-    pub fn render<'a>(&self, item: &'a T) -> <R as Render<T>>::Str<'a> {
+    pub fn render<'a>(&self, item: &'a T) -> <R as Render<T>>::Str<'a>
+    where
+        R: Render<T>,
+    {
         self.match_list.render(item)
     }
 
@@ -726,7 +732,10 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     ///
     /// This method will **never** return [`PickError::Disconnected`].
     #[inline]
-    pub fn pick(&mut self) -> Result<Option<&T>, PickError> {
+    pub fn pick(&mut self) -> Result<Option<&T>, PickError>
+    where
+        R: Render<T>,
+    {
         self.pick_with_keybind(keybind_default)
     }
 
@@ -755,7 +764,10 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     pub fn pick_with_keybind<F: FnMut(KeyEvent) -> Option<Event>>(
         &mut self,
         keybind: F,
-    ) -> Result<Option<&T>, PickError> {
+    ) -> Result<Option<&T>, PickError>
+    where
+        R: Render<T>,
+    {
         let stderr = io::stderr().lock();
         if stderr.is_terminal() {
             self.pick_with_io(StdinReader::new(keybind), &mut BufWriter::new(stderr))
@@ -787,7 +799,10 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         writer: &mut W,
         redraw_prompt: bool,
         redraw_match_list: bool,
-    ) -> io::Result<()> {
+    ) -> io::Result<()>
+    where
+        R: Render<T>,
+    {
         let (width, height) = size()?;
 
         let (prompt_row, match_list_row) = if self.reversed {
@@ -850,6 +865,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         writer: &mut W,
     ) -> Result<Option<&T>, PickError<<E as EventSource>::AbortErr>>
     where
+        R: Render<T>,
         E: EventSource,
         W: io::Write,
     {

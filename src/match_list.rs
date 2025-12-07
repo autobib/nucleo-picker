@@ -245,7 +245,7 @@ pub struct MatchList<T: Send + Sync + 'static, R> {
     prompt: String,
 }
 
-impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
+impl<T: Send + Sync + 'static, R> MatchList<T, R> {
     /// Initialize a new [`MatchList`] with the provided configuration and initial state.
     pub fn new(
         config: MatchListConfig,
@@ -272,7 +272,10 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
     }
 
     /// A convenience function to render a given item using the internal [`Render`] implementation.
-    pub fn render<'a>(&self, item: &'a T) -> <R as Render<T>>::Str<'a> {
+    pub fn render<'a>(&self, item: &'a T) -> <R as Render<T>>::Str<'a>
+    where
+        R: Render<T>,
+    {
         self.render.render(item)
     }
 

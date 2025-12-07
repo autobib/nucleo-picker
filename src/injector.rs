@@ -62,7 +62,7 @@ impl<T, R> Clone for Injector<T, R> {
     }
 }
 
-impl<T: Send + Sync + 'static, R: Render<T>> Injector<T, R> {
+impl<T: Send + Sync + 'static, R> Injector<T, R> {
     pub(crate) fn new(inner: nc::Injector<T>, render: Arc<R>) -> Self {
         Self { inner, render }
     }
