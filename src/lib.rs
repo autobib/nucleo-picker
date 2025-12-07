@@ -691,6 +691,19 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         self.match_list.injector()
     }
 
+    /// A convenience method to add a batch of items directly to the picker.
+    ///
+    /// The number of items in the iterator must be known exactly. This is a convenience wrapper
+    /// around [`Injector::extend_exact`].
+    pub fn extend_exact<I>(&self, iter: I)
+    where
+        R: Render<T>,
+        I: IntoIterator<Item = T>,
+        <I as IntoIterator>::IntoIter: ExactSizeIterator,
+    {
+        self.injector().extend_exact(iter);
+    }
+
     /// A convenience method to obtain the rendered version of an item as it would appear in the
     /// picker.
     ///
