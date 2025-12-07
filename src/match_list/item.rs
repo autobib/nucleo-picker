@@ -8,16 +8,7 @@ impl<T> ItemSize for Item<'_, T> {
     fn size(&self) -> usize {
         let num_linebreaks = match self.matcher_columns[0].slice(..) {
             Utf32Str::Ascii(bytes) => memchr_iter(b'\n', bytes).count(),
-            Utf32Str::Unicode(chars) => {
-                // TODO: there is an upstream Unicode handling issue in that windows-style newlines are
-                // mapped to `\r` instead of `\n`. Therefore we count both the number of occurrences of
-                // `\r` and `\n`. This handles mixed `\r\n` as well as `\n`, but returns the incorrect
-                // value in the presence of free-standing carriage returns.
-                chars
-                    .iter()
-                    .filter(|ch| **ch == '\n' || **ch == '\r')
-                    .count()
-            }
+            Utf32Str::Unicode(chars) => chars.iter().filter(|ch| **ch == '\n').count(),
         };
         1 + num_linebreaks
     }
