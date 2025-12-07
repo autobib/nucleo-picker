@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [unreleased]
+
+### Changed
+- Removed `Render<T>` trait bounds except where strictly required.
+
+### Added
+- Added convenience method `Picker::extend_exact`.
+
 ## [0.10.1] - 2025-12-07
 
 ### Fixed
