@@ -6,8 +6,9 @@
 //! methods.
 use std::{borrow::Cow, path::Path};
 
-use super::Render;
+use crate::filter::{filter_control_chars_immutable, filter_control_chars_inplace};
 
+use super::Render;
 /// A renderer for any type which de-references as [`str`], such as a [`String`].
 ///
 /// ## Example
@@ -18,7 +19,7 @@ use super::Render;
 /// let st = "Hello!".to_owned();
 ///
 /// assert_eq!(str_renderer.render(&st), "Hello!");
-/// ```
+
 pub struct StrRenderer;
 
 impl<T: AsRef<str>> Render<T> for StrRenderer {
@@ -28,7 +29,7 @@ impl<T: AsRef<str>> Render<T> for StrRenderer {
         T: 'a;
 
     fn render<'a>(&self, item: &'a T) -> Self::Str<'a> {
-        item.as_ref()
+        return filter_control_chars_immutable(item.as_ref());
     }
 }
 

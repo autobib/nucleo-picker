@@ -33,6 +33,7 @@ mod component;
 pub mod error;
 pub mod event;
 mod incremental;
+mod filter;
 mod injector;
 mod lazy;
 mod match_list;
