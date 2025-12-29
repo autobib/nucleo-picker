@@ -619,12 +619,23 @@ impl PickerOptions {
 /// The selected items are returned as a [`Selection`], which is empty if picker exited with
 /// [`Event::Quit`] (or [`Event::QuitPromptEmpty`]), and non-empty if not.
 ///
+/// ### Emulate single selection using a multi-picker
+///
+/// It is possible to emulate single selection with one of the multi-picker methods by setting
+/// [`PickerOptions::max_selection_count`] to `Some(1)`. This will force the resulting
+/// [`Selection`] to contain either 0 or 1 element, and you can convert to `Option<&T>` by calling
+/// `next` on the [iterator](Selection::iter).
+///
+/// Note that the picker interface will be slightly different: it is still possible to
+/// queue at most one picked item using `⇥`. With the non-multi-pickers, it is not possible to
+/// queue items at all.
+///
 /// ## A note on memory usage
 /// Initializing a picker is a relatively expensive operation since the internal match engine uses
 /// an arena-based memory approach to minimize allocator costs, and this memory is initialized when
 /// the picker is created.
 ///
-/// To re-use the picker without additional start-up costs, use the [`Picker::restart`] method.
+/// To re-use the picker without additional start-up costs, use [`Picker::restart`].
 ///
 /// # Example
 /// Run the picker on [`Stdout`](std::io::Stdout) with no interactivity checks, and quitting
