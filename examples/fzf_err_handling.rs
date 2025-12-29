@@ -1,4 +1,4 @@
-//! # A version of the `fzf` clone with better error handling
+//! # A simplified version of the `fzf` clone with better error handling
 //!
 //! Read lines from `stdin` in a streaming fashion and populate the picker, imitating the basic
 //! functionality of [fzf](https://github.com/junegunn/fzf).

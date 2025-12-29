@@ -23,7 +23,7 @@ unicode-segmentation = "1.12.0"
 unicode-width = { version = "0.2.2", default-features = false }
 
 [dev-dependencies]
-argh = "0.1"
+clap = { version = "4.5", features = ["derive"] }
 crossbeam = "0.8.4"
 rand = "0.9.2"
 ignore = "0.4"

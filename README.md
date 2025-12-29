@@ -27,6 +27,7 @@ Why use this library instead of a general-purpose fuzzy-finder such as `fzf` or 
    Simplified versions of such features are available in [fzf](https://github.com/junegunn/fzf) but essentially require manual configuration via an embedded DSL.
 
 ## Features
+
 - [Highly optimized matching](https://github.com/helix-editor/nucleo).
 - Robust rendering:
   - Full Unicode handling with [Unicode text segmentation](https://crates.io/crates/unicode-segmentation) and [Unicode width](https://crates.io/crates/unicode-width).
@@ -83,6 +84,33 @@ fn main() -> io::Result<()> {
 }
 ```
 More examples can be found in the [examples directory](examples).
+
+## Feature parity with `fzf`
+
+The checked examples are currently supported and the unchecked examples have support planned in the future.
+If there are particular features of `fzf` that you would like to see supported (and they are not on this list), please submit an issue.
+
+To try out these features, run the [`fzf` example](examples/fzf.rs):
+```sh
+cargo build --example fzf --release
+./target/release/examples/fzf --help
+```
+
+Feature list:
+
+- [x] `--multi`: `Picker::pick_multi`
+- [x] `--multi=[MAX]`: `PickerOptions::max_selection_count`
+- [x] `--reverse`, `--layout=(default|reverse)`: `PickerOptions::reversed`
+- [x] `--no-sort`: `PickerOptions::sort_results`
+- [x] `--tac`: `PickerOptions::reverse_items`
+- [x] `--(no-)ignore-case`, `--smart-case`: `PickerOptions::case_matching`
+- [x] `--literal`: `PickerOptions::normalization`
+- [x] `--query`: `PickerOptions::query`
+- [ ] `--preview`: https://github.com/autobib/nucleo-picker/issues/5
+- [ ] `--gap`, `--highlight-line`: https://github.com/autobib/nucleo-picker/issues/91
+- [ ] `--cycle`
+- [ ] `--track`
+- [ ] `--ghost`
 
 
 ## Related crates
