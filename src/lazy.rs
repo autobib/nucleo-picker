@@ -1,23 +1,26 @@
 use crate::{
     Injector, Render,
-    component::Component,
     event::{MatchListEvent, PromptEvent},
     match_list::MatchList,
     prompt::{Prompt, PromptStatus},
     util::as_u32,
 };
 
-pub struct LazyMatchList<'a, T: Send + Sync + 'static, R: Render<T>> {
+pub struct LazyMatchList<'a, T: Send + Sync + 'static, R: Render<T>, Q> {
     match_list: &'a mut MatchList<T, R>,
+    queued: &'a mut Q,
     buffered_selection: u32,
+    toggled: bool,
 }
 
-impl<'a, T: Send + Sync + 'static, R: Render<T>> LazyMatchList<'a, T, R> {
-    pub fn new(match_list: &'a mut MatchList<T, R>) -> Self {
+impl<'a, T: Send + Sync + 'static, R: Render<T>, Q: crate::Queued> LazyMatchList<'a, T, R, Q> {
+    pub fn new(match_list: &'a mut MatchList<T, R>, queued: &'a mut Q) -> Self {
         let buffered_selection = match_list.selection();
         Self {
             match_list,
             buffered_selection,
+            queued,
+            toggled: false,
         }
     }
 
@@ -31,8 +34,29 @@ impl<'a, T: Send + Sync + 'static, R: Render<T>> LazyMatchList<'a, T, R> {
         self.match_list.is_empty()
     }
 
-    pub fn selection(&self) -> u32 {
-        self.buffered_selection
+    pub fn has_queued_items(&self) -> bool {
+        !self.queued.is_empty()
+    }
+
+    pub fn selection(&self) -> Option<u32> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(self.buffered_selection)
+        }
+    }
+
+    pub fn toggle_selection(&mut self) -> bool {
+        if !self.is_empty()
+            && self
+                .match_list
+                .toggle_queued_item(self.queued, self.buffered_selection)
+        {
+            self.toggled = true;
+            true
+        } else {
+            false
+        }
     }
 
     fn decr(&mut self, n: usize) {
@@ -51,6 +75,7 @@ impl<'a, T: Send + Sync + 'static, R: Render<T>> LazyMatchList<'a, T, R> {
     /// Note that this may not actually apply the event change to the underlying [`MatchList`]; you
     /// must call [`finish`](Self::finish) in order to guarantee that all events are fully
     /// processed.
+    #[inline]
     pub fn handle(&mut self, event: MatchListEvent) {
         match event {
             MatchListEvent::Up(n) => {
@@ -60,11 +85,34 @@ impl<'a, T: Send + Sync + 'static, R: Render<T>> LazyMatchList<'a, T, R> {
                     self.incr(n);
                 }
             }
+            MatchListEvent::ToggleUp(n) => {
+                if self.toggle_selection() {
+                    if self.match_list.reversed() {
+                        self.decr(n);
+                    } else {
+                        self.incr(n);
+                    }
+                }
+            }
             MatchListEvent::Down(n) => {
                 if self.match_list.reversed() {
                     self.incr(n);
                 } else {
                     self.decr(n);
+                }
+            }
+            MatchListEvent::DeselectAll => {
+                if self.queued.clear() {
+                    self.toggled = true;
+                }
+            }
+            MatchListEvent::ToggleDown(n) => {
+                if self.toggle_selection() {
+                    if self.match_list.reversed() {
+                        self.incr(n);
+                    } else {
+                        self.decr(n);
+                    }
                 }
             }
             MatchListEvent::Reset => {
@@ -75,7 +123,7 @@ impl<'a, T: Send + Sync + 'static, R: Render<T>> LazyMatchList<'a, T, R> {
 
     /// Complete processing and clear any buffered events.
     pub fn finish(self) -> bool {
-        self.match_list.set_selection(self.buffered_selection)
+        self.match_list.set_selection(self.buffered_selection) || self.toggled
     }
 }
 

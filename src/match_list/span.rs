@@ -188,17 +188,28 @@ impl<'a, P: Processor> Spanned<'a, P> {
     /// Print the header for each line, which is either two spaces or styled indicator. This also
     /// sets the highlighting features for the given line.
     #[inline]
-    fn start_line<W: Write + ?Sized>(stderr: &mut W, selected: bool) -> io::Result<()> {
+    fn start_line<W: Write + ?Sized>(
+        stderr: &mut W,
+        selected: bool,
+        queued: bool,
+    ) -> io::Result<()> {
         if selected {
             // print the line as bold, and with a 'selection' marker
             stderr
                 .queue(SetAttribute(Attribute::Bold))?
                 .queue(SetBackgroundColor(Color::DarkGrey))?
-                .queue(PrintStyledContent("▌ ".magenta()))?;
+                .queue(PrintStyledContent("▌".magenta()))?;
         } else {
             // print a blank instead
-            stderr.queue(Print("  "))?;
+            stderr.queue(Print(" "))?;
         }
+
+        if queued {
+            stderr.queue(PrintStyledContent("┃".magenta()))?;
+        } else {
+            stderr.queue(Print(" "))?;
+        }
+
         Ok(())
     }
 
@@ -235,6 +246,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
         &self,
         stderr: &mut W,
         selected: bool,
+        queued: bool,
         max_width: u16,
         highlight_padding: u16,
     ) -> io::Result<()> {
@@ -249,7 +261,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
             //
             // If the input is ASCII, this check is optimal.
             for line in self.lines() {
-                Self::start_line(stderr, selected)?;
+                Self::start_line(stderr, selected, queued)?;
                 for span in line {
                     Self::print_span(stderr, self.index_in(span), span.is_match)?;
                 }
@@ -259,7 +271,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
             let offset = self.required_offset(max_width, highlight_padding);
 
             for line in self.lines() {
-                Self::start_line(stderr, selected)?;
+                Self::start_line(stderr, selected, queued)?;
                 self.queue_print_line(stderr, line, offset, max_width)?;
                 Self::finish_line(stderr)?;
             }

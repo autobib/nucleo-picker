@@ -4,10 +4,7 @@ mod tests;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::{
-    component::{Component, Status},
-    util::as_u16,
-};
+use crate::{component::Status, util::as_u16};
 
 trait Cursor {
     fn right(self, s: &str, steps: usize) -> Self;
@@ -169,6 +166,97 @@ impl Prompt {
             screen_offset: 0,
             width: u16::MAX,
             config,
+        }
+    }
+
+    pub fn handle(&mut self, e: PromptEvent) -> PromptStatus {
+        let mut contents_changed = false;
+
+        let needs_redraw = match e {
+            PromptEvent::Reset(s) => {
+                self.set_query(s);
+                true
+            }
+            PromptEvent::Left(n) => self.move_cursor(CursorMovement::Left(n)),
+            PromptEvent::WordLeft(n) => self.move_cursor(CursorMovement::WordLeft(n)),
+            PromptEvent::Right(n) => self.move_cursor(CursorMovement::Right(n)),
+            PromptEvent::WordRight(n) => self.move_cursor(CursorMovement::WordRight(n)),
+            PromptEvent::ToStart => self.move_cursor(CursorMovement::ToStart),
+            PromptEvent::ToEnd => self.move_cursor(CursorMovement::ToEnd),
+            PromptEvent::Insert(ch) => {
+                if let Some((ch, w)) = normalize_char(ch) {
+                    contents_changed = true;
+                    self.insert_char(ch, w);
+                    true
+                } else {
+                    false
+                }
+            }
+            PromptEvent::Paste(mut s) => {
+                normalize_prompt_string(&mut s);
+                if !s.is_empty() {
+                    contents_changed = true;
+                    self.insert(&s);
+                    true
+                } else {
+                    false
+                }
+            }
+            PromptEvent::Backspace(n) => {
+                let delete_until = self.offset;
+                if self.move_cursor(CursorMovement::Left(n)) {
+                    self.contents.replace_range(self.offset..delete_until, "");
+                    contents_changed = true;
+                    true
+                } else {
+                    false
+                }
+            }
+            PromptEvent::BackspaceWord(n) => {
+                let delete_until = self.offset;
+                if self.move_cursor(CursorMovement::WordLeft(n)) {
+                    self.contents.replace_range(self.offset..delete_until, "");
+                    contents_changed = true;
+                    true
+                } else {
+                    false
+                }
+            }
+            PromptEvent::ClearBefore => {
+                if self.offset == 0 {
+                    false
+                } else {
+                    self.contents.replace_range(..self.offset, "");
+                    self.offset = 0;
+                    self.screen_offset = 0;
+                    contents_changed = true;
+                    true
+                }
+            }
+            PromptEvent::Delete(n) => {
+                let new_offset = self.offset.right(&self.contents, n);
+                if new_offset != self.offset {
+                    self.contents.replace_range(self.offset..new_offset, "");
+                    contents_changed = true;
+                    true
+                } else {
+                    false
+                }
+            }
+            PromptEvent::ClearAfter => {
+                if self.offset == self.contents.len() {
+                    false
+                } else {
+                    self.contents.truncate(self.offset);
+                    contents_changed = true;
+                    true
+                }
+            }
+        };
+
+        PromptStatus {
+            needs_redraw,
+            contents_changed,
         }
     }
 
@@ -408,103 +496,8 @@ impl std::ops::BitOrAssign for PromptStatus {
     }
 }
 
-impl Component for Prompt {
-    type Event = PromptEvent;
-
-    type Status = PromptStatus;
-
-    fn handle(&mut self, e: Self::Event) -> Self::Status {
-        let mut contents_changed = false;
-
-        let needs_redraw = match e {
-            PromptEvent::Reset(s) => {
-                self.set_query(s);
-                true
-            }
-            PromptEvent::Left(n) => self.move_cursor(CursorMovement::Left(n)),
-            PromptEvent::WordLeft(n) => self.move_cursor(CursorMovement::WordLeft(n)),
-            PromptEvent::Right(n) => self.move_cursor(CursorMovement::Right(n)),
-            PromptEvent::WordRight(n) => self.move_cursor(CursorMovement::WordRight(n)),
-            PromptEvent::ToStart => self.move_cursor(CursorMovement::ToStart),
-            PromptEvent::ToEnd => self.move_cursor(CursorMovement::ToEnd),
-            PromptEvent::Insert(ch) => {
-                if let Some((ch, w)) = normalize_char(ch) {
-                    contents_changed = true;
-                    self.insert_char(ch, w);
-                    true
-                } else {
-                    false
-                }
-            }
-            PromptEvent::Paste(mut s) => {
-                normalize_prompt_string(&mut s);
-                if !s.is_empty() {
-                    contents_changed = true;
-                    self.insert(&s);
-                    true
-                } else {
-                    false
-                }
-            }
-            PromptEvent::Backspace(n) => {
-                let delete_until = self.offset;
-                if self.move_cursor(CursorMovement::Left(n)) {
-                    self.contents.replace_range(self.offset..delete_until, "");
-                    contents_changed = true;
-                    true
-                } else {
-                    false
-                }
-            }
-            PromptEvent::BackspaceWord(n) => {
-                let delete_until = self.offset;
-                if self.move_cursor(CursorMovement::WordLeft(n)) {
-                    self.contents.replace_range(self.offset..delete_until, "");
-                    contents_changed = true;
-                    true
-                } else {
-                    false
-                }
-            }
-            PromptEvent::ClearBefore => {
-                if self.offset == 0 {
-                    false
-                } else {
-                    self.contents.replace_range(..self.offset, "");
-                    self.offset = 0;
-                    self.screen_offset = 0;
-                    contents_changed = true;
-                    true
-                }
-            }
-            PromptEvent::Delete(n) => {
-                let new_offset = self.offset.right(&self.contents, n);
-                if new_offset != self.offset {
-                    self.contents.replace_range(self.offset..new_offset, "");
-                    contents_changed = true;
-                    true
-                } else {
-                    false
-                }
-            }
-            PromptEvent::ClearAfter => {
-                if self.offset == self.contents.len() {
-                    false
-                } else {
-                    self.contents.truncate(self.offset);
-                    contents_changed = true;
-                    true
-                }
-            }
-        };
-
-        Self::Status {
-            needs_redraw,
-            contents_changed,
-        }
-    }
-
-    fn draw<W: std::io::Write + ?Sized>(
+impl Prompt {
+    pub fn draw<W: std::io::Write + ?Sized>(
         &mut self,
         width: u16,
         _height: u16,

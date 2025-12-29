@@ -73,31 +73,33 @@ pub use crate::{match_list::MatchListEvent, observer::Observer, prompt::PromptEv
 ///
 /// ## Restart
 /// The [`Event::Restart`] is used to restart the picker while it is still running. After a
-/// restart, all previously created [`Injector`][i]s become invalidated and the match list is
-/// cleared on the next frame. Therefore to receive a valid [`Injector`][i], the caller must
+/// restart, all previously created [`Injector`]s become invalidated and the match list is
+/// cleared on the next frame. Therefore to receive a valid [`Injector`], the caller must
 /// watch for new injectors using the [`Observer`] returned by
 /// [`Picker::injector_observer`](crate::Picker::injector_observer`).
 ///
 /// When the [`Event::Restart`] is processed by the picker, it will clear the item list and
-/// immediately update the observer with the new [`Injector`][i]. If the send fails because
+/// immediately update the observer with the new [`Injector`]. If the send fails because
 /// there is no receiver, the picker will fail with
 /// [`PickError::Disconnected`](crate::error::PickError::Disconnected). The picker will overwrite any
-/// previously pushed [`Injector`][i] when pushing the updated one to the channel. In particular,
-/// the [`Injector`][i] in the channel (if any) is always the most up-to-date.
+/// previously pushed [`Injector`] when pushing the updated one to the channel. In particular,
+/// the [`Injector`] in the channel (if any) is always the most up-to-date.
 ///
-/// It is possible that no [`Injector`][i] will be sent if the picker exits or disconnects
+/// It is possible that no [`Injector`] will be sent if the picker exits or disconnects
 /// before the event is processed.
 ///
 /// For a detailed implementation example, see the [restart
 /// example](https://github.com/autobib/nucleo-picker/blob/master/examples/restart.rs).
 ///
-/// [i]: crate::Injector
+/// [`Injector`]: crate::Injector
 #[non_exhaustive]
 pub enum Event<A = Infallible> {
     /// Modify the prompt.
     Prompt(PromptEvent),
     /// Modify the list of matches.
     MatchList(MatchListEvent),
+    /// Add or remove the highlighted item from the selection list.
+    // ToggleSelection,
     /// Quit the picker (no selection).
     Quit,
     /// Quit the picker (no selection) if the prompt is empty.
@@ -108,7 +110,8 @@ pub enum Event<A = Infallible> {
     Abort(A),
     /// Redraw the screen.
     Redraw,
-    /// Quit the picker and select the given item.
+    /// Quit the picker by selecting either the queued selections or the highlighted item if no
+    /// selections are queued.
     Select,
     /// Restart the picker, invalidating all existing injectors.
     Restart,
