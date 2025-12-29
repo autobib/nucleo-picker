@@ -45,6 +45,12 @@ Why use this library instead of a general-purpose fuzzy-finder such as `fzf` or 
 
 ## Example
 Implement a heavily simplified `fzf` clone in 25 lines of code.
+Try it out with:
+```
+cargo build --release --example fzf_basic
+cat myfile.txt | ./target/release/examples/fzf_basic
+```
+The code to create the binary:
 ```rust
 use std::{
     io::{self, IsTerminal},
@@ -81,16 +87,15 @@ More examples can be found in the [examples directory](examples).
 
 ## Feature parity with `fzf`
 
-There is an [`fzf` example](examples/fzf.rs) demonstrating the current configuration options using the same syntax as `fzf` command-line tool.
+There is an [extended `fzf` example](examples/fzf.rs) demonstrating the current configuration options using the same syntax as `fzf` command-line tool.
 Try it out:
 ```sh
 cargo build --example fzf --release
 ./target/release/examples/fzf --help
 ```
-
 The supported features are tracked below.
 The checked examples are implemented and the unchecked examples are features I would like to support in the future.
-If there are particular `fzf`-specific features that you would like to see supported (and they are not on this list), please submit an issue.
+If there are particular `fzf`-specific features that you would like to see supported that are not on this list, please submit an issue.
 
 - [x] `--multi`: `Picker::pick_multi`
 - [x] `--multi=[MAX]`: `PickerOptions::max_selection_count`
