@@ -322,7 +322,7 @@ impl Queued for SelectedIndices {
         if self.is_empty() {
             false
         } else {
-            self.clear();
+            self.inner.clear();
             true
         }
     }
