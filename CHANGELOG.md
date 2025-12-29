@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     These events are emitted by the default keybindings with `⇥`, `shift + ⇥`, and `ctrl + x` respectively.
   - Limit the number of selections with `PickerOptions::max_selection_count`.
 - Added convenience method `Picker::extend_exact` to mirror `Injector::extend_exact`.
+- Many improvements to the `fzf` example.
 
 ### Fixed
 - Removed `Render<T>` trait bounds except where strictly required.
