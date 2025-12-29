@@ -28,8 +28,6 @@ For example:
 - `\\` and `\a` match, respectively, literal `\\` and `\a`.
 - The query `fo\$ ^bar` means that we match for strings which contain `fo$` (or similar), and which begin with the exact string `bar`.
 
-The query syntax is also documented in the [nucleo-matcher](https://docs.rs/nucleo-matcher/latest/nucleo_matcher/pattern/enum.AtomKind.html) crate.
-
 
 ## Keyboard shortcuts
 Generally speaking, we attempt to follow the bash-like or vim-like keyboard shortcut conventions.
@@ -41,9 +39,6 @@ ctrl + c                           | Abort
 ⏎                                  | Select and Quit
 esc, ctrl + g, ctrl + q            | Quit (no selection)
 ctrl + d                           | Quit If Query Empty (no selection)
-⇥                                  | Toggle Select And Selection Down
-shift + ⇥                          | Toggle Select And Selection Up
-ctrl + x                           | Deselect All
 ↑, ctrl + k, ctrl + p              | Selection Up
 ↓, ctrl + j, ctrl + n, shift + ⏎   | Selection Down
 ctrl + 0                           | Reset Selection Scroll
@@ -56,6 +51,14 @@ ctrl + o                           | Clear After Cursor
 ⌫, ctrl + h, shift + ⌫             | Backspace
 ctrl + w                           | Backspace Word
 ␡, fn + ␡                          | Delete
+
+There are also special keybindings which are only enabled in multi-selection mode.
+
+Key bindings(s)                    | Action
+-----------------------------------|--------------------
+⇥                                  | Toggle Select And Selection Down
+shift + ⇥                          | Toggle Select And Selection Up
+ctrl + x                           | Deselect All
 
 
 ## Scroll and paste

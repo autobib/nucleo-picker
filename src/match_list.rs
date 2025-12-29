@@ -64,6 +64,12 @@ use nucleo::{
 };
 
 /// An event that modifies the selection in the match list.
+///
+/// Note that the events
+/// [`ToggleUp`](MatchListEvent::ToggleUp),
+/// [`ToggleDown`](MatchListEvent::ToggleDown), and
+/// [`DeselectAll`](MatchListEvent::DeselectAll) are only handled by the picker in [multiple
+/// selection mode](crate::Picker#multiple-selections).
 #[derive(Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum MatchListEvent {
