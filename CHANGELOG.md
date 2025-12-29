@@ -8,11 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [unreleased]
 
 ### Changed
-- **Breaking** Default keybindings have been changed so that `shift + ⏎` now moves the selection down instead of selecting the item.
-- Removed `Render<T>` trait bounds except where strictly required.
+- **Usage breaking** Default keybindings have been changed so that `shift + ⏎` now moves the selection down instead of selecting the item.
 
 ### Added
-- Added convenience method `Picker::extend_exact`.
+- Added support for multiple selections with methods `Picker::{pick_multi, pick_multi_with_keybind, pick_multi_with_io}`.
+  - Added new events `MatchListEvent::{ToggleUp, ToggleDown, DeselectAll}` to control the selection (and deselection) of items in the picker.
+    These events are emitted by the default keybindings with `⇥`, `shift + ⇥`, and `ctrl + x` respectively.
+  - Limit the number of selections with `PickerOptions::max_selection_count`.
+- Added convenience method `Picker::extend_exact` to mirror `Injector::extend_exact`.
+
+### Fixed
+- Removed `Render<T>` trait bounds except where strictly required.
 
 ## [0.10.1] - 2025-12-07
 

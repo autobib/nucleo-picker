@@ -32,13 +32,13 @@ fn draw_single_match<
     max_draw_length: u16, // the width for the line itself (i.e.
     // not including the space for the selection marker)
     config: &MatchListConfig,
-    item: &(nc::Item<'_, T>, bool),
+    item: nc::Item<'_, T>,
+    queued: bool,
     snapshot: &nc::Snapshot<T>,
     matcher: &mut nc::Matcher,
     height: u16,
     render: &R,
 ) -> io::Result<()> {
-    let (item, queued) = item;
     // generate the indices
     if config.highlight {
         buffer.indices.clear();
@@ -51,7 +51,7 @@ fn draw_single_match<
         buffer.indices.dedup();
     }
 
-    match RenderedItem::new(item, render) {
+    match RenderedItem::new(&item, render) {
         RenderedItem::Ascii(s) => Spanned::<'_, AsciiProcessor>::new(
             &buffer.indices,
             s,
@@ -62,7 +62,7 @@ fn draw_single_match<
         .queue_print(
             writer,
             SELECTED,
-            *queued,
+            queued,
             max_draw_length,
             config.highlight_padding,
         ),
@@ -76,7 +76,7 @@ fn draw_single_match<
         .queue_print(
             writer,
             SELECTED,
-            *queued,
+            queued,
             max_draw_length,
             config.highlight_padding,
         ),
@@ -97,13 +97,14 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, W: io::Write + ?Size
     mut item_iter: impl Iterator<Item = (nc::Item<'a, T>, bool)>,
 ) -> io::Result<()> {
     // render above the selection
-    for (item_height, item) in above.iter().rev().zip(item_iter.by_ref()) {
+    for (item_height, (item, queued)) in above.iter().rev().zip(item_iter.by_ref()) {
         draw_single_match::<_, _, Tail, _, false>(
             writer,
             buffer,
             match_list_width,
             config,
-            &item,
+            item,
+            queued,
             snapshot,
             matcher,
             as_u16(*item_height),
@@ -112,12 +113,14 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, W: io::Write + ?Size
     }
 
     // render the selection
+    let (item, queued) = item_iter.next().unwrap();
     draw_single_match::<_, _, Head, _, true>(
         writer,
         buffer,
         match_list_width,
         config,
-        &item_iter.next().unwrap(),
+        item,
+        queued,
         snapshot,
         matcher,
         as_u16(below[0]),
@@ -125,13 +128,14 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, W: io::Write + ?Size
     )?;
 
     // render below the selection
-    for (item_height, item) in below[1..].iter().zip(item_iter.by_ref()) {
+    for (item_height, (item, queued)) in below[1..].iter().zip(item_iter.by_ref()) {
         draw_single_match::<_, _, Head, _, false>(
             writer,
             buffer,
             match_list_width,
             config,
-            &item,
+            item,
+            queued,
             snapshot,
             matcher,
             as_u16(*item_height),
