@@ -443,7 +443,8 @@ impl PickerOptions {
     ///
     /// This is the reciprocal of the refresh rate. The default value is
     /// `Duration::from_millis(15)`, which corresponds to a refresh rate of approximately 67 frames
-    /// per second. It is not recommended to set this to a value less than 8ms.
+    /// per second. It is not recommended to set this to a value less than 8ms (approximately 125
+    /// frames per second).
     #[must_use]
     #[inline]
     pub const fn frame_interval(mut self, interval: Duration) -> Self {
@@ -690,8 +691,9 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// Restart the match engine, disconnecting all active injectors and clearing the existing
     /// search query.
     ///
-    /// Internally, this is a call to [`Nucleo::restart`] with `clear_snapshot = true`.
-    /// See the documentation for [`Nucleo::restart`] for more detail.
+    /// All items are removed immediately. Existing injectors will continue to function but the
+    /// items will no longer be received by this instance. The old items will only be dropped when
+    /// all injectors are dropped.
     ///
     /// This method is mainly useful for re-using the picker for multiple matches since the
     /// internal memory buffers are preserved. To restart the picker during interactive use, see
@@ -708,7 +710,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// The provided [`Render`] implementation must be the same type as the one originally
     /// provided; this is most useful for stateful renderers.
     ///
-    /// See [`Picker::restart`] and [`Nucleo::restart`] for more detail.
+    /// See [`Picker::restart`] for more detail.
     pub fn reset_renderer(&mut self, render: R) {
         self.match_list.reset_renderer(render);
     }
