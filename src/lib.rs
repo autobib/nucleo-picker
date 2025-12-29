@@ -596,10 +596,8 @@ impl PickerOptions {
 /// 2. If you wish to customize keybindings, use [`Picker::pick_with_keybind`].
 /// 3. If you wish to customize all IO to the picker, use [`Picker::pick_with_io`].
 ///
-/// These items return `Option<&T>` as the return type, where `None` indicates that no items were
-/// selected. In this mode, the events
-/// [`MatchListEvent::ToggleDown`](crate::event::MatchListEvent::ToggleDown) and
-/// [`MatchListEvent::ToggleUp`](crate::event::MatchListEvent::ToggleUp) are ignored.
+/// These methods return `Option<&T>` as the return type, where `None` indicates that no items were
+/// selected.
 ///
 /// ### Multiple selections
 ///
@@ -613,7 +611,7 @@ impl PickerOptions {
 /// These methods are analogous to their single-selection variants, except additional items can be
 /// queued with the [`MatchListEvent::ToggleDown`](crate::event::MatchListEvent::ToggleDown) and
 /// [`MatchListEvent::ToggleUp`](crate::event::MatchListEvent::ToggleUp) events. The [default
-/// keybindings](keybind_default) bind these so `⇥` and `shift + ⇥` respectively. In this case, an
+/// keybindings](keybind_default) bind these to `⇥` and `shift + ⇥` respectively. In this case, an
 /// [`Event::Select`] is handled slightly differently: if there are no queued selections, this
 /// picks the highlighted item, but if there are queued selections, then only the queued selections
 /// are returned.
@@ -731,7 +729,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// The provided [`Render`] implementation must be the same type as the one originally
     /// provided; this is most useful for stateful renderers.
     ///
-    /// See [`Picker::restart`] for more detail.
+    /// See [`Picker::restart`] for more detail. Note that method *does not* clear the query.
     pub fn reset_renderer(&mut self, render: R) {
         self.match_list.reset_renderer(render);
     }
