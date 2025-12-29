@@ -45,12 +45,6 @@ Why use this library instead of a general-purpose fuzzy-finder such as `fzf` or 
 
 ## Example
 Implement a heavily simplified `fzf` clone in 25 lines of code.
-Try it out with:
-```
-cargo build --release --example fzf
-cat myfile.txt | ./target/release/examples/fzf
-```
-The code to create the binary:
 ```rust
 use std::{
     io::{self, IsTerminal},
@@ -87,16 +81,16 @@ More examples can be found in the [examples directory](examples).
 
 ## Feature parity with `fzf`
 
-The checked examples are currently supported and the unchecked examples have support planned in the future.
-If there are particular features of `fzf` that you would like to see supported (and they are not on this list), please submit an issue.
-
-To try out these features, run the [`fzf` example](examples/fzf.rs):
+There is an [`fzf` example](examples/fzf.rs) demonstrating the current configuration options using the same syntax as `fzf` command-line tool.
+Try it out:
 ```sh
 cargo build --example fzf --release
 ./target/release/examples/fzf --help
 ```
 
-Feature list:
+The supported features are tracked below.
+The checked examples are implemented and the unchecked examples are features I would like to support in the future.
+If there are particular `fzf`-specific features that you would like to see supported (and they are not on this list), please submit an issue.
 
 - [x] `--multi`: `Picker::pick_multi`
 - [x] `--multi=[MAX]`: `PickerOptions::max_selection_count`
@@ -128,4 +122,6 @@ Beyond this, here is a brief comparison:
   The terminal handling also has a few strange bugs.
 
 ## Disclaimer
-There are a currently a few known problems which have not been addressed (see the [issues page on GitHub](https://github.com/autobib/nucleo-picker/issues) for a list). Issues and contributions are welcome!
+
+There are a currently a few known problems which have not been addressed (see the [issues page on GitHub](https://github.com/autobib/nucleo-picker/issues) for a list).
+Issues and contributions are welcome!
