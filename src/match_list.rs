@@ -47,6 +47,7 @@ mod unicode;
 
 use std::{
     collections::{BTreeMap, btree_map::Entry},
+    num::NonZero,
     ops::Range,
     sync::Arc,
 };
@@ -237,7 +238,7 @@ pub trait Queued {
 
     fn is_queued(&self, idx: u32) -> bool;
 
-    fn init() -> Self;
+    fn init(limit: Option<NonZero<u32>>) -> Self;
 
     fn into_only_selection<'a, T: Send + Sync + 'static>(
         self,
@@ -275,7 +276,7 @@ impl Queued for () {
     }
 
     #[inline]
-    fn init() -> Self {}
+    fn init(_: Option<NonZero<u32>>) -> Self {}
 
     #[inline]
     fn into_selection<'a, T: Send + Sync + 'static>(
@@ -295,12 +296,12 @@ impl Queued for () {
     }
 }
 
-impl Queued for BTreeMap<u32, ()> {
+impl Queued for SelectedIndices {
     type Output<'a, T: Send + Sync + 'static> = Selection<'a, T>;
 
     #[inline]
     fn is_empty(&self) -> bool {
-        self.is_empty()
+        self.inner.is_empty()
     }
 
     #[inline]
@@ -315,26 +316,34 @@ impl Queued for BTreeMap<u32, ()> {
 
     #[inline]
     fn toggle(&mut self, idx: u32) -> bool {
-        match self.entry(idx) {
+        let n = self.inner.len() as u32;
+        match self.inner.entry(idx) {
             Entry::Occupied(occupied_entry) => {
                 occupied_entry.remove_entry();
+                true
             }
             Entry::Vacant(vacant_entry) => {
-                vacant_entry.insert(());
+                if self.limit.is_none_or(|l| n < l.get()) {
+                    vacant_entry.insert(());
+                    true
+                } else {
+                    false
+                }
             }
         }
-
-        true
     }
 
     #[inline]
     fn is_queued(&self, idx: u32) -> bool {
-        self.contains_key(&idx)
+        self.inner.contains_key(&idx)
     }
 
     #[inline]
-    fn init() -> Self {
-        Self::new()
+    fn init(limit: Option<NonZero<u32>>) -> Self {
+        Self {
+            inner: BTreeMap::new(),
+            limit,
+        }
     }
 
     #[inline]
@@ -354,12 +363,19 @@ impl Queued for BTreeMap<u32, ()> {
         snapshot: &'a nucleo::Snapshot<T>,
         idx: u32,
     ) -> Self::Output<'a, T> {
-        self.insert(idx, ());
+        self.inner.insert(idx, ());
         Self::Output {
             snapshot,
             queued: self,
         }
     }
+}
+
+pub struct SelectedIndices {
+    // FIXME: replace with BTreeSet when the entry API lands
+    // > https://github.com/rust-lang/rust/issues/133549)
+    inner: BTreeMap<u32, ()>,
+    limit: Option<NonZero<u32>>,
 }
 
 /// The selected items when the picker quits.
@@ -374,7 +390,7 @@ pub struct Selection<'a, T: Send + Sync + 'static> {
     snapshot: &'a nc::Snapshot<T>,
     // FIXME: replace with BTreeSet when the entry API lands
     // > https://github.com/rust-lang/rust/issues/133549)
-    queued: BTreeMap<u32, ()>,
+    queued: SelectedIndices,
 }
 
 impl<'a, T: Send + Sync + 'static> Selection<'a, T> {
@@ -387,7 +403,7 @@ impl<'a, T: Send + Sync + 'static> Selection<'a, T> {
     ///
     /// The iterator will be empty if the picker quit without selecting any items.
     pub fn iter(&self) -> impl ExactSizeIterator<Item = &'a T> + DoubleEndedIterator {
-        self.queued.keys().map(|idx| {
+        self.queued.inner.keys().map(|idx| {
             // SAFETY: the indices were produced by the same snapshot which is stored inside this
             // struct, and the lifetime prevents the indices from being invalidated until this struct
             // is dropped
@@ -397,12 +413,12 @@ impl<'a, T: Send + Sync + 'static> Selection<'a, T> {
 
     /// Returns if there were no selected items.
     pub fn is_empty(&self) -> bool {
-        self.queued.is_empty()
+        self.queued.inner.is_empty()
     }
 
     /// Returns the number of selected items.
     pub fn len(&self) -> usize {
-        self.queued.len()
+        self.queued.inner.len()
     }
 }
 

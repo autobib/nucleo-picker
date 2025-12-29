@@ -43,7 +43,6 @@ mod util;
 
 use std::{
     borrow::Cow,
-    collections::BTreeMap,
     io::{self, BufWriter, IsTerminal, Write},
     iter::Extend,
     num::NonZero,
@@ -74,7 +73,7 @@ use crate::{
     error::PickError,
     event::{Event, EventSource, RecvError, StdinReader, keybind_default},
     lazy::{LazyMatchList, LazyPrompt},
-    match_list::{MatchList, MatchListConfig, Queued},
+    match_list::{MatchList, MatchListConfig, Queued, SelectedIndices},
     prompt::{Prompt, PromptConfig},
 };
 
@@ -325,6 +324,7 @@ pub struct PickerOptions {
     config: nc::Config,
     query: String,
     threads: Option<NonZero<usize>>,
+    max_selection_count: Option<NonZero<u32>>,
     interval: Duration,
     match_list_config: MatchListConfig,
     prompt_config: PromptConfig,
@@ -349,6 +349,7 @@ impl PickerOptions {
             config: nc::Config::DEFAULT,
             query: String::new(),
             threads: None,
+            max_selection_count: None,
             interval: Duration::from_millis(15),
             match_list_config: MatchListConfig::new(),
             prompt_config: PromptConfig::new(),
@@ -396,6 +397,7 @@ impl PickerOptions {
             match_list,
             prompt,
             interval: self.interval,
+            max_selection_count: self.max_selection_count,
             reversed,
             restart_notifier: None,
         }
@@ -436,6 +438,24 @@ impl PickerOptions {
     #[inline]
     pub const fn sort_results(mut self, sort: bool) -> Self {
         self.sort_results = sort;
+        self
+    }
+
+    /// The maximum number of items that can be selected in the picker.
+    ///
+    /// If `None`, no bound is applied; otherwise, use the provided bound. This is a `u32` since
+    /// the picker cannot hold more than [`u32::MAX`] items.
+    ///
+    /// This bound is only relevant when allowing [multiple selections](Picker#multiple-selections)
+    /// and has no impact on single selection mode. The returned [`Selection`] will contain at
+    /// most `maximum` items. The picker will not allow the selection of additional items if the maximum
+    /// is reached.
+    ///
+    /// The default is `None`.
+    #[must_use]
+    #[inline]
+    pub const fn max_selection_count(mut self, maximum: Option<NonZero<u32>>) -> Self {
+        self.max_selection_count = maximum;
         self
     }
 
@@ -616,6 +636,7 @@ impl PickerOptions {
 /// ```
 pub struct Picker<T: Send + Sync + 'static, R> {
     match_list: MatchList<T, R>,
+    max_selection_count: Option<NonZero<u32>>,
     prompt: Prompt,
     interval: Duration,
     reversed: bool,
@@ -903,7 +924,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         E: EventSource,
         W: io::Write,
     {
-        self.pick_impl::<_, _, BTreeMap<u32, ()>>(event_source, writer)
+        self.pick_impl::<_, _, SelectedIndices>(event_source, writer)
     }
 
     /// Initialize the alternate screen.
@@ -986,7 +1007,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
             original_hook(panic_info);
         }));
 
-        let mut queued_items = Q::init();
+        let mut queued_items = Q::init(self.max_selection_count);
 
         Self::init_screen(writer)?;
 
