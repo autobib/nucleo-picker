@@ -3,16 +3,12 @@ use std::io::{self, Write};
 use nucleo as nc;
 
 use super::{
-    IndexBuffer, MatchList, MatchListConfig, MatchListEvent,
+    IndexBuffer, MatchList, MatchListConfig,
     item::RenderedItem,
     span::{Head, KeepLines, Spanned, Tail},
     unicode::{AsciiProcessor, UnicodeProcessor},
 };
-use crate::{
-    Render,
-    component::Component,
-    util::{as_u16, as_u32},
-};
+use crate::{Render, util::as_u16};
 
 use crossterm::{
     QueueableCommand,
@@ -33,14 +29,16 @@ fn draw_single_match<
 >(
     writer: &mut W,
     buffer: &mut IndexBuffer,
-    max_draw_length: u16, // the width not including the space for the selection marker
+    max_draw_length: u16, // the width for the line itself (i.e.
+    // not including the space for the selection marker)
     config: &MatchListConfig,
-    item: &nc::Item<'_, T>,
+    item: &(nc::Item<'_, T>, bool),
     snapshot: &nc::Snapshot<T>,
     matcher: &mut nc::Matcher,
     height: u16,
     render: &R,
 ) -> io::Result<()> {
+    let (item, queued) = item;
     // generate the indices
     if config.highlight {
         buffer.indices.clear();
@@ -61,7 +59,13 @@ fn draw_single_match<
             &mut buffer.lines,
             L::from_offset(height),
         )
-        .queue_print(writer, SELECTED, max_draw_length, config.highlight_padding),
+        .queue_print(
+            writer,
+            SELECTED,
+            *queued,
+            max_draw_length,
+            config.highlight_padding,
+        ),
         RenderedItem::Unicode(r) => Spanned::<'_, UnicodeProcessor>::new(
             &buffer.indices,
             r.as_ref(),
@@ -69,7 +73,13 @@ fn draw_single_match<
             &mut buffer.lines,
             L::from_offset(height),
         )
-        .queue_print(writer, SELECTED, max_draw_length, config.highlight_padding),
+        .queue_print(
+            writer,
+            SELECTED,
+            *queued,
+            max_draw_length,
+            config.highlight_padding,
+        ),
     }
 }
 
@@ -84,7 +94,7 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, W: io::Write + ?Size
     match_list_width: u16,
     above: &[usize],
     below: &[usize],
-    mut item_iter: impl Iterator<Item = nc::Item<'a, T>>,
+    mut item_iter: impl Iterator<Item = (nc::Item<'a, T>, bool)>,
 ) -> io::Result<()> {
     // render above the selection
     for (item_height, item) in above.iter().rev().zip(item_iter.by_ref()) {
@@ -151,36 +161,13 @@ fn draw_match_counts<W: io::Write + ?Sized>(
     Ok(())
 }
 
-impl<T: Send + Sync + 'static, R: Render<T>> Component for MatchList<T, R> {
-    type Event = MatchListEvent;
-
-    type Status = bool;
-
-    fn handle(&mut self, e: Self::Event) -> bool {
-        match e {
-            MatchListEvent::Up(n) => {
-                if self.config.reversed {
-                    self.selection_decr(as_u32(n))
-                } else {
-                    self.selection_incr(as_u32(n))
-                }
-            }
-            MatchListEvent::Down(n) => {
-                if self.config.reversed {
-                    self.selection_incr(as_u32(n))
-                } else {
-                    self.selection_decr(as_u32(n))
-                }
-            }
-            MatchListEvent::Reset => self.reset(),
-        }
-    }
-
-    fn draw<W: Write + ?Sized>(
+impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
+    pub fn draw<W: Write + ?Sized, F: FnMut(u32) -> bool>(
         &mut self,
         width: u16,
         height: u16,
         writer: &mut W,
+        mut is_queued: F,
     ) -> std::io::Result<()> {
         let match_list_height = height - 1;
         let match_list_width = width.saturating_sub(3);
@@ -192,17 +179,22 @@ impl<T: Send + Sync + 'static, R: Render<T>> Component for MatchList<T, R> {
         let snapshot = self.nucleo.snapshot();
         let matched_item_count = snapshot.matched_item_count();
 
+        if height == 1 {
+            draw_match_counts(writer, matched_item_count, snapshot.item_count())?;
+            return Ok(());
+        }
+
         let mut total_whitespace = self.whitespace();
 
         // draw the matches
-        if height == 1 {
-            draw_match_counts(writer, matched_item_count, snapshot.item_count())?;
-        } else if self.config.reversed {
+        if self.config.reversed {
             draw_match_counts(writer, matched_item_count, snapshot.item_count())?;
             writer.queue(MoveToNextLine(1))?;
 
             if matched_item_count != 0 {
-                let item_iter = snapshot.matched_items(self.selection_range());
+                let items = snapshot.matches()[self.selection_range()]
+                    .iter()
+                    .map(|&m| unsafe { (snapshot.get_item_unchecked(m.idx), is_queued(m.idx)) });
                 draw_matches(
                     writer,
                     &mut self.scratch,
@@ -213,7 +205,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Component for MatchList<T, R> {
                     match_list_width,
                     &self.above,
                     &self.below,
-                    item_iter,
+                    items,
                 )?;
             }
 
@@ -230,7 +222,9 @@ impl<T: Send + Sync + 'static, R: Render<T>> Component for MatchList<T, R> {
             }
 
             if matched_item_count != 0 {
-                let item_iter = snapshot.matched_items(self.selection_range()).rev();
+                let items = snapshot.matches()[self.selection_range()]
+                    .iter()
+                    .map(|&m| unsafe { (snapshot.get_item_unchecked(m.idx), is_queued(m.idx)) });
                 draw_matches(
                     writer,
                     &mut self.scratch,
@@ -241,7 +235,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Component for MatchList<T, R> {
                     match_list_width,
                     &self.above,
                     &self.below,
-                    item_iter,
+                    items.rev(),
                 )?;
             }
 

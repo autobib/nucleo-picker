@@ -35,24 +35,27 @@ The query syntax is also documented in the [nucleo-matcher](https://docs.rs/nucl
 Generally speaking, we attempt to follow the bash-like or vim-like keyboard shortcut conventions.
 Most of these bindings are relatively standard, with some exceptions like `ctrl + o` and `ctrl + r`.
 
-Key bindings(s)         | Action
-------------------------|--------------------
-ctrl + c                | Abort
-esc, ctrl + g, ctrl + q | Quit (no selection)
-ctrl + d                | Quit If Query Empty (no selection)
-⏎, shift + ⏎            | Select and Quit
-↑, ctrl + k, ctrl + p   | Selection Up
-↓, ctrl + j, ctrl + n   | Selection Down
-ctrl + 0                | Reset Selection Scroll
-←, ctrl + b             | Cursor Left
-→, ctrl + f             | Cursor Right
-ctrl + a, ⇱             | Cursor To Start
-ctrl + e                | Cursor To End
-ctrl + u                | Clear Before Cursor
-ctrl + o                | Clear After Cursor
-⌫, ctrl + h, shift + ⌫  | Backspace
-ctrl + w                | Backspace Word
-␡, fn + ␡               | Delete
+Key bindings(s)                    | Action
+-----------------------------------|--------------------
+ctrl + c                           | Abort
+⏎                                  | Select and Quit
+esc, ctrl + g, ctrl + q            | Quit (no selection)
+ctrl + d                           | Quit If Query Empty (no selection)
+⇥                                  | Toggle Select And Selection Down
+shift + ⇥                          | Toggle Select And Selection Up
+ctrl + x                           | Deselect All
+↑, ctrl + k, ctrl + p              | Selection Up
+↓, ctrl + j, ctrl + n, shift + ⏎   | Selection Down
+ctrl + 0                           | Reset Selection Scroll
+←, ctrl + b                        | Cursor Left
+→, ctrl + f                        | Cursor Right
+ctrl + a, ⇱                        | Cursor To Start
+ctrl + e                           | Cursor To End
+ctrl + u                           | Clear Before Cursor
+ctrl + o                           | Clear After Cursor
+⌫, ctrl + h, shift + ⌫             | Backspace
+ctrl + w                           | Backspace Word
+␡, fn + ␡                          | Delete
 
 
 ## Scroll and paste

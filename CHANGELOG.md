@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [unreleased]
 
 ### Changed
+- **Breaking** Default keybindings have been changed so that `shift + ⏎` now moves the selection down instead of selecting the item.
 - Removed `Render<T>` trait bounds except where strictly required.
 
 ### Added

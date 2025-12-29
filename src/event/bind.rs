@@ -26,6 +26,7 @@ pub fn keybind_default<A>(key_event: KeyEvent) -> Option<Event<A>> {
             KeyCode::Esc => Some(Event::Quit),
             KeyCode::Up => Some(Event::MatchList(MatchListEvent::Up(1))),
             KeyCode::Down => Some(Event::MatchList(MatchListEvent::Down(1))),
+            KeyCode::Tab => Some(Event::MatchList(MatchListEvent::ToggleDown(1))),
             KeyCode::Left => Some(Event::Prompt(PromptEvent::Left(1))),
             KeyCode::Right => Some(Event::Prompt(PromptEvent::Right(1))),
             KeyCode::Home => Some(Event::Prompt(PromptEvent::ToStart)),
@@ -48,6 +49,7 @@ pub fn keybind_default<A>(key_event: KeyEvent) -> Option<Event<A>> {
             KeyCode::Char('g' | 'q') => Some(Event::Quit),
             KeyCode::Char('k' | 'p') => Some(Event::MatchList(MatchListEvent::Up(1))),
             KeyCode::Char('j' | 'n') => Some(Event::MatchList(MatchListEvent::Down(1))),
+            KeyCode::Char('x') => Some(Event::MatchList(MatchListEvent::DeselectAll)),
             KeyCode::Char('b') => Some(Event::Prompt(PromptEvent::Left(1))),
             KeyCode::Char('f') => Some(Event::Prompt(PromptEvent::Right(1))),
             KeyCode::Char('a') => Some(Event::Prompt(PromptEvent::ToStart)),
@@ -75,8 +77,9 @@ pub fn keybind_default<A>(key_event: KeyEvent) -> Option<Event<A>> {
             ..
         } => match code {
             KeyCode::Char(ch) => Some(Event::Prompt(PromptEvent::Insert(ch))),
+            KeyCode::BackTab => Some(Event::MatchList(MatchListEvent::ToggleUp(1))),
             KeyCode::Backspace => Some(Event::Prompt(PromptEvent::Backspace(1))),
-            KeyCode::Enter => Some(Event::Select),
+            KeyCode::Enter => Some(Event::MatchList(MatchListEvent::Down(1))),
             _ => None,
         },
         _ => None,

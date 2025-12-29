@@ -45,7 +45,11 @@ mod layout;
 mod span;
 mod unicode;
 
-use std::{ops::Range, sync::Arc};
+use std::{
+    collections::{BTreeMap, btree_map::Entry},
+    ops::Range,
+    sync::Arc,
+};
 
 use self::{
     layout::{reset, resize, selection, update},
@@ -64,8 +68,14 @@ use nucleo::{
 pub enum MatchListEvent {
     /// Move the selection up `usize` items.
     Up(usize),
+    /// Toggle the selection then move up `usize` items.
+    ToggleUp(usize),
     /// Move the selection down `usize` items.
     Down(usize),
+    /// Toggle the selection then move down `usize` items.
+    ToggleDown(usize),
+    /// Deselect all queued selections.
+    DeselectAll,
     /// Reset the selection to the start of the match list.
     Reset,
 }
@@ -216,6 +226,186 @@ impl IndexBuffer {
     }
 }
 
+pub trait Queued {
+    type Output<'a, T: Send + Sync + 'static>;
+
+    fn is_empty(&self) -> bool;
+
+    fn clear(&mut self) -> bool;
+
+    fn toggle(&mut self, idx: u32) -> bool;
+
+    fn is_queued(&self, idx: u32) -> bool;
+
+    fn init() -> Self;
+
+    fn into_only_selection<'a, T: Send + Sync + 'static>(
+        self,
+        snapshot: &'a nucleo::Snapshot<T>,
+        idx: u32,
+    ) -> Self::Output<'a, T>;
+
+    fn into_selection<'a, T: Send + Sync + 'static>(
+        self,
+        snapshot: &'a nucleo::Snapshot<T>,
+    ) -> Self::Output<'a, T>;
+}
+
+impl Queued for () {
+    type Output<'a, T: Send + Sync + 'static> = Option<&'a T>;
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        true
+    }
+
+    #[inline]
+    fn clear(&mut self) -> bool {
+        false
+    }
+
+    #[inline]
+    fn toggle(&mut self, _: u32) -> bool {
+        false
+    }
+
+    #[inline]
+    fn is_queued(&self, _: u32) -> bool {
+        false
+    }
+
+    #[inline]
+    fn init() -> Self {}
+
+    #[inline]
+    fn into_selection<'a, T: Send + Sync + 'static>(
+        self,
+        _: &'a nucleo::Snapshot<T>,
+    ) -> Self::Output<'a, T> {
+        None
+    }
+
+    #[inline]
+    fn into_only_selection<'a, T: Send + Sync + 'static>(
+        self,
+        snapshot: &'a nucleo::Snapshot<T>,
+        idx: u32,
+    ) -> Self::Output<'a, T> {
+        Some(snapshot.get_item(idx).unwrap().data)
+    }
+}
+
+impl Queued for BTreeMap<u32, ()> {
+    type Output<'a, T: Send + Sync + 'static> = Selection<'a, T>;
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+
+    #[inline]
+    fn clear(&mut self) -> bool {
+        if self.is_empty() {
+            false
+        } else {
+            self.clear();
+            true
+        }
+    }
+
+    #[inline]
+    fn toggle(&mut self, idx: u32) -> bool {
+        match self.entry(idx) {
+            Entry::Occupied(occupied_entry) => {
+                occupied_entry.remove_entry();
+            }
+            Entry::Vacant(vacant_entry) => {
+                vacant_entry.insert(());
+            }
+        }
+
+        true
+    }
+
+    #[inline]
+    fn is_queued(&self, idx: u32) -> bool {
+        self.contains_key(&idx)
+    }
+
+    #[inline]
+    fn init() -> Self {
+        Self::new()
+    }
+
+    #[inline]
+    fn into_selection<'a, T: Send + Sync + 'static>(
+        self,
+        snapshot: &'a nucleo::Snapshot<T>,
+    ) -> Self::Output<'a, T> {
+        Self::Output {
+            snapshot,
+            queued: self,
+        }
+    }
+
+    #[inline]
+    fn into_only_selection<'a, T: Send + Sync + 'static>(
+        mut self,
+        snapshot: &'a nucleo::Snapshot<T>,
+        idx: u32,
+    ) -> Self::Output<'a, T> {
+        self.insert(idx, ());
+        Self::Output {
+            snapshot,
+            queued: self,
+        }
+    }
+}
+
+/// The selected items when the picker quits.
+///
+/// This is the return type of the various `pick_multi*` methods of a [`Picker`](crate::Picker).
+/// Iterate over the picked items with [`iter`](Self::iter). If no items were selected, ththe struct
+/// will be [empty](Self::is_empty). Also see the docs on
+/// [multiple selections](Picker#multiple-selections)
+///
+/// The lifetime of this struct is bound to the lifetime of the picker from which it originated.
+pub struct Selection<'a, T: Send + Sync + 'static> {
+    snapshot: &'a nc::Snapshot<T>,
+    // FIXME: replace with BTreeSet when the entry API lands
+    // > https://github.com/rust-lang/rust/issues/133549)
+    queued: BTreeMap<u32, ()>,
+}
+
+impl<'a, T: Send + Sync + 'static> Selection<'a, T> {
+    /// Returns an iterator over the other selected items.
+    ///
+    ///
+    /// The iterator contains each selected item exactly once, sorted by index based on the order
+    /// in which the picker received the items. Note that items are deduplicated based on the
+    /// selection index instead of using any properties of the type `T` itself.
+    ///
+    /// The iterator will be empty if the picker quit without selecting any items.
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = &'a T> + DoubleEndedIterator {
+        self.queued.keys().map(|idx| {
+            // SAFETY: the indices were produced by the same snapshot which is stored inside this
+            // struct, and the lifetime prevents the indices from being invalidated until this struct
+            // is dropped
+            unsafe { self.snapshot.get_item_unchecked(*idx).data }
+        })
+    }
+
+    /// Returns if there were no selected items.
+    pub fn is_empty(&self) -> bool {
+        self.queued.is_empty()
+    }
+
+    /// Returns the number of selected items.
+    pub fn len(&self) -> usize {
+        self.queued.len()
+    }
+}
+
 /// A component for representing the list of successful matches.
 ///
 /// This component has two main parts: the internal [`nucleo::Nucleo`] match engine, as well as a
@@ -256,6 +446,7 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
         Self {
             size: 0,
             selection: 0,
+            // queued_items: HashMap::with_hasher(BuildHasherDefault::new()),
             below: Vec::with_capacity(128),
             above: Vec::with_capacity(128),
             config,
@@ -367,16 +558,43 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
             .saturating_sub(1)
     }
 
-    pub fn get_item(&self, n: u32) -> Option<nc::Item<'_, T>> {
-        self.nucleo.snapshot().get_matched_item(n)
+    fn idx_from_match_unchecked(&self, n: u32) -> u32 {
+        self.nucleo
+            .snapshot()
+            .matches()
+            .get(n as usize)
+            .unwrap()
+            .idx
+    }
+
+    pub fn toggle_queued_item<Q: Queued>(&mut self, queued_items: &mut Q, n: u32) -> bool {
+        queued_items.toggle(self.idx_from_match_unchecked(n))
+    }
+
+    pub fn select_none<Q: Queued>(&self, mut queued_items: Q) -> Q::Output<'_, T> {
+        queued_items.clear();
+        self.select_queued(queued_items)
+    }
+
+    pub fn select_one<Q: Queued>(&self, queued_items: Q, n: u32) -> Q::Output<'_, T> {
+        let idx = self.idx_from_match_unchecked(n);
+        let snapshot = self.nucleo.snapshot();
+        queued_items.into_only_selection(snapshot, idx)
+    }
+
+    pub fn select_queued<Q: Queued>(&self, queued_items: Q) -> Q::Output<'_, T> {
+        let snapshot = self.nucleo.snapshot();
+        queued_items.into_selection(snapshot)
     }
 
     /// Return the range corresponding to the matched items visible on the screen.
-    pub fn selection_range(&self) -> std::ops::RangeInclusive<u32> {
+    pub fn selection_range(&self) -> std::ops::RangeInclusive<usize> {
         if self.config.reversed {
-            self.selection - self.above.len() as u32..=self.selection + self.below.len() as u32 - 1
+            self.selection as usize - self.above.len()
+                ..=self.selection as usize + self.below.len() - 1
         } else {
-            self.selection + 1 - self.below.len() as u32..=self.selection + self.above.len() as u32
+            self.selection as usize + 1 - self.below.len()
+                ..=self.selection as usize + self.above.len()
         }
     }
 
@@ -578,6 +796,7 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
     }
 
     /// Increment the selection by the given amount.
+    #[cfg(test)]
     pub fn selection_incr(&mut self, increase: u32) -> bool {
         let new_selection = self
             .selection
@@ -588,6 +807,7 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
     }
 
     /// Decrement the selection by the given amount.
+    #[cfg(test)]
     pub fn selection_decr(&mut self, decrease: u32) -> bool {
         let new_selection = self.selection.saturating_sub(decrease);
 

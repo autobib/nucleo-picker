@@ -43,6 +43,7 @@ mod util;
 
 use std::{
     borrow::Cow,
+    collections::BTreeMap,
     io::{self, BufWriter, IsTerminal, Write},
     iter::Extend,
     num::NonZero,
@@ -69,15 +70,16 @@ use nucleo::{
 use observer::{Notifier, Observer};
 
 use crate::{
-    component::{Component, Status},
+    component::Status,
     error::PickError,
     event::{Event, EventSource, RecvError, StdinReader, keybind_default},
     lazy::{LazyMatchList, LazyPrompt},
-    match_list::{MatchList, MatchListConfig},
+    match_list::{MatchList, MatchListConfig, Queued},
     prompt::{Prompt, PromptConfig},
 };
 
 pub use crate::injector::Injector;
+pub use crate::match_list::Selection;
 pub use nucleo;
 
 /// A trait which describes how to render objects for matching and display.
@@ -566,11 +568,37 @@ impl PickerOptions {
 /// examples](https://github.com/autobib/nucleo-picker/tree/master/examples).
 ///
 /// ## Picker variants
+///
 /// The picker can be run in a number of different modes.
 ///
 /// 1. The simplest (and most common) method is to use [`Picker::pick`].
 /// 2. If you wish to customize keybindings, use [`Picker::pick_with_keybind`].
 /// 3. If you wish to customize all IO to the picker, use [`Picker::pick_with_io`].
+///
+/// These items return `Option<&T>` as the return type, where `None` indicates that no items were
+/// selected. In this mode, the events
+/// [`MatchListEvent::ToggleDown`](crate::event::MatchListEvent::ToggleDown) and
+/// [`MatchListEvent::ToggleUp`](crate::event::MatchListEvent::ToggleUp) are ignored.
+///
+/// ### Multiple selections
+///
+/// If you wish to permit the user to make multiple selections, use one of the similarly named
+/// methods:
+///
+/// 1. [`Picker::pick_multi`]
+/// 2. [`Picker::pick_multi_with_keybind`]
+/// 3. [`Picker::pick_multi_with_io`]
+///
+/// These methods are analogous to their single-selection variants, except additional items can be
+/// queued with the [`MatchListEvent::ToggleDown`](crate::event::MatchListEvent::ToggleDown) and
+/// [`MatchListEvent::ToggleUp`](crate::event::MatchListEvent::ToggleUp) events. The [default
+/// keybindings](keybind_default) bind these so `⇥` and `shift + ⇥` respectively. In this case, an
+/// [`Event::Select`] is handled slightly differently: if there are no queued selections, this
+/// picks the highlighted item, but if there are queued selections, then only the queued selections
+/// are returned.
+///
+/// The selected items are returned as a [`Selection`], which is empty if picker exited with
+/// [`Event::Quit`] (or [`Event::QuitPromptEmpty`]), and non-empty if not.
 ///
 /// ## A note on memory usage
 /// Initializing a picker is a relatively expensive operation since the internal match engine uses
@@ -752,6 +780,18 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         self.pick_with_keybind(keybind_default)
     }
 
+    /// Open the interactive picker prompt and return the picked items, if any.
+    ///
+    /// This method permits the user to select multiple items, but is otherwise identical to [`pick`](Self::pick). See those docs as well as the
+    /// [docs on multiple selections](Picker#multiple-selections) for more detail.
+    #[inline]
+    pub fn pick_multi(&mut self) -> Result<Selection<'_, T>, PickError>
+    where
+        R: Render<T>,
+    {
+        self.pick_multi_with_keybind(keybind_default)
+    }
+
     /// Open the interactive picker prompt and return the picked item, if any. Uses the provided
     /// keybindings for the interactive picker.
     ///
@@ -789,64 +829,25 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         }
     }
 
-    /// Initialize the alternate screen.
+    /// Open the interactive picker prompt and return the picked items, if any. Uses the provided
+    /// keybindings for the interactive picker.
+    ///
+    /// This method permits the user to select multiple items, but is otherwise identical to [`pick_with_keybind`](Self::pick_with_keybind). See those docs as well as the
+    /// [docs on multiple selections](Picker#multiple-selections) for more detail.
     #[inline]
-    fn init_screen<W: Write>(writer: &mut W) -> io::Result<()> {
-        enable_raw_mode()?;
-        execute!(writer, EnterAlternateScreen, EnableBracketedPaste)?;
-        Ok(())
-    }
-
-    /// Cleanup the alternate screen when finished.
-    #[inline]
-    fn cleanup_screen<W: Write>(writer: &mut W) -> io::Result<()> {
-        disable_raw_mode()?;
-        execute!(writer, DisableBracketedPaste, LeaveAlternateScreen)?;
-        Ok(())
-    }
-
-    /// Render the frame, specifying which parts of the frame need to be re-drawn.
-    #[inline]
-    fn render_frame<W: Write>(
+    pub fn pick_multi_with_keybind<F: FnMut(KeyEvent) -> Option<Event>>(
         &mut self,
-        writer: &mut W,
-        redraw_prompt: bool,
-        redraw_match_list: bool,
-    ) -> io::Result<()>
+        keybind: F,
+    ) -> Result<Selection<'_, T>, PickError>
     where
         R: Render<T>,
     {
-        let (width, height) = size()?;
-
-        let (prompt_row, match_list_row) = if self.reversed {
-            (0, 1)
+        let stderr = io::stderr().lock();
+        if stderr.is_terminal() {
+            self.pick_multi_with_io(StdinReader::new(keybind), &mut BufWriter::new(stderr))
         } else {
-            (height - 1, 0)
-        };
-
-        if width >= 1 && (redraw_prompt || redraw_match_list) {
-            writer.execute(BeginSynchronizedUpdate)?;
-
-            if redraw_match_list && height >= 2 {
-                writer.queue(MoveTo(0, match_list_row))?;
-
-                self.match_list.draw(width, height - 1, writer)?;
-            }
-
-            if redraw_prompt && height >= 1 {
-                writer.queue(MoveTo(0, prompt_row))?;
-
-                self.prompt.draw(width, 1, writer)?;
-            }
-
-            writer.queue(MoveTo(self.prompt.screen_offset() + 2, prompt_row))?;
-
-            // flush to terminal
-            writer.flush()?;
-            writer.execute(EndSynchronizedUpdate)?;
-        };
-
-        Ok(())
+            Err(PickError::NotInteractive)
+        }
     }
 
     /// Run the picker interactively with a custom event source and writer.
@@ -874,9 +875,102 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// are not done.
     pub fn pick_with_io<E, W>(
         &mut self,
-        mut event_source: E,
+        event_source: E,
         writer: &mut W,
     ) -> Result<Option<&T>, PickError<<E as EventSource>::AbortErr>>
+    where
+        R: Render<T>,
+        E: EventSource,
+        W: io::Write,
+    {
+        self.pick_impl::<_, _, ()>(event_source, writer)
+    }
+
+    /// Run the picker interactively with a custom event source and writer, allowing the user to
+    /// select multiple items.
+    ///
+    /// This is otherwise identical to [`pick_with_io`](Self::pick_with_io); see those docs as well
+    /// as the [docs on multiple selections](Picker#multiple-selections) for more detail.
+    pub fn pick_multi_with_io<E, W>(
+        &mut self,
+        event_source: E,
+        writer: &mut W,
+    ) -> Result<Selection<'_, T>, PickError<<E as EventSource>::AbortErr>>
+    where
+        R: Render<T>,
+        E: EventSource,
+        W: io::Write,
+    {
+        self.pick_impl::<_, _, BTreeMap<u32, ()>>(event_source, writer)
+    }
+
+    /// Initialize the alternate screen.
+    #[inline]
+    fn init_screen<W: Write>(writer: &mut W) -> io::Result<()> {
+        enable_raw_mode()?;
+        execute!(writer, EnterAlternateScreen, EnableBracketedPaste)?;
+        Ok(())
+    }
+
+    /// Cleanup the alternate screen when finished.
+    #[inline]
+    fn cleanup_screen<W: Write>(writer: &mut W) -> io::Result<()> {
+        disable_raw_mode()?;
+        execute!(writer, DisableBracketedPaste, LeaveAlternateScreen)?;
+        Ok(())
+    }
+
+    /// Render the frame, specifying which parts of the frame need to be re-drawn.
+    #[inline]
+    fn render_frame<W: Write, Q: Queued>(
+        &mut self,
+        writer: &mut W,
+        redraw_prompt: bool,
+        redraw_match_list: bool,
+        queued_items: &Q,
+    ) -> io::Result<()>
+    where
+        R: Render<T>,
+    {
+        let (width, height) = size()?;
+
+        let (prompt_row, match_list_row) = if self.reversed {
+            (0, 1)
+        } else {
+            (height - 1, 0)
+        };
+
+        if width >= 1 && (redraw_prompt || redraw_match_list) {
+            writer.execute(BeginSynchronizedUpdate)?;
+
+            if redraw_match_list && height >= 2 {
+                writer.queue(MoveTo(0, match_list_row))?;
+
+                self.match_list
+                    .draw(width, height - 1, writer, |idx| queued_items.is_queued(idx))?;
+            }
+
+            if redraw_prompt && height >= 1 {
+                writer.queue(MoveTo(0, prompt_row))?;
+
+                self.prompt.draw(width, 1, writer)?;
+            }
+
+            writer.queue(MoveTo(self.prompt.screen_offset() + 2, prompt_row))?;
+
+            // flush to terminal
+            writer.flush()?;
+            writer.execute(EndSynchronizedUpdate)?;
+        };
+
+        Ok(())
+    }
+
+    fn pick_impl<E, W, Q: Queued>(
+        &mut self,
+        mut event_source: E,
+        writer: &mut W,
+    ) -> Result<Q::Output<'_, T>, PickError<<E as EventSource>::AbortErr>>
     where
         R: Render<T>,
         E: EventSource,
@@ -890,19 +984,21 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
             original_hook(panic_info);
         }));
 
+        let mut queued_items = Q::init();
+
         Self::init_screen(writer)?;
 
         let mut frame_start = Instant::now();
 
         // render the first frame
         self.match_list.update(5);
-        self.render_frame(writer, true, true)?;
+        self.render_frame(writer, true, true, &queued_items)?;
 
         let mut redraw_prompt = false;
         let mut redraw_match_list = false;
 
         let selection = 'selection: loop {
-            let mut lazy_match_list = LazyMatchList::new(&mut self.match_list);
+            let mut lazy_match_list = LazyMatchList::new(&mut self.match_list, &mut queued_items);
             let mut lazy_prompt = LazyPrompt::new(&mut self.prompt);
 
             // process new events, but do not exceed the frame interval
@@ -920,23 +1016,20 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
                             redraw_match_list = true;
                         }
                         Event::Quit => {
-                            break 'selection Ok(None);
+                            break 'selection Ok(self.match_list.select_none(queued_items));
                         }
                         Event::QuitPromptEmpty => {
                             if lazy_prompt.is_empty() {
-                                break 'selection Ok(None);
+                                break 'selection Ok(self.match_list.select_none(queued_items));
                             }
                         }
                         Event::Select => {
-                            // TODO: workaround for the borrow checker not understanding that
-                            // the `None` variant does not borrow from the `match_list`
-                            //
-                            // maybe works when polonius is merged
-                            if !lazy_match_list.is_empty() {
-                                // the cursor may have moved
-                                let n = lazy_match_list.selection();
-                                let item = self.match_list.get_item(n).unwrap();
-                                break 'selection Ok(Some(item.data));
+                            if lazy_match_list.has_queued_items() {
+                                break 'selection Ok(self.match_list.select_queued(queued_items));
+                            }
+
+                            if let Some(n) = lazy_match_list.selection() {
+                                break 'selection Ok(self.match_list.select_one(queued_items, n));
                             }
                         }
                         Event::Restart => match self.restart_notifier {
@@ -989,7 +1082,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
                 .needs_redraw();
 
             // render the frame
-            self.render_frame(writer, redraw_prompt, redraw_match_list)?;
+            self.render_frame(writer, redraw_prompt, redraw_match_list, &queued_items)?;
 
             // reset the redraw markers
             redraw_prompt = false;

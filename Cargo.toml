@@ -56,6 +56,9 @@ name = "restart_ext"
 name = "blocking"
 
 [[example]]
+name = "multi"
+
+[[example]]
 name = "serde"
 required-features = ["serde"]
 
