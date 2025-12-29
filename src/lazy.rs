@@ -26,6 +26,7 @@ impl<'a, T: Send + Sync + 'static, R: Render<T>, Q: crate::Queued> LazyMatchList
 
     pub fn restart(&mut self) -> Injector<T, R> {
         self.match_list.restart();
+        self.queued.clear();
         self.buffered_selection = 0;
         self.match_list.injector()
     }

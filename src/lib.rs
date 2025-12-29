@@ -616,6 +616,9 @@ impl PickerOptions {
 /// picks the highlighted item, but if there are queued selections, then only the queued selections
 /// are returned.
 ///
+/// If the picker [restarts while running](Event::Restart), the queued item list will be cleared
+/// since the previous items are removed.
+///
 /// The selected items are returned as a [`Selection`], which is empty if picker exited with
 /// [`Event::Quit`] (or [`Event::QuitPromptEmpty`]), and non-empty if not.
 ///
