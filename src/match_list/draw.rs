@@ -1,4 +1,7 @@
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    num::NonZero,
+};
 
 use nucleo as nc;
 
@@ -150,6 +153,7 @@ fn draw_match_counts<W: io::Write + ?Sized>(
     writer: &mut W,
     matched: u32,
     total: u32,
+    multi: Option<(u32, Option<NonZero<u32>>)>,
 ) -> io::Result<()> {
     writer
         .queue(SetAttribute(Attribute::Italic))?
@@ -157,9 +161,21 @@ fn draw_match_counts<W: io::Write + ?Sized>(
         .queue(Print("  "))?
         .queue(Print(matched))?
         .queue(Print("/"))?
-        .queue(Print(total))?
-        .queue(SetAttribute(Attribute::Reset))?
+        .queue(Print(total))?;
+    if let Some((ct, op)) = multi {
+        writer
+            .queue(SetForegroundColor(Color::Grey))?
+            .queue(Print(" ("))?
+            .queue(Print(ct))?;
+        if let Some(max) = op {
+            writer.queue(Print("/"))?.queue(Print(max))?;
+        }
+        writer.queue(Print(")"))?;
+    }
+
+    writer
         .queue(ResetColor)?
+        .queue(SetAttribute(Attribute::Reset))?
         .queue(Clear(ClearType::UntilNewLine))?;
 
     Ok(())
@@ -172,6 +188,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
         height: u16,
         writer: &mut W,
         mut is_queued: F,
+        multi: Option<(u32, Option<NonZero<u32>>)>,
     ) -> std::io::Result<()> {
         let match_list_height = height - 1;
         let match_list_width = width.saturating_sub(3);
@@ -184,7 +201,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
         let matched_item_count = snapshot.matched_item_count();
 
         if height == 1 {
-            draw_match_counts(writer, matched_item_count, snapshot.item_count())?;
+            draw_match_counts(writer, matched_item_count, snapshot.item_count(), multi)?;
             return Ok(());
         }
 
@@ -192,7 +209,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
 
         // draw the matches
         if self.config.reversed {
-            draw_match_counts(writer, matched_item_count, snapshot.item_count())?;
+            draw_match_counts(writer, matched_item_count, snapshot.item_count(), multi)?;
             writer.queue(MoveToNextLine(1))?;
 
             if matched_item_count != 0 {
@@ -243,7 +260,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
                 )?;
             }
 
-            draw_match_counts(writer, matched_item_count, snapshot.item_count())?;
+            draw_match_counts(writer, matched_item_count, snapshot.item_count(), multi)?;
         }
 
         Ok(())

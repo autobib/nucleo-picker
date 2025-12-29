@@ -244,6 +244,8 @@ pub trait Queued {
 
     fn is_queued(&self, idx: u32) -> bool;
 
+    fn count(&self, limit: Option<NonZero<u32>>) -> Option<(u32, Option<NonZero<u32>>)>;
+
     fn init(limit: Option<NonZero<u32>>) -> Self;
 
     fn into_only_selection<'a, T: Send + Sync + 'static>(
@@ -299,6 +301,11 @@ impl Queued for () {
         idx: u32,
     ) -> Self::Output<'a, T> {
         Some(snapshot.get_item(idx).unwrap().data)
+    }
+
+    #[inline]
+    fn count(&self, _: Option<NonZero<u32>>) -> Option<(u32, Option<NonZero<u32>>)> {
+        None
     }
 }
 
@@ -374,6 +381,11 @@ impl Queued for SelectedIndices {
             snapshot,
             queued: self,
         }
+    }
+
+    #[inline]
+    fn count(&self, limit: Option<NonZero<u32>>) -> Option<(u32, Option<NonZero<u32>>)> {
+        Some((self.inner.len() as u32, limit))
     }
 }
 

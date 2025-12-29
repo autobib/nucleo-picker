@@ -978,8 +978,13 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
             if redraw_match_list && height >= 2 {
                 writer.queue(MoveTo(0, match_list_row))?;
 
-                self.match_list
-                    .draw(width, height - 1, writer, |idx| queued_items.is_queued(idx))?;
+                self.match_list.draw(
+                    width,
+                    height - 1,
+                    writer,
+                    |idx| queued_items.is_queued(idx),
+                    queued_items.count(self.max_selection_count),
+                )?;
             }
 
             if redraw_prompt && height >= 1 {
