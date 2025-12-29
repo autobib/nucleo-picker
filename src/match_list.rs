@@ -367,7 +367,7 @@ impl Queued for BTreeMap<u32, ()> {
 /// This is the return type of the various `pick_multi*` methods of a [`Picker`](crate::Picker).
 /// Iterate over the picked items with [`iter`](Self::iter). If no items were selected, ththe struct
 /// will be [empty](Self::is_empty). Also see the docs on
-/// [multiple selections](Picker#multiple-selections)
+/// [multiple selections](crate::Picker#multiple-selections)
 ///
 /// The lifetime of this struct is bound to the lifetime of the picker from which it originated.
 pub struct Selection<'a, T: Send + Sync + 'static> {
