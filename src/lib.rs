@@ -14,9 +14,9 @@
 //! folder](https://github.com/autobib/nucleo-picker/tree/master/examples) on GitHub.
 //!
 //! ### `fzf` example
-//! Run this example with `cat myfile.txt | cargo run --release --example fzf`.
+//! Run this example with `cat myfile.txt | cargo run --release --example fzf_basic`.
 //! ```no_run
-#![doc = include_str!("../examples/fzf.rs")]
+#![doc = include_str!("../examples/fzf_basic.rs")]
 //! ```
 //!
 //! ### `find` example

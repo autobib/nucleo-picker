@@ -1,7 +1,9 @@
-//! # Simple `fzf` clone
+//! # A more complete `fzf` clone
 //!
 //! Read lines from `stdin` in a streaming fashion and populate the picker, imitating the basic
 //! functionality of [fzf](https://github.com/junegunn/fzf).
+//!
+//! This is a more complete version of the basic fzf example.
 use std::{
     fmt,
     io::{self, IsTerminal},

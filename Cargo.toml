@@ -41,6 +41,12 @@ use_self = "warn"
 name = "custom_io"
 
 [[example]]
+name = "fzf"
+
+[[example]]
+name = "fzf_basic"
+
+[[example]]
 name = "fzf_err_handling"
 
 [[example]]
@@ -61,9 +67,6 @@ name = "multi"
 [[example]]
 name = "serde"
 required-features = ["serde"]
-
-[[example]]
-name = "fzf"
 
 [[example]]
 name = "options"
