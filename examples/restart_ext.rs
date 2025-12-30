@@ -109,14 +109,9 @@ fn main() -> io::Result<()> {
         e => keybind_default(e),
     });
 
-    match picker.pick_with_io(event_source, &mut stderr)? {
-        Some(num) => {
-            println!("Your favourite number is: {num}");
-            Ok(())
-        }
-        None => {
-            println!("You didn't like any of the numbers!");
-            exit(1);
-        }
+    for n in picker.pick_multi_with_io(event_source, &mut stderr)?.iter() {
+        println!("Your liked: {n}");
     }
+
+    Ok(())
 }
