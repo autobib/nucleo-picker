@@ -122,7 +122,6 @@ pub enum Event<A = Infallible> {
 /// This is quite similar to the standard library
 /// [`mpsc::RecvTimeoutError`](std::sync::mpsc::RecvTimeoutError), but also permitting an
 /// [`io::Error`] which may result from reading from standard input.
-#[non_exhaustive]
 pub enum RecvError {
     /// No event was received because we timed out.
     Timeout,
