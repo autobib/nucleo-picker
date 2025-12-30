@@ -53,7 +53,7 @@ use std::{
 };
 
 use crossterm::{
-    ExecutableCommand, QueueableCommand,
+    QueueableCommand,
     cursor::MoveTo,
     event::{DisableBracketedPaste, EnableBracketedPaste, KeyEvent},
     execute,
@@ -976,7 +976,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         };
 
         if width >= 1 && (redraw_prompt || redraw_match_list) {
-            writer.execute(BeginSynchronizedUpdate)?;
+            writer.queue(BeginSynchronizedUpdate)?;
 
             if redraw_match_list && height >= 2 {
                 writer.queue(MoveTo(0, match_list_row))?;
@@ -996,11 +996,12 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
                 self.prompt.draw(width, 1, writer)?;
             }
 
-            writer.queue(MoveTo(self.prompt.screen_offset() + 2, prompt_row))?;
+            writer
+                .queue(MoveTo(self.prompt.screen_offset() + 2, prompt_row))?
+                .queue(EndSynchronizedUpdate)?;
 
             // flush to terminal
             writer.flush()?;
-            writer.execute(EndSynchronizedUpdate)?;
         };
 
         Ok(())
