@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Usage breaking** Default keybindings have been changed so that `shift + ⏎` now moves the selection down instead of selecting the item.
+- `RecvError` is no longer marked as non-exhaustive.
 
 ### Added
 - Added support for multiple selections with methods `Picker::{pick_multi, pick_multi_with_keybind, pick_multi_with_io}`.
