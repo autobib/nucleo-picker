@@ -144,12 +144,12 @@ pub use nucleo;
 /// display a given item.
 ///
 /// The main exeption is control characters which are not newlines (`\n` or `\r\n`). Even visible
-/// control characters, such as tabs (`\t`) will cause issues: width calculations will most likely
+/// control characters such as tabs (`\t`) will cause issues: width calculations will most likely
 /// be incorrect since the amount of space a tab occupies depends on its position within the
 /// screen.
 ///
 /// It is best to avoid such characters in your rendered format. If you do not have control
-/// over the incoming data, the most robust solution is likely to perform substitutions during
+/// over the incoming data, the most robust solution is likely to perform substitutions while
 /// rendering.
 /// ```
 /// # use nucleo_picker::Render;
