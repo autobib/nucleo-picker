@@ -16,8 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added new events `MatchListEvent::{ToggleUp, ToggleDown, Queue, QueueMatches, Unqueue, UnqueueAll}` to manipulate the queued selection list in the picker.
   - Limit the number of selections with `PickerOptions::max_selection_count`.
 - Added new keyboard shortcuts for multi-selection mode:
-  - `shift + ⇥` and `shift + ↑` toggles item in the item queue and moves the cursor up.
-  - `⇥` and `shift + ↓` toggles item in the item queue and moves the cursor down.
+  - `shift + ⇥` toggles the item in the item queue and moves the cursor up.
+  - `⇥` toggles the item in the item queue and moves the cursor down.
   - `ctrl + -` clears the item queue
   - `ctrl + =` adds all matches to the queue
 - Added convenience method `Picker::extend_exact` to mirror `Injector::extend_exact`.
