@@ -27,6 +27,7 @@ pub fn keybind_default<A>(key_event: KeyEvent) -> Option<Event<A>> {
             KeyCode::Up => Some(Event::MatchList(MatchListEvent::Up(1))),
             KeyCode::Down => Some(Event::MatchList(MatchListEvent::Down(1))),
             KeyCode::Tab => Some(Event::MatchList(MatchListEvent::ToggleDown(1))),
+            KeyCode::BackTab => Some(Event::MatchList(MatchListEvent::ToggleUp(1))),
             KeyCode::Left => Some(Event::Prompt(PromptEvent::Left(1))),
             KeyCode::Right => Some(Event::Prompt(PromptEvent::Right(1))),
             KeyCode::Home => Some(Event::Prompt(PromptEvent::ToStart)),
@@ -49,7 +50,8 @@ pub fn keybind_default<A>(key_event: KeyEvent) -> Option<Event<A>> {
             KeyCode::Char('g' | 'q') => Some(Event::Quit),
             KeyCode::Char('k' | 'p') => Some(Event::MatchList(MatchListEvent::Up(1))),
             KeyCode::Char('j' | 'n') => Some(Event::MatchList(MatchListEvent::Down(1))),
-            KeyCode::Char('x') => Some(Event::MatchList(MatchListEvent::DeselectAll)),
+            KeyCode::Char('-') => Some(Event::MatchList(MatchListEvent::UnqueueAll)),
+            KeyCode::Char('=') => Some(Event::MatchList(MatchListEvent::QueueMatches)),
             KeyCode::Char('b') => Some(Event::Prompt(PromptEvent::Left(1))),
             KeyCode::Char('f') => Some(Event::Prompt(PromptEvent::Right(1))),
             KeyCode::Char('a') => Some(Event::Prompt(PromptEvent::ToStart)),
@@ -92,7 +94,7 @@ pub fn convert_crossterm_event<A, F: FnMut(KeyEvent) -> Option<Event<A>>>(
     mut keybind: F,
 ) -> Option<Event<A>> {
     match ct_event {
-        CrosstermEvent::Key(key_event) => (keybind)(key_event),
+        CrosstermEvent::Key(key_event) => keybind(key_event),
         CrosstermEvent::Resize(_, _) => Some(Event::Redraw),
         CrosstermEvent::Paste(contents) => Some(Event::Prompt(PromptEvent::Paste(contents))),
         _ => None,

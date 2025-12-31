@@ -102,10 +102,35 @@ impl<'a, T: Send + Sync + 'static, R: Render<T>, Q: crate::Queued> LazyMatchList
                     self.decr(n);
                 }
             }
-            MatchListEvent::DeselectAll => {
-                if self.queued.clear() {
-                    self.toggled = true;
+            MatchListEvent::QueueAbove(n) => {
+                if !self.is_empty() {
+                    let (shift, toggled) =
+                        self.match_list
+                            .queue_items_above(self.queued, self.buffered_selection, n);
+                    self.toggled |= toggled;
+                    self.incr(shift.saturating_sub(1));
                 }
+            }
+            MatchListEvent::QueueBelow(n) => {
+                if !self.is_empty() {
+                    let (shift, toggled) =
+                        self.match_list
+                            .queue_items_below(self.queued, self.buffered_selection, n);
+                    self.toggled |= toggled;
+                    self.decr(shift.saturating_sub(1));
+                }
+            }
+            MatchListEvent::QueueMatches => {
+                self.toggled |= self.match_list.queue_all(self.queued);
+            }
+            MatchListEvent::Unqueue => {
+                self.toggled |= !self.is_empty()
+                    && self
+                        .match_list
+                        .unqueue_item(self.queued, self.buffered_selection);
+            }
+            MatchListEvent::UnqueueAll => {
+                self.toggled |= self.queued.clear();
             }
             MatchListEvent::ToggleDown(n) => {
                 if self.toggle_selection() {

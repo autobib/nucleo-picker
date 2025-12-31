@@ -65,11 +65,14 @@ use nucleo::{
 
 /// An event that modifies the selection in the match list.
 ///
-/// Note that the events
-/// [`ToggleUp`](MatchListEvent::ToggleUp),
-/// [`ToggleDown`](MatchListEvent::ToggleDown), and
-/// [`DeselectAll`](MatchListEvent::DeselectAll) are only handled by the picker in [multiple
-/// selection mode](crate::Picker#multiple-selections).
+/// The following events are only handled by the picker in [multiple selection mode](crate::Picker#multiple-selections):
+/// - [`ToggleUp`](MatchListEvent::ToggleUp)
+/// - [`ToggleDown`](MatchListEvent::ToggleDown)
+/// - [`QueueAbove`](MatchListEvent::QueueAbove)
+/// - [`QueueBelow`](MatchListEvent::QueueBelow)
+/// - [`QueueMatches`](MatchListEvent::QueueMatches)
+/// - [`Unqueue`](MatchListEvent::Unqueue)
+/// - [`UnqueueAll`](MatchListEvent::UnqueueAll)
 #[derive(Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum MatchListEvent {
@@ -81,8 +84,18 @@ pub enum MatchListEvent {
     Down(usize),
     /// Toggle the selection then move down `usize` items.
     ToggleDown(usize),
-    /// Deselect all queued selections.
-    DeselectAll,
+    /// Add the current item and `usize` items above to the item queue, moving the cursor to the
+    /// last selected item.
+    QueueAbove(usize),
+    /// Add the current item and `usize` items below to the item queue, moving the cursor to the
+    /// last selected item.
+    QueueBelow(usize),
+    /// Add all matching items to the item queue, preferring items with higher score.
+    QueueMatches,
+    /// Remove the current item from the item queue.
+    Unqueue,
+    /// Clear the item queue.
+    UnqueueAll,
     /// Reset the selection to the start of the match list.
     Reset,
 }
@@ -240,7 +253,16 @@ pub trait Queued {
 
     fn clear(&mut self) -> bool;
 
+    fn deselect(&mut self, idx: u32) -> bool;
+
     fn toggle(&mut self, idx: u32) -> bool;
+
+    /// Select a range of items.
+    ///
+    /// The index is the number of items consumed from the iterator.
+    ///
+    /// The boolean is whether or not any new items were queued.
+    fn select<I: IntoIterator<Item = u32>>(&mut self, items: I) -> (usize, bool);
 
     fn is_queued(&self, idx: u32) -> bool;
 
@@ -274,8 +296,18 @@ impl Queued for () {
     }
 
     #[inline]
+    fn deselect(&mut self, _: u32) -> bool {
+        false
+    }
+
+    #[inline]
     fn toggle(&mut self, _: u32) -> bool {
         false
+    }
+
+    #[inline]
+    fn select<I: IntoIterator<Item = u32>>(&mut self, _: I) -> (usize, bool) {
+        (0, false)
     }
 
     #[inline]
@@ -344,6 +376,43 @@ impl Queued for SelectedIndices {
                 }
             }
         }
+    }
+
+    #[inline]
+    fn deselect(&mut self, idx: u32) -> bool {
+        self.inner.remove(&idx).is_some()
+    }
+
+    fn select<I: IntoIterator<Item = u32>>(&mut self, items: I) -> (usize, bool) {
+        let orig_len = self.inner.len();
+        let mut consumed: usize = 0;
+        match self.limit {
+            None => {
+                self.inner.extend(items.into_iter().map(|it| {
+                    consumed += 1;
+                    (it, ())
+                }));
+            }
+            Some(l) => {
+                for it in items {
+                    let current_len = self.inner.len();
+                    match self.inner.entry(it) {
+                        Entry::Vacant(vacant_entry) => {
+                            if current_len < l.get() as usize {
+                                consumed += 1;
+                                vacant_entry.insert(());
+                            } else {
+                                break;
+                            }
+                        }
+                        Entry::Occupied(_) => {
+                            consumed += 1;
+                        }
+                    }
+                }
+            }
+        }
+        (consumed, orig_len != self.inner.len())
     }
 
     #[inline]
@@ -599,6 +668,40 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
             .get(n as usize)
             .unwrap()
             .idx
+    }
+
+    pub fn unqueue_item<Q: Queued>(&mut self, queued_items: &mut Q, n: u32) -> bool {
+        queued_items.deselect(self.idx_from_match_unchecked(n))
+    }
+
+    pub fn queue_items_above<Q: Queued>(
+        &mut self,
+        queued_items: &mut Q,
+        n: u32,
+        ct: usize,
+    ) -> (usize, bool) {
+        let matches = self.nucleo.snapshot().matches();
+        let start = n as usize;
+        let end = (start + ct).min(matches.len());
+        queued_items.select(matches[start..=end].iter().map(|m| m.idx))
+    }
+
+    pub fn queue_items_below<Q: Queued>(
+        &mut self,
+        queued_items: &mut Q,
+        n: u32,
+        ct: usize,
+    ) -> (usize, bool) {
+        let matches = self.nucleo.snapshot().matches();
+        let start = n as usize;
+        let end = start.saturating_sub(ct);
+        queued_items.select(matches[end..=start].iter().rev().map(|m| m.idx))
+    }
+
+    pub fn queue_all<Q: Queued>(&mut self, queued_items: &mut Q) -> bool {
+        queued_items
+            .select(self.nucleo.snapshot().matches().iter().map(|m| m.idx))
+            .1
     }
 
     pub fn toggle_queued_item<Q: Queued>(&mut self, queued_items: &mut Q, n: u32) -> bool {

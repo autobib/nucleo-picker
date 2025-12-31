@@ -56,9 +56,9 @@ There are also special keybindings which are only enabled in multi-selection mod
 
 Key bindings(s)                    | Action
 -----------------------------------|--------------------
-⇥                                  | Toggle Select And Selection Down
-shift + ⇥                          | Toggle Select And Selection Up
-ctrl + x                           | Deselect All
+shift + ⇥, shift + ↑               | Toggle Queue And Selection Up
+ctrl + =                           | Queue All Matches
+ctrl + -                           | Unqueue All
 
 
 ## Scroll and paste
