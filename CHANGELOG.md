@@ -5,11 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.11.0-rc.3] - 2025-12-29
+## [0.11.0] - 2026-01-01
+
+Happy new year!
 
 ### Changed
 - **Usage breaking** Default keybindings have been changed so that `shift + ⏎` now moves the selection down instead of selecting the item.
 - `RecvError` is no longer marked as non-exhaustive.
+- Removed `Render<T>` trait bounds except where strictly required.
 
 ### Added
 - Added support for multiple selections with methods `Picker::{pick_multi, pick_multi_with_keybind, pick_multi_with_io}`.
@@ -23,9 +26,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `keybind_no_multi` for keybindings without support for multiple selections, to be used when multiple selections are not required.
 - Added convenience method `Picker::extend_exact` to mirror `Injector::extend_exact`.
 - Many improvements to the `fzf` example.
-
-### Fixed
-- Removed `Render<T>` trait bounds except where strictly required.
 
 ## [0.10.1] - 2025-12-07
 
