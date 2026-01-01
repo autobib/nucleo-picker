@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `⇥` toggles the item in the item queue and moves the cursor down.
   - `ctrl + -` clears the item queue
   - `ctrl + =` adds all matches to the queue
+- Added `keybind_no_multi` for keybindings without support for multiple selections, to be used when multiple selections are not required.
 - Added convenience method `Picker::extend_exact` to mirror `Injector::extend_exact`.
 - Many improvements to the `fzf` example.
 
