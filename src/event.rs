@@ -36,7 +36,7 @@ use crossterm::event::{KeyEvent, poll, read};
 
 use self::bind::convert_crossterm_event;
 
-pub use self::bind::keybind_default;
+pub use self::bind::{keybind_default, keybind_no_multi};
 pub use crate::{match_list::MatchListEvent, observer::Observer, prompt::PromptEvent};
 
 /// An event which controls the picker behaviour.

@@ -71,7 +71,7 @@ use observer::{Notifier, Observer};
 use crate::{
     component::Status,
     error::PickError,
-    event::{Event, EventSource, RecvError, StdinReader, keybind_default},
+    event::{Event, EventSource, RecvError, StdinReader, keybind_default, keybind_no_multi},
     lazy::{LazyMatchList, LazyPrompt},
     match_list::{MatchList, MatchListConfig, Queued, SelectedIndices},
     prompt::{Prompt, PromptConfig},
@@ -812,7 +812,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     where
         R: Render<T>,
     {
-        self.pick_with_keybind(keybind_default)
+        self.pick_with_keybind(keybind_no_multi)
     }
 
     /// Open the interactive picker prompt and return the picked items, if any.
