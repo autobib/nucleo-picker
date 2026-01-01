@@ -384,14 +384,23 @@ impl Queued for SelectedIndices {
     }
 
     fn select<I: IntoIterator<Item = u32>>(&mut self, items: I) -> (usize, bool) {
-        let orig_len = self.inner.len();
+        let mut toggled = false;
         let mut consumed: usize = 0;
+
         match self.limit {
             None => {
-                self.inner.extend(items.into_iter().map(|it| {
-                    consumed += 1;
-                    (it, ())
-                }));
+                for it in items {
+                    match self.inner.entry(it) {
+                        Entry::Vacant(vacant_entry) => {
+                            toggled = true;
+                            consumed += 1;
+                            vacant_entry.insert(());
+                        }
+                        Entry::Occupied(_) => {
+                            consumed += 1;
+                        }
+                    }
+                }
             }
             Some(l) => {
                 for it in items {
@@ -399,6 +408,7 @@ impl Queued for SelectedIndices {
                     match self.inner.entry(it) {
                         Entry::Vacant(vacant_entry) => {
                             if current_len < l.get() as usize {
+                                toggled = true;
                                 consumed += 1;
                                 vacant_entry.insert(());
                             } else {
@@ -412,7 +422,7 @@ impl Queued for SelectedIndices {
                 }
             }
         }
-        (consumed, orig_len != self.inner.len())
+        (consumed, toggled)
     }
 
     #[inline]
@@ -682,7 +692,7 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
     ) -> (usize, bool) {
         let matches = self.nucleo.snapshot().matches();
         let start = n as usize;
-        let end = (start + ct).min(matches.len());
+        let end = (start + ct).min(matches.len() - 1);
         queued_items.select(matches[start..=end].iter().map(|m| m.idx))
     }
 
