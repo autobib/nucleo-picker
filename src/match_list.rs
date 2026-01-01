@@ -65,6 +65,8 @@ use nucleo::{
 
 /// An event that modifies the selection in the match list.
 ///
+/// # Multi-selection events
+///
 /// The following events are only handled by the picker in [multiple selection mode](crate::Picker#multiple-selections):
 /// - [`ToggleUp`](MatchListEvent::ToggleUp)
 /// - [`ToggleDown`](MatchListEvent::ToggleDown)
@@ -73,6 +75,12 @@ use nucleo::{
 /// - [`QueueMatches`](MatchListEvent::QueueMatches)
 /// - [`Unqueue`](MatchListEvent::Unqueue)
 /// - [`UnqueueAll`](MatchListEvent::UnqueueAll)
+///
+/// In this case, the corresponding movements are conditional: they will only be performed if the
+/// resulting (un)queue action is successful. This is relevant if the [selection count is
+/// bounded](crate::PickerOptions::max_selection_count) is bounded, since additional items cannot
+/// be added to the selection queue if the bound is reached, in which case the cursor will not
+/// move.
 #[derive(Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum MatchListEvent {
