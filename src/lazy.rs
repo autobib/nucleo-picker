@@ -104,20 +104,44 @@ impl<'a, T: Send + Sync + 'static, R: Render<T>, Q: crate::Queued> LazyMatchList
             }
             MatchListEvent::QueueAbove(n) => {
                 if !self.is_empty() {
-                    let (shift, toggled) =
-                        self.match_list
-                            .queue_items_above(self.queued, self.buffered_selection, n);
-                    self.toggled |= toggled;
-                    self.incr(shift.saturating_sub(1));
+                    if self.match_list.reversed() {
+                        let (shift, toggled) = self.match_list.queue_items_below(
+                            self.queued,
+                            self.buffered_selection,
+                            n,
+                        );
+                        self.toggled |= toggled;
+                        self.decr(shift.saturating_sub(1));
+                    } else {
+                        let (shift, toggled) = self.match_list.queue_items_above(
+                            self.queued,
+                            self.buffered_selection,
+                            n,
+                        );
+                        self.toggled |= toggled;
+                        self.incr(shift.saturating_sub(1));
+                    };
                 }
             }
             MatchListEvent::QueueBelow(n) => {
                 if !self.is_empty() {
-                    let (shift, toggled) =
-                        self.match_list
-                            .queue_items_below(self.queued, self.buffered_selection, n);
-                    self.toggled |= toggled;
-                    self.decr(shift.saturating_sub(1));
+                    if self.match_list.reversed() {
+                        let (shift, toggled) = self.match_list.queue_items_above(
+                            self.queued,
+                            self.buffered_selection,
+                            n,
+                        );
+                        self.toggled |= toggled;
+                        self.incr(shift.saturating_sub(1));
+                    } else {
+                        let (shift, toggled) = self.match_list.queue_items_below(
+                            self.queued,
+                            self.buffered_selection,
+                            n,
+                        );
+                        self.toggled |= toggled;
+                        self.decr(shift.saturating_sub(1));
+                    };
                 }
             }
             MatchListEvent::QueueMatches => {
