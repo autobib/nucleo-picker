@@ -80,6 +80,8 @@ impl<T> Drop for Notifier<T> {
 /// up-to-date at the moment when the message is received.
 ///
 /// The channel may be updated when not observed. Receiving a message moves it out of the observer.
+/// An observer can be cheaply cloned (a single [`Arc::clone`]) in order to watch for the message
+/// simultaneously from different threads.
 pub struct Observer<T> {
     inner: Arc<(Channel<T>, Condvar)>,
 }
