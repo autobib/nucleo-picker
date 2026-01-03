@@ -24,3 +24,4 @@ File                                       | Description
 [restart.rs](restart.rs)                   | Demonstration of interactive restarting in response to user input.
 [restart_ext.rs](restart_ext.rs)           | An extended version of the restart example.
 [serde.rs](serde.rs)                       | Use `serde` to deserialize picker items from input.
+[low_framerate.rs](serde.rs)               | An example with a framerate of 0.5 FPS to demonstrate keypress input batching.
