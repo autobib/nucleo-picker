@@ -70,3 +70,6 @@ required-features = ["serde"]
 
 [[example]]
 name = "options"
+
+[[example]]
+name = "low_framerate"
