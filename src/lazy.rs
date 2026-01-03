@@ -196,17 +196,6 @@ impl<'a> LazyPrompt<'a> {
         }
     }
 
-    /// `self.buffered_event` must be Some()
-    fn swap_and_process_buffer(&mut self, mut event: PromptEvent) {
-        // put the 'new' event in the buffer, and move the 'buffered' event into new
-        std::mem::swap(
-            unsafe { self.buffered_event.as_mut().unwrap_unchecked() },
-            &mut event,
-        );
-        // process the buffered event (now swapped)
-        self.status |= self.prompt.handle(event);
-    }
-
     pub fn finish(mut self) -> PromptStatus {
         if let Some(event) = self.buffered_event {
             self.status |= self.prompt.handle(event);
@@ -216,114 +205,68 @@ impl<'a> LazyPrompt<'a> {
     }
 
     pub fn handle(&mut self, event: PromptEvent) {
-        match self.buffered_event {
-            None => {
-                self.buffered_event = Some(event);
-            }
-            Some(ref mut buffered) => match event {
-                PromptEvent::Left(n2) => {
-                    if let PromptEvent::Left(n1) = buffered {
-                        *n1 += n2;
-                    } else {
-                        self.swap_and_process_buffer(event);
-                    }
-                }
-                PromptEvent::WordLeft(n2) => {
-                    if let PromptEvent::WordLeft(n1) = buffered {
-                        *n1 += n2;
-                    } else {
-                        self.swap_and_process_buffer(event);
-                    }
-                }
-                PromptEvent::Right(n2) => {
-                    if let PromptEvent::Right(n1) = buffered {
-                        *n1 += n2;
-                    } else {
-                        self.swap_and_process_buffer(event);
-                    }
-                }
-                PromptEvent::WordRight(n2) => {
-                    if let PromptEvent::WordRight(n1) = buffered {
-                        *n1 += n2;
-                    } else {
-                        self.swap_and_process_buffer(event);
-                    }
-                }
-                PromptEvent::ToStart => {
-                    if buffered.is_cursor_movement() {
-                        *buffered = PromptEvent::ToStart;
-                    } else {
-                        self.swap_and_process_buffer(event);
-                    }
-                }
-                PromptEvent::ToEnd => {
-                    if buffered.is_cursor_movement() {
-                        *buffered = PromptEvent::ToEnd;
-                    } else {
-                        self.swap_and_process_buffer(event);
-                    }
-                }
-                PromptEvent::Backspace(n2) => {
-                    if let PromptEvent::Backspace(n1) = buffered {
-                        *n1 += n2;
-                    } else {
-                        self.swap_and_process_buffer(event);
-                    }
-                }
-                PromptEvent::Delete(n2) => {
-                    if let PromptEvent::Delete(n1) = buffered {
-                        *n1 += n2;
-                    } else {
-                        self.swap_and_process_buffer(event);
-                    }
-                }
-                PromptEvent::BackspaceWord(n2) => {
-                    if let PromptEvent::BackspaceWord(n1) = buffered {
-                        *n1 += n2;
-                    } else {
-                        self.swap_and_process_buffer(event);
-                    }
-                }
-                PromptEvent::ClearBefore => {
-                    if matches!(
-                        buffered,
-                        PromptEvent::Backspace(_)
-                            | PromptEvent::ClearBefore
-                            | PromptEvent::BackspaceWord(_)
-                    ) {
-                        *buffered = PromptEvent::ClearBefore;
-                    } else {
-                        self.swap_and_process_buffer(event);
-                    }
-                }
-                PromptEvent::ClearAfter => {
-                    if matches!(buffered, PromptEvent::Delete(_) | PromptEvent::ClearAfter) {
-                        *buffered = PromptEvent::ClearAfter;
-                    } else {
-                        self.swap_and_process_buffer(event);
-                    }
-                }
-                PromptEvent::Insert(ch) => match buffered {
-                    PromptEvent::Paste(new) => {
-                        new.push(ch);
-                    }
-                    _ => {
-                        self.swap_and_process_buffer(event);
-                    }
-                },
-                PromptEvent::Paste(ref s) => match buffered {
-                    PromptEvent::Paste(new) => {
-                        new.push_str(s);
-                    }
-                    _ => {
-                        self.swap_and_process_buffer(event);
-                    }
-                },
-                PromptEvent::Reset(_) => {
-                    // a 'set' event overwrites any other event since it resets the buffer
-                    *buffered = event;
-                }
-            },
+        let Some(ref mut buffered) = self.buffered_event else {
+            self.buffered_event = Some(event);
+            return;
         };
+
+        match (buffered, event) {
+            (PromptEvent::Left(n1), PromptEvent::Left(n2)) => {
+                *n1 += n2;
+            }
+            (PromptEvent::WordLeft(n1), PromptEvent::WordLeft(n2)) => {
+                *n1 += n2;
+            }
+            (PromptEvent::Right(n1), PromptEvent::Right(n2)) => {
+                *n1 += n2;
+            }
+            (PromptEvent::WordRight(n1), PromptEvent::WordRight(n2)) => {
+                *n1 += n2;
+            }
+            (b, PromptEvent::ToStart) if b.is_cursor_movement() => {
+                *b = PromptEvent::ToStart;
+            }
+            (b, PromptEvent::ToEnd) if b.is_cursor_movement() => {
+                *b = PromptEvent::ToEnd;
+            }
+            (PromptEvent::Backspace(n1), PromptEvent::Backspace(n2)) => {
+                *n1 += n2;
+            }
+            (PromptEvent::Delete(n1), PromptEvent::Delete(n2)) => {
+                *n1 += n2;
+            }
+            (PromptEvent::BackspaceWord(n1), PromptEvent::BackspaceWord(n2)) => {
+                *n1 += n2;
+            }
+            (b, PromptEvent::ClearBefore)
+                if matches!(
+                    b,
+                    PromptEvent::Backspace(_)
+                        | PromptEvent::ClearBefore
+                        | PromptEvent::BackspaceWord(_)
+                ) =>
+            {
+                *b = PromptEvent::ClearBefore;
+            }
+            (b, PromptEvent::ClearAfter)
+                if matches!(b, PromptEvent::Delete(_) | PromptEvent::ClearAfter) =>
+            {
+                *b = PromptEvent::ClearAfter;
+            }
+            (PromptEvent::Paste(current), PromptEvent::Insert(ch)) => {
+                current.push(ch);
+            }
+            (PromptEvent::Paste(current), PromptEvent::Paste(ref s)) => {
+                current.push_str(s);
+            }
+            (b, e) if matches!(e, PromptEvent::Reset(_)) => {
+                *b = e;
+            }
+            (b, mut e) => {
+                // move the incoming event into the buffer and handle the buffered event
+                std::mem::swap(b, &mut e);
+                self.status |= self.prompt.handle(e);
+            }
+        }
     }
 }
