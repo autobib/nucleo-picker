@@ -215,36 +215,36 @@ impl<'a> LazyPrompt<'a> {
         self.status
     }
 
-    pub fn handle(&mut self, mut event: PromptEvent) {
+    pub fn handle(&mut self, event: PromptEvent) {
         match self.buffered_event {
             None => {
                 self.buffered_event = Some(event);
             }
             Some(ref mut buffered) => match event {
-                PromptEvent::Left(ref mut n1) => {
-                    if let PromptEvent::Left(n2) = buffered {
-                        *n1 += *n2;
+                PromptEvent::Left(n2) => {
+                    if let PromptEvent::Left(n1) = buffered {
+                        *n1 += n2;
                     } else {
                         self.swap_and_process_buffer(event);
                     }
                 }
-                PromptEvent::WordLeft(ref mut n1) => {
-                    if let PromptEvent::WordLeft(n2) = buffered {
-                        *n1 += *n2;
+                PromptEvent::WordLeft(n2) => {
+                    if let PromptEvent::WordLeft(n1) = buffered {
+                        *n1 += n2;
                     } else {
                         self.swap_and_process_buffer(event);
                     }
                 }
-                PromptEvent::Right(ref mut n1) => {
-                    if let PromptEvent::Right(n2) = buffered {
-                        *n1 += *n2;
+                PromptEvent::Right(n2) => {
+                    if let PromptEvent::Right(n1) = buffered {
+                        *n1 += n2;
                     } else {
                         self.swap_and_process_buffer(event);
                     }
                 }
-                PromptEvent::WordRight(ref mut n1) => {
-                    if let PromptEvent::WordRight(n2) = buffered {
-                        *n1 += *n2;
+                PromptEvent::WordRight(n2) => {
+                    if let PromptEvent::WordRight(n1) = buffered {
+                        *n1 += n2;
                     } else {
                         self.swap_and_process_buffer(event);
                     }
@@ -263,23 +263,23 @@ impl<'a> LazyPrompt<'a> {
                         self.swap_and_process_buffer(event);
                     }
                 }
-                PromptEvent::Backspace(ref mut n1) => {
-                    if let PromptEvent::Backspace(n2) = buffered {
-                        *n1 += *n2;
+                PromptEvent::Backspace(n2) => {
+                    if let PromptEvent::Backspace(n1) = buffered {
+                        *n1 += n2;
                     } else {
                         self.swap_and_process_buffer(event);
                     }
                 }
-                PromptEvent::Delete(ref mut n1) => {
-                    if let PromptEvent::Delete(n2) = buffered {
-                        *n1 += *n2;
+                PromptEvent::Delete(n2) => {
+                    if let PromptEvent::Delete(n1) = buffered {
+                        *n1 += n2;
                     } else {
                         self.swap_and_process_buffer(event);
                     }
                 }
-                PromptEvent::BackspaceWord(ref mut n1) => {
-                    if let PromptEvent::BackspaceWord(n2) = buffered {
-                        *n1 += *n2;
+                PromptEvent::BackspaceWord(n2) => {
+                    if let PromptEvent::BackspaceWord(n1) = buffered {
+                        *n1 += n2;
                     } else {
                         self.swap_and_process_buffer(event);
                     }
@@ -303,27 +303,17 @@ impl<'a> LazyPrompt<'a> {
                         self.swap_and_process_buffer(event);
                     }
                 }
-                PromptEvent::Insert(ch1) => match buffered {
-                    PromptEvent::Insert(ch2) => {
-                        let mut s = ch1.to_string();
-                        s.push(*ch2);
-                        *buffered = PromptEvent::Paste(s);
-                    }
+                PromptEvent::Insert(ch) => match buffered {
                     PromptEvent::Paste(new) => {
-                        let mut s = ch1.to_string();
-                        s.push_str(new);
-                        *buffered = PromptEvent::Paste(s);
+                        new.push(ch);
                     }
                     _ => {
                         self.swap_and_process_buffer(event);
                     }
                 },
-                PromptEvent::Paste(ref mut s) => match buffered {
-                    PromptEvent::Insert(ch2) => {
-                        s.push(*ch2);
-                    }
+                PromptEvent::Paste(ref s) => match buffered {
                     PromptEvent::Paste(new) => {
-                        s.push_str(new);
+                        new.push_str(s);
                     }
                     _ => {
                         self.swap_and_process_buffer(event);
