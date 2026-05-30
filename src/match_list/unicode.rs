@@ -316,16 +316,10 @@ impl Iterator for IndexSpans<'_> {
         let (left, right) = loop {
             self.cursor += 1;
             match self.indices.get(self.cursor) {
-                Some(next) => {
-                    if *next == last + 1 {
-                        last += 1;
-                    } else {
-                        break (first, last);
-                    }
+                Some(next) if *next == last + 1 => {
+                    last += 1;
                 }
-                None => {
-                    break (first, last);
-                }
+                _ => break (first, last),
             }
         };
         Some((left as _, right as _))
