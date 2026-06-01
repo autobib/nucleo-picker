@@ -122,6 +122,25 @@ macro_rules! assert_layout {
 }
 
 #[test]
+fn selected_indices_track_insertion_order() {
+    let mut selected = SelectedIndices::init(None);
+
+    assert!(selected.toggle(3));
+    assert!(selected.toggle(1));
+    assert!(selected.toggle(3));
+    assert!(selected.toggle(3));
+
+    let mut selection_order = selected
+        .inner
+        .iter()
+        .map(|(&idx, &order)| (order, idx))
+        .collect::<Vec<_>>();
+    selection_order.sort();
+
+    assert_eq!(selection_order, [(1, 1), (2, 3)]);
+}
+
+#[test]
 fn basic() {
     let mut lt = MatchListTester::init(6, 2);
     assert_layout!(lt, Update(&["12\n34", "ab"]), &[2], &[1]);

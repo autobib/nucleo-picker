@@ -369,15 +369,15 @@ impl Queued for SelectedIndices {
 
     #[inline]
     fn toggle(&mut self, idx: u32) -> bool {
-        let n = self.inner.len() as u32;
+        let n = self.inner.len();
         match self.inner.entry(idx) {
             Entry::Occupied(occupied_entry) => {
                 occupied_entry.remove_entry();
                 true
             }
             Entry::Vacant(vacant_entry) => {
-                if self.limit.is_none_or(|l| n < l.get()) {
-                    vacant_entry.insert(());
+                if self.limit.is_none_or(|l| n < l.get() as usize) {
+                    vacant_entry.insert(Self::next_order(&mut self.next_order));
                     true
                 } else {
                     false
@@ -395,41 +395,23 @@ impl Queued for SelectedIndices {
         let mut toggled = false;
         let mut consumed: usize = 0;
 
-        match self.limit {
-            None => {
-                for it in items {
-                    match self.inner.entry(it) {
-                        Entry::Vacant(vacant_entry) => {
-                            toggled = true;
-                            consumed += 1;
-                            vacant_entry.insert(());
-                        }
-                        Entry::Occupied(_) => {
-                            consumed += 1;
-                        }
-                    }
+        for it in items {
+            let current_len = self.inner.len();
+            match self.inner.entry(it) {
+                Entry::Vacant(vacant_entry)
+                    if self.limit.is_none_or(|l| current_len < l.get() as usize) =>
+                {
+                    toggled = true;
+                    consumed += 1;
+                    vacant_entry.insert(Self::next_order(&mut self.next_order));
                 }
-            }
-            Some(l) => {
-                for it in items {
-                    let current_len = self.inner.len();
-                    match self.inner.entry(it) {
-                        Entry::Vacant(vacant_entry) => {
-                            if current_len < l.get() as usize {
-                                toggled = true;
-                                consumed += 1;
-                                vacant_entry.insert(());
-                            } else {
-                                break;
-                            }
-                        }
-                        Entry::Occupied(_) => {
-                            consumed += 1;
-                        }
-                    }
+                Entry::Vacant(_) => break,
+                Entry::Occupied(_) => {
+                    consumed += 1;
                 }
             }
         }
+
         (consumed, toggled)
     }
 
@@ -442,6 +424,7 @@ impl Queued for SelectedIndices {
     fn init(limit: Option<NonZero<u32>>) -> Self {
         Self {
             inner: BTreeMap::new(),
+            next_order: 0,
             limit,
         }
     }
@@ -463,7 +446,7 @@ impl Queued for SelectedIndices {
         snapshot: &'a nucleo::Snapshot<T>,
         idx: u32,
     ) -> Self::Output<'a, T> {
-        self.inner.insert(idx, ());
+        self.insert(idx);
         Self::Output {
             snapshot,
             queued: self,
@@ -477,34 +460,48 @@ impl Queued for SelectedIndices {
 }
 
 pub struct SelectedIndices {
-    // FIXME: replace with BTreeSet when the entry API lands
-    // > https://github.com/rust-lang/rust/issues/133549)
-    inner: BTreeMap<u32, ()>,
+    inner: BTreeMap<u32, u64>,
+    next_order: u64,
     limit: Option<NonZero<u32>>,
+}
+
+impl SelectedIndices {
+    fn insert(&mut self, idx: u32) {
+        if let Entry::Vacant(entry) = self.inner.entry(idx) {
+            entry.insert(Self::next_order(&mut self.next_order));
+        }
+    }
+
+    fn next_order(next_order: &mut u64) -> u64 {
+        let order = *next_order;
+        *next_order += 1;
+        order
+    }
 }
 
 /// The selected items when the picker quits.
 ///
 /// This is the return type of the various `pick_multi*` methods of a [`Picker`](crate::Picker).
-/// Iterate over the picked items with [`iter`](Self::iter). If no items were selected, ththe struct
+/// Iterate over the picked items with [`iter`](Self::iter). If no items were selected, the struct
 /// will be [empty](Self::is_empty). Also see the docs on
 /// [multiple selections](crate::Picker#multiple-selections)
 ///
 /// The lifetime of this struct is bound to the lifetime of the picker from which it originated.
 pub struct Selection<'a, T: Send + Sync + 'static> {
     snapshot: &'a nc::Snapshot<T>,
-    // FIXME: replace with BTreeSet when the entry API lands
-    // > https://github.com/rust-lang/rust/issues/133549)
     queued: SelectedIndices,
 }
 
 impl<'a, T: Send + Sync + 'static> Selection<'a, T> {
     /// Returns an iterator over the other selected items.
     ///
-    ///
     /// The iterator contains each selected item exactly once, sorted by index based on the order
-    /// in which the picker received the items. Note that items are deduplicated based on the
-    /// selection index instead of using any properties of the type `T` itself.
+    /// in which the picker received the items. If multiple threads populate the picker, the
+    /// relative order between different threads is unspecified. Note that items are deduplicated
+    /// based on the selection index instead of using any properties of the type `T` itself.
+    ///
+    /// See [`iter_selected_order`](Self::iter_selected_order) to obtain the items in the order
+    /// selected by the user.
     ///
     /// The iterator will be empty if the picker quit without selecting any items.
     pub fn iter(&self) -> impl ExactSizeIterator<Item = &'a T> + DoubleEndedIterator {
@@ -513,6 +510,35 @@ impl<'a, T: Send + Sync + 'static> Selection<'a, T> {
             // struct, and the lifetime prevents the indices from being invalidated until this struct
             // is dropped
             unsafe { self.snapshot.get_item_unchecked(*idx).data }
+        })
+    }
+
+    /// Returns an iterator over the selected items, sorted by selection order.
+    ///
+    /// The iterator contains each selected item exactly once. If an item is un-selected and
+    /// selected again, the order is determined by the final selection.
+    ///
+    /// Note that the current implementation does not internally store the selected items by
+    /// selected order, so calling this method requires allocating a new container and then sorting.
+    ///
+    /// The iterator will be empty if the picker quit without selecting any items.
+    pub fn iter_selected_order(
+        &self,
+    ) -> impl ExactSizeIterator<Item = &'a T> + DoubleEndedIterator {
+        let snapshot = self.snapshot;
+        let mut selected_items = self
+            .queued
+            .inner
+            .iter()
+            .map(|(&idx, &order)| (order, idx))
+            .collect::<Vec<_>>();
+        selected_items.sort_unstable_by_key(|&(order, _)| order);
+
+        selected_items.into_iter().map(move |(_, idx)| {
+            // SAFETY: the indices were produced by the same snapshot which is stored inside this
+            // struct, and the lifetime prevents the indices from being invalidated until this struct
+            // is dropped
+            unsafe { snapshot.get_item_unchecked(idx).data }
         })
     }
 
