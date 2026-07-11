@@ -482,8 +482,7 @@ impl SelectedIndices {
 /// The selected items when the picker quits.
 ///
 /// This is the return type of the various `pick_multi*` methods of a [`Picker`](crate::Picker).
-/// Iterate over the picked items with [`iter`](Self::iter). If no items were selected, the struct
-/// will be [empty](Self::is_empty). Also see the docs on
+/// Iterate over the picked items with [`iter`](Self::iter). Also see the documentation for
 /// [multiple selections](crate::Picker#multiple-selections)
 ///
 /// The lifetime of this struct is bound to the lifetime of the picker from which it originated.
@@ -519,7 +518,7 @@ impl<'a, T: Send + Sync + 'static> Selection<'a, T> {
     /// selected again, the order is determined by the final selection.
     ///
     /// Note that the current implementation does not internally store the selected items by
-    /// selected order, so calling this method requires allocating a new container and then sorting.
+    /// selection order, so calling this method requires allocating a new container and then sorting.
     ///
     /// The iterator will be empty if the picker quit without selecting any items.
     pub fn iter_selected_order(
