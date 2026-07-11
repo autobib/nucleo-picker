@@ -830,8 +830,8 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         self.pick_multi_with_keybind(keybind_default)
     }
 
-    /// Open the interactive picker prompt and return the picked item, if any. Uses the provided
-    /// keybindings for the interactive picker.
+    /// Open the interactive picker prompt and return the picked item, if any. The provided
+    /// keybindings are used in the interactive picker.
     ///
     /// The picker prompt is rendered in an alternate screen using the `stderr` file handle. See
     /// the [`pick`](Self::pick) method for more detail.
@@ -852,12 +852,10 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     ///
     /// This method will **never** return [`PickError::Disconnected`].
     #[inline]
-    pub fn pick_with_keybind<F: FnMut(KeyEvent) -> Option<Event>>(
-        &mut self,
-        keybind: F,
-    ) -> Result<Option<&T>, PickError>
+    pub fn pick_with_keybind<F>(&mut self, keybind: F) -> Result<Option<&T>, PickError>
     where
         R: Render<T>,
+        F: FnMut(KeyEvent) -> Option<Event>,
     {
         let stderr = io::stderr().lock();
         if stderr.is_terminal() {
@@ -867,18 +865,17 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         }
     }
 
-    /// Open the interactive picker prompt and return the picked items, if any. Uses the provided
-    /// keybindings for the interactive picker.
+    /// Open the interactive picker prompt and return the picked item, if any. The provided
+    /// keybindings are used in the interactive picker.
+    ///
     ///
     /// This method permits the user to select multiple items, but is otherwise identical to [`pick_with_keybind`](Self::pick_with_keybind). See those docs as well as the
     /// [docs on multiple selections](Picker#multiple-selections) for more detail.
     #[inline]
-    pub fn pick_multi_with_keybind<F: FnMut(KeyEvent) -> Option<Event>>(
-        &mut self,
-        keybind: F,
-    ) -> Result<Selection<'_, T>, PickError>
+    pub fn pick_multi_with_keybind<F>(&mut self, keybind: F) -> Result<Selection<'_, T>, PickError>
     where
         R: Render<T>,
+        F: FnMut(KeyEvent) -> Option<Event>,
     {
         let stderr = io::stderr().lock();
         if stderr.is_terminal() {
