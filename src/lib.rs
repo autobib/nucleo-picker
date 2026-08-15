@@ -38,6 +38,7 @@ mod injector;
 mod lazy;
 mod match_list;
 mod observer;
+pub mod preview;
 mod prompt;
 pub mod render;
 mod terminal;
@@ -873,6 +874,14 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         PickerOptions::default().picker(render)
     }
 
+    /// Get a picker variant which also generates previews.
+    pub fn with_preview<P>(&mut self, previewer: P) -> preview::PreviewPicker<'_, T, R, P>
+    where
+        P: preview::Preview<T>,
+    {
+        todo!()
+    }
+
     /// Update the default query string. This is mainly useful for modifying the query string
     /// before re-using the [`Picker`].
     ///
@@ -887,7 +896,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
 
     /// Returns the contents of the query string internal to the picker.
     ///
-    /// If called after running `Picker::pick`, this will contain the contents of the query string
+    /// If called after running [`Picker::pick`], this will contain the contents of the query string
     /// at the moment that the item was selected or the picker quit.
     #[must_use]
     pub fn query(&self) -> &str {
@@ -1170,6 +1179,22 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         W: io::Write,
     {
         self.pick_impl::<_, _, SelectedIndices>(event_source, &mut CrosstermTerminal::new(writer))
+    }
+
+    /// TODO
+    pub fn preview_multi_with_io<E, W, P>(
+        &mut self,
+        event_source: E,
+        previewer: P,
+        writer: &mut W,
+    ) -> Result<Selection<'_, T>, PickError<<E as EventSource>::AbortErr>>
+    where
+        P: preview::Preview<T>,
+        R: Render<T>,
+        E: EventSource<AbortErr = P::AbortErr>,
+        W: io::Write,
+    {
+        todo!()
     }
 
     fn pick_impl<E, W, Q: Queued>(
