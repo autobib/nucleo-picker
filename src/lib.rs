@@ -816,15 +816,32 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
 
     /// A convenience method to add a batch of items directly to the picker.
     ///
-    /// The number of items in the iterator must be known exactly. This is a convenience wrapper
-    /// around [`Injector::extend_exact`].
+    /// This method has been superceded by [`push_batch`](Self::push_batch).
+    #[deprecated(
+        since = "0.12.0",
+        note = "Use `push_batch` instead which optimizes using `size_hint`"
+    )]
     pub fn extend_exact<I>(&self, iter: I)
     where
         R: Render<T>,
         I: IntoIterator<Item = T>,
         <I as IntoIterator>::IntoIter: ExactSizeIterator,
     {
-        self.injector().extend_exact(iter);
+        self.injector().push_batch(iter);
+    }
+
+    /// A convenience method to add a batch of items directly to the picker.
+    ///
+    /// This is a convenience wrapper around [`Injector::push_batch`] for adding items synchronously
+    /// before running the picker. Only use this method for a small number of items known in
+    /// advance. In most cases, you want to use an [`Injector`] and send items to the picker from a
+    /// separate thread.
+    pub fn push_batch<I>(&self, iter: I)
+    where
+        R: Render<T>,
+        I: IntoIterator<Item = T>,
+    {
+        self.injector().push_batch(iter);
     }
 
     /// A convenience method to obtain the rendered version of an item as it would appear in the

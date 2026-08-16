@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-### Added
+### Changed
+- The methods `{Injector, Picker}::extend_exact` have been replaced with `{Injector, Picker}::push_batch` which no longer has the `ExactSizeIterator` bound.
+  Internally, the `Extend` implementation now uses `Iterator::size_hint` to optimize insertions.
 
+### Added
 - Picker interface now includes indicators showing:
   - When items are still being streamed.
   - When the match list scoring is still being performed.

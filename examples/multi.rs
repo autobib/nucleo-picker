@@ -11,7 +11,7 @@ fn main() -> io::Result<()> {
         .max_selection_count(NonZero::new(3))
         .picker(StrRenderer);
 
-    picker.extend_exact([
+    picker.push_batch([
         "Rembrandt",
         "Velázquez",
         "Schiele",
