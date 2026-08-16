@@ -80,10 +80,31 @@ impl<T, R: Render<T>> Injector<T, R> {
     ///
     /// This can result in more efficient insertion when inserting a large number of elements in
     /// a single batch.
+    #[deprecated(
+        since = "0.12.0",
+        note = "Use `push_batch` instead which optimizes using `size_hint`"
+    )]
     pub fn extend_exact<I>(&self, iter: I)
     where
         I: IntoIterator<Item = T>,
         <I as IntoIterator>::IntoIter: ExactSizeIterator,
+    {
+        self.inner.extend(iter, |s, columns| {
+            columns[0] = self.render.render(s).as_ref().into();
+        });
+    }
+
+    /// Add items from an iterator to the picker.
+    ///
+    /// This can result in more efficient insertion if the iterator has a
+    /// [`size_hint`](Iterator::size_hint) which provides useful information. Using this method
+    /// instead of [`push`](Self::push) can also result in lower inter-thread contention.
+    ///
+    /// This is identical to the [`Extend`] implementation but does not require a mutable
+    /// self-reference.
+    pub fn push_batch<I>(&self, iter: I)
+    where
+        I: IntoIterator<Item = T>,
     {
         self.inner.extend(iter, |s, columns| {
             columns[0] = self.render.render(s).as_ref().into();
@@ -98,9 +119,7 @@ impl<T, R: Render<T>> Injector<T, R> {
 
 impl<T, R: Render<T>> Extend<T> for Injector<T, R> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
-        for it in iter {
-            self.push(it);
-        }
+        self.push_batch(iter);
     }
 }
 
