@@ -116,9 +116,54 @@ impl FrameState {
                 .queue(EndSynchronizedUpdate)?;
 
             writer.flush()?;
-        };
+
+            #[cfg(feature = "tracing")]
+            self.trace_frame(picker, width, height, queued_items);
+        }
 
         Ok(())
+    }
+
+    #[cfg(feature = "tracing")]
+    fn trace_enabled() -> bool {
+        tracing::enabled!(target: "nucleo_picker::frame", tracing::Level::DEBUG)
+    }
+
+    #[cfg(feature = "tracing")]
+    fn trace_frame<T: Send + Sync + 'static, R: Render<T>, Q: Queued>(
+        &self,
+        picker: &Picker<T, R>,
+        width: u16,
+        height: u16,
+        queued_items: &Q,
+    ) {
+        if !Self::trace_enabled() {
+            return;
+        }
+
+        let (matched, total) = picker.match_list.trace_counts();
+        let selected_match = (matched != 0).then_some(picker.match_list.selection());
+        let selected_input_index = picker.match_list.trace_selected_input_index();
+        let selection_limit = picker.max_selection_count.map(NonZero::get);
+
+        tracing::event!(
+            name: "picker.frame",
+            target: "nucleo_picker::frame",
+            tracing::Level::DEBUG,
+            sequence = self.frame,
+            width,
+            height,
+            query = picker.prompt.contents(),
+            matching = self.matching,
+            injecting = self.injecting,
+            matched,
+            total,
+            selected_match,
+            selected_input_index,
+            queued = queued_items.len(),
+            selection_limit,
+            reversed = picker.reversed,
+        );
     }
 }
 
@@ -150,4 +195,7 @@ mod tests {
 
         assert_eq!(FrameState::default().status_marker, None);
     }
+
+    #[cfg(feature = "tracing")]
+    mod tracing;
 }

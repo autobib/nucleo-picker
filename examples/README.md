@@ -20,6 +20,7 @@ File                                       | Description
 [fzf_basic.rs](fzf_basic.rs)               | A simplified version of the `fzf` example.
 [fzf_err_handling.rs](fzf_err_handling.rs) | A simplified version of the `fzf` example using channels to propagate read errors.
 [multi.rs](multi.rs)                       | A basic example allowing multiple selections.
+[tracing.rs](tracing.rs)                   | A multi-selection example that records frame tracing events.
 [options.rs](options.rs)                   | Some customization examples of the picker.
 [restart.rs](restart.rs)                   | Demonstration of interactive restarting in response to user input.
 [restart_ext.rs](restart_ext.rs)           | An extended version of the restart example.
