@@ -6,7 +6,7 @@
 //! This is a more complete version of the basic fzf example.
 use std::{
     fmt,
-    io::{self, IsTerminal},
+    io::{self, BufRead, IsTerminal},
     num::NonZero,
     process::exit,
     thread::spawn,
@@ -80,6 +80,10 @@ struct Args {
     /// Disable multi-select mode.
     #[arg(long, conflicts_with = "multi")]
     no_multi: bool,
+
+    /// Split input using null characters instead of newlines.
+    #[arg(long)]
+    read0: bool,
 }
 
 fn main() -> io::Result<()> {
@@ -108,12 +112,24 @@ fn main() -> io::Result<()> {
 
     let injector = picker.injector();
     spawn(move || {
-        let stdin = io::stdin();
+        let stdin = io::stdin().lock();
         if !stdin.is_terminal() {
-            for line in stdin.lines() {
-                // silently drop IO errors!
-                if let Ok(s) = line {
-                    injector.push(s);
+            if args.read0 {
+                for chunk in stdin.split(b'\0') {
+                    // silently drop IO and utf8 conversion errors!
+                    if let Ok(bytes) = chunk
+                        && !bytes.is_empty()
+                        && let Ok(s) = String::from_utf8(bytes)
+                    {
+                        injector.push(s)
+                    }
+                }
+            } else {
+                for line in stdin.lines() {
+                    // silently drop IO errors!
+                    if let Ok(s) = line {
+                        injector.push(s);
+                    }
                 }
             }
         }
