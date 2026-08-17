@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- Picker interface now includes indicators showing:
+  - When items are still being streamed.
+  - When the match list scoring is still being performed.
+- Removed `T: Send + Sync + 'static` trait bounds on struct declaration of `Picker<T, R>`.
+  These bounds are still required to actually use the picker.
+
 ## [0.11.2] - 2026-08-04
 
 ### Added
