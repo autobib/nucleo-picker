@@ -210,6 +210,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
         width: u16,
         writer: &mut W,
         multi: Option<(u32, Option<NonZero<u32>>)>,
+        status_marker: Option<char>,
     ) -> std::io::Result<()> {
         let snapshot = self.nucleo.snapshot();
         draw_match_counts(
@@ -218,7 +219,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
             snapshot.matched_item_count(),
             snapshot.item_count(),
             multi,
-            self.status_marker,
+            status_marker,
         )
     }
 
@@ -229,6 +230,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
         writer: &mut W,
         mut is_queued: F,
         multi: Option<(u32, Option<NonZero<u32>>)>,
+        status_marker: Option<char>,
     ) -> std::io::Result<()> {
         let match_list_height = height - 1;
         let match_list_width = width.saturating_sub(3);
@@ -239,8 +241,6 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
 
         let snapshot = self.nucleo.snapshot();
         let matched_item_count = snapshot.matched_item_count();
-        let status_marker = self.status_marker;
-
         if height == 1 {
             draw_match_counts(
                 writer,

@@ -32,6 +32,7 @@
 mod component;
 pub mod error;
 pub mod event;
+mod frame;
 mod incremental;
 mod injector;
 mod lazy;
@@ -53,14 +54,9 @@ use std::{
 };
 
 use crossterm::{
-    QueueableCommand,
-    cursor::MoveTo,
     event::{DisableBracketedPaste, EnableBracketedPaste, KeyEvent},
     execute,
-    terminal::{
-        BeginSynchronizedUpdate, EndSynchronizedUpdate, EnterAlternateScreen, LeaveAlternateScreen,
-        disable_raw_mode, enable_raw_mode, size,
-    },
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use nucleo::{
     self as nc, Nucleo,
@@ -72,6 +68,7 @@ use crate::{
     component::Status,
     error::PickError,
     event::{Event, EventSource, RecvError, StdinReader, keybind_default, keybind_no_multi},
+    frame::FrameState,
     lazy::{LazyMatchList, LazyPrompt},
     match_list::{MatchList, MatchListConfig, Queued, SelectedIndices},
     prompt::{Prompt, PromptConfig},
@@ -1018,71 +1015,6 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         Ok(())
     }
 
-    /// Render the frame, specifying which parts of the frame need to be re-drawn.
-    #[inline]
-    fn render_frame<W: Write, Q: Queued>(
-        &mut self,
-        writer: &mut W,
-        redraw_prompt: bool,
-        redraw_match_list: bool,
-        redraw_match_status: bool,
-        queued_items: &Q,
-    ) -> io::Result<()>
-    where
-        R: Render<T>,
-    {
-        let (width, height) = size()?;
-
-        let (prompt_row, match_list_row) = if self.reversed {
-            (0, 1)
-        } else {
-            (height - 1, 0)
-        };
-
-        if width >= 1 && (redraw_prompt || redraw_match_list || redraw_match_status) {
-            writer.queue(BeginSynchronizedUpdate)?;
-
-            if redraw_match_list && height >= 2 {
-                writer.queue(MoveTo(0, match_list_row))?;
-
-                self.match_list.draw(
-                    width,
-                    height - 1,
-                    writer,
-                    |idx| queued_items.is_queued(idx),
-                    queued_items.count(self.max_selection_count),
-                )?;
-            } else if redraw_match_status && height >= 2 {
-                let status_row = if self.reversed {
-                    match_list_row
-                } else {
-                    height - 2
-                };
-                writer.queue(MoveTo(0, status_row))?;
-                self.match_list.draw_status(
-                    width,
-                    writer,
-                    queued_items.count(self.max_selection_count),
-                )?;
-            }
-
-            if redraw_prompt && height >= 1 {
-                writer.queue(MoveTo(0, prompt_row))?;
-
-                self.prompt.draw(width, 1, writer)?;
-            }
-
-            writer
-                .queue(MoveTo(self.prompt.screen_offset() + 2, prompt_row))?
-                .queue(EndSynchronizedUpdate)?;
-
-            // flush to terminal
-            writer.flush()?;
-        };
-
-        Ok(())
-    }
-
     fn pick_impl<E, W, Q: Queued>(
         &mut self,
         mut event_source: E,
@@ -1106,15 +1038,16 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         Self::init_screen(writer)?;
 
         let mut frame_start = Instant::now();
+        let mut frame_state = FrameState::default();
 
         // render the first frame
-        self.match_list.update(5, false);
-        self.render_frame(writer, true, true, true, &queued_items)?;
+        let update_status = self.match_list.update(5);
+        frame_state.observe(&update_status);
+        frame_state.render_frame(self, writer, true, true, true, &queued_items)?;
 
         let mut redraw_prompt = false;
         let mut redraw_match_list = false;
         let mut redraw_match_status = false;
-        let mut frame = 0_u64;
 
         let selection = 'selection: loop {
             let mut lazy_match_list = LazyMatchList::new(&mut self.match_list, &mut queued_items);
@@ -1195,17 +1128,22 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
             }
 
             // update the item list
-            frame = frame.wrapping_add(1);
-            let background_frame =
-                frame.is_multiple_of(self.background_frame_frequency.get() as u64);
+            let background_frame = frame_state.advance(self.background_frame_frequency);
             let update_status = self
                 .match_list
-                .update(2 * self.interval.as_millis() as u64 / 3, background_frame);
+                .update(2 * self.interval.as_millis() as u64 / 3);
+            frame_state.observe(&update_status);
             redraw_match_list |= update_status.items_changed;
-            redraw_match_status |= update_status.marker_changed;
+            if background_frame {
+                redraw_match_status |= frame_state.update_marker(
+                    self.match_list.spinner_chars(),
+                    self.match_list.matching_indicator(),
+                );
+            }
 
             // render the frame
-            self.render_frame(
+            frame_state.render_frame(
+                self,
                 writer,
                 redraw_prompt,
                 redraw_match_list,
