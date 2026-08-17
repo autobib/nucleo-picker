@@ -197,7 +197,8 @@ struct MatchListState {
 
 pub(crate) struct MatchListStatus {
     pub items_changed: bool,
-    pub marker_changed: bool,
+    pub matching: bool,
+    pub injecting: bool,
 }
 
 /// Configuration used internally in the [`PickerState`].
@@ -590,16 +591,6 @@ pub struct MatchList<T: Send + Sync + 'static, R> {
     matcher: nc::Matcher,
     /// A cache of the prompt, used to decide if the prompt has changed.
     prompt: String,
-    /// Whether the matcher threadpool is currently processing matches.
-    matching: bool,
-    /// Whether at least one injector for the current generation is alive.
-    injecting: bool,
-    /// Whether the displayed status marker represents an active injector.
-    displayed_injecting: bool,
-    /// The status marker displayed during the previous frame.
-    status_marker: Option<char>,
-    /// The currently displayed active-injector spinner frame.
-    spinner_index: usize,
 }
 
 impl<T: Send + Sync + 'static, R> MatchList<T, R> {
@@ -622,16 +613,19 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
             render,
             scratch: IndexBuffer::new(),
             prompt: String::with_capacity(32),
-            matching: false,
-            injecting: false,
-            displayed_injecting: false,
-            status_marker: None,
-            spinner_index: 0,
         }
     }
 
     pub fn reversed(&self) -> bool {
         self.config.reversed
+    }
+
+    pub fn spinner_chars(&self) -> &'static [char] {
+        self.config.spinner_chars
+    }
+
+    pub fn matching_indicator(&self) -> char {
+        self.config.matching_indicator
     }
 
     /// A convenience function to render a given item using the internal [`Render`] implementation.
@@ -865,38 +859,16 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
     }
 
     /// Check if the internal match workers have returned any new updates for matched items.
-    pub fn update(&mut self, millis: u64, background_frame: bool) -> MatchListStatus {
+    pub fn update(&mut self, millis: u64) -> MatchListStatus {
         let status = self.nucleo.tick(millis);
         if status.changed {
             self.update_items();
         }
 
-        self.matching = status.running;
-        self.injecting = self.nucleo.active_injectors() != 0;
-
-        let mut marker_changed = false;
-        if background_frame {
-            if self.injecting && self.displayed_injecting {
-                if !self.config.spinner_chars.is_empty() {
-                    self.spinner_index = (self.spinner_index + 1) % self.config.spinner_chars.len();
-                }
-            } else {
-                self.spinner_index = 0;
-            }
-
-            let marker = if self.injecting {
-                self.config.spinner_chars.get(self.spinner_index).copied()
-            } else {
-                self.matching.then_some(self.config.matching_indicator)
-            };
-            marker_changed = self.status_marker != marker;
-            self.status_marker = marker;
-            self.displayed_injecting = self.injecting;
-        }
-
         MatchListStatus {
             items_changed: status.changed,
-            marker_changed,
+            matching: status.running,
+            injecting: self.nucleo.active_injectors() != 0,
         }
     }
 
