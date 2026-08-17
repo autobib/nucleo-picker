@@ -4,6 +4,7 @@ use std::{
 };
 
 use nucleo as nc;
+use unicode_width::UnicodeWidthChar;
 
 use super::{
     IndexBuffer, MatchList, MatchListConfig,
@@ -149,28 +150,50 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, W: io::Write + ?Size
     Ok(())
 }
 
+fn decimal_width(value: u32) -> usize {
+    value.checked_ilog10().unwrap_or(0) as usize + 1
+}
+
 fn draw_match_counts<W: io::Write + ?Sized>(
     writer: &mut W,
+    width: u16,
     matched: u32,
     total: u32,
     multi: Option<(u32, Option<NonZero<u32>>)>,
+    status_marker: Option<char>,
 ) -> io::Result<()> {
+    let mut occupied = status_marker.unwrap_or(' ').width().unwrap_or(0)
+        + 1
+        + decimal_width(matched)
+        + 1
+        + decimal_width(total);
     writer
         .queue(SetAttribute(Attribute::Italic))?
         .queue(SetForegroundColor(Color::Green))?
-        .queue(Print("  "))?
+        .queue(Print(status_marker.unwrap_or(' ')))?
+        .queue(Print(" "))?
         .queue(Print(matched))?
         .queue(Print("/"))?
         .queue(Print(total))?;
     if let Some((ct, op)) = multi {
+        occupied += 2 + decimal_width(ct) + 1;
         writer
             .queue(SetForegroundColor(Color::Grey))?
             .queue(Print(" ("))?
             .queue(Print(ct))?;
         if let Some(max) = op {
+            occupied += 1 + decimal_width(max.get());
             writer.queue(Print("/"))?.queue(Print(max))?;
         }
         writer.queue(Print(")"))?;
+    }
+
+    let fill_width = usize::from(width).saturating_sub(occupied);
+    if fill_width != 0 {
+        writer
+            .queue(SetForegroundColor(Color::Grey))?
+            .queue(Print(" "))?
+            .queue(Print("─".repeat(fill_width - 1)))?;
     }
 
     writer
@@ -182,6 +205,23 @@ fn draw_match_counts<W: io::Write + ?Sized>(
 }
 
 impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
+    pub fn draw_status<W: Write + ?Sized>(
+        &self,
+        width: u16,
+        writer: &mut W,
+        multi: Option<(u32, Option<NonZero<u32>>)>,
+    ) -> std::io::Result<()> {
+        let snapshot = self.nucleo.snapshot();
+        draw_match_counts(
+            writer,
+            width,
+            snapshot.matched_item_count(),
+            snapshot.item_count(),
+            multi,
+            self.status_marker,
+        )
+    }
+
     pub fn draw<W: Write + ?Sized, F: FnMut(u32) -> bool>(
         &mut self,
         width: u16,
@@ -199,9 +239,17 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
 
         let snapshot = self.nucleo.snapshot();
         let matched_item_count = snapshot.matched_item_count();
+        let status_marker = self.status_marker;
 
         if height == 1 {
-            draw_match_counts(writer, matched_item_count, snapshot.item_count(), multi)?;
+            draw_match_counts(
+                writer,
+                width,
+                matched_item_count,
+                snapshot.item_count(),
+                multi,
+                status_marker,
+            )?;
             return Ok(());
         }
 
@@ -209,7 +257,14 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
 
         // draw the matches
         if self.config.reversed {
-            draw_match_counts(writer, matched_item_count, snapshot.item_count(), multi)?;
+            draw_match_counts(
+                writer,
+                width,
+                matched_item_count,
+                snapshot.item_count(),
+                multi,
+                status_marker,
+            )?;
             writer.queue(MoveToNextLine(1))?;
 
             if matched_item_count != 0 {
@@ -260,9 +315,47 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
                 )?;
             }
 
-            draw_match_counts(writer, matched_item_count, snapshot.item_count(), multi)?;
+            draw_match_counts(
+                writer,
+                width,
+                matched_item_count,
+                snapshot.item_count(),
+                multi,
+                status_marker,
+            )?;
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{decimal_width, draw_match_counts};
+
+    fn rendered_prefix(status_marker: Option<char>) -> String {
+        let mut output = Vec::new();
+        draw_match_counts(&mut output, 12, 3, 5, None, status_marker).unwrap();
+        String::from_utf8(output).unwrap()
+    }
+
+    #[test]
+    fn status_markers_precede_match_counts() {
+        assert!(rendered_prefix(None).contains("  3/5"));
+        assert!(rendered_prefix(Some('⠏')).contains("⠏ 3/5"));
+        assert!(rendered_prefix(Some('≈')).contains("≈ 3/5"));
+    }
+
+    #[test]
+    fn status_line_fills_remaining_width() {
+        assert!(rendered_prefix(None).contains("─────"));
+    }
+
+    #[test]
+    fn decimal_width_handles_zero_and_powers_of_ten() {
+        assert_eq!(decimal_width(0), 1);
+        assert_eq!(decimal_width(9), 1);
+        assert_eq!(decimal_width(10), 2);
+        assert_eq!(decimal_width(u32::MAX), 10);
     }
 }

@@ -141,6 +141,39 @@ fn selected_indices_track_insertion_order() {
 }
 
 #[test]
+fn injector_lifetime_updates_status() {
+    let mut lt = MatchListTester::init(1, 0);
+    lt.match_list.config.spinner_chars = &['a', 'b'];
+    assert!(!lt.match_list.injecting);
+
+    let injector = lt.match_list.injector();
+    lt.match_list.update(0, false);
+    assert!(lt.match_list.injecting);
+    assert_eq!(lt.match_list.spinner_index, 0);
+    assert_eq!(lt.match_list.status_marker, None);
+
+    assert!(lt.match_list.update(0, true).marker_changed);
+    assert_eq!(lt.match_list.spinner_index, 0);
+    assert_eq!(lt.match_list.status_marker, Some('a'));
+
+    assert!(lt.match_list.update(0, true).marker_changed);
+    assert_eq!(lt.match_list.spinner_index, 1);
+    assert_eq!(lt.match_list.status_marker, Some('b'));
+
+    drop(injector);
+    lt.match_list.update(0, false);
+    assert!(!lt.match_list.injecting);
+    assert_eq!(lt.match_list.status_marker, Some('b'));
+
+    while lt.match_list.matching {
+        lt.match_list.update(5, false);
+        assert_eq!(lt.match_list.status_marker, Some('b'));
+    }
+    assert!(lt.match_list.update(0, true).marker_changed);
+    assert_eq!(lt.match_list.status_marker, None);
+}
+
+#[test]
 fn basic() {
     let mut lt = MatchListTester::init(6, 2);
     assert_layout!(lt, Update(&["12\n34", "ab"]), &[2], &[1]);
