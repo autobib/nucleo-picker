@@ -271,6 +271,9 @@ pub trait Queued {
 
     fn is_empty(&self) -> bool;
 
+    #[cfg(feature = "tracing")]
+    fn len(&self) -> usize;
+
     fn clear(&mut self) -> bool;
 
     fn deselect(&mut self, idx: u32) -> bool;
@@ -308,6 +311,12 @@ impl Queued for () {
     #[inline]
     fn is_empty(&self) -> bool {
         true
+    }
+
+    #[cfg(feature = "tracing")]
+    #[inline]
+    fn len(&self) -> usize {
+        0
     }
 
     #[inline]
@@ -367,6 +376,12 @@ impl Queued for SelectedIndices {
     #[inline]
     fn is_empty(&self) -> bool {
         self.inner.is_empty()
+    }
+
+    #[cfg(feature = "tracing")]
+    #[inline]
+    fn len(&self) -> usize {
+        self.inner.len()
     }
 
     #[inline]
@@ -715,6 +730,18 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
 
     pub fn selection(&self) -> u32 {
         self.selection
+    }
+
+    #[cfg(feature = "tracing")]
+    pub(crate) fn trace_counts(&self) -> (u32, u32) {
+        let snapshot = self.nucleo.snapshot();
+        (snapshot.matched_item_count(), snapshot.item_count())
+    }
+
+    #[cfg(feature = "tracing")]
+    pub(crate) fn trace_selected_input_index(&self) -> Option<u32> {
+        (self.nucleo.snapshot().matched_item_count() != 0)
+            .then(|| self.idx_from_match_unchecked(self.selection))
     }
 
     pub fn max_selection(&self) -> u32 {
