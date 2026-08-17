@@ -11,9 +11,13 @@ use std::{
     process::exit,
     thread::spawn,
 };
+#[cfg(feature = "tracing")]
+use std::{fs::File, path::Path, sync::Mutex};
 
 use clap::{Parser, ValueEnum};
 use nucleo_picker::{CaseMatching, Normalization, PickerOptions, render::StrRenderer};
+#[cfg(feature = "tracing")]
+use tracing_subscriber::{Layer, layer::SubscriberExt};
 
 #[derive(Debug, Clone, Default, ValueEnum)]
 enum Layout {
@@ -84,10 +88,35 @@ struct Args {
     /// Split input using null characters instead of newlines.
     #[arg(long)]
     read0: bool,
+
+    /// Write picker frame tracing events as JSON Lines.
+    #[cfg(feature = "tracing")]
+    #[arg(long, value_name = "PATH", hide = true)]
+    tracing_output: Option<std::path::PathBuf>,
+}
+
+#[cfg(feature = "tracing")]
+fn tracing_subscriber(path: &Path) -> io::Result<impl tracing::Subscriber + Send + Sync> {
+    let writer = Mutex::new(File::create(path)?);
+    let frames = tracing_subscriber::filter::filter_fn(|metadata| {
+        metadata.target() == "nucleo_picker::frame"
+    });
+    Ok(tracing_subscriber::registry().with(
+        tracing_subscriber::fmt::layer()
+            .json()
+            .with_writer(writer)
+            .with_filter(frames),
+    ))
 }
 
 fn main() -> io::Result<()> {
     let args = Args::parse();
+
+    #[cfg(feature = "tracing")]
+    if let Some(path) = &args.tracing_output {
+        tracing::subscriber::set_global_default(tracing_subscriber(path)?)
+            .map_err(io::Error::other)?;
+    }
 
     let options = PickerOptions::new()
         .reverse_items(args.tac)
