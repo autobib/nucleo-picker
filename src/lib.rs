@@ -326,10 +326,27 @@ pub struct PickerOptions {
     threads: Option<NonZero<usize>>,
     max_selection_count: Option<NonZero<u32>>,
     interval: Duration,
+    background_frame_interval: Duration,
     match_list_config: MatchListConfig,
     prompt_config: PromptConfig,
     sort_results: bool,
     reverse_items: bool,
+}
+
+fn background_frame_frequency(
+    frame_interval: Duration,
+    background_frame_interval: Duration,
+) -> NonZero<usize> {
+    let frame_nanos = frame_interval.as_nanos();
+    let frames = if frame_nanos == 0 {
+        1
+    } else {
+        background_frame_interval
+            .as_nanos()
+            .div_ceil(frame_nanos)
+            .max(1)
+    };
+    NonZero::new(usize::try_from(frames).unwrap_or(usize::MAX)).unwrap()
 }
 
 impl Default for PickerOptions {
@@ -351,6 +368,7 @@ impl PickerOptions {
             threads: None,
             max_selection_count: None,
             interval: Duration::from_millis(15),
+            background_frame_interval: Duration::from_millis(60),
             match_list_config: MatchListConfig::new(),
             prompt_config: PromptConfig::new(),
             sort_results: true,
@@ -361,6 +379,8 @@ impl PickerOptions {
     /// Convert into a [`Picker`].
     #[must_use]
     pub fn picker<T: Send + Sync + 'static, R>(self, render: R) -> Picker<T, R> {
+        let background_frame_frequency =
+            background_frame_frequency(self.interval, self.background_frame_interval);
         let engine = Nucleo::with_match_list_config(
             self.config.clone(),
             Arc::new(|| {}),
@@ -397,6 +417,7 @@ impl PickerOptions {
             match_list,
             prompt,
             interval: self.interval,
+            background_frame_frequency,
             max_selection_count: self.max_selection_count,
             reversed,
             restart_notifier: None,
@@ -561,6 +582,47 @@ impl PickerOptions {
         self
     }
 
+    /// Set the characters used to animate the input status spinner.
+    ///
+    /// While the picker may still receive items, an indicator cycles through the characters.
+    /// An empty slice disables the indicator entirely. The default value is `&['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']`.
+    #[must_use]
+    #[inline]
+    pub const fn spinner_chars(mut self, spinner: &'static [char]) -> Self {
+        self.match_list_config.spinner_chars = spinner;
+        self
+    }
+
+    /// Set the character used to indicate that the matcher is working.
+    ///
+    /// This indicator is only displayed when the picker is no longer waiting for items; otherwise,
+    /// the active spinner takes priority. The default value is `'·'`.
+    #[must_use]
+    #[inline]
+    pub const fn matching_indicator(mut self, indicator: char) -> Self {
+        self.match_list_config.matching_indicator = indicator;
+        self
+    }
+
+    /// Set the interval between background frames.
+    ///
+    /// This is the frame interval used for items on the screen which are only occasionally updated.
+    /// Currently, this is used for:
+    ///
+    /// - the input status spinner
+    /// - the matcher status marker
+    ///
+    /// The interval is converted to a whole number of regular frames, rounding up. The default
+    /// value is 60ms. You can tune the spinner appearance,
+    /// independently of this timer, by repeating characters in
+    /// [`spinner_chars`](Self::spinner_chars).
+    #[must_use]
+    #[inline]
+    pub const fn background_frame_interval(mut self, interval: Duration) -> Self {
+        self.background_frame_interval = interval;
+        self
+    }
+
     /// Provide an initial query string for the prompt (default to `""`).
     #[must_use]
     #[inline]
@@ -651,6 +713,7 @@ pub struct Picker<T: Send + Sync + 'static, R> {
     max_selection_count: Option<NonZero<u32>>,
     prompt: Prompt,
     interval: Duration,
+    background_frame_frequency: NonZero<usize>,
     reversed: bool,
     restart_notifier: Option<Notifier<Injector<T, R>>>,
 }
@@ -962,6 +1025,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         writer: &mut W,
         redraw_prompt: bool,
         redraw_match_list: bool,
+        redraw_match_status: bool,
         queued_items: &Q,
     ) -> io::Result<()>
     where
@@ -975,7 +1039,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
             (height - 1, 0)
         };
 
-        if width >= 1 && (redraw_prompt || redraw_match_list) {
+        if width >= 1 && (redraw_prompt || redraw_match_list || redraw_match_status) {
             writer.queue(BeginSynchronizedUpdate)?;
 
             if redraw_match_list && height >= 2 {
@@ -986,6 +1050,18 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
                     height - 1,
                     writer,
                     |idx| queued_items.is_queued(idx),
+                    queued_items.count(self.max_selection_count),
+                )?;
+            } else if redraw_match_status && height >= 2 {
+                let status_row = if self.reversed {
+                    match_list_row
+                } else {
+                    height - 2
+                };
+                writer.queue(MoveTo(0, status_row))?;
+                self.match_list.draw_status(
+                    width,
+                    writer,
                     queued_items.count(self.max_selection_count),
                 )?;
             }
@@ -1032,11 +1108,13 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         let mut frame_start = Instant::now();
 
         // render the first frame
-        self.match_list.update(5);
-        self.render_frame(writer, true, true, &queued_items)?;
+        self.match_list.update(5, false);
+        self.render_frame(writer, true, true, true, &queued_items)?;
 
         let mut redraw_prompt = false;
         let mut redraw_match_list = false;
+        let mut redraw_match_status = false;
+        let mut frame = 0_u64;
 
         let selection = 'selection: loop {
             let mut lazy_match_list = LazyMatchList::new(&mut self.match_list, &mut queued_items);
@@ -1117,17 +1195,28 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
             }
 
             // update the item list
-            redraw_match_list |= self
+            frame = frame.wrapping_add(1);
+            let background_frame =
+                frame.is_multiple_of(self.background_frame_frequency.get() as u64);
+            let update_status = self
                 .match_list
-                .update(2 * self.interval.as_millis() as u64 / 3)
-                .needs_redraw();
+                .update(2 * self.interval.as_millis() as u64 / 3, background_frame);
+            redraw_match_list |= update_status.items_changed;
+            redraw_match_status |= update_status.marker_changed;
 
             // render the frame
-            self.render_frame(writer, redraw_prompt, redraw_match_list, &queued_items)?;
+            self.render_frame(
+                writer,
+                redraw_prompt,
+                redraw_match_list,
+                redraw_match_status,
+                &queued_items,
+            )?;
 
             // reset the redraw markers
             redraw_prompt = false;
             redraw_match_list = false;
+            redraw_match_status = false;
         };
 
         Self::cleanup_screen(writer)?;

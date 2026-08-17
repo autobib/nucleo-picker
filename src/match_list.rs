@@ -195,6 +195,11 @@ struct MatchListState {
     size: u16,
 }
 
+pub(crate) struct MatchListStatus {
+    pub items_changed: bool,
+    pub marker_changed: bool,
+}
+
 /// Configuration used internally in the [`PickerState`].
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -211,6 +216,10 @@ pub struct MatchListConfig {
     pub case_matching: NucleoCaseMatching,
     /// Normalization behaviour for matches.
     pub normalization: NucleoNormalization,
+    /// Characters used to animate the active-injector indicator.
+    pub spinner_chars: &'static [char],
+    /// Character used to indicate that the matcher is working.
+    pub matching_indicator: char,
 }
 
 impl MatchListConfig {
@@ -222,6 +231,8 @@ impl MatchListConfig {
             scroll_padding: 3,
             case_matching: NucleoCaseMatching::Smart,
             normalization: NucleoNormalization::Smart,
+            spinner_chars: &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'],
+            matching_indicator: '·',
         }
     }
 }
@@ -579,6 +590,16 @@ pub struct MatchList<T: Send + Sync + 'static, R> {
     matcher: nc::Matcher,
     /// A cache of the prompt, used to decide if the prompt has changed.
     prompt: String,
+    /// Whether the matcher threadpool is currently processing matches.
+    matching: bool,
+    /// Whether at least one injector for the current generation is alive.
+    injecting: bool,
+    /// Whether the displayed status marker represents an active injector.
+    displayed_injecting: bool,
+    /// The status marker displayed during the previous frame.
+    status_marker: Option<char>,
+    /// The currently displayed active-injector spinner frame.
+    spinner_index: usize,
 }
 
 impl<T: Send + Sync + 'static, R> MatchList<T, R> {
@@ -601,6 +622,11 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
             render,
             scratch: IndexBuffer::new(),
             prompt: String::with_capacity(32),
+            matching: false,
+            injecting: false,
+            displayed_injecting: false,
+            status_marker: None,
+            spinner_index: 0,
         }
     }
 
@@ -839,12 +865,39 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
     }
 
     /// Check if the internal match workers have returned any new updates for matched items.
-    pub fn update(&mut self, millis: u64) -> bool {
+    pub fn update(&mut self, millis: u64, background_frame: bool) -> MatchListStatus {
         let status = self.nucleo.tick(millis);
         if status.changed {
             self.update_items();
         }
-        status.changed
+
+        self.matching = status.running;
+        self.injecting = self.nucleo.active_injectors() != 0;
+
+        let mut marker_changed = false;
+        if background_frame {
+            if self.injecting && self.displayed_injecting {
+                if !self.config.spinner_chars.is_empty() {
+                    self.spinner_index = (self.spinner_index + 1) % self.config.spinner_chars.len();
+                }
+            } else {
+                self.spinner_index = 0;
+            }
+
+            let marker = if self.injecting {
+                self.config.spinner_chars.get(self.spinner_index).copied()
+            } else {
+                self.matching.then_some(self.config.matching_indicator)
+            };
+            marker_changed = self.status_marker != marker;
+            self.status_marker = marker;
+            self.displayed_injecting = self.injecting;
+        }
+
+        MatchListStatus {
+            items_changed: status.changed,
+            marker_changed,
+        }
     }
 
     /// Reset the layout, setting the cursor to '0' and rendering the items.
