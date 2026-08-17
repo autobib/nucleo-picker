@@ -85,7 +85,7 @@ impl<T, R: Render<T>> Injector<T, R> {
         I: IntoIterator<Item = T>,
         <I as IntoIterator>::IntoIter: ExactSizeIterator,
     {
-        self.inner.extend_exact(iter, |s, columns| {
+        self.inner.extend(iter, |s, columns| {
             columns[0] = self.render.render(s).as_ref().into();
         });
     }
