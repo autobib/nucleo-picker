@@ -31,21 +31,23 @@ impl Subscriber for Recorder {
         metadata.target() == "nucleo_picker::frame"
     }
 
-    fn new_span(&self, _: &Attributes<'_>) -> Id {
+    fn new_span(&self, attributes: &Attributes<'_>) -> Id {
+        let mut recorded = self.0.lock().unwrap();
+        recorded.name = attributes.metadata().name().to_owned();
+        recorded.target = attributes.metadata().target().to_owned();
+        attributes.record(&mut FieldVisitor(&mut recorded.fields));
         Id::from_u64(1)
     }
 
-    fn record(&self, _: &Id, _: &Record<'_>) {}
+    fn record(&self, _: &Id, values: &Record<'_>) {
+        let mut recorded = self.0.lock().unwrap();
+        values.record(&mut FieldVisitor(&mut recorded.fields));
+    }
     fn record_follows_from(&self, _: &Id, _: &Id) {}
     fn enter(&self, _: &Id) {}
     fn exit(&self, _: &Id) {}
 
-    fn event(&self, event: &Event<'_>) {
-        let mut recorded = self.0.lock().unwrap();
-        recorded.name = event.metadata().name().to_owned();
-        recorded.target = event.metadata().target().to_owned();
-        event.record(&mut FieldVisitor(&mut recorded.fields));
-    }
+    fn event(&self, _: &Event<'_>) {}
 }
 
 struct FieldVisitor<'a>(&'a mut BTreeMap<String, String>);
@@ -69,7 +71,7 @@ impl Visit for FieldVisitor<'_> {
 }
 
 #[test]
-fn frame_event_has_semantic_fields() {
+fn frame_span_has_semantic_fields() {
     let recorded = Arc::new(Mutex::new(Recorded::default()));
     let dispatch = Dispatch::new(Recorder(recorded.clone()));
     let picker = PickerOptions::default()
@@ -81,13 +83,16 @@ fn frame_event_has_semantic_fields() {
     assert!(queued.toggle(42));
     let frame = FrameState {
         frame: 7,
+        width: 80,
+        height: 24,
         matching: true,
         injecting: true,
         ..FrameState::default()
     };
 
     tracing::dispatcher::with_default(&dispatch, || {
-        frame.trace_frame(&picker, 80, 24, &queued);
+        let span = frame.trace_span(picker.max_selection_count, picker.reversed);
+        frame.record_trace(&span, &picker, &queued);
     });
 
     let recorded = recorded.lock().unwrap();

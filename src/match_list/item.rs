@@ -56,6 +56,7 @@ pub enum RenderedItem<'a, S> {
 
 impl<'a, S> RenderedItem<'a, S> {
     /// Initialize a new `RenderedItem` from an [`Item`] and a [`Render`] implementation.
+    #[cfg(not(feature = "tracing"))]
     pub fn new<T, R>(item: &Item<'a, T>, renderer: &R) -> Self
     where
         R: Render<T, Str<'a> = S>,
@@ -63,6 +64,26 @@ impl<'a, S> RenderedItem<'a, S> {
         if let Utf32Str::Ascii(bytes) = item.matcher_columns[0].slice(..) {
             RenderedItem::Ascii(unsafe { std::str::from_utf8_unchecked(bytes) })
         } else {
+            RenderedItem::Unicode(renderer.render(item.data))
+        }
+    }
+
+    #[cfg(feature = "tracing")]
+    pub fn new_traced<T, R>(item: &Item<'a, T>, renderer: &R, selected: bool, queued: bool) -> Self
+    where
+        R: Render<T, Str<'a> = S>,
+    {
+        if let Utf32Str::Ascii(bytes) = item.matcher_columns[0].slice(..) {
+            RenderedItem::Ascii(unsafe { std::str::from_utf8_unchecked(bytes) })
+        } else {
+            let _entered = tracing::trace_span!(
+                target: "nucleo_picker::render",
+                "picker.render.user",
+                phase = "display",
+                selected,
+                queued,
+            )
+            .entered();
             RenderedItem::Unicode(renderer.render(item.data))
         }
     }

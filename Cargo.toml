@@ -34,6 +34,7 @@ ignore = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tracing-subscriber = { version = "0.3", features = ["json"] }
+tracing-timing = { version = "0.7", features = ["layer"] }
 
 [lints.clippy]
 redundant_closure_for_method_calls = "warn"
@@ -56,6 +57,10 @@ name = "fzf_err_handling"
 
 [[example]]
 name = "find"
+
+[[example]]
+name = "find_timing"
+required-features = ["tracing"]
 
 [[example]]
 name = "restart"
@@ -82,3 +87,7 @@ name = "options"
 
 [[example]]
 name = "low_framerate"
+
+[[example]]
+name = "timing_harness"
+required-features = ["tracing"]

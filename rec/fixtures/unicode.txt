@@ -1,0 +1,7 @@
+latin NFC café déjà-vu Ångström — long prefix before final
+latin NFD café déjà-vu Ångström — long prefix before final
+한국어 서울 한글 검색 — 아주 긴 접두사 뒤의 종착점 final
+조선말 평양 문화 언어 — 폭이 넓은 글자 뒤의 종착점 final
+日本語 東京 ひらがな カタカナ — 長い接頭辞の後の終点 final
+日本語 京都 漢字かな交じり文 — 長い接頭辞の後の終点 final
+mixed café 서울 東京 — every retained family before final

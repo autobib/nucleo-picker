@@ -14,6 +14,8 @@ use crate::{
 #[derive(Default)]
 pub struct FrameState {
     frame: u64,
+    width: u16,
+    height: u16,
     matching: bool,
     injecting: bool,
     displayed_injecting: bool,
@@ -60,7 +62,7 @@ impl FrameState {
     /// Render the frame, specifying which parts of the frame need to be re-drawn.
     #[inline]
     pub fn render_frame<T: Send + Sync + 'static, R: Render<T>, W: Write, Q: Queued>(
-        &self,
+        &mut self,
         picker: &mut Picker<T, R>,
         writer: &mut W,
         redraw_prompt: bool,
@@ -69,6 +71,8 @@ impl FrameState {
         queued_items: &Q,
     ) -> io::Result<()> {
         let (width, height) = size()?;
+        self.width = width;
+        self.height = height;
 
         let (prompt_row, match_list_row) = if picker.reversed {
             (0, 1)
@@ -77,11 +81,35 @@ impl FrameState {
         };
 
         if width >= 1 && (redraw_prompt || redraw_match_list || redraw_match_status) {
+            #[cfg(feature = "tracing")]
+            let _frame_entered = tracing::trace_span!(
+                target: "nucleo_picker::frame",
+                "picker.frame.render",
+                sequence = self.frame,
+                width,
+                height,
+                redraw_prompt,
+                redraw_match_list,
+                redraw_match_status,
+            )
+            .entered();
             writer.queue(BeginSynchronizedUpdate)?;
 
             if redraw_match_list && height >= 2 {
                 writer.queue(MoveTo(0, match_list_row))?;
 
+                #[cfg(feature = "tracing")]
+                let (matched, total) = picker.match_list.trace_counts();
+                #[cfg(feature = "tracing")]
+                let _match_entered = tracing::trace_span!(
+                    target: "nucleo_picker::frame",
+                    "picker.frame.match_list",
+                    status_only = false,
+                    matched,
+                    total,
+                    visible_items = if matched == 0 { 0 } else { picker.match_list.selection_range().count() },
+                )
+                .entered();
                 picker.match_list.draw(
                     width,
                     height - 1,
@@ -91,6 +119,16 @@ impl FrameState {
                     self.status_marker,
                 )?;
             } else if redraw_match_status && height >= 2 {
+                #[cfg(feature = "tracing")]
+                let _match_entered = tracing::trace_span!(
+                    target: "nucleo_picker::frame",
+                    "picker.frame.match_list",
+                    status_only = true,
+                    matched = picker.match_list.trace_counts().0,
+                    total = picker.match_list.trace_counts().1,
+                    visible_items = 0,
+                )
+                .entered();
                 let status_row = if picker.reversed {
                     match_list_row
                 } else {
@@ -106,6 +144,14 @@ impl FrameState {
             }
 
             if redraw_prompt && height >= 1 {
+                #[cfg(feature = "tracing")]
+                let _prompt_entered = tracing::trace_span!(
+                    target: "nucleo_picker::frame",
+                    "picker.frame.prompt",
+                    query_bytes = picker.prompt.contents().len(),
+                    query_chars = picker.prompt.contents().chars().count(),
+                )
+                .entered();
                 writer.queue(MoveTo(0, prompt_row))?;
 
                 picker.prompt.draw(width, 1, writer)?;
@@ -115,55 +161,67 @@ impl FrameState {
                 .queue(MoveTo(picker.prompt.screen_offset() + 2, prompt_row))?
                 .queue(EndSynchronizedUpdate)?;
 
-            writer.flush()?;
-
-            #[cfg(feature = "tracing")]
-            self.trace_frame(picker, width, height, queued_items);
+            {
+                #[cfg(feature = "tracing")]
+                let _flush_entered = tracing::trace_span!(
+                    target: "nucleo_picker::frame",
+                    "picker.frame.flush"
+                )
+                .entered();
+                writer.flush()?;
+            }
         }
 
         Ok(())
     }
 
     #[cfg(feature = "tracing")]
-    fn trace_enabled() -> bool {
-        tracing::enabled!(target: "nucleo_picker::frame", tracing::Level::DEBUG)
+    pub fn trace_span(
+        &self,
+        selection_limit: Option<NonZero<u32>>,
+        reversed: bool,
+    ) -> tracing::Span {
+        tracing::span!(
+            target: "nucleo_picker::frame",
+            tracing::Level::DEBUG,
+            "picker.frame",
+            sequence = self.frame,
+            width = tracing::field::Empty,
+            height = tracing::field::Empty,
+            query = tracing::field::Empty,
+            matching = tracing::field::Empty,
+            injecting = tracing::field::Empty,
+            matched = tracing::field::Empty,
+            total = tracing::field::Empty,
+            selected_match = tracing::field::Empty,
+            selected_input_index = tracing::field::Empty,
+            queued = tracing::field::Empty,
+            selection_limit = selection_limit.map(NonZero::get),
+            reversed,
+        )
     }
 
     #[cfg(feature = "tracing")]
-    fn trace_frame<T: Send + Sync + 'static, R: Render<T>, Q: Queued>(
+    pub fn record_trace<T: Send + Sync + 'static, R: Render<T>, Q: Queued>(
         &self,
+        span: &tracing::Span,
         picker: &Picker<T, R>,
-        width: u16,
-        height: u16,
         queued_items: &Q,
     ) {
-        if !Self::trace_enabled() {
-            return;
-        }
-
         let (matched, total) = picker.match_list.trace_counts();
         let selected_match = (matched != 0).then_some(picker.match_list.selection());
         let selected_input_index = picker.match_list.trace_selected_input_index();
-        let selection_limit = picker.max_selection_count.map(NonZero::get);
 
-        tracing::event!(
-            name: "picker.frame",
-            target: "nucleo_picker::frame",
-            tracing::Level::DEBUG,
-            sequence = self.frame,
-            width,
-            height,
-            query = picker.prompt.contents(),
-            matching = self.matching,
-            injecting = self.injecting,
-            matched,
-            total,
-            selected_match,
-            selected_input_index,
-            queued = queued_items.len(),
-            selection_limit,
-            reversed = picker.reversed,
-        );
+        span.record("width", self.width);
+        span.record("height", self.height);
+        span.record("query", picker.prompt.contents());
+        span.record("matching", self.matching);
+        span.record("injecting", self.injecting);
+        span.record("matched", matched);
+        span.record("total", total);
+        span.record("selected_match", selected_match);
+        span.record("selected_input_index", selected_input_index);
+        span.record("queued", queued_items.len());
     }
 }
 

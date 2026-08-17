@@ -1,9 +1,10 @@
 //! # Tracing example
 //!
-//! This is identical to the `multi` example but records picker frame events to a specified file.
+//! This is identical to the `multi` example but records picker frame spans to a specified file.
 use std::{env, fs::File, io, num::NonZero, sync::Mutex};
 
 use nucleo_picker::{PickerOptions, render::StrRenderer};
+use tracing_subscriber::{Layer, fmt::format::FmtSpan, prelude::*};
 
 fn main() -> io::Result<()> {
     let path = env::args_os().nth(1).ok_or_else(|| {
@@ -13,10 +14,20 @@ fn main() -> io::Result<()> {
         )
     })?;
     let trace = File::create(path)?;
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::DEBUG)
-        .with_target(true)
-        .with_writer(Mutex::new(trace))
+    let frames = tracing_subscriber::filter::filter_fn(|metadata| {
+        metadata.is_span()
+            && metadata.target() == "nucleo_picker::frame"
+            && metadata.name() == "picker.frame"
+            && *metadata.level() == tracing::Level::DEBUG
+    });
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_span_events(FmtSpan::CLOSE)
+                .with_target(true)
+                .with_writer(Mutex::new(trace))
+                .with_filter(frames),
+        )
         .init();
 
     let mut picker = PickerOptions::new()
