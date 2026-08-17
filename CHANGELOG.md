@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Picker interface now includes indicators showing:
   - When items are still being streamed.
   - When the match list scoring is still being performed.
+- Experimental `tracing` support, gated behind a `tracing` feature, which emits debug events on each frame render call.
+  See the `tracing` example for a simple demonstration.
 - Removed `T: Send + Sync + 'static` trait bounds on struct declaration of `Picker<T, R>`.
   These bounds are still required to actually use the picker.
 

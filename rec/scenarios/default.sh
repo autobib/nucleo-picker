@@ -13,11 +13,11 @@ tt type item-1
 wait_complete 12 24
 snap default-filtered
 tt press Left Backspace
-tt wait text "> item1" --timeout 5000
+wait_frame '.query == "item1"'
 wait_complete 12 24
 snap default-edited
 tt type zzz
-tt wait text "> itemzzz1" --timeout 5000
+wait_frame '.query == "itemzzz1"'
 wait_complete 0 24
 snap default-no-match
 tt press Home Control+o

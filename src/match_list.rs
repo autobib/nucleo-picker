@@ -269,6 +269,9 @@ impl IndexBuffer {
 pub trait Queued {
     type Output<'a, T: Send + Sync + 'static>;
 
+    #[cfg(feature = "tracing")]
+    const IS_MULTI: bool;
+
     fn is_empty(&self) -> bool;
 
     #[cfg(feature = "tracing")]
@@ -307,6 +310,9 @@ pub trait Queued {
 
 impl Queued for () {
     type Output<'a, T: Send + Sync + 'static> = Option<&'a T>;
+
+    #[cfg(feature = "tracing")]
+    const IS_MULTI: bool = false;
 
     #[inline]
     fn is_empty(&self) -> bool {
@@ -372,6 +378,9 @@ impl Queued for () {
 
 impl Queued for SelectedIndices {
     type Output<'a, T: Send + Sync + 'static> = Selection<'a, T>;
+
+    #[cfg(feature = "tracing")]
+    const IS_MULTI: bool = true;
 
     #[inline]
     fn is_empty(&self) -> bool {
@@ -887,9 +896,32 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
 
     /// Check if the internal match workers have returned any new updates for matched items.
     pub fn update(&mut self, millis: u64) -> MatchListStatus {
+        #[cfg(feature = "tracing")]
+        let span = tracing::trace_span!(
+            target: "nucleo_picker::match",
+            "picker.match.tick",
+            budget_ms = millis,
+            changed = tracing::field::Empty,
+            running = tracing::field::Empty,
+            injecting = tracing::field::Empty,
+            matched = tracing::field::Empty,
+            total = tracing::field::Empty,
+        );
+        #[cfg(feature = "tracing")]
+        let _entered = span.enter();
         let status = self.nucleo.tick(millis);
         if status.changed {
             self.update_items();
+        }
+
+        #[cfg(feature = "tracing")]
+        {
+            let snapshot = self.nucleo.snapshot();
+            span.record("changed", status.changed);
+            span.record("running", status.running);
+            span.record("injecting", self.nucleo.active_injectors() != 0);
+            span.record("matched", snapshot.matched_item_count());
+            span.record("total", snapshot.item_count());
         }
 
         MatchListStatus {

@@ -17,7 +17,7 @@ use std::{fs::File, path::Path, sync::Mutex};
 use clap::{Parser, ValueEnum};
 use nucleo_picker::{CaseMatching, Normalization, PickerOptions, render::StrRenderer};
 #[cfg(feature = "tracing")]
-use tracing_subscriber::{Layer, layer::SubscriberExt};
+use tracing_subscriber::{Layer, fmt::format::FmtSpan, layer::SubscriberExt};
 
 #[derive(Debug, Clone, Default, ValueEnum)]
 enum Layout {
@@ -89,7 +89,7 @@ struct Args {
     #[arg(long)]
     read0: bool,
 
-    /// Write picker frame tracing events as JSON Lines.
+    /// Write picker frame tracing spans as JSON Lines.
     #[cfg(feature = "tracing")]
     #[arg(long, value_name = "PATH", hide = true)]
     tracing_output: Option<std::path::PathBuf>,
@@ -99,11 +99,15 @@ struct Args {
 fn tracing_subscriber(path: &Path) -> io::Result<impl tracing::Subscriber + Send + Sync> {
     let writer = Mutex::new(File::create(path)?);
     let frames = tracing_subscriber::filter::filter_fn(|metadata| {
-        metadata.target() == "nucleo_picker::frame"
+        metadata.is_span()
+            && metadata.target() == "nucleo_picker::frame"
+            && metadata.name() == "picker.frame"
+            && *metadata.level() == tracing::Level::DEBUG
     });
     Ok(tracing_subscriber::registry().with(
         tracing_subscriber::fmt::layer()
             .json()
+            .with_span_events(FmtSpan::CLOSE)
             .with_writer(writer)
             .with_filter(frames),
     ))

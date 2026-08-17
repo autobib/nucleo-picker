@@ -55,7 +55,12 @@ fn draw_single_match<
         buffer.indices.dedup();
     }
 
-    match RenderedItem::new(&item, render) {
+    #[cfg(feature = "tracing")]
+    let rendered = RenderedItem::new_traced(&item, render, SELECTED, queued);
+    #[cfg(not(feature = "tracing"))]
+    let rendered = RenderedItem::new(&item, render);
+
+    match rendered {
         RenderedItem::Ascii(s) => Spanned::<'_, AsciiProcessor>::new(
             &buffer.indices,
             s,

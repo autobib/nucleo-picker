@@ -18,42 +18,28 @@ snap "$prefix-initial-60x16"
 
 for rows in 5 4 3 2 1; do
     tt resize 60 "$rows"
-    if ((rows < 3)); then
-        tt press Left
-        tt wait idle --timeout 5000
-    else
-        wait_complete 24 24
-    fi
+    wait_frame ".width == 60 and .height == $rows"
     snap "$prefix-height-60x$rows"
 done
 tt resize 60 16
-wait_complete 24 24
+wait_frame '.width == 60 and .height == 16'
 
 for cols in 5 4 3 2 1; do
-    tt resize 60 16
-    wait_complete 24 24
+    if ((cols < 5)); then
+        tt resize 60 16
+        wait_frame '.width == 60 and .height == 16'
+    fi
     tt resize "$cols" 16
-    case $cols in
-        5) tt wait text "24 (0" --timeout 5000 ;;
-        4) tt wait text "/24 " --timeout 5000 ;;
-        3) tt wait text "4/2" --timeout 5000 ;;
-        2) tt wait text "/2" --timeout 5000 ;;
-        1)
-            if [[ $layout == reverse ]]; then
-                tt wait idle --timeout 5000
-            else
-                tt wait text "/" --timeout 5000
-            fi
-            ;;
-    esac
+    wait_frame ".width == $cols and .height == 16"
     snap "$prefix-width-${cols}x16"
 done
 tt resize 1 1
+wait_frame '.width == 1 and .height == 1'
 tt resize 60 16
-wait_complete 24 24
+wait_frame '.width == 60 and .height == 16'
 
 tt resize 12 40
-wait_complete 24 24
+wait_frame '.width == 12 and .height == 40'
 for ((i = 0; i < 14; i++)); do tt press "$forward"; done
 for item in 14 15 16 17 18; do
     wait_selected "$item"
@@ -68,7 +54,7 @@ done
 
 for ((i = 0; i < 14; i++)); do tt press "$backward"; done
 tt resize 160 4
-tt wait text "────" --timeout 5000
+wait_frame '.width == 160 and .height == 4'
 for item in 00 01 02 03 04; do
     wait_selected "$item"
     snap "$prefix-wide-160x4-item-$item"
@@ -81,6 +67,7 @@ for item in 03 02 01; do
 done
 
 tt resize 60 16
+wait_frame '.width == 60 and .height == 16'
 tt press "$forward"
 wait_selected 02
 tt press "$backward"
