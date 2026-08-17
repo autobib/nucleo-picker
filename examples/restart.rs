@@ -16,7 +16,7 @@ use nucleo_picker::{
     event::{Event, StdinReader, keybind_default},
     render::DisplayRenderer,
 };
-use rand::{Rng, distr::StandardUniform};
+use rand::{RngExt, distr::StandardUniform};
 
 fn main() -> io::Result<()> {
     let mut picker: Picker<u32, _> = Picker::new(DisplayRenderer);

@@ -569,7 +569,7 @@ impl<'a, T: Send + Sync + 'static> Selection<'a, T> {
 /// This component has two main parts: the internal [`nucleo::Nucleo`] match engine, as well as a
 /// stateful representation of the match items which are currently on the screen. See the module
 /// level documentation for more detail.
-pub struct MatchList<T: Send + Sync + 'static, R> {
+pub struct MatchList<T, R> {
     /// The current selection; this corresponds to a valid index if and only if the current
     /// snapshot has more than one element.
     selection: u32,

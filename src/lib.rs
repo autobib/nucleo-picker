@@ -330,22 +330,6 @@ pub struct PickerOptions {
     reverse_items: bool,
 }
 
-fn background_frame_frequency(
-    frame_interval: Duration,
-    background_frame_interval: Duration,
-) -> NonZero<usize> {
-    let frame_nanos = frame_interval.as_nanos();
-    let frames = if frame_nanos == 0 {
-        1
-    } else {
-        background_frame_interval
-            .as_nanos()
-            .div_ceil(frame_nanos)
-            .max(1)
-    };
-    NonZero::new(usize::try_from(frames).unwrap_or(usize::MAX)).unwrap()
-}
-
 impl Default for PickerOptions {
     fn default() -> Self {
         Self::new()
@@ -376,8 +360,21 @@ impl PickerOptions {
     /// Convert into a [`Picker`].
     #[must_use]
     pub fn picker<T: Send + Sync + 'static, R>(self, render: R) -> Picker<T, R> {
-        let background_frame_frequency =
-            background_frame_frequency(self.interval, self.background_frame_interval);
+        let background_frame_frequency = {
+            let frame_interval = self.interval;
+            let background_frame_interval = self.background_frame_interval;
+            let frame_nanos = frame_interval.as_nanos();
+            let frames = if frame_nanos == 0 {
+                1
+            } else {
+                background_frame_interval
+                    .as_nanos()
+                    .div_ceil(frame_nanos)
+                    .max(1)
+            };
+            NonZero::new(usize::try_from(frames).unwrap_or(usize::MAX)).unwrap()
+        };
+
         let engine = Nucleo::with_match_list_config(
             self.config.clone(),
             Arc::new(|| {}),
@@ -705,7 +702,7 @@ impl PickerOptions {
 /// ```no_run
 #[doc = include_str!("../examples/custom_io.rs")]
 /// ```
-pub struct Picker<T: Send + Sync + 'static, R> {
+pub struct Picker<T, R> {
     match_list: MatchList<T, R>,
     max_selection_count: Option<NonZero<u32>>,
     prompt: Prompt,
