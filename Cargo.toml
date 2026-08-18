@@ -13,12 +13,16 @@ version = "0.11.2"
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
+[features]
+tracing = ["dep:tracing"]
+
 [dependencies]
 crossterm = { version = "0.29.0", features = ["use-dev-tty"] }
 memchr = "2.7"
 nucleo = { version = "0.2.1", package = "ncp-engine" }
 parking_lot = "0.12.3"
 serde = { version = "1.0", optional = true }
+tracing = { version = "0.1", optional = true }
 unicode-segmentation = "1.12.0"
 unicode-width = { version = "0.2.2", default-features = false }
 
@@ -29,6 +33,8 @@ rand = "0.10.2"
 ignore = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+tracing-subscriber = { version = "0.3", features = ["json"] }
+tracing-timing = { version = "0.7", features = ["layer"] }
 
 [lints.clippy]
 redundant_closure_for_method_calls = "warn"
@@ -53,6 +59,10 @@ name = "fzf_err_handling"
 name = "find"
 
 [[example]]
+name = "find_timing"
+required-features = ["tracing"]
+
+[[example]]
 name = "restart"
 
 [[example]]
@@ -65,6 +75,10 @@ name = "blocking"
 name = "multi"
 
 [[example]]
+name = "tracing"
+required-features = ["tracing"]
+
+[[example]]
 name = "serde"
 required-features = ["serde"]
 
@@ -73,3 +87,7 @@ name = "options"
 
 [[example]]
 name = "low_framerate"
+
+[[example]]
+name = "timing_harness"
+required-features = ["tracing"]

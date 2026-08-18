@@ -68,3 +68,11 @@ Pasting is also not directly handled, but rather depends on whether or not your 
 If your terminal does not handle bracketed paste, then the characters are entered as though they were typed in one at a time, which may result in strange behaviour.
 By default, input characters are normalized: newlines and tabs are replaced with spaces, and control characters are removed.
 This is mainly relevant when pasting text into the query.
+
+## Terminal support for Unicode
+Unicode rendering is a difficult issue since the application and the terminal must agree on how much space each grapheme occupies on the screen.
+The picker library uses [unicode-width](https://docs.rs/unicode-width/latest/unicode_width/#rules-for-determining-width); but old terminals without modern grapheme often use [wcwidth](https://man7.org/linux/man-pages/man3/wcwidth.3.html) or other bespoke solutions.
+This can cause many rendering issues, such as line overflow and other types of screen corruption.
+
+There is currently no check for mode 2027 support, but this may be added in the future for better terminal compatibility.
+Terminal rendering currently works properly on [foot](https://codeberg.org/dnkl/foot), [contour](https://contour-terminal.org/), [ghostty](https://ghostty.org), and [wezterm](https://wezterm.org/index.html)

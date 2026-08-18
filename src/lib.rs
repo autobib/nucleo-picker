@@ -40,6 +40,8 @@ mod match_list;
 mod observer;
 mod prompt;
 pub mod render;
+#[cfg(feature = "tracing")]
+mod tracing_impl;
 mod util;
 
 use std::{
@@ -63,6 +65,9 @@ use nucleo::{
     pattern::{CaseMatching as NucleoCaseMatching, Normalization as NucleoNormalization},
 };
 use observer::{Notifier, Observer};
+
+#[cfg(feature = "tracing")]
+use tracing_impl::{EventStats, trace_picker_event};
 
 use crate::{
     component::Status,
@@ -1029,6 +1034,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         Ok(())
     }
 
+    #[cfg_attr(not(feature = "tracing"), allow(unused_variables, unused_assignments))]
     fn pick_impl<E, W, Q: Queued>(
         &mut self,
         mut event_source: E,
@@ -1039,6 +1045,19 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         E: EventSource,
         W: io::Write,
     {
+        #[cfg(feature = "tracing")]
+        let run_span = tracing::trace_span!(
+            target: "nucleo_picker::picker",
+            "picker.run",
+            multi = Q::IS_MULTI,
+            reversed = self.reversed,
+            selection_limit = self.max_selection_count.map(NonZero::get),
+            frame_interval_us = self.interval.as_micros() as u64,
+            outcome = tracing::field::Empty,
+        );
+        #[cfg(feature = "tracing")]
+        let _run_entered = run_span.enter();
+        let mut trace_outcome;
         // set panic hook in case the `Render` implementation panics
         let original_hook = take_hook();
         set_hook(Box::new(move |panic_info| {
@@ -1054,6 +1073,13 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         let mut frame_start = Instant::now();
         let mut frame_state = FrameState::default();
 
+        // A frame runs from applying buffered events through rendering and the following event
+        // wait, so a traced frame crosses the boundary between two literal loop iterations.
+        #[cfg(feature = "tracing")]
+        let mut frame_span = frame_state
+            .trace_span(self.max_selection_count, self.reversed)
+            .entered();
+
         // render the first frame
         let update_status = self.match_list.update(5);
         frame_state.observe(&update_status);
@@ -1064,70 +1090,191 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         let mut redraw_match_status = false;
 
         let selection = 'selection: loop {
+            #[cfg(feature = "tracing")]
+            frame_state.record_trace(&frame_span, self, &queued_items);
+
             let mut lazy_match_list = LazyMatchList::new(&mut self.match_list, &mut queued_items);
             let mut lazy_prompt = LazyPrompt::new(&mut self.prompt);
 
             // process new events, but do not exceed the frame interval
+            #[cfg(feature = "tracing")]
+            let events_span = tracing::trace_span!(
+                target: "nucleo_picker::event",
+                "picker.events",
+                received = tracing::field::Empty,
+                prompt_events = tracing::field::Empty,
+                match_list_events = tracing::field::Empty,
+                redraw_events = tracing::field::Empty,
+                terminal_event = tracing::field::Empty,
+            );
+            #[cfg(feature = "tracing")]
+            let _events_entered = events_span.enter();
+            #[cfg(feature = "tracing")]
+            let mut event_stats = EventStats::default();
+            macro_rules! record_event_batch {
+                () => {
+                    #[cfg(feature = "tracing")]
+                    event_stats.record(&events_span)
+                };
+            }
+            macro_rules! record_terminal_event {
+                ($outcome:literal) => {
+                    #[cfg(feature = "tracing")]
+                    {
+                        event_stats.record_terminal();
+                    }
+                    trace_outcome = $outcome;
+                    record_event_batch!();
+                };
+            }
+            let event_deadline = frame_start + self.interval;
             'event: loop {
-                match event_source.recv_timeout(frame_start + self.interval - Instant::now()) {
-                    Ok(event) => match event {
-                        Event::Prompt(prompt_event) => {
-                            lazy_prompt.handle(prompt_event);
+                let timeout = event_deadline.saturating_duration_since(Instant::now());
+                #[cfg(feature = "tracing")]
+                let wait_span = tracing::trace_span!(
+                    target: "nucleo_picker::event",
+                    "picker.event.wait",
+                    timeout_us = timeout.as_micros() as u64,
+                    elapsed_us = tracing::field::Empty,
+                    result = tracing::field::Empty,
+                );
+                #[cfg(feature = "tracing")]
+                let wait_entered = wait_span.enter();
+                #[cfg(feature = "tracing")]
+                let wait_start = Instant::now();
+                let received_event = event_source.recv_timeout(timeout);
+                #[cfg(feature = "tracing")]
+                {
+                    wait_span.record("elapsed_us", wait_start.elapsed().as_micros() as u64);
+                    wait_span.record(
+                        "result",
+                        match &received_event {
+                            Ok(_) => "received",
+                            Err(RecvError::Timeout) => "timeout",
+                            Err(RecvError::Disconnected) => "disconnected",
+                            Err(RecvError::IO(_)) => "io_error",
+                        },
+                    );
+                    drop(wait_entered);
+                }
+                match received_event {
+                    Ok(event) => {
+                        #[cfg(feature = "tracing")]
+                        let _handle_entered = tracing::trace_span!(
+                            target: "nucleo_picker::event",
+                            "picker.event.handle",
+                        )
+                        .entered();
+                        #[cfg(feature = "tracing")]
+                        {
+                            event_stats.receive(&event);
+                            trace_picker_event(&event);
                         }
-                        Event::MatchList(match_list_event) => {
-                            lazy_match_list.handle(match_list_event);
-                        }
-                        Event::Redraw => {
-                            redraw_prompt = true;
-                            redraw_match_list = true;
-                        }
-                        Event::Quit => {
-                            break 'selection Ok(self.match_list.select_none(queued_items));
-                        }
-                        Event::QuitPromptEmpty => {
-                            if lazy_prompt.is_empty() {
+                        match event {
+                            Event::Prompt(prompt_event) => {
+                                lazy_prompt.handle(prompt_event);
+                            }
+                            Event::MatchList(match_list_event) => {
+                                lazy_match_list.handle(match_list_event);
+                            }
+                            Event::Redraw => {
+                                redraw_prompt = true;
+                                redraw_match_list = true;
+                            }
+                            Event::Quit => {
+                                record_terminal_event!("quit");
                                 break 'selection Ok(self.match_list.select_none(queued_items));
                             }
-                        }
-                        Event::Select => {
-                            if lazy_match_list.has_queued_items() {
-                                break 'selection Ok(self.match_list.select_queued(queued_items));
-                            }
-
-                            if let Some(n) = lazy_match_list.selection() {
-                                break 'selection Ok(self.match_list.select_one(queued_items, n));
-                            }
-                        }
-                        Event::Restart => match self.restart_notifier {
-                            Some(ref notifier) => {
-                                if notifier.push(lazy_match_list.restart()).is_err() {
-                                    break 'selection Err(PickError::Disconnected);
-                                } else {
-                                    redraw_match_list = true;
+                            Event::QuitPromptEmpty => {
+                                if lazy_prompt.is_empty() {
+                                    record_terminal_event!("quit");
+                                    break 'selection Ok(self.match_list.select_none(queued_items));
                                 }
                             }
-                            None => break 'selection Err(PickError::Disconnected),
-                        },
-                        Event::UserInterrupt => {
-                            break 'selection Err(PickError::UserInterrupted);
+                            Event::Select => {
+                                if lazy_match_list.has_queued_items() {
+                                    record_terminal_event!("selected");
+                                    break 'selection Ok(self
+                                        .match_list
+                                        .select_queued(queued_items));
+                                }
+
+                                if let Some(n) = lazy_match_list.selection() {
+                                    record_terminal_event!("selected");
+                                    break 'selection Ok(self
+                                        .match_list
+                                        .select_one(queued_items, n));
+                                }
+                            }
+                            Event::Restart => match self.restart_notifier {
+                                Some(ref notifier) => {
+                                    if notifier.push(lazy_match_list.restart()).is_err() {
+                                        record_terminal_event!("disconnected");
+                                        break 'selection Err(PickError::Disconnected);
+                                    } else {
+                                        redraw_match_list = true;
+                                    }
+                                }
+                                None => {
+                                    record_terminal_event!("disconnected");
+                                    break 'selection Err(PickError::Disconnected);
+                                }
+                            },
+                            Event::UserInterrupt => {
+                                record_terminal_event!("interrupted");
+                                break 'selection Err(PickError::UserInterrupted);
+                            }
+                            Event::Abort(err) => {
+                                record_terminal_event!("aborted");
+                                break 'selection Err(PickError::Aborted(err));
+                            }
                         }
-                        Event::Abort(err) => {
-                            break 'selection Err(PickError::Aborted(err));
+                        if Instant::now() >= event_deadline {
+                            break 'event;
                         }
-                    },
+                    }
                     Err(RecvError::Timeout) => break 'event,
                     Err(RecvError::Disconnected) => {
+                        trace_outcome = "disconnected";
+                        record_event_batch!();
                         break 'selection Err(PickError::Disconnected);
                     }
-                    Err(RecvError::IO(io_err)) => break 'selection Err(PickError::IO(io_err)),
+                    Err(RecvError::IO(io_err)) => {
+                        trace_outcome = "io_error";
+                        record_event_batch!();
+                        break 'selection Err(PickError::IO(io_err));
+                    }
                 }
+            }
+
+            record_event_batch!();
+            #[cfg(feature = "tracing")]
+            drop(_events_entered);
+
+            #[cfg(feature = "tracing")]
+            {
+                drop(frame_span);
             }
 
             // we have to set 'frame_start' immediately after processing events, so that the
             // render time is also included
             frame_start = Instant::now();
 
+            let background_frame = frame_state.advance(self.background_frame_frequency);
+            #[cfg(feature = "tracing")]
+            {
+                frame_span = frame_state
+                    .trace_span(self.max_selection_count, self.reversed)
+                    .entered();
+            }
+
             // clear out any buffered events
+            #[cfg(feature = "tracing")]
+            let _apply_entered = tracing::trace_span!(
+                target: "nucleo_picker::event",
+                "picker.events.apply",
+            )
+            .entered();
             let prompt_status = lazy_prompt.finish();
             let match_list_status = lazy_match_list.finish();
 
@@ -1140,9 +1287,10 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
                 self.match_list.reparse(self.prompt.contents());
                 redraw_match_list = true;
             }
+            #[cfg(feature = "tracing")]
+            drop(_apply_entered);
 
             // update the item list
-            let background_frame = frame_state.advance(self.background_frame_frequency);
             let update_status = self
                 .match_list
                 .update(2 * self.interval.as_millis() as u64 / 3);
@@ -1171,7 +1319,16 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
             redraw_match_status = false;
         };
 
-        Self::cleanup_screen(writer)?;
+        if let Err(err) = Self::cleanup_screen(writer) {
+            trace_outcome = "io_error";
+            #[cfg(feature = "tracing")]
+            run_span.record("outcome", trace_outcome);
+            return Err(PickError::IO(err));
+        }
+        #[cfg(feature = "tracing")]
+        {
+            run_span.record("outcome", trace_outcome);
+        }
         selection
     }
 }
