@@ -40,24 +40,20 @@ mod match_list;
 mod observer;
 mod prompt;
 pub mod render;
+mod terminal;
 mod util;
 
 use std::{
     borrow::Cow,
-    io::{self, BufWriter, IsTerminal, Write},
+    io::{self, BufWriter, IsTerminal},
     iter::Extend,
     num::NonZero,
-    panic::{set_hook, take_hook},
     sync::Arc,
     thread::available_parallelism,
     time::{Duration, Instant},
 };
 
-use crossterm::{
-    event::{DisableBracketedPaste, EnableBracketedPaste, KeyEvent},
-    execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
-};
+use crossterm::event::KeyEvent;
 use nucleo::{
     self as nc, Nucleo,
     pattern::{CaseMatching as NucleoCaseMatching, Normalization as NucleoNormalization},
@@ -74,11 +70,17 @@ use crate::{
     lazy::{LazyMatchList, LazyPrompt},
     match_list::{MatchList, MatchListConfig, Queued, SelectedIndices},
     prompt::{Prompt, PromptConfig},
+    terminal::{CrosstermTerminal, TerminalSession},
 };
 
 pub use crate::injector::Injector;
 pub use crate::match_list::Selection;
 pub use nucleo;
+
+#[cfg(feature = "unstable-backend")]
+pub use terminal::Terminal;
+#[cfg(not(feature = "unstable-backend"))]
+pub(crate) use terminal::Terminal;
 
 /// A trait which describes how to render objects for matching and display.
 ///
@@ -1013,7 +1015,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         E: EventSource,
         W: io::Write,
     {
-        self.pick_impl::<_, _, ()>(event_source, writer)
+        self.pick_impl::<_, _, ()>(event_source, &mut CrosstermTerminal::new(writer))
     }
 
     /// Run the picker interactively with a custom event source and writer, allowing the user to
@@ -1031,23 +1033,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         E: EventSource,
         W: io::Write,
     {
-        self.pick_impl::<_, _, SelectedIndices>(event_source, writer)
-    }
-
-    /// Initialize the alternate screen.
-    #[inline]
-    fn init_screen<W: Write>(writer: &mut W) -> io::Result<()> {
-        enable_raw_mode()?;
-        execute!(writer, EnterAlternateScreen, EnableBracketedPaste)?;
-        Ok(())
-    }
-
-    /// Cleanup the alternate screen when finished.
-    #[inline]
-    fn cleanup_screen<W: Write>(writer: &mut W) -> io::Result<()> {
-        disable_raw_mode()?;
-        execute!(writer, DisableBracketedPaste, LeaveAlternateScreen)?;
-        Ok(())
+        self.pick_impl::<_, _, SelectedIndices>(event_source, &mut CrosstermTerminal::new(writer))
     }
 
     fn pick_impl<E, W, Q: Queued>(
@@ -1058,19 +1044,12 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     where
         R: Render<T>,
         E: EventSource,
-        W: io::Write,
+        W: Terminal,
     {
-        // set panic hook in case the `Render` implementation panics
-        let original_hook = take_hook();
-        set_hook(Box::new(move |panic_info| {
-            // intentionally ignore errors here since we're already panicking
-            let _ = Self::cleanup_screen(&mut io::stderr());
-            original_hook(panic_info);
-        }));
-
         let mut queued_items = Q::init(self.max_selection_count);
+        let mut terminal = TerminalSession::new(writer);
 
-        Self::init_screen(writer)?;
+        terminal.init()?;
 
         let mut frame_start = Instant::now();
         let mut frame_state = FrameState::default();
@@ -1078,7 +1057,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         // render the first frame
         let update_status = self.match_list.update(5);
         frame_state.observe(&update_status);
-        frame_state.render_frame(self, writer, Redraw::all(), &queued_items)?;
+        frame_state.render_frame(self, &mut terminal, Redraw::all(), &queued_items)?;
 
         let mut redraw = Redraw::default();
         let mut handle_status = None;
@@ -1180,7 +1159,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
             }
 
             // render the frame
-            frame_state.render_frame(self, writer, redraw, &queued_items)?;
+            frame_state.render_frame(self, &mut terminal, redraw, &queued_items)?;
 
             status_request_changed |= redraw.is_required();
 
@@ -1207,7 +1186,46 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
             redraw.reset();
         };
 
-        Self::cleanup_screen(writer)?;
+        terminal.finish()?;
         selection
+    }
+}
+
+#[cfg(feature = "unstable-backend")]
+#[doc(hidden)]
+impl<T: Send + Sync + 'static, R> Picker<T, R> {
+    /// Run the picker interactively with a custom event source and terminal backend.
+    ///
+    /// This is the same as [`pick_with_io`](Self::pick_with_io) but in addition defers
+    /// terminal-specific implementation to the passed [`Terminal`].
+    pub fn pick_with_terminal_io<E, W>(
+        &mut self,
+        event_source: E,
+        terminal: &mut W,
+    ) -> Result<Option<&T>, PickError<<E as EventSource>::AbortErr>>
+    where
+        R: Render<T>,
+        E: EventSource,
+        W: Terminal,
+    {
+        self.pick_impl::<_, _, ()>(event_source, terminal)
+    }
+
+    /// Run the picker interactively with a custom event source and terminal backend, allowing the
+    /// user to select multiple items.
+    ///
+    /// This is the same as [`pick_multi_with_io`](Self::pick_multi_with_io) but in addition defers
+    /// terminal-specific implementation to the passed [`Terminal`].
+    pub fn pick_multi_with_terminal_io<E, W>(
+        &mut self,
+        event_source: E,
+        terminal: &mut W,
+    ) -> Result<Selection<'_, T>, PickError<<E as EventSource>::AbortErr>>
+    where
+        R: Render<T>,
+        E: EventSource,
+        W: Terminal,
+    {
+        self.pick_impl::<_, _, SelectedIndices>(event_source, terminal)
     }
 }

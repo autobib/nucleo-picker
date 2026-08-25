@@ -1,13 +1,13 @@
-use std::{io, io::Write, num::NonZero};
+use std::{io, num::NonZero};
 
 use crossterm::{
     QueueableCommand,
     cursor::MoveTo,
-    terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate, size},
+    terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate},
 };
 
 use crate::{
-    Picker, Render,
+    Picker, Render, Terminal,
     match_list::{MatchListStatus, Queued},
 };
 
@@ -84,14 +84,14 @@ impl FrameState {
 
     /// Render the frame, specifying which parts of the frame need to be re-drawn.
     #[inline]
-    pub fn render_frame<T: Send + Sync + 'static, R: Render<T>, W: Write, Q: Queued>(
+    pub fn render_frame<T: Send + Sync + 'static, R: Render<T>, W: Terminal, Q: Queued>(
         &self,
         picker: &mut Picker<T, R>,
         writer: &mut W,
         redraw: Redraw,
         queued_items: &Q,
     ) -> io::Result<()> {
-        let (width, height) = size()?;
+        let (width, height) = writer.size()?;
 
         let (prompt_row, match_list_row) = if picker.reversed {
             (0, 1)
