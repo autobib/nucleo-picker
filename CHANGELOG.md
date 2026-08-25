@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `Event::Status` and `Picker::status_observer` to request and receive status requests from a running picker.
 - The picker interface now includes indicators showing:
   - When items are still being streamed.
-  - When the match list scoring is still being performed.
+  - When match list scoring is being performed.
 - Removed the `T: Send + Sync + 'static` trait bounds on the struct declaration of `Picker<T, R>`.
   These bounds are still required to actually use the picker.
 
