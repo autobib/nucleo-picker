@@ -271,6 +271,9 @@ pub trait Queued {
 
     fn is_empty(&self) -> bool;
 
+    /// The number of queued items.
+    fn len(&self) -> u32;
+
     fn clear(&mut self) -> bool;
 
     fn deselect(&mut self, idx: u32) -> bool;
@@ -308,6 +311,11 @@ impl Queued for () {
     #[inline]
     fn is_empty(&self) -> bool {
         true
+    }
+
+    #[inline]
+    fn len(&self) -> u32 {
+        0
     }
 
     #[inline]
@@ -367,6 +375,11 @@ impl Queued for SelectedIndices {
     #[inline]
     fn is_empty(&self) -> bool {
         self.inner.is_empty()
+    }
+
+    #[inline]
+    fn len(&self) -> u32 {
+        self.inner.len() as u32
     }
 
     #[inline]
@@ -604,7 +617,6 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
         Self {
             size: 0,
             selection: 0,
-            // queued_items: HashMap::with_hasher(BuildHasherDefault::new()),
             below: Vec::with_capacity(128),
             above: Vec::with_capacity(128),
             config,
@@ -614,6 +626,18 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
             scratch: IndexBuffer::new(),
             prompt: String::with_capacity(32),
         }
+    }
+
+    pub fn selection(&self) -> Option<u32> {
+        (!self.is_empty()).then_some(self.selection)
+    }
+
+    pub fn item_count(&self) -> u32 {
+        self.nucleo.snapshot().item_count()
+    }
+
+    pub fn matched_item_count(&self) -> u32 {
+        self.nucleo.snapshot().matched_item_count()
     }
 
     pub fn reversed(&self) -> bool {
@@ -713,7 +737,7 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
         self.nucleo.snapshot().matched_item_count() == 0
     }
 
-    pub fn selection(&self) -> u32 {
+    pub fn raw_selection(&self) -> u32 {
         self.selection
     }
 

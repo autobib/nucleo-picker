@@ -72,4 +72,7 @@ required-features = ["serde"]
 name = "options"
 
 [[example]]
+name = "timeout"
+
+[[example]]
 name = "low_framerate"

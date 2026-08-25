@@ -71,8 +71,30 @@ pub use crate::{match_list::MatchListEvent, observer::Observer, prompt::PromptEv
 /// [`mpsc::Receiver`](std::sync::mpsc::Receiver), are both generic over the same type parameter
 /// `A` so you can construct this variant with a custom error type if desired.
 ///
+/// ## Status
+/// An [`Event::Status`] requests a status update from the picker while it is running. At the end
+/// of the frame in which the event is received, the picker will update the [`Observer`]
+/// returned by [`Picker::status_observer`](crate::Picker::status_observer) with an up-to-date
+/// [`PickerStatus`] response.
+///
+/// It is guaranteed that every event received *before* the [`Event::Status`] will be processed.
+/// Note that some events received after the [`Event::Status`] may also be included in the response.
+/// If the picker returns (because an item was selected, or because of an error)
+/// a response may not be sent.
+///
+/// In order to synchronize requests with responses, an [`Event::Status`] accepts an `id` field,
+/// which is included in the [`PickerStatus`] response. If multiple status events are processed in
+/// the same frame, the id will correspond to the *final* event. Moreover, since an [`Observer`] can
+/// hold at most one item at a given time, consecutive status updates without reads will overwrite old
+/// status responses. In any case, it is guaranteed that the `id` of the received [`PickerStatus`]
+/// corresponds to the most up-to-date status request processed by the picker, at the moment that it
+/// is received. When synchronization is required, it is recommended to use a monotonically
+/// increasing `u64` counter and to check that the received id is greater than or equal to the
+/// requested id.
+///
+///
 /// ## Restart
-/// The [`Event::Restart`] is used to restart the picker while it is still running. After a
+/// An [`Event::Restart`] is used to restart the picker while it is still running. After a
 /// restart, all previously created [`Injector`]s become invalidated and the match list is
 /// cleared on the next frame. Therefore to receive a valid [`Injector`], the caller must
 /// watch for new injectors using the [`Observer`] returned by
@@ -98,8 +120,6 @@ pub enum Event<A = Infallible> {
     Prompt(PromptEvent),
     /// Modify the list of matches.
     MatchList(MatchListEvent),
-    /// Add or remove the highlighted item from the selection list.
-    // ToggleSelection,
     /// Quit the picker (no selection).
     Quit,
     /// Quit the picker (no selection) if the prompt is empty.
@@ -113,8 +133,40 @@ pub enum Event<A = Infallible> {
     /// Quit the picker by selecting either the queued selections or the highlighted item if no
     /// selections are queued.
     Select,
+    /// Request a status update from the picker.
+    Status {
+        /// An id associated with the request which is passed on to the response.
+        id: u64,
+    },
     /// Restart the picker, invalidating all existing injectors.
     Restart,
+}
+
+/// The response corresponding to a [status request](Event::Status).
+///
+/// Read the [status event docs](Event#status) for more detail.
+#[non_exhaustive]
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct PickerStatus {
+    /// The id corresponding to the [`Event::Status`] request which produced this status
+    /// response.
+    pub id: u64,
+    /// The query string.
+    pub query: String,
+    /// The index of the cursor in the ordered match list, or none of there are no matching items.
+    pub selection: Option<u32>,
+    /// The total number of items available to match against.
+    pub item_count: u32,
+    /// The number of items matching the query.
+    pub matched_item_count: u32,
+    /// The number of items currently queued for selection.
+    pub selected_item_count: u32,
+    /// Whether there were any changes since the previous status request.
+    pub changed: bool,
+    /// Whether the internal match engine is processing matches.
+    pub matching: bool,
+    /// Whether there are any active injectors.
+    pub injecting: bool,
 }
 
 /// The result of waiting for an update from an [`EventSource`] with a timeout.

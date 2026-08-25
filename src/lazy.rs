@@ -15,7 +15,7 @@ pub struct LazyMatchList<'a, T: Send + Sync + 'static, R: Render<T>, Q> {
 
 impl<'a, T: Send + Sync + 'static, R: Render<T>, Q: crate::Queued> LazyMatchList<'a, T, R, Q> {
     pub fn new(match_list: &'a mut MatchList<T, R>, queued: &'a mut Q) -> Self {
-        let buffered_selection = match_list.selection();
+        let buffered_selection = match_list.raw_selection();
         Self {
             match_list,
             buffered_selection,

@@ -12,10 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Internally, the `Extend` implementation now uses `Iterator::size_hint` to optimize insertions.
 
 ### Added
-- Picker interface now includes indicators showing:
+- Added `Event::Status` and `Picker::status_observer` to request and receive status requests from a running picker.
+- The picker interface now includes indicators showing:
   - When items are still being streamed.
   - When the match list scoring is still being performed.
-- Removed `T: Send + Sync + 'static` trait bounds on struct declaration of `Picker<T, R>`.
+- Removed the `T: Send + Sync + 'static` trait bounds on the struct declaration of `Picker<T, R>`.
   These bounds are still required to actually use the picker.
 
 ## [0.11.2] - 2026-08-04

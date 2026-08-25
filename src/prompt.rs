@@ -4,7 +4,7 @@ mod tests;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::{component::Status, util::as_u16};
+use crate::{component::ComponentStatus, util::as_u16};
 
 trait Cursor {
     fn right(self, s: &str, steps: usize) -> Self;
@@ -483,7 +483,7 @@ pub struct PromptStatus {
     pub contents_changed: bool,
 }
 
-impl Status for PromptStatus {
+impl ComponentStatus for PromptStatus {
     fn needs_redraw(&self) -> bool {
         self.needs_redraw
     }

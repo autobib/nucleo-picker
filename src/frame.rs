@@ -11,6 +11,31 @@ use crate::{
     match_list::{MatchListStatus, Queued},
 };
 
+#[derive(Default, Clone, Copy)]
+pub struct Redraw {
+    pub prompt: bool,
+    pub match_list: bool,
+    pub match_status: bool,
+}
+
+impl Redraw {
+    pub fn is_required(self) -> bool {
+        self.prompt || self.match_list || self.match_status
+    }
+
+    pub fn all() -> Self {
+        Self {
+            prompt: true,
+            match_list: true,
+            match_status: true,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+}
+
 #[derive(Default)]
 pub struct FrameState {
     frame: u64,
@@ -63,9 +88,7 @@ impl FrameState {
         &self,
         picker: &mut Picker<T, R>,
         writer: &mut W,
-        redraw_prompt: bool,
-        redraw_match_list: bool,
-        redraw_match_status: bool,
+        redraw: Redraw,
         queued_items: &Q,
     ) -> io::Result<()> {
         let (width, height) = size()?;
@@ -76,10 +99,10 @@ impl FrameState {
             (height - 1, 0)
         };
 
-        if width >= 1 && (redraw_prompt || redraw_match_list || redraw_match_status) {
+        if width >= 1 && redraw.is_required() {
             writer.queue(BeginSynchronizedUpdate)?;
 
-            if redraw_match_list && height >= 2 {
+            if redraw.match_list && height >= 2 {
                 writer.queue(MoveTo(0, match_list_row))?;
 
                 picker.match_list.draw(
@@ -90,7 +113,7 @@ impl FrameState {
                     queued_items.count(picker.max_selection_count),
                     self.status_marker,
                 )?;
-            } else if redraw_match_status && height >= 2 {
+            } else if redraw.match_status && height >= 2 {
                 let status_row = if picker.reversed {
                     match_list_row
                 } else {
@@ -105,7 +128,7 @@ impl FrameState {
                 )?;
             }
 
-            if redraw_prompt && height >= 1 {
+            if redraw.prompt && height >= 1 {
                 writer.queue(MoveTo(0, prompt_row))?;
 
                 picker.prompt.draw(width, 1, writer)?;
