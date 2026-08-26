@@ -328,6 +328,8 @@ impl Iterator for IndexSpans<'_> {
 
 #[cfg(test)]
 mod tests {
+    use std::iter::once;
+
     use super::*;
 
     #[test]
@@ -360,12 +362,6 @@ mod tests {
 
     #[test]
     fn test_spanned() {
-        fn assert_matching_vecs<T: std::fmt::Debug + PartialEq>(a: &Vec<T>, b: &Vec<T>) {
-            for (u, v) in a.iter().zip(b.iter()) {
-                assert_eq!(u, v);
-            }
-        }
-
         fn assert_matching(
             indices: Vec<u32>,
             input: &'static str,
@@ -377,14 +373,14 @@ mod tests {
 
             if is_unicode_safe(input) {
                 spans_from_indices::<UnicodeProcessor>(&indices, input, &mut spans, &mut lines);
-                assert_matching_vecs(&spans, &expected_spans);
-                assert_matching_vecs(&lines, &expected_lines);
+                assert_eq!(spans, expected_spans);
+                assert_eq!(lines, expected_lines);
             }
 
             if is_ascii_safe(input) {
                 spans_from_indices::<AsciiProcessor>(&indices, input, &mut spans, &mut lines);
-                assert_matching_vecs(&spans, &expected_spans);
-                assert_matching_vecs(&lines, &expected_lines);
+                assert_eq!(spans, expected_spans);
+                assert_eq!(lines, expected_lines);
             }
         }
 
@@ -396,7 +392,7 @@ mod tests {
                 range: 0..1,
                 is_match: false,
             }],
-            vec![0..1],
+            once(0..1).collect(),
         );
 
         // newline
@@ -435,7 +431,7 @@ mod tests {
         );
 
         // small edge cases
-        assert_matching(Vec::new(), "", vec![], vec![0..0]);
+        assert_matching(Vec::new(), "", vec![], once(0..0).collect());
         assert_matching(Vec::new(), "\n", vec![], vec![0..0, 0..0]);
         assert_matching(Vec::new(), "\r\n", vec![], vec![0..0, 0..0]);
 
@@ -472,7 +468,7 @@ mod tests {
                     is_match: true,
                 },
             ],
-            vec![0..3],
+            once(0..3).collect(),
         );
 
         // with indices split over newlines

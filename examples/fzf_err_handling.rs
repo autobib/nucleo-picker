@@ -59,7 +59,6 @@ fn main() -> io::Result<()> {
             let inner = stdin_watcher.into_sender();
             // if this fails, the picker already quit
             let _ = inner.send(Event::Abort(AppError::Key(io_err)));
-            return;
         }
     });
 
@@ -99,7 +98,7 @@ fn main() -> io::Result<()> {
             match e.factor()? {
                 AppError::Key(io_err) => eprintln!("IO error during keyboard input: {io_err}"),
                 AppError::Stdin(io_err) => {
-                    eprintln!("IO error when reading from standard input: {io_err}")
+                    eprintln!("IO error when reading from standard input: {io_err}");
                 }
             }
             exit(1);

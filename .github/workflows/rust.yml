@@ -40,6 +40,6 @@ jobs:
     - name: Build docs
       run: cargo doc --locked --no-deps --all-features
     - name: Run Clippy lints
-      run: cargo clippy --all-features
+      run: cargo clippy --locked --all-targets --all-features
     - name: Check formatting
       run: cargo fmt --check

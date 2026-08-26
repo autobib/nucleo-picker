@@ -47,9 +47,11 @@ impl MatchListTester {
     fn init_inner(size: u16, max_padding: u16, reversed: bool) -> Self {
         let mut nc = Nucleo::new(Config::DEFAULT, Arc::new(|| {}), Some(1), 1);
         nc.sort_results(false);
-        let mut mc = MatchListConfig::default();
-        mc.scroll_padding = max_padding;
-        mc.reversed = reversed;
+        let mc = MatchListConfig {
+            scroll_padding: max_padding,
+            reversed,
+            ..MatchListConfig::default()
+        };
 
         let mut match_list = MatchList::new(mc, Config::DEFAULT, nc, StrRenderer.into());
         match_list.resize(size);

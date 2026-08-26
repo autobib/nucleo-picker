@@ -27,8 +27,8 @@ enum Layout {
 impl fmt::Display for Layout {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Layout::Default => "default",
-            Layout::Reverse => "reverse",
+            Self::Default => "default",
+            Self::Reverse => "reverse",
         })
     }
 }
@@ -121,15 +121,13 @@ fn main() -> io::Result<()> {
                         && !bytes.is_empty()
                         && let Ok(s) = String::from_utf8(bytes)
                     {
-                        injector.push(s)
+                        injector.push(s);
                     }
                 }
             } else {
-                for line in stdin.lines() {
+                for s in stdin.lines().map_while(Result::ok) {
                     // silently drop IO errors!
-                    if let Ok(s) = line {
-                        injector.push(s);
-                    }
+                    injector.push(s);
                 }
             }
         }

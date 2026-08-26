@@ -1,8 +1,7 @@
 use super::*;
 
 fn init_prompt(width: u16, padding: u16) -> Prompt {
-    let mut cfg = PromptConfig::default();
-    cfg.padding = padding;
+    let cfg = PromptConfig { padding };
     let mut prompt = Prompt::new(cfg);
     prompt.resize(width);
     prompt

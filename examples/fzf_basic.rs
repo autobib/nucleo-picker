@@ -17,11 +17,9 @@ fn main() -> io::Result<()> {
     spawn(move || {
         let stdin = io::stdin();
         if !stdin.is_terminal() {
-            for line in stdin.lines() {
+            for s in stdin.lines().map_while(Result::ok) {
                 // silently drop IO errors!
-                if let Ok(s) = line {
-                    injector.push(s);
-                }
+                injector.push(s);
             }
         }
     });
