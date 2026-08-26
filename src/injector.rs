@@ -112,6 +112,7 @@ impl<T, R: Render<T>> Injector<T, R> {
     }
 
     /// Returns a reference to the renderer internal to the picker.
+    #[must_use]
     pub fn renderer(&self) -> &R {
         &self.render
     }

@@ -176,7 +176,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
                 // if the offset is not sharp, reserve an extra space for the ellipsis symbol
                 if !is_sharp {
                     offset += 1;
-                };
+                }
 
                 // if the offset is exactly 1, set it to 0 since we can just print the first
                 // character instead of the ellipsis
@@ -294,13 +294,13 @@ impl<'a, P: Processor> Spanned<'a, P> {
         // do not print ellipsis if line is empty or the screen is extremely narrow
         if line.is_empty() || remaining_capacity == 0 {
             return Ok(());
-        };
+        }
 
         if offset > 0 {
             // we just checked that `capacity != 0`
             remaining_capacity -= 1;
             stderr.queue(Print(ELLIPSIS))?;
-        };
+        }
 
         // consume as much of the first span as required to overtake the offset. since the width of
         // the offset is bounded above by the width of the first span, this is guaranteed to occur

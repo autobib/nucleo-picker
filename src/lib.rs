@@ -1105,9 +1105,8 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
                             Some(ref notifier) => {
                                 if notifier.push(lazy_match_list.restart()).is_err() {
                                     break 'selection Err(PickError::Disconnected);
-                                } else {
-                                    redraw.match_list = true;
                                 }
+                                redraw.match_list = true;
                             }
                             None => break 'selection Err(PickError::Disconnected),
                         },

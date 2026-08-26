@@ -139,7 +139,7 @@ impl FrameState {
                 .queue(EndSynchronizedUpdate)?;
 
             writer.flush()?;
-        };
+        }
 
         Ok(())
     }

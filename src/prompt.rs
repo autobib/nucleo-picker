@@ -101,6 +101,7 @@ pub enum PromptEvent {
 
 impl PromptEvent {
     /// Whether or not the event is a cursor movement that does not edit the prompt string.
+    #[must_use]
     pub fn is_cursor_movement(&self) -> bool {
         matches!(
             &self,

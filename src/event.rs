@@ -408,7 +408,7 @@ impl<A, F: FnMut(KeyEvent) -> Option<Event<A>>> EventSource for StdinReader<A, F
             && let Some(event) = convert_crossterm_event(read()?, &mut self.keybind)
         {
             return Ok(event);
-        };
+        }
         Err(RecvError::Timeout)
     }
 }
@@ -425,6 +425,7 @@ pub struct StdinEventSender<A = Infallible, F = fn(KeyEvent) -> Option<Event<A>>
 
 impl<A> StdinEventSender<A> {
     /// Initialize a new [`StdinEventSender`] with default keybindings in the provided channel.
+    #[must_use]
     pub fn with_default_keybindings(sender: Sender<Event<A>>) -> Self {
         Self {
             sender,

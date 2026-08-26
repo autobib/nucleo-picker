@@ -293,16 +293,16 @@ pub trait Queued {
 
     fn init(limit: Option<NonZero<u32>>) -> Self;
 
-    fn into_only_selection<'a, T: Send + Sync + 'static>(
+    fn into_only_selection<T: Send + Sync + 'static>(
         self,
-        snapshot: &'a nucleo::Snapshot<T>,
+        snapshot: &nucleo::Snapshot<T>,
         idx: u32,
-    ) -> Self::Output<'a, T>;
+    ) -> Self::Output<'_, T>;
 
-    fn into_selection<'a, T: Send + Sync + 'static>(
+    fn into_selection<T: Send + Sync + 'static>(
         self,
-        snapshot: &'a nucleo::Snapshot<T>,
-    ) -> Self::Output<'a, T>;
+        snapshot: &nucleo::Snapshot<T>,
+    ) -> Self::Output<'_, T>;
 }
 
 impl Queued for () {
@@ -347,19 +347,19 @@ impl Queued for () {
     fn init(_: Option<NonZero<u32>>) -> Self {}
 
     #[inline]
-    fn into_selection<'a, T: Send + Sync + 'static>(
+    fn into_selection<T: Send + Sync + 'static>(
         self,
-        _: &'a nucleo::Snapshot<T>,
-    ) -> Self::Output<'a, T> {
+        _: &nucleo::Snapshot<T>,
+    ) -> Self::Output<'_, T> {
         None
     }
 
     #[inline]
-    fn into_only_selection<'a, T: Send + Sync + 'static>(
+    fn into_only_selection<T: Send + Sync + 'static>(
         self,
-        snapshot: &'a nucleo::Snapshot<T>,
+        snapshot: &nucleo::Snapshot<T>,
         idx: u32,
-    ) -> Self::Output<'a, T> {
+    ) -> Self::Output<'_, T> {
         Some(snapshot.get_item(idx).unwrap().data)
     }
 
@@ -455,10 +455,10 @@ impl Queued for SelectedIndices {
     }
 
     #[inline]
-    fn into_selection<'a, T: Send + Sync + 'static>(
+    fn into_selection<T: Send + Sync + 'static>(
         self,
-        snapshot: &'a nucleo::Snapshot<T>,
-    ) -> Self::Output<'a, T> {
+        snapshot: &nucleo::Snapshot<T>,
+    ) -> Self::Output<'_, T> {
         Self::Output {
             snapshot,
             queued: self,
@@ -466,11 +466,11 @@ impl Queued for SelectedIndices {
     }
 
     #[inline]
-    fn into_only_selection<'a, T: Send + Sync + 'static>(
+    fn into_only_selection<T: Send + Sync + 'static>(
         mut self,
-        snapshot: &'a nucleo::Snapshot<T>,
+        snapshot: &nucleo::Snapshot<T>,
         idx: u32,
-    ) -> Self::Output<'a, T> {
+    ) -> Self::Output<'_, T> {
         self.insert(idx);
         Self::Output {
             snapshot,
@@ -528,6 +528,7 @@ impl<'a, T: Send + Sync + 'static> Selection<'a, T> {
     /// selected by the user.
     ///
     /// The iterator will be empty if the picker quit without selecting any items.
+    #[must_use]
     pub fn iter(&self) -> impl ExactSizeIterator<Item = &'a T> + DoubleEndedIterator {
         self.queued.inner.keys().map(|idx| {
             // SAFETY: the indices were produced by the same snapshot which is stored inside this
@@ -546,6 +547,7 @@ impl<'a, T: Send + Sync + 'static> Selection<'a, T> {
     /// selection order, so calling this method requires allocating a new container and then sorting.
     ///
     /// The iterator will be empty if the picker quit without selecting any items.
+    #[must_use]
     pub fn iter_selected_order(
         &self,
     ) -> impl ExactSizeIterator<Item = &'a T> + DoubleEndedIterator {
@@ -567,11 +569,13 @@ impl<'a, T: Send + Sync + 'static> Selection<'a, T> {
     }
 
     /// Returns if there were no selected items.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.queued.inner.is_empty()
     }
 
     /// Returns the number of selected items.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.queued.inner.len()
     }
@@ -716,9 +720,8 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
                 if rest.is_empty() {
                     // the strings are the same so we don't need to do anything
                     return;
-                } else {
-                    true
                 }
+                true
             }
             None => false,
         };
@@ -729,7 +732,7 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
             self.config.normalization,
             appending,
         );
-        self.prompt = new.to_owned();
+        new.clone_into(&mut self.prompt);
     }
 
     /// Whether or not the list of items is empty.

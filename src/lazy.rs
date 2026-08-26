@@ -120,7 +120,7 @@ impl<'a, T: Send + Sync + 'static, R: Render<T>, Q: crate::Queued> LazyMatchList
                         );
                         self.toggled |= toggled;
                         self.incr(shift.saturating_sub(1));
-                    };
+                    }
                 }
             }
             MatchListEvent::QueueBelow(n) => {
@@ -141,7 +141,7 @@ impl<'a, T: Send + Sync + 'static, R: Render<T>, Q: crate::Queued> LazyMatchList
                         );
                         self.toggled |= toggled;
                         self.decr(shift.saturating_sub(1));
-                    };
+                    }
                 }
             }
             MatchListEvent::QueueMatches => {
@@ -211,32 +211,18 @@ impl<'a> LazyPrompt<'a> {
         };
 
         match (buffered, event) {
-            (PromptEvent::Left(n1), PromptEvent::Left(n2)) => {
-                *n1 += n2;
-            }
-            (PromptEvent::WordLeft(n1), PromptEvent::WordLeft(n2)) => {
-                *n1 += n2;
-            }
-            (PromptEvent::Right(n1), PromptEvent::Right(n2)) => {
-                *n1 += n2;
-            }
-            (PromptEvent::WordRight(n1), PromptEvent::WordRight(n2)) => {
-                *n1 += n2;
-            }
+            (PromptEvent::Left(n1), PromptEvent::Left(n2))
+            | (PromptEvent::WordLeft(n1), PromptEvent::WordLeft(n2))
+            | (PromptEvent::Right(n1), PromptEvent::Right(n2))
+            | (PromptEvent::WordRight(n1), PromptEvent::WordRight(n2))
+            | (PromptEvent::Backspace(n1), PromptEvent::Backspace(n2))
+            | (PromptEvent::Delete(n1), PromptEvent::Delete(n2))
+            | (PromptEvent::BackspaceWord(n1), PromptEvent::BackspaceWord(n2)) => *n1 += n2,
             (b, PromptEvent::ToStart) if b.is_cursor_movement() => {
                 *b = PromptEvent::ToStart;
             }
             (b, PromptEvent::ToEnd) if b.is_cursor_movement() => {
                 *b = PromptEvent::ToEnd;
-            }
-            (PromptEvent::Backspace(n1), PromptEvent::Backspace(n2)) => {
-                *n1 += n2;
-            }
-            (PromptEvent::Delete(n1), PromptEvent::Delete(n2)) => {
-                *n1 += n2;
-            }
-            (PromptEvent::BackspaceWord(n1), PromptEvent::BackspaceWord(n2)) => {
-                *n1 += n2;
             }
             (b, PromptEvent::ClearBefore)
                 if matches!(
