@@ -141,7 +141,7 @@ impl FrameState {
             writer.flush()?;
         }
 
-        Ok(())
+        writer.end_frame()
     }
 }
 

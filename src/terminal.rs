@@ -27,6 +27,13 @@ pub trait Terminal: Write {
 
     /// Report the size of the terminal.
     fn size(&mut self) -> io::Result<(u16, u16)>;
+
+    /// A method which is called at the end of each frame, whether or not it is rendered.
+    ///
+    /// The default implementation does nothing.
+    fn end_frame(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 pub(crate) struct CrosstermTerminal<'a, W> {
@@ -107,6 +114,10 @@ impl<T: Terminal> Terminal for TerminalSession<'_, T> {
 
     fn size(&mut self) -> io::Result<(u16, u16)> {
         self.terminal.size()
+    }
+
+    fn end_frame(&mut self) -> io::Result<()> {
+        self.terminal.end_frame()
     }
 }
 
