@@ -1085,7 +1085,10 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
                             break 'selection Ok(self.match_list.select_none(queued_items));
                         }
                         Event::QuitPromptEmpty => {
+                            // watch out for buffered prompt events!
+                            lazy_prompt.flush();
                             if lazy_prompt.is_empty() {
+                                self.prompt.set_query("");
                                 break 'selection Ok(self.match_list.select_none(queued_items));
                             }
                         }

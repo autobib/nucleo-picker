@@ -204,11 +204,14 @@ impl<'a> LazyPrompt<'a> {
         }
     }
 
-    pub fn finish(mut self) -> PromptStatus {
-        if let Some(event) = self.buffered_event {
+    pub fn flush(&mut self) {
+        if let Some(event) = self.buffered_event.take() {
             self.status |= self.prompt.handle(event);
         }
+    }
 
+    pub fn finish(mut self) -> PromptStatus {
+        self.flush();
         self.status
     }
 
