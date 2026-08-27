@@ -301,28 +301,19 @@ mod tests {
     }
 
     #[test]
-    fn status_markers_precede_match_counts() {
+    fn status_line() {
         assert!(rendered_prefix(12, None).contains("  3/5"));
         assert!(rendered_prefix(12, Some('⠏')).contains("⠏ 3/5"));
         assert!(rendered_prefix(12, Some('≈')).contains("≈ 3/5"));
-    }
 
-    #[test]
-    fn status_line_fills_remaining_width() {
         assert!(rendered_prefix(12, None).contains("─────"));
-    }
 
-    #[test]
-    fn status_line_does_not_render_partial_counts() {
         assert!(!rendered_prefix(4, None).contains("3/5"));
 
         let exact = rendered_prefix(5, None);
         assert!(exact.contains("3/5"));
         assert!(!exact.contains("\x1b[K"));
-    }
 
-    #[test]
-    fn decimal_width_handles_zero_and_powers_of_ten() {
         assert_eq!(decimal_width(0), 1);
         assert_eq!(decimal_width(9), 1);
         assert_eq!(decimal_width(10), 2);

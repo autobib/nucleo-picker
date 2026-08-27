@@ -80,49 +80,6 @@ fn layout() {
 }
 
 #[test]
-fn sequential_emoji_insertion_uses_grapheme_width() {
-    let mut editable = init_prompt(20, 2);
-    for ch in "👩🏽‍💻".chars() {
-        editable.handle(PromptEvent::Insert(ch));
-    }
-
-    assert_eq!(editable.contents, "👩🏽‍💻");
-    assert_eq!(editable.screen_offset, 2);
-
-    let mut pasted = init_prompt(20, 2);
-    pasted.handle(PromptEvent::Paste("👩🏽‍💻".to_owned()));
-    assert_eq!(editable.contents, pasted.contents);
-    assert_eq!(editable.screen_offset, pasted.screen_offset);
-    assert_eq!(editable.view(), pasted.view());
-}
-
-#[test]
-fn separate_pastes_join_the_preceding_grapheme() {
-    let mut editable = init_prompt(20, 2);
-    for part in ["👩", "🏽", "\u{200d}", "💻"] {
-        editable.handle(PromptEvent::Paste(part.to_owned()));
-    }
-
-    assert_eq!(editable.contents, "👩🏽‍💻");
-    assert_eq!(editable.screen_offset, 2);
-}
-
-#[test]
-fn sequential_emoji_insertion_preserves_horizontal_scrolling() {
-    let mut editable = init_prompt(6, 2);
-    editable.handle(PromptEvent::Paste("abc".to_owned()));
-    for ch in "👩🏽‍💻".chars() {
-        editable.handle(PromptEvent::Insert(ch));
-    }
-
-    let mut pasted = init_prompt(6, 2);
-    pasted.handle(PromptEvent::Paste("abc👩🏽‍💻".to_owned()));
-    assert_eq!(editable.screen_offset, 4);
-    assert_eq!(editable.screen_offset, pasted.screen_offset);
-    assert_eq!(editable.view(), pasted.view());
-}
-
-#[test]
 fn view() {
     let mut editable = init_prompt(7, 2);
     editable.handle(PromptEvent::Paste("abc".to_owned()));
@@ -297,4 +254,41 @@ fn test_editable_unicode() {
     }
 
     assert_eq!(editable.contents, "aＡ");
+}
+
+#[test]
+fn sequential_emoji_insertion() {
+    let mut editable = init_prompt(20, 2);
+    for ch in "👩🏽‍💻".chars() {
+        editable.handle(PromptEvent::Insert(ch));
+    }
+
+    assert_eq!(editable.contents, "👩🏽‍💻");
+    assert_eq!(editable.screen_offset, 2);
+
+    let mut pasted = init_prompt(20, 2);
+    pasted.handle(PromptEvent::Paste("👩🏽‍💻".to_owned()));
+    assert_eq!(editable.contents, pasted.contents);
+    assert_eq!(editable.screen_offset, pasted.screen_offset);
+    assert_eq!(editable.view(), pasted.view());
+
+    let mut editable = init_prompt(20, 2);
+    for part in ["👩", "🏽", "\u{200d}", "💻"] {
+        editable.handle(PromptEvent::Paste(part.to_owned()));
+    }
+
+    assert_eq!(editable.contents, "👩🏽‍💻");
+    assert_eq!(editable.screen_offset, 2);
+
+    let mut editable = init_prompt(6, 2);
+    editable.handle(PromptEvent::Paste("abc".to_owned()));
+    for ch in "👩🏽‍💻".chars() {
+        editable.handle(PromptEvent::Insert(ch));
+    }
+
+    let mut pasted = init_prompt(6, 2);
+    pasted.handle(PromptEvent::Paste("abc👩🏽‍💻".to_owned()));
+    assert_eq!(editable.screen_offset, 4);
+    assert_eq!(editable.screen_offset, pasted.screen_offset);
+    assert_eq!(editable.view(), pasted.view());
 }
