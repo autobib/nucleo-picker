@@ -1,8 +1,11 @@
 //! # An observer channel
 use parking_lot::{Condvar, Mutex};
-use std::sync::{
-    Arc,
-    mpsc::{RecvError, SendError, TryRecvError},
+use std::{
+    sync::{
+        Arc,
+        mpsc::{RecvError, RecvTimeoutError, SendError, TryRecvError},
+    },
+    time::Duration,
 };
 
 type Channel<T> = Mutex<(Option<T>, bool)>;
@@ -122,6 +125,31 @@ impl<T> Observer<T> {
                     Err(RecvError)
                 }
             }
+        }
+    }
+
+    /// Receive a message, blocking for at at most the timeout until a message is available or the
+    /// channel disconnects.
+    ///
+    /// This operation will fail if no message is received within the given timeout or if there are
+    /// no remaining senders.
+    /// case [`RecvTimeoutError::Disconnected`] is returned).
+    pub fn recv_timeout(&self, timeout: Duration) -> Result<T, RecvTimeoutError> {
+        let (lock, cvar) = &*self.inner;
+        let mut channel = lock.lock();
+
+        if let Some(msg) = channel.0.take() {
+            return Ok(msg);
+        }
+        if !channel.1 {
+            return Err(RecvTimeoutError::Disconnected);
+        }
+
+        let wait = cvar.wait_for(&mut channel, timeout);
+        match channel.0.take() {
+            Some(msg) => Ok(msg),
+            None if wait.timed_out() => Err(RecvTimeoutError::Timeout),
+            None => Err(RecvTimeoutError::Disconnected),
         }
     }
 

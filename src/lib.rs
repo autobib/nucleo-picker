@@ -1063,7 +1063,6 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
 
         let mut redraw = Redraw::default();
         let mut handle_status = None;
-        let mut status_request_changed = false;
 
         let selection = 'selection: loop {
             let mut lazy_match_list = LazyMatchList::new(&mut self.match_list, &mut queued_items);
@@ -1196,7 +1195,6 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
                     matching: update_status.matching,
                     injecting: update_status.injecting,
                 };
-                status_request_changed = false;
                 let _ = notifier.push(status);
             }
 
