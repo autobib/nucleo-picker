@@ -175,7 +175,7 @@ impl Prompt {
 
         let needs_redraw = match e {
             PromptEvent::Reset(s) => {
-                self.set_query(s);
+                contents_changed = self.set_query(s);
                 true
             }
             PromptEvent::Left(n) => self.move_cursor(CursorMovement::Left(n)),
@@ -343,11 +343,14 @@ impl Prompt {
     }
 
     /// Reset the prompt, moving the cursor to the end.
-    pub fn set_query<Q: Into<String>>(&mut self, prompt: Q) {
-        self.contents = prompt.into();
-        normalize_prompt_string(&mut self.contents);
+    pub fn set_query<Q: Into<String>>(&mut self, prompt: Q) -> bool {
+        let mut contents = prompt.into();
+        normalize_prompt_string(&mut contents);
+        let contents_changed = contents != self.contents;
+        self.contents = contents;
         self.offset = self.contents.len();
         self.screen_offset = as_u16(self.contents.width()).min(self.width - self.padding());
+        contents_changed
     }
 
     /// Increase the screen offset by the provided width, without exceeding the maximum offset.
