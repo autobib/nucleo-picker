@@ -15,7 +15,8 @@ fn main() -> Result<()> {
         .query("/var")
         .picker(StrRenderer);
 
-    let choices = vec![
+    // populate the matcher
+    picker.push_batch([
         "/var/tmp/a",
         "/var/tmp/b",
         "/var/tmp",
@@ -24,13 +25,7 @@ fn main() -> Result<()> {
         "/usr",
         "/usr/local/share",
         "/dev",
-    ];
-
-    // populate the matcher
-    let injector = picker.injector();
-    for opt in choices {
-        injector.push(opt);
-    }
+    ]);
 
     // open interactive prompt
     match picker.pick()? {
