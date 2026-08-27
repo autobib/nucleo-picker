@@ -190,7 +190,14 @@ impl FrameState {
             }
 
             writer
-                .queue(MoveTo(picker.prompt.screen_offset() + 2, prompt_row))?
+                .queue(MoveTo(
+                    picker
+                        .prompt
+                        .screen_offset()
+                        .saturating_add(2)
+                        .min(width - 1),
+                    prompt_row,
+                ))?
                 .queue(EndSynchronizedUpdate)?;
 
             writer.end_render()?;

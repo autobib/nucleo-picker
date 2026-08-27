@@ -8,6 +8,16 @@ fn init_prompt(width: u16, padding: u16) -> Prompt {
 }
 
 #[test]
+fn draw_does_not_exceed_the_available_width() {
+    let mut prompt = Prompt::new(PromptConfig::new());
+    let mut output = Vec::new();
+
+    prompt.draw(1, 1, &mut output).unwrap();
+
+    assert_eq!(output, b">");
+}
+
+#[test]
 fn layout() {
     let mut editable = init_prompt(6, 2);
     editable.handle(PromptEvent::Insert('a'));

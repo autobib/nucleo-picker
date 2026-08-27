@@ -33,8 +33,7 @@ fn draw_single_match<
 >(
     writer: &mut W,
     buffer: &mut IndexBuffer,
-    max_draw_length: u16, // the width for the line itself (i.e.
-    // not including the space for the selection marker)
+    width: u16,
     config: &MatchListConfig,
     item: nc::Item<'_, T>,
     queued: bool,
@@ -63,13 +62,7 @@ fn draw_single_match<
             &mut buffer.lines,
             L::from_offset(height),
         )
-        .queue_print(
-            writer,
-            SELECTED,
-            queued,
-            max_draw_length,
-            config.highlight_padding,
-        ),
+        .queue_print(writer, SELECTED, queued, width, config.highlight_padding),
         RenderedItem::Unicode(r) => Spanned::<'_, UnicodeProcessor>::new(
             &buffer.indices,
             r.as_ref(),
@@ -77,13 +70,7 @@ fn draw_single_match<
             &mut buffer.lines,
             L::from_offset(height),
         )
-        .queue_print(
-            writer,
-            SELECTED,
-            queued,
-            max_draw_length,
-            config.highlight_padding,
-        ),
+        .queue_print(writer, SELECTED, queued, width, config.highlight_padding),
     }
 }
 
@@ -95,7 +82,7 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, W: io::Write + ?Size
     snapshot: &nc::Snapshot<T>,
     matcher: &mut nc::Matcher,
     render: &R,
-    match_list_width: u16,
+    width: u16,
     above: &[usize],
     below: &[usize],
     mut item_iter: impl Iterator<Item = (nc::Item<'a, T>, bool)>,
@@ -105,7 +92,7 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, W: io::Write + ?Size
         draw_single_match::<_, _, Tail, _, false>(
             writer,
             buffer,
-            match_list_width,
+            width,
             config,
             item,
             queued,
@@ -121,7 +108,7 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, W: io::Write + ?Size
     draw_single_match::<_, _, Head, _, true>(
         writer,
         buffer,
-        match_list_width,
+        width,
         config,
         item,
         queued,
@@ -136,7 +123,7 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, W: io::Write + ?Size
         draw_single_match::<_, _, Head, _, false>(
             writer,
             buffer,
-            match_list_width,
+            width,
             config,
             item,
             queued,
@@ -167,6 +154,21 @@ fn draw_match_counts<W: io::Write + ?Sized>(
         + decimal_width(matched)
         + 1
         + decimal_width(total);
+    if let Some((ct, op)) = multi {
+        occupied += 2 + decimal_width(ct) + 1;
+        if let Some(max) = op {
+            occupied += 1 + decimal_width(max.get());
+        }
+    }
+
+    if occupied > usize::from(width) {
+        writer
+            .queue(ResetColor)?
+            .queue(SetAttribute(Attribute::Reset))?
+            .queue(Clear(ClearType::UntilNewLine))?;
+        return Ok(());
+    }
+
     writer
         .queue(SetAttribute(Attribute::Italic))?
         .queue(SetForegroundColor(Color::Green))?
@@ -176,13 +178,11 @@ fn draw_match_counts<W: io::Write + ?Sized>(
         .queue(Print("/"))?
         .queue(Print(total))?;
     if let Some((ct, op)) = multi {
-        occupied += 2 + decimal_width(ct) + 1;
         writer
             .queue(SetForegroundColor(Color::Grey))?
             .queue(Print(" ("))?
             .queue(Print(ct))?;
         if let Some(max) = op {
-            occupied += 1 + decimal_width(max.get());
             writer.queue(Print("/"))?.queue(Print(max))?;
         }
         writer.queue(Print(")"))?;
@@ -198,8 +198,10 @@ fn draw_match_counts<W: io::Write + ?Sized>(
 
     writer
         .queue(ResetColor)?
-        .queue(SetAttribute(Attribute::Reset))?
-        .queue(Clear(ClearType::UntilNewLine))?;
+        .queue(SetAttribute(Attribute::Reset))?;
+    if fill_width != 0 {
+        writer.queue(Clear(ClearType::UntilNewLine))?;
+    }
 
     Ok(())
 }
@@ -229,7 +231,6 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
         writer: &mut W,
         mut is_queued: F,
     ) -> std::io::Result<()> {
-        let match_list_width = width.saturating_sub(3);
         let snapshot = self.nucleo.snapshot();
         let matched_item_count = snapshot.matched_item_count();
         let mut total_whitespace = self.whitespace();
@@ -247,7 +248,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
                     snapshot,
                     &mut self.matcher,
                     self.render.as_ref(),
-                    match_list_width,
+                    width,
                     &self.above,
                     &self.below,
                     items,
@@ -277,7 +278,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
                     snapshot,
                     &mut self.matcher,
                     self.render.as_ref(),
-                    match_list_width,
+                    width,
                     &self.above,
                     &self.below,
                     items.rev(),
@@ -293,22 +294,31 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
 mod tests {
     use super::{decimal_width, draw_match_counts};
 
-    fn rendered_prefix(status_marker: Option<char>) -> String {
+    fn rendered_prefix(width: u16, status_marker: Option<char>) -> String {
         let mut output = Vec::new();
-        draw_match_counts(&mut output, 12, 3, 5, None, status_marker).unwrap();
+        draw_match_counts(&mut output, width, 3, 5, None, status_marker).unwrap();
         String::from_utf8(output).unwrap()
     }
 
     #[test]
     fn status_markers_precede_match_counts() {
-        assert!(rendered_prefix(None).contains("  3/5"));
-        assert!(rendered_prefix(Some('⠏')).contains("⠏ 3/5"));
-        assert!(rendered_prefix(Some('≈')).contains("≈ 3/5"));
+        assert!(rendered_prefix(12, None).contains("  3/5"));
+        assert!(rendered_prefix(12, Some('⠏')).contains("⠏ 3/5"));
+        assert!(rendered_prefix(12, Some('≈')).contains("≈ 3/5"));
     }
 
     #[test]
     fn status_line_fills_remaining_width() {
-        assert!(rendered_prefix(None).contains("─────"));
+        assert!(rendered_prefix(12, None).contains("─────"));
+    }
+
+    #[test]
+    fn status_line_does_not_render_partial_counts() {
+        assert!(!rendered_prefix(4, None).contains("3/5"));
+
+        let exact = rendered_prefix(5, None);
+        assert!(exact.contains("3/5"));
+        assert!(!exact.contains("\x1b[K"));
     }
 
     #[test]

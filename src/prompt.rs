@@ -522,9 +522,10 @@ impl Prompt {
             terminal::{Clear, ClearType},
         };
 
-        writer.queue(Print("> "))?;
+        writer.queue(Print(">"))?;
 
         if let Some(width) = width.checked_sub(2) {
+            writer.queue(Print(" "))?;
             if width != self.width {
                 self.resize(width);
             }

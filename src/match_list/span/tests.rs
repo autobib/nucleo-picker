@@ -84,3 +84,20 @@ fn required_offset() {
     assert_correct_offset(vec![2, 8], "abc\na\r\naＨd", 3, 2);
     assert_correct_offset(vec![2, 8], "abc\na\r\naＨd", 4, 0);
 }
+
+#[test]
+fn line_prefix_does_not_exceed_the_available_width() {
+    let mut spans = Vec::new();
+    let mut lines = Vec::new();
+    let spanned: Spanned<'_, AsciiProcessor> =
+        Spanned::new(&[], "item", &mut spans, &mut lines, All);
+    let mut output = Vec::new();
+
+    spanned
+        .queue_print(&mut output, false, false, 1, 0)
+        .unwrap();
+
+    assert!(output.starts_with(b" "));
+    assert!(!output.starts_with(b"  "));
+    assert!(!String::from_utf8(output).unwrap().contains("\x1b[K"));
+}

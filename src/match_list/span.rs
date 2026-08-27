@@ -192,7 +192,12 @@ impl<'a, P: Processor> Spanned<'a, P> {
         stderr: &mut W,
         selected: bool,
         queued: bool,
+        prefix_width: u16,
     ) -> io::Result<()> {
+        if prefix_width == 0 {
+            return Ok(());
+        }
+
         if selected {
             // print the line as bold, and with a 'selection' marker
             stderr
@@ -204,10 +209,12 @@ impl<'a, P: Processor> Spanned<'a, P> {
             stderr.queue(Print(" "))?;
         }
 
-        if queued {
-            stderr.queue(PrintStyledContent("┃".magenta()))?;
-        } else {
-            stderr.queue(Print(" "))?;
+        if prefix_width >= 2 {
+            if queued {
+                stderr.queue(PrintStyledContent("┃".magenta()))?;
+            } else {
+                stderr.queue(Print(" "))?;
+            }
         }
 
         Ok(())
@@ -231,15 +238,16 @@ impl<'a, P: Processor> Spanned<'a, P> {
     /// Clean up after printing the line by resetting any display styling, clearing any trailing
     /// characters, and moving to the next line.
     #[inline]
-    fn finish_line<W: Write + ?Sized>(stderr: &mut W) -> io::Result<()> {
-        stderr
-            .queue(SetAttribute(Attribute::Reset))?
-            .queue(Clear(ClearType::UntilNewLine))?
-            .queue(MoveToNextLine(1))?;
+    fn finish_line<W: Write + ?Sized>(stderr: &mut W, clear: bool) -> io::Result<()> {
+        stderr.queue(SetAttribute(Attribute::Reset))?;
+        if clear {
+            stderr.queue(Clear(ClearType::UntilNewLine))?;
+        }
+        stderr.queue(MoveToNextLine(1))?;
         Ok(())
     }
 
-    /// Print for display into a terminal with width `max_width`, and with styling to match if the
+    /// Print for display into a terminal with width `width`, and with styling to match if the
     /// item is selected or not.
     #[inline]
     pub fn queue_print<W: Write + ?Sized>(
@@ -247,9 +255,13 @@ impl<'a, P: Processor> Spanned<'a, P> {
         stderr: &mut W,
         selected: bool,
         queued: bool,
-        max_width: u16,
+        width: u16,
         highlight_padding: u16,
     ) -> io::Result<()> {
+        let prefix_width = width.min(2);
+        let max_width = width.saturating_sub(3);
+        let clear = width > prefix_width;
+
         if self.max_line_bytes() <= max_width.saturating_sub(highlight_padding) as usize {
             // Fast path: all of the lines are short, so we can just render them without any unicode width
             // checks. This should be the case for the majority of situations, unless the screen is
@@ -261,19 +273,19 @@ impl<'a, P: Processor> Spanned<'a, P> {
             //
             // If the input is ASCII, this check is optimal.
             for line in self.lines() {
-                Self::start_line(stderr, selected, queued)?;
+                Self::start_line(stderr, selected, queued, prefix_width)?;
                 for span in line {
                     Self::print_span(stderr, self.index_in(span), span.is_match)?;
                 }
-                Self::finish_line(stderr)?;
+                Self::finish_line(stderr, clear)?;
             }
         } else {
             let offset = self.required_offset(max_width, highlight_padding);
 
             for line in self.lines() {
-                Self::start_line(stderr, selected, queued)?;
+                Self::start_line(stderr, selected, queued, prefix_width)?;
                 self.queue_print_line(stderr, line, offset, max_width)?;
-                Self::finish_line(stderr)?;
+                Self::finish_line(stderr, clear)?;
             }
         }
         Ok(())
