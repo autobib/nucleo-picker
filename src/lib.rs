@@ -1184,6 +1184,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
             if let Some(id) = handle_status.take()
                 && let Some(ref notifier) = self.status_notifier
             {
+                let (width, height) = frame_state.dimensions();
                 let status = PickerStatus {
                     id,
                     query: self.query().to_owned(),
@@ -1192,6 +1193,8 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
                     item_count: self.match_list.item_count(),
                     selected_item_count: queued_items.len(),
                     matched_item_count: self.match_list.matched_item_count(),
+                    width,
+                    height,
                     matching: update_status.matching,
                     injecting: update_status.injecting,
                 };

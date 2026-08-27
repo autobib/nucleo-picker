@@ -104,6 +104,10 @@ impl FrameState {
         self.size.height.saturating_sub(2)
     }
 
+    pub fn dimensions(&self) -> (u16, u16) {
+        (self.size.width, self.size.height)
+    }
+
     pub fn advance(&mut self, background_frame_frequency: NonZero<usize>) -> bool {
         self.frame = self.frame.wrapping_add(1);
         self.frame

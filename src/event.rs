@@ -161,6 +161,10 @@ pub struct PickerStatus {
     pub matched_item_count: u32,
     /// The number of items currently queued for selection.
     pub selected_item_count: u32,
+    /// The width of the picker screen.
+    pub width: u16,
+    /// The height of the picker screen.
+    pub height: u16,
     /// Whether there were any changes since the previous status request.
     pub changed: bool,
     /// Whether the internal match engine is processing matches.
