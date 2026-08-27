@@ -21,9 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   These bounds are still required to actually use the picker.
 
 ### Fixed
-- Fixed bug where combining graphemes (e.g. emojis followed by skin-tone modifiers) pasted inserted separately would corrupt the prompt cursor position.
-- Fixed terminal screen cleanup on interrupt or panic to be writer-agnostic.
-- Do not query for terminal size unless a redraw is actually required.
+- Fixed many minor bugs:
+  - Combining graphemes (e.g. emojis followed by skin-tone modifiers) pasted inserted separately would corrupt the prompt cursor position.
+  - Terminal screen cleanup on interrupt or panic is now writer-agnostic.
+  - Handling of extremely narrow terminals is now more correct.
+  - Prompt resize logic is a bit smoother.
+  - Integer overflow when queueing a massive number of items via an event.
+  - Out-of-order event handling bug where `QuitPromptEmpty` could have resulted in cancellation even with non-empty bugs.
+- No longer query for terminal size unless a redraw is actually required.
 
 ## [0.11.2] - 2026-08-04
 
