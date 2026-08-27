@@ -129,6 +129,60 @@ fn view() {
 }
 
 #[test]
+fn resize_restores_cursor_after_zero_width() {
+    let mut editable = init_prompt(6, 2);
+    editable.handle(PromptEvent::Paste("abcdef".to_owned()));
+    assert_eq!(editable.screen_offset, 4);
+
+    editable.resize(0);
+    assert_eq!(editable.screen_offset, 0);
+    assert_eq!(editable.view(), ("", 0));
+
+    editable.resize(6);
+    assert_eq!(editable.screen_offset, 4);
+    assert_eq!(editable.view(), ("cdef", 0));
+
+    editable.handle(PromptEvent::ToStart);
+    editable.handle(PromptEvent::Right(2));
+    editable.resize(0);
+    editable.resize(6);
+    assert_eq!(editable.screen_offset, 2);
+    assert_eq!(editable.view(), ("abcdef", 0));
+}
+
+#[test]
+fn resize_reveals_newly_available_context() {
+    let mut editable = init_prompt(6, 2);
+    editable.handle(PromptEvent::Paste("abcdefghijkl".to_owned()));
+    assert_eq!(editable.screen_offset, 4);
+    assert_eq!(editable.view(), ("ijkl", 0));
+
+    editable.resize(10);
+    assert_eq!(editable.screen_offset, 8);
+    assert_eq!(editable.view(), ("efghijkl", 0));
+
+    editable.resize(6);
+    assert_eq!(editable.screen_offset, 4);
+    assert_eq!(editable.view(), ("ijkl", 0));
+}
+
+#[test]
+fn resize_preserves_valid_offset_with_context_on_both_sides() {
+    let mut editable = init_prompt(10, 2);
+    editable.handle(PromptEvent::Paste("abcdefghijklmnop".to_owned()));
+    editable.handle(PromptEvent::Left(10));
+    assert_eq!(editable.screen_offset, 2);
+
+    editable.resize(14);
+    assert_eq!(editable.screen_offset, 2);
+    assert_eq!(editable.view(), ("efghijklmnop", 0));
+
+    editable.resize(8);
+    assert_eq!(editable.screen_offset, 2);
+    assert_eq!(editable.view(), ("efghijkl", 0));
+}
+
+#[test]
 fn test_word_movement() {
     let mut editable = init_prompt(100, 2);
     editable.handle(PromptEvent::Paste("one two".to_owned()));

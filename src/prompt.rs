@@ -165,7 +165,7 @@ impl Prompt {
             contents: String::new(),
             offset: 0,
             screen_offset: 0,
-            width: u16::MAX,
+            width: 0,
             config,
         }
     }
@@ -320,16 +320,20 @@ impl Prompt {
 
     /// Resize the screen, adjusting the padding and the screen width.
     pub fn resize(&mut self, width: u16) {
-        // TODO: this is not really correct, since it does not handle width 0 correctly.
-        // but in practice, for the prompt this is quite rare; but should fix it at some point
-        //
-        // to witness in tests, set the width to 0 and then to some large value and the screen
-        // offset will be incorrect
-        //
-        // this is also the reason that the prompt defaults to `u16::MAX`; and this should be fixed
-        // as well when this is fixed.
         self.width = width;
-        self.screen_offset = self.screen_offset.min(width - self.padding());
+
+        let padding = self.padding();
+        let capacity = width - padding;
+        let before = as_u16(self.contents[..self.offset].width());
+        let after = as_u16(self.contents[self.offset..].width());
+
+        let upper = before.min(capacity);
+        let lower = padding
+            .min(before)
+            .max(capacity.saturating_sub(after))
+            .min(upper);
+
+        self.screen_offset = self.screen_offset.clamp(lower, upper);
     }
 
     /// Get the cursor offset within the screen.
