@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   These bounds are still required to actually use the picker.
 
 ### Fixed
+- Fixed bug where combining graphemes (e.g. emojis followed by skin-tone modifiers) pasted inserted separately would corrupt the prompt cursor position.
 - Fixed terminal screen cleanup on interrupt or panic to be writer-agnostic.
 - Do not query for terminal size unless a redraw is actually required.
 

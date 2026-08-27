@@ -185,9 +185,9 @@ impl Prompt {
             PromptEvent::ToStart => self.move_cursor(CursorMovement::ToStart),
             PromptEvent::ToEnd => self.move_cursor(CursorMovement::ToEnd),
             PromptEvent::Insert(ch) => {
-                if let Some((ch, w)) = normalize_char(ch) {
+                if let Some((ch, _)) = normalize_char(ch) {
                     contents_changed = true;
-                    self.insert_char(ch, w);
+                    self.insert_char(ch);
                     true
                 } else {
                     false
@@ -359,17 +359,28 @@ impl Prompt {
     }
 
     /// Insert a character at the cursor position.
-    fn insert_char(&mut self, ch: char, w: usize) {
-        self.contents.insert(self.offset, ch);
-        self.right_by(w);
-        self.offset += ch.len_utf8();
+    fn insert_char(&mut self, ch: char) {
+        let mut encoded = [0; 4];
+        self.insert(ch.encode_utf8(&mut encoded));
     }
 
     /// Insert a string at the cursor position.
     fn insert(&mut self, string: &str) {
+        let previous_grapheme = self.contents[..self.offset]
+            .grapheme_indices(true)
+            .next_back()
+            .map_or(self.offset, |(offset, _)| offset);
+        let old_width = self.contents[previous_grapheme..self.offset].width();
+
         self.contents.insert_str(self.offset, string);
-        self.right_by(string.width());
         self.offset += string.len();
+
+        let new_width = self.contents[previous_grapheme..self.offset].width();
+        if new_width > old_width {
+            self.right_by(new_width - old_width);
+        } else if old_width > new_width {
+            self.left_by(old_width - new_width);
+        }
     }
 
     #[inline]
