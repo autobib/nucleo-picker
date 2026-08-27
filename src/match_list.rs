@@ -772,7 +772,7 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
     ) -> (usize, bool) {
         let matches = self.nucleo.snapshot().matches();
         let start = n as usize;
-        let end = (start + ct).min(matches.len() - 1);
+        let end = start.saturating_add(ct).min(matches.len() - 1);
         queued_items.select(matches[start..=end].iter().map(|m| m.idx))
     }
 
