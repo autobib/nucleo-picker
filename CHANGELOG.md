@@ -12,15 +12,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Internally, the `Extend` implementation now uses `Iterator::size_hint` to optimize insertions.
 
 ### Added
-- Added `Event::Status` and `Picker::status_observer` to request and receive status requests from a running picker.
+- Added `Event::Status` and `Picker::status_observer` to request and receive status metadata (via `PickerStatus`) from a running picker.
 - The picker interface now includes indicators showing:
   - When items are still being streamed.
   - When match list scoring is being performed.
+- Added `Observer::recv_timeout`.
 - Removed the `T: Send + Sync + 'static` trait bounds on the struct declaration of `Picker<T, R>`.
   These bounds are still required to actually use the picker.
 
 ### Fixed
 - Fixed terminal screen cleanup on interrupt or panic to be writer-agnostic.
+- Do not query for terminal size unless a redraw is actually required.
 
 ## [0.11.2] - 2026-08-04
 
