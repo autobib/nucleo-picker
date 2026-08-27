@@ -223,50 +223,19 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
         )
     }
 
-    pub fn draw<W: Write + ?Sized, F: FnMut(u32) -> bool>(
+    pub fn draw_items<W: Write + ?Sized, F: FnMut(u32) -> bool>(
         &mut self,
         width: u16,
-        height: u16,
         writer: &mut W,
         mut is_queued: F,
-        multi: Option<(u32, Option<NonZero<u32>>)>,
-        status_marker: Option<char>,
     ) -> std::io::Result<()> {
-        let match_list_height = height - 1;
         let match_list_width = width.saturating_sub(3);
-
-        if match_list_height != self.size {
-            self.resize(match_list_height);
-        }
-
         let snapshot = self.nucleo.snapshot();
         let matched_item_count = snapshot.matched_item_count();
-        if height == 1 {
-            draw_match_counts(
-                writer,
-                width,
-                matched_item_count,
-                snapshot.item_count(),
-                multi,
-                status_marker,
-            )?;
-            return Ok(());
-        }
-
         let mut total_whitespace = self.whitespace();
 
         // draw the matches
         if self.config.reversed {
-            draw_match_counts(
-                writer,
-                width,
-                matched_item_count,
-                snapshot.item_count(),
-                multi,
-                status_marker,
-            )?;
-            writer.queue(MoveToNextLine(1))?;
-
             if matched_item_count != 0 {
                 let items = snapshot.matches()[self.selection_range()]
                     .iter()
@@ -314,15 +283,6 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
                     items.rev(),
                 )?;
             }
-
-            draw_match_counts(
-                writer,
-                width,
-                matched_item_count,
-                snapshot.item_count(),
-                multi,
-                status_marker,
-            )?;
         }
 
         Ok(())

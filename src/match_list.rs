@@ -827,6 +827,11 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
 
     /// Recompute the match layout when the screen size has changed.
     pub fn resize(&mut self, total_size: u16) {
+        // no resize needed
+        if total_size == self.size {
+            return;
+        }
+
         // check for zero, so the 'clamp' call dows not fail
         if total_size == 0 {
             self.size = 0;
@@ -884,7 +889,7 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
 
         self.size = total_size;
     }
-
+    ///
     /// Check if the internal match workers have returned any new updates for matched items.
     pub fn update(&mut self, millis: u64) -> MatchListStatus {
         let status = self.nucleo.tick(millis);

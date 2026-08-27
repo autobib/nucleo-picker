@@ -8,6 +8,9 @@ use crossterm::{
     },
 };
 
+#[cfg(all(test, feature = "unstable-backend"))]
+mod size_test;
+
 /// A generic terminal backend accepting raw bytes with ANSI escape sequences, with special
 /// initialization and cleanup.
 #[doc(hidden)]
@@ -26,12 +29,42 @@ pub trait Terminal: Write {
     fn cleanup(&mut self) -> io::Result<()>;
 
     /// Report the size of the terminal.
+    ///
+    /// This method is only called immediately writes are required, and may not be called on each
+    /// frame.
     fn size(&mut self) -> io::Result<(u16, u16)>;
 
-    /// A method which is called at the end of each frame, whether or not it is rendered.
+    /// Begin rendering a frame.
     ///
-    /// The default implementation does nothing.
-    fn end_frame(&mut self) -> io::Result<()> {
+    /// This method is called immediately before writes occur at the start of a frame. The default
+    /// implementation does nothing.
+    fn begin_render(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+
+    /// End rendering a frame.
+    ///
+    /// This method is called immediately after a frame render ends. The default
+    /// implementation calls `self.flush()`.
+    fn end_render(&mut self) -> io::Result<()> {
+        self.flush()
+    }
+
+    /// A callback executed at the end of each frame.
+    ///
+    /// This method is called on every frame, whether or not it was rendered. The boolean indicates
+    /// if there were logical changes to the picker state since the previous frame.
+    ///
+    /// If `changed` is `false`, writes definitely did not occur. If `changed` is true, it is
+    /// possible that writes still may not have occurred. Currently, this is only the case
+    /// if the terminal has width 0, but future versions may perform more sophisticated checks
+    /// to see if there were no changes to the actual screen content, and suppress writes
+    /// in that case as well.
+    ///
+    /// For operations which should only be performed if writes actually occurr, override
+    /// [`begin_render`](Self::begin_render) or [`end_render`](Self::end_render).
+    fn end_frame(&mut self, changed: bool) -> io::Result<()> {
+        let _ = changed;
         Ok(())
     }
 }
@@ -116,8 +149,8 @@ impl<T: Terminal> Terminal for TerminalSession<'_, T> {
         self.terminal.size()
     }
 
-    fn end_frame(&mut self) -> io::Result<()> {
-        self.terminal.end_frame()
+    fn end_frame(&mut self, changed: bool) -> io::Result<()> {
+        self.terminal.end_frame(changed)
     }
 }
 

@@ -13,6 +13,11 @@ pub struct LazyMatchList<'a, T: Send + Sync + 'static, R: Render<T>, Q> {
     toggled: bool,
 }
 
+pub struct LazyMatchListStatus {
+    pub selection_changed: bool,
+    pub queued_changed: bool,
+}
+
 impl<'a, T: Send + Sync + 'static, R: Render<T>, Q: crate::Queued> LazyMatchList<'a, T, R, Q> {
     pub fn new(match_list: &'a mut MatchList<T, R>, queued: &'a mut Q) -> Self {
         let buffered_selection = match_list.raw_selection();
@@ -172,8 +177,11 @@ impl<'a, T: Send + Sync + 'static, R: Render<T>, Q: crate::Queued> LazyMatchList
     }
 
     /// Complete processing and clear any buffered events.
-    pub fn finish(self) -> bool {
-        self.match_list.set_selection(self.buffered_selection) || self.toggled
+    pub fn finish(self) -> LazyMatchListStatus {
+        LazyMatchListStatus {
+            selection_changed: self.match_list.set_selection(self.buffered_selection),
+            queued_changed: self.toggled,
+        }
     }
 }
 
@@ -254,5 +262,50 @@ impl<'a> LazyPrompt<'a> {
                 self.status |= self.prompt.handle(e);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        Picker,
+        event::MatchListEvent,
+        match_list::{Queued, SelectedIndices},
+        render::StrRenderer,
+    };
+
+    use super::LazyMatchList;
+
+    fn picker() -> Picker<&'static str, StrRenderer> {
+        let mut picker = Picker::new(StrRenderer);
+        picker.extend(["a", "b"]);
+        while picker.match_list.update(5).matching {}
+        picker
+    }
+
+    #[test]
+    fn selection_changes_do_not_change_the_queue() {
+        let mut picker = picker();
+        let mut queued = SelectedIndices::init(None);
+        let mut lazy = LazyMatchList::new(&mut picker.match_list, &mut queued);
+        lazy.handle(MatchListEvent::Up(1));
+
+        let status = lazy.finish();
+
+        assert!(status.selection_changed);
+        assert!(!status.queued_changed);
+    }
+
+    #[test]
+    fn queue_changes_are_reported_separately() {
+        let mut picker = picker();
+        let mut queued = SelectedIndices::init(None);
+        let mut lazy = LazyMatchList::new(&mut picker.match_list, &mut queued);
+        lazy.handle(MatchListEvent::ToggleDown(0));
+
+        let status = lazy.finish();
+
+        assert!(!status.selection_changed);
+        assert!(status.queued_changed);
     }
 }

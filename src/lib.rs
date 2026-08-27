@@ -1052,11 +1052,13 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         terminal.init()?;
 
         let mut frame_start = Instant::now();
-        let mut frame_state = FrameState::default();
 
         // render the first frame
         let update_status = self.match_list.update(5);
+        let size = terminal.size()?;
+        let mut frame_state = FrameState::new(size);
         frame_state.observe(&update_status);
+        self.match_list.resize(frame_state.match_list_height());
         frame_state.render_frame(self, &mut terminal, Redraw::all(), &queued_items)?;
 
         let mut redraw = Redraw::default();
@@ -1078,8 +1080,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
                             lazy_match_list.handle(match_list_event);
                         }
                         Event::Redraw => {
-                            redraw.prompt = true;
-                            redraw.match_list = true;
+                            redraw.set_all();
                         }
                         Event::Quit => {
                             break 'selection Ok(self.match_list.select_none(queued_items));
@@ -1107,6 +1108,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
                                     break 'selection Err(PickError::Disconnected);
                                 }
                                 redraw.match_list = true;
+                                redraw.match_status = true;
                             }
                             None => break 'selection Err(PickError::Disconnected),
                         },
@@ -1135,12 +1137,15 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
 
             // update draw status
             redraw.prompt |= prompt_status.needs_redraw();
-            redraw.match_list |= match_list_status.needs_redraw();
+            redraw.match_list |=
+                match_list_status.selection_changed || match_list_status.queued_changed;
+            redraw.match_status |= match_list_status.queued_changed;
 
             // check if the prompt changed: if so, reparse the match list
             if prompt_status.contents_changed {
                 self.match_list.reparse(self.prompt.contents());
                 redraw.match_list = true;
+                redraw.match_status = true;
             }
 
             // update the item list
@@ -1150,6 +1155,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
                 .update(2 * self.interval.as_millis() as u64 / 3);
             frame_state.observe(&update_status);
             redraw.match_list |= update_status.items_changed;
+            redraw.match_status |= update_status.items_changed;
             if background_frame {
                 redraw.match_status |= frame_state.update_marker(
                     self.match_list.spinner_chars(),
@@ -1157,10 +1163,23 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
                 );
             }
 
-            // render the frame
-            frame_state.render_frame(self, &mut terminal, redraw, &queued_items)?;
-
-            status_request_changed |= redraw.is_required();
+            // process size changes and redraw the frame
+            let changed = redraw.is_required();
+            if changed {
+                // note: we re-poll the size as late as possible instead of depending
+                // on explicit 'Resize' events because a resize event might be up to
+                // 1 frame late. however, we do make sure *not* to poll size on every
+                // frame, in case it is a bit slow
+                let size_change = frame_state.update_size(terminal.size()?);
+                if size_change.is_changed() {
+                    redraw.set_all();
+                }
+                if size_change.height_changed() {
+                    self.match_list.resize(frame_state.match_list_height());
+                }
+                frame_state.render_frame(self, &mut terminal, redraw, &queued_items)?;
+            }
+            terminal.end_frame(changed)?;
 
             // handle status request
             if let Some(id) = handle_status.take()
@@ -1169,7 +1188,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
                 let status = PickerStatus {
                     id,
                     query: self.query().to_owned(),
-                    changed: status_request_changed,
+                    changed,
                     selection: self.match_list.selection(),
                     item_count: self.match_list.item_count(),
                     selected_item_count: queued_items.len(),
