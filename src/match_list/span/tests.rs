@@ -94,7 +94,7 @@ fn line_prefix_does_not_exceed_the_available_width() {
     let mut output = Vec::new();
 
     spanned
-        .queue_print(&mut output, false, false, 1, 0)
+        .queue_print(&mut output, false, false, 1, 0, false)
         .unwrap();
 
     assert!(output.starts_with(b" "));

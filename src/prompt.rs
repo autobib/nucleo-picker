@@ -520,6 +520,7 @@ impl Prompt {
         &mut self,
         width: u16,
         _height: u16,
+        local_clear: bool,
         writer: &mut W,
     ) -> std::io::Result<()> {
         use crossterm::{
@@ -528,6 +529,10 @@ impl Prompt {
             style::Print,
             terminal::{Clear, ClearType},
         };
+
+        if local_clear {
+            writer.queue(Clear(ClearType::CurrentLine))?;
+        }
 
         writer.queue(Print(">"))?;
 
@@ -543,9 +548,7 @@ impl Prompt {
                 writer.queue(MoveRight(shift))?;
             }
 
-            writer
-                .queue(Print(contents))?
-                .queue(Clear(ClearType::UntilNewLine))?;
+            writer.queue(Print(contents))?;
         }
 
         Ok(())

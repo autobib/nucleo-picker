@@ -34,6 +34,7 @@ fn draw_single_match<
     writer: &mut W,
     buffer: &mut IndexBuffer,
     width: u16,
+    local_clear: bool,
     config: &MatchListConfig,
     item: nc::Item<'_, T>,
     queued: bool,
@@ -62,7 +63,14 @@ fn draw_single_match<
             &mut buffer.lines,
             L::from_offset(height),
         )
-        .queue_print(writer, SELECTED, queued, width, config.highlight_padding),
+        .queue_print(
+            writer,
+            SELECTED,
+            queued,
+            width,
+            config.highlight_padding,
+            local_clear,
+        ),
         RenderedItem::Unicode(r) => Spanned::<'_, UnicodeProcessor>::new(
             &buffer.indices,
             r.as_ref(),
@@ -70,7 +78,14 @@ fn draw_single_match<
             &mut buffer.lines,
             L::from_offset(height),
         )
-        .queue_print(writer, SELECTED, queued, width, config.highlight_padding),
+        .queue_print(
+            writer,
+            SELECTED,
+            queued,
+            width,
+            config.highlight_padding,
+            local_clear,
+        ),
     }
 }
 
@@ -83,6 +98,7 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, W: io::Write + ?Size
     matcher: &mut nc::Matcher,
     render: &R,
     width: u16,
+    local_clear: bool,
     above: &[usize],
     below: &[usize],
     mut item_iter: impl Iterator<Item = (nc::Item<'a, T>, bool)>,
@@ -93,6 +109,7 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, W: io::Write + ?Size
             writer,
             buffer,
             width,
+            local_clear,
             config,
             item,
             queued,
@@ -109,6 +126,7 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, W: io::Write + ?Size
         writer,
         buffer,
         width,
+        local_clear,
         config,
         item,
         queued,
@@ -124,6 +142,7 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, W: io::Write + ?Size
             writer,
             buffer,
             width,
+            local_clear,
             config,
             item,
             queued,
@@ -144,11 +163,19 @@ fn decimal_width(value: u32) -> usize {
 fn draw_match_counts<W: io::Write + ?Sized>(
     writer: &mut W,
     width: u16,
+    local_clear: bool,
     matched: u32,
     total: u32,
     multi: Option<(u32, Option<NonZero<u32>>)>,
     status_marker: Option<char>,
 ) -> io::Result<()> {
+    if local_clear {
+        writer
+            .queue(ResetColor)?
+            .queue(SetAttribute(Attribute::Reset))?
+            .queue(Clear(ClearType::CurrentLine))?;
+    }
+
     let mut occupied = status_marker.unwrap_or(' ').width().unwrap_or(0)
         + 1
         + decimal_width(matched)
@@ -162,10 +189,6 @@ fn draw_match_counts<W: io::Write + ?Sized>(
     }
 
     if occupied > usize::from(width) {
-        writer
-            .queue(ResetColor)?
-            .queue(SetAttribute(Attribute::Reset))?
-            .queue(Clear(ClearType::UntilNewLine))?;
         return Ok(());
     }
 
@@ -199,9 +222,6 @@ fn draw_match_counts<W: io::Write + ?Sized>(
     writer
         .queue(ResetColor)?
         .queue(SetAttribute(Attribute::Reset))?;
-    if fill_width != 0 {
-        writer.queue(Clear(ClearType::UntilNewLine))?;
-    }
 
     Ok(())
 }
@@ -210,6 +230,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
     pub fn draw_status<W: Write + ?Sized>(
         &self,
         width: u16,
+        local_clear: bool,
         writer: &mut W,
         multi: Option<(u32, Option<NonZero<u32>>)>,
         status_marker: Option<char>,
@@ -218,6 +239,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
         draw_match_counts(
             writer,
             width,
+            local_clear,
             snapshot.matched_item_count(),
             snapshot.item_count(),
             multi,
@@ -228,6 +250,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
     pub fn draw_items<W: Write + ?Sized, F: FnMut(u32) -> bool>(
         &mut self,
         width: u16,
+        local_clear: bool,
         writer: &mut W,
         mut is_queued: F,
     ) -> std::io::Result<()> {
@@ -249,22 +272,24 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
                     &mut self.matcher,
                     self.render.as_ref(),
                     width,
+                    local_clear,
                     &self.above,
                     &self.below,
                     items,
                 )?;
             }
 
-            if total_whitespace > 0 {
+            if local_clear && total_whitespace > 0 {
                 writer.queue(Clear(ClearType::FromCursorDown))?;
             }
         } else {
             // skip / clear whitespace if necessary
             while total_whitespace > 0 {
                 total_whitespace -= 1;
-                writer
-                    .queue(Clear(ClearType::UntilNewLine))?
-                    .queue(MoveToNextLine(1))?;
+                if local_clear {
+                    writer.queue(Clear(ClearType::CurrentLine))?;
+                }
+                writer.queue(MoveToNextLine(1))?;
             }
 
             if matched_item_count != 0 {
@@ -279,6 +304,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
                     &mut self.matcher,
                     self.render.as_ref(),
                     width,
+                    local_clear,
                     &self.above,
                     &self.below,
                     items.rev(),
@@ -296,7 +322,7 @@ mod tests {
 
     fn rendered_prefix(width: u16, status_marker: Option<char>) -> String {
         let mut output = Vec::new();
-        draw_match_counts(&mut output, width, 3, 5, None, status_marker).unwrap();
+        draw_match_counts(&mut output, width, true, 3, 5, None, status_marker).unwrap();
         String::from_utf8(output).unwrap()
     }
 

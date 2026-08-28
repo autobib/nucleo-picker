@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Prompt resize logic is a bit smoother.
   - Integer overflow when queueing a massive number of items via an event.
   - Out-of-order event handling bug where `QuitPromptEmpty` could have resulted in cancellation even with non-empty bugs.
+  - Picker now uses all of the columns provided by the terminal.
 - No longer query for terminal size unless a redraw is actually required.
 
 ## [0.11.2] - 2026-08-04

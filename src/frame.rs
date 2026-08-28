@@ -3,7 +3,8 @@ use std::{io, num::NonZero};
 use crossterm::{
     QueueableCommand,
     cursor::MoveTo,
-    terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate},
+    style::{Attribute, ResetColor, SetAttribute},
+    terminal::{BeginSynchronizedUpdate, Clear, ClearType, EndSynchronizedUpdate},
 };
 
 use crate::{
@@ -156,6 +157,7 @@ impl FrameState {
         queued_items: &Q,
     ) -> io::Result<()> {
         let ScreenSize { width, height } = self.size;
+        let local_clear = !(redraw.prompt && redraw.match_list && redraw.match_status);
         let (prompt_row, match_status_row, match_list_row) = if picker.reversed {
             (0, 1, 2)
         } else {
@@ -166,17 +168,27 @@ impl FrameState {
             writer.begin_render()?;
             writer.queue(BeginSynchronizedUpdate)?;
 
+            if !local_clear {
+                writer
+                    .queue(ResetColor)?
+                    .queue(SetAttribute(Attribute::Reset))?
+                    .queue(Clear(ClearType::All))?;
+            }
+
             if redraw.match_list && height >= 3 {
                 writer.queue(MoveTo(0, match_list_row))?;
                 picker
                     .match_list
-                    .draw_items(width, writer, |idx| queued_items.is_queued(idx))?;
+                    .draw_items(width, local_clear, writer, |idx| {
+                        queued_items.is_queued(idx)
+                    })?;
             }
 
             if redraw.match_status && height >= 2 {
                 writer.queue(MoveTo(0, match_status_row))?;
                 picker.match_list.draw_status(
                     width,
+                    local_clear,
                     writer,
                     queued_items.count(picker.max_selection_count),
                     self.status_marker,
@@ -186,7 +198,7 @@ impl FrameState {
             if redraw.prompt && height >= 1 {
                 writer.queue(MoveTo(0, prompt_row))?;
 
-                picker.prompt.draw(width, 1, writer)?;
+                picker.prompt.draw(width, 1, local_clear, writer)?;
             }
 
             writer
@@ -277,6 +289,14 @@ mod tests {
         });
 
         assert!(output.contains("0/0"));
+    }
+
+    #[test]
+    fn full_redraw_uses_a_single_screen_clear_strategy() {
+        let output = render(Redraw::all());
+
+        assert!(output.contains("\x1b[2J"));
+        assert!(!output.contains("\x1b[2K"));
     }
 
     #[test]

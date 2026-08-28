@@ -12,7 +12,7 @@ fn draw_does_not_exceed_the_available_width() {
     let mut prompt = Prompt::new(PromptConfig::new());
     let mut output = Vec::new();
 
-    prompt.draw(1, 1, &mut output).unwrap();
+    prompt.draw(1, 1, false, &mut output).unwrap();
 
     assert_eq!(output, b">");
 }

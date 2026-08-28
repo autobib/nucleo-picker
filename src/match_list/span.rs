@@ -235,15 +235,13 @@ impl<'a, P: Processor> Spanned<'a, P> {
         Ok(())
     }
 
-    /// Clean up after printing the line by resetting any display styling, clearing any trailing
-    /// characters, and moving to the next line.
+    /// Clean up after printing the line by resetting any display styling and moving to the
+    /// next line.
     #[inline]
-    fn finish_line<W: Write + ?Sized>(stderr: &mut W, clear: bool) -> io::Result<()> {
-        stderr.queue(SetAttribute(Attribute::Reset))?;
-        if clear {
-            stderr.queue(Clear(ClearType::UntilNewLine))?;
-        }
-        stderr.queue(MoveToNextLine(1))?;
+    fn finish_line<W: Write + ?Sized>(stderr: &mut W) -> io::Result<()> {
+        stderr
+            .queue(SetAttribute(Attribute::Reset))?
+            .queue(MoveToNextLine(1))?;
         Ok(())
     }
 
@@ -257,10 +255,10 @@ impl<'a, P: Processor> Spanned<'a, P> {
         queued: bool,
         width: u16,
         highlight_padding: u16,
+        local_clear: bool,
     ) -> io::Result<()> {
         let prefix_width = width.min(2);
-        let max_width = width.saturating_sub(3);
-        let clear = width > prefix_width;
+        let max_width = width.saturating_sub(prefix_width);
 
         if self.max_line_bytes() <= max_width.saturating_sub(highlight_padding) as usize {
             // Fast path: all of the lines are short, so we can just render them without any unicode width
@@ -273,19 +271,25 @@ impl<'a, P: Processor> Spanned<'a, P> {
             //
             // If the input is ASCII, this check is optimal.
             for line in self.lines() {
+                if local_clear {
+                    stderr.queue(Clear(ClearType::CurrentLine))?;
+                }
                 Self::start_line(stderr, selected, queued, prefix_width)?;
                 for span in line {
                     Self::print_span(stderr, self.index_in(span), span.is_match)?;
                 }
-                Self::finish_line(stderr, clear)?;
+                Self::finish_line(stderr)?;
             }
         } else {
             let offset = self.required_offset(max_width, highlight_padding);
 
             for line in self.lines() {
+                if local_clear {
+                    stderr.queue(Clear(ClearType::CurrentLine))?;
+                }
                 Self::start_line(stderr, selected, queued, prefix_width)?;
-                self.queue_print_line(stderr, line, offset, max_width)?;
-                Self::finish_line(stderr, clear)?;
+                self.queue_print_line(stderr, line, offset, prefix_width, max_width)?;
+                Self::finish_line(stderr)?;
             }
         }
         Ok(())
@@ -299,6 +303,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
         stderr: &mut W,
         line: &[Span],
         offset: usize,
+        prefix_width: u16,
         capacity: u16,
     ) -> io::Result<()> {
         let mut remaining_capacity = capacity;
@@ -356,7 +361,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
                             &self.rendered[..span.range.start + prefix.len()],
                         );
 
-                        stderr.queue(MoveToColumn(2 + capacity - undo_width as u16))?;
+                        stderr.queue(MoveToColumn(prefix_width + capacity - undo_width as u16))?;
                         for _ in 0..undo_width {
                             stderr.queue(Print(ELLIPSIS))?;
                         }
