@@ -1,6 +1,8 @@
 mod driver;
 mod error;
+pub mod snap;
 mod snapshot;
+mod svg;
 
 pub use driver::Driver;
 pub use error::{Error, ErrorKind};
