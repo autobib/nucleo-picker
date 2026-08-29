@@ -17,3 +17,16 @@ pub fn as_u32<T: TryInto<u32>>(num: T) -> u32 {
 pub fn as_u16<T: TryInto<u16>>(num: T) -> u16 {
     num.try_into().unwrap_or(u16::MAX)
 }
+
+pub(crate) fn write_spaces<W: std::io::Write + ?Sized>(
+    writer: &mut W,
+    mut width: usize,
+) -> std::io::Result<()> {
+    const SPACES: &[u8] = b"                                                                ";
+
+    while width >= SPACES.len() {
+        writer.write_all(SPACES)?;
+        width -= SPACES.len();
+    }
+    writer.write_all(&SPACES[..width])
+}

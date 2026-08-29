@@ -19,6 +19,7 @@ use crossterm::{
 };
 
 use super::unicode::{Processor, Span, consume, spans_from_indices, truncate};
+use crate::{frame::ClearMode, util::write_spaces};
 
 const ELLIPSIS: char = '…';
 
@@ -193,6 +194,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
         selected: bool,
         queued: bool,
         prefix_width: u16,
+        highlight_line: bool,
     ) -> io::Result<()> {
         if prefix_width == 0 {
             return Ok(());
@@ -200,10 +202,11 @@ impl<'a, P: Processor> Spanned<'a, P> {
 
         if selected {
             // print the line as bold, and with a 'selection' marker
-            stderr
-                .queue(SetAttribute(Attribute::Bold))?
-                .queue(SetBackgroundColor(Color::DarkGrey))?
-                .queue(PrintStyledContent("▌".magenta()))?;
+            stderr.queue(SetAttribute(Attribute::Bold))?;
+            if !highlight_line {
+                stderr.queue(SetBackgroundColor(Color::DarkGrey))?;
+            }
+            stderr.queue(PrintStyledContent("▌".magenta()))?;
         } else {
             // print a blank instead
             stderr.queue(Print(" "))?;
@@ -215,6 +218,10 @@ impl<'a, P: Processor> Spanned<'a, P> {
             } else {
                 stderr.queue(Print(" "))?;
             }
+        }
+
+        if selected && highlight_line {
+            stderr.queue(SetBackgroundColor(Color::DarkGrey))?;
         }
 
         Ok(())
@@ -238,16 +245,30 @@ impl<'a, P: Processor> Spanned<'a, P> {
     /// Clean up after printing the line by resetting any display styling and moving to the
     /// next line.
     #[inline]
-    fn finish_line<W: Write + ?Sized>(stderr: &mut W) -> io::Result<()> {
-        stderr
-            .queue(SetAttribute(Attribute::Reset))?
-            .queue(MoveToNextLine(1))?;
+    fn finish_line<W: Write + ?Sized>(
+        stderr: &mut W,
+        remaining_capacity: u16,
+        highlight_line: bool,
+        clear_mode: ClearMode,
+    ) -> io::Result<()> {
+        if highlight_line {
+            write_spaces(stderr, usize::from(remaining_capacity))?;
+        }
+
+        stderr.queue(SetAttribute(Attribute::Reset))?;
+
+        if !highlight_line && clear_mode == ClearMode::Exact {
+            write_spaces(stderr, usize::from(remaining_capacity))?;
+        }
+
+        stderr.queue(MoveToNextLine(1))?;
         Ok(())
     }
 
     /// Print for display into a terminal with width `width`, and with styling to match if the
     /// item is selected or not.
     #[inline]
+    #[allow(clippy::too_many_arguments)]
     pub fn queue_print<W: Write + ?Sized>(
         &self,
         stderr: &mut W,
@@ -255,10 +276,13 @@ impl<'a, P: Processor> Spanned<'a, P> {
         queued: bool,
         width: u16,
         highlight_padding: u16,
-        local_clear: bool,
+        highlight_line: bool,
+        clear_mode: ClearMode,
     ) -> io::Result<()> {
         let prefix_width = width.min(2);
         let max_width = width.saturating_sub(prefix_width);
+        let fill_highlight = selected && highlight_line;
+        let needs_trailing_width = fill_highlight || clear_mode == ClearMode::Exact;
 
         if self.max_line_bytes() <= max_width.saturating_sub(highlight_padding) as usize {
             // Fast path: all of the lines are short, so we can just render them without any unicode width
@@ -271,25 +295,39 @@ impl<'a, P: Processor> Spanned<'a, P> {
             //
             // If the input is ASCII, this check is optimal.
             for line in self.lines() {
-                if local_clear {
+                if clear_mode == ClearMode::Line {
                     stderr.queue(Clear(ClearType::CurrentLine))?;
                 }
-                Self::start_line(stderr, selected, queued, prefix_width)?;
+                Self::start_line(stderr, selected, queued, prefix_width, highlight_line)?;
                 for span in line {
                     Self::print_span(stderr, self.index_in(span), span.is_match)?;
                 }
-                Self::finish_line(stderr)?;
+
+                let remaining_capacity = if needs_trailing_width {
+                    let printed_width = if line.is_empty() {
+                        0
+                    } else {
+                        P::width(
+                            &self.rendered[line[0].range.start..line.last().unwrap().range.end],
+                        )
+                    };
+                    max_width.saturating_sub(printed_width as u16)
+                } else {
+                    0
+                };
+                Self::finish_line(stderr, remaining_capacity, fill_highlight, clear_mode)?;
             }
         } else {
             let offset = self.required_offset(max_width, highlight_padding);
 
             for line in self.lines() {
-                if local_clear {
+                if clear_mode == ClearMode::Line {
                     stderr.queue(Clear(ClearType::CurrentLine))?;
                 }
-                Self::start_line(stderr, selected, queued, prefix_width)?;
-                self.queue_print_line(stderr, line, offset, prefix_width, max_width)?;
-                Self::finish_line(stderr)?;
+                Self::start_line(stderr, selected, queued, prefix_width, highlight_line)?;
+                let remaining_capacity =
+                    self.queue_print_line(stderr, line, offset, prefix_width, max_width)?;
+                Self::finish_line(stderr, remaining_capacity, fill_highlight, clear_mode)?;
             }
         }
         Ok(())
@@ -305,12 +343,12 @@ impl<'a, P: Processor> Spanned<'a, P> {
         offset: usize,
         prefix_width: u16,
         capacity: u16,
-    ) -> io::Result<()> {
+    ) -> io::Result<u16> {
         let mut remaining_capacity = capacity;
 
         // do not print ellipsis if line is empty or the screen is extremely narrow
         if line.is_empty() || remaining_capacity == 0 {
-            return Ok(());
+            return Ok(remaining_capacity);
         }
 
         if offset > 0 {
@@ -337,7 +375,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
                     stderr.queue(Print(ELLIPSIS))?;
                 }
             }
-            None => return Ok(()),
+            None => return Ok(remaining_capacity),
         }
 
         // print as many spans as possible
@@ -366,12 +404,12 @@ impl<'a, P: Processor> Spanned<'a, P> {
                             stderr.queue(Print(ELLIPSIS))?;
                         }
                     }
-                    return Ok(());
+                    return Ok(0);
                 }
             }
         }
 
-        Ok(())
+        Ok(remaining_capacity)
     }
 
     /// Compute the string slice corresponding to the given [`Span`].

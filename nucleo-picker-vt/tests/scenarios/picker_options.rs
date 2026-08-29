@@ -50,3 +50,39 @@ fn basic_options() -> Result<(), Box<dyn Error>> {
     assert_eq!(sr.finish()?, ["item-19 tango", "item-21 victor"]);
     Ok(())
 }
+
+#[test]
+fn highlight_line() -> Result<(), Box<dyn Error>> {
+    let options = PickerOptions::new().highlight_line(true);
+    let mut sr = ScenarioRunner::start_with_options(
+        "highlight_line",
+        vec!["short\n界", "a longer unselected item"],
+        options,
+    );
+
+    sr.set_dimensions(12, 6)?;
+    sr.wait_for_match_complete(2, 2)?;
+    checkpoint!(sr, "full-line");
+
+    sr.send(Event::Quit)?;
+    assert!(sr.finish()?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn highlight_line_reversed() -> Result<(), Box<dyn Error>> {
+    let options = PickerOptions::new().highlight_line(true).reversed(true);
+    let mut sr = ScenarioRunner::start_with_options(
+        "highlight_line_reversed",
+        vec!["short\n界", "a longer unselected item"],
+        options,
+    );
+
+    sr.set_dimensions(12, 6)?;
+    sr.wait_for_match_complete(2, 2)?;
+    checkpoint!(sr, "full-line-reversed");
+
+    sr.send(Event::Quit)?;
+    assert!(sr.finish()?.is_empty());
+    Ok(())
+}

@@ -207,6 +207,8 @@ pub(crate) struct MatchListStatus {
 pub struct MatchListConfig {
     /// Whether or not to do match highlighting.
     pub highlight: bool,
+    /// Whether or not to highlight the entire line.
+    pub highlight_line: bool,
     /// Whether or not the screen is reversed.
     pub reversed: bool,
     /// The amount of padding around highlighted matches.
@@ -227,6 +229,7 @@ impl MatchListConfig {
     pub const fn new() -> Self {
         Self {
             highlight: true,
+            highlight_line: false,
             reversed: false,
             highlight_padding: 3,
             scroll_padding: 3,

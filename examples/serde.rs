@@ -38,11 +38,8 @@ impl Render<Poem> for PoemRenderer {
 
 fn main() -> Result<()> {
     // "argument parsing"
-    let opts = PickerOptions::new();
-    let picker_opts = match args().nth(1) {
-        Some(s) if s == "--reversed" => opts.reversed(true),
-        _ => opts,
-    };
+    let reversed = matches!(args().nth(1), Some(s) if "--reversed".starts_with(&s) || s == "r");
+    let picker_opts = PickerOptions::new().reversed(reversed).highlight_line(true);
 
     let mut picker = picker_opts.picker(PoemRenderer);
     let injector = picker.injector();

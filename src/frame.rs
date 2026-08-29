@@ -12,6 +12,13 @@ use crate::{
     match_list::{MatchListStatus, Queued},
 };
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ClearMode {
+    All,
+    Line,
+    Exact,
+}
+
 #[derive(Default, Clone, Copy)]
 pub struct Redraw {
     pub prompt: bool,
@@ -20,8 +27,12 @@ pub struct Redraw {
 }
 
 impl Redraw {
-    pub fn is_required(self) -> bool {
+    pub fn any_required(self) -> bool {
         self.prompt || self.match_list || self.match_status
+    }
+
+    pub fn all_required(self) -> bool {
+        self.prompt && self.match_list && self.match_status
     }
 
     pub fn all() -> Self {
@@ -157,7 +168,11 @@ impl FrameState {
         queued_items: &Q,
     ) -> io::Result<()> {
         let ScreenSize { width, height } = self.size;
-        let local_clear = !(redraw.prompt && redraw.match_list && redraw.match_status);
+        let clear_mode = if redraw.all_required() {
+            ClearMode::All
+        } else {
+            ClearMode::Line
+        };
         let (prompt_row, match_status_row, match_list_row) = if picker.reversed {
             (0, 1, 2)
         } else {
@@ -168,7 +183,7 @@ impl FrameState {
             writer.begin_render()?;
             writer.queue(BeginSynchronizedUpdate)?;
 
-            if !local_clear {
+            if clear_mode == ClearMode::All {
                 writer
                     .queue(ResetColor)?
                     .queue(SetAttribute(Attribute::Reset))?
@@ -179,16 +194,14 @@ impl FrameState {
                 writer.queue(MoveTo(0, match_list_row))?;
                 picker
                     .match_list
-                    .draw_items(width, local_clear, writer, |idx| {
-                        queued_items.is_queued(idx)
-                    })?;
+                    .draw_items(width, clear_mode, writer, |idx| queued_items.is_queued(idx))?;
             }
 
             if redraw.match_status && height >= 2 {
                 writer.queue(MoveTo(0, match_status_row))?;
                 picker.match_list.draw_status(
                     width,
-                    local_clear,
+                    clear_mode,
                     writer,
                     queued_items.count(picker.max_selection_count),
                     self.status_marker,
@@ -198,7 +211,7 @@ impl FrameState {
             if redraw.prompt && height >= 1 {
                 writer.queue(MoveTo(0, prompt_row))?;
 
-                picker.prompt.draw(width, 1, local_clear, writer)?;
+                picker.prompt.draw(width, 1, clear_mode, writer)?;
             }
 
             writer

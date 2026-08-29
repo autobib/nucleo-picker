@@ -94,10 +94,99 @@ fn line_prefix_does_not_exceed_the_available_width() {
     let mut output = Vec::new();
 
     spanned
-        .queue_print(&mut output, false, false, 1, 0, false)
+        .queue_print(&mut output, false, false, 1, 0, false, ClearMode::All)
         .unwrap();
 
     assert!(output.starts_with(b" "));
     assert!(!output.starts_with(b"  "));
     assert!(!String::from_utf8(output).unwrap().contains("\x1b[K"));
+}
+
+fn render_ascii_line(
+    rendered: &str,
+    width: u16,
+    selected: bool,
+    highlight_line: bool,
+    clear_mode: ClearMode,
+) -> String {
+    let mut spans = Vec::new();
+    let mut lines = Vec::new();
+    let spanned: Spanned<'_, AsciiProcessor> =
+        Spanned::new(&[], rendered, &mut spans, &mut lines, All);
+    let mut output = Vec::new();
+
+    spanned
+        .queue_print(
+            &mut output,
+            selected,
+            false,
+            width,
+            0,
+            highlight_line,
+            clear_mode,
+        )
+        .unwrap();
+
+    String::from_utf8(output).unwrap()
+}
+
+#[test]
+fn trailing_columns_follow_the_highlight_and_clear_modes() {
+    let default = render_ascii_line("abc", 8, true, false, ClearMode::All);
+    assert!(default.contains("abc\x1b[0m"));
+    assert!(!default.contains("abc \x1b[0m"));
+
+    let highlighted = render_ascii_line("abc", 8, true, true, ClearMode::All);
+    assert!(highlighted.contains("abc   \x1b[0m"));
+
+    let exact = render_ascii_line("abc", 8, true, false, ClearMode::Exact);
+    assert!(exact.contains("abc\x1b[0m   "));
+
+    let exact_highlighted = render_ascii_line("abc", 8, true, true, ClearMode::Exact);
+    assert!(exact_highlighted.contains("abc   \x1b[0m"));
+}
+
+#[test]
+fn trailing_columns_use_display_width() {
+    let mut spans = Vec::new();
+    let mut lines = Vec::new();
+    let spanned: Spanned<'_, UnicodeProcessor> =
+        Spanned::new(&[], "界", &mut spans, &mut lines, All);
+    let mut output = Vec::new();
+
+    spanned
+        .queue_print(&mut output, true, false, 8, 0, true, ClearMode::All)
+        .unwrap();
+
+    assert!(String::from_utf8(output).unwrap().contains("界    \x1b[0m"));
+}
+
+#[test]
+fn queue_print_line_returns_remaining_columns() {
+    fn remaining_ascii(rendered: &str, capacity: u16) -> u16 {
+        let mut spans = Vec::new();
+        let mut lines = Vec::new();
+        let spanned: Spanned<'_, AsciiProcessor> =
+            Spanned::new(&[], rendered, &mut spans, &mut lines, All);
+        let line = spanned.lines().next().unwrap();
+
+        spanned
+            .queue_print_line(&mut Vec::new(), line, 0, 0, capacity)
+            .unwrap()
+    }
+
+    assert_eq!(remaining_ascii("abc", 6), 3);
+    assert_eq!(remaining_ascii("abcdef", 3), 0);
+
+    let mut spans = Vec::new();
+    let mut lines = Vec::new();
+    let spanned: Spanned<'_, UnicodeProcessor> =
+        Spanned::new(&[], "界a", &mut spans, &mut lines, All);
+    let line = spanned.lines().next().unwrap();
+    assert_eq!(
+        spanned
+            .queue_print_line(&mut Vec::new(), line, 0, 0, 6)
+            .unwrap(),
+        3
+    );
 }

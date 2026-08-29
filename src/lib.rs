@@ -557,6 +557,16 @@ impl PickerOptions {
         self
     }
 
+    /// Whether to highlight the entire line, and not only the match text
+    ///
+    /// This can be useful for distinguishing multiline items from each other. The default is false.
+    #[must_use]
+    #[inline]
+    pub const fn highlight_line(mut self, highlight_line: bool) -> Self {
+        self.match_list_config.highlight_line = highlight_line;
+        self
+    }
+
     /// How much space to leave when rendering match highlighting (default to `3`).
     #[must_use]
     #[inline]
@@ -1166,7 +1176,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
             }
 
             // process size changes and redraw the frame
-            let changed = redraw.is_required();
+            let changed = redraw.any_required();
             if changed {
                 // note: we re-poll the size as late as possible instead of depending
                 // on explicit 'Resize' events because a resize event might be up to

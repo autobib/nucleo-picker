@@ -104,7 +104,8 @@ If there are particular `fzf`-specific features that you would like to see suppo
 - [x] `--literal`: `PickerOptions::normalization`
 - [x] `--query`: `PickerOptions::query`
 - [ ] `--preview`: https://github.com/autobib/nucleo-picker/issues/5
-- [ ] `--gap`, `--highlight-line`: https://github.com/autobib/nucleo-picker/issues/91
+- [x] `--highlight-line`
+- [ ] `--gap`: https://github.com/autobib/nucleo-picker/issues/91
 - [ ] `--cycle`
 - [ ] `--track`
 - [ ] `--ghost`

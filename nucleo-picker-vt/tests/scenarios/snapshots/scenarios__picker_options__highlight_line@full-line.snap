@@ -1,0 +1,73 @@
+---
+source: nucleo-picker-vt/tests/scenarios/picker_options.rs
+expression: sr.checkpoint(resolved_name.to_owned())?
+info:
+  resolved_name: full-line
+  name_expression: "\"full-line\""
+  sequence: 0
+---
+version: 1
+size:
+  cols: 12
+  rows: 6
+screen: alternate
+cursor:
+  position:
+    x: 2
+    y: 5
+  visible: true
+  shape: block
+  blinking: false
+  pending_wrap: false
+  at_wide_tail: false
+  password_input: false
+colors:
+  foreground: "#ffffff"
+  background: "#000000"
+  cursor: ~
+text:
+  - "            "
+  - "  a longer …"
+  - "▌ short     "
+  - "▌ 界        "
+  - "  2/2 ──────"
+  - ">           "
+styles:
+  - row: 2
+    start: 0
+    end: 1
+    foreground: "#c397d8"
+    bold: true
+  - row: 2
+    start: 1
+    end: 2
+    bold: true
+  - row: 2
+    start: 2
+    end: 12
+    background: "#666666"
+    bold: true
+  - row: 3
+    start: 0
+    end: 1
+    foreground: "#c397d8"
+    bold: true
+  - row: 3
+    start: 1
+    end: 2
+    bold: true
+  - row: 3
+    start: 2
+    end: 12
+    background: "#666666"
+    bold: true
+  - row: 4
+    start: 0
+    end: 5
+    foreground: "#b9ca4a"
+    italic: true
+  - row: 4
+    start: 5
+    end: 12
+    foreground: "#c5c8c6"
+    italic: true

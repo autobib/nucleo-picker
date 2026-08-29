@@ -520,7 +520,7 @@ impl Prompt {
         &mut self,
         width: u16,
         _height: u16,
-        local_clear: bool,
+        clear_mode: crate::frame::ClearMode,
         writer: &mut W,
     ) -> std::io::Result<()> {
         use crossterm::{
@@ -530,7 +530,7 @@ impl Prompt {
             terminal::{Clear, ClearType},
         };
 
-        if local_clear {
+        if clear_mode == crate::frame::ClearMode::Line {
             writer.queue(Clear(ClearType::CurrentLine))?;
         }
 
@@ -545,10 +545,21 @@ impl Prompt {
             let (contents, shift) = self.view();
 
             if shift != 0 {
-                writer.queue(MoveRight(shift))?;
+                if clear_mode == crate::frame::ClearMode::Exact {
+                    crate::util::write_spaces(writer, usize::from(shift))?;
+                } else {
+                    writer.queue(MoveRight(shift))?;
+                }
             }
 
             writer.queue(Print(contents))?;
+
+            if clear_mode == crate::frame::ClearMode::Exact {
+                let occupied = usize::from(shift) + contents.width();
+                crate::util::write_spaces(writer, usize::from(width).saturating_sub(occupied))?;
+            }
+        } else if clear_mode == crate::frame::ClearMode::Exact {
+            crate::util::write_spaces(writer, usize::from(width.saturating_sub(1)))?;
         }
 
         Ok(())

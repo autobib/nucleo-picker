@@ -12,9 +12,24 @@ fn draw_does_not_exceed_the_available_width() {
     let mut prompt = Prompt::new(PromptConfig::new());
     let mut output = Vec::new();
 
-    prompt.draw(1, 1, false, &mut output).unwrap();
+    prompt
+        .draw(1, 1, crate::frame::ClearMode::All, &mut output)
+        .unwrap();
 
     assert_eq!(output, b">");
+}
+
+#[test]
+fn exact_draw_fills_the_owned_width() {
+    let mut prompt = Prompt::new(PromptConfig::new());
+    prompt.handle(PromptEvent::Insert('a'));
+    let mut output = Vec::new();
+
+    prompt
+        .draw(6, 1, crate::frame::ClearMode::Exact, &mut output)
+        .unwrap();
+
+    assert_eq!(output, b"> a   ");
 }
 
 #[test]
