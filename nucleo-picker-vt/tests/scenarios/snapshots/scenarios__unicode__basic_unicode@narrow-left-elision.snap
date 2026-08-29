@@ -1,0 +1,104 @@
+---
+source: nucleo-picker-vt/tests/scenarios/unicode.rs
+expression: sr.checkpoint(resolved_name.to_owned())?
+info:
+  resolved_name: narrow-left-elision
+  name_expression: "\"narrow-left-elision\""
+  sequence: 11
+---
+version: 1
+size:
+  cols: 20
+  rows: 12
+screen: alternate
+cursor:
+  position:
+    x: 7
+    y: 11
+  visible: true
+  shape: block
+  blinking: false
+  pending_wrap: false
+  at_wide_tail: false
+  password_input: false
+colors:
+  foreground: "#ffffff"
+  background: "#000000"
+  cursor: ~
+text:
+  - "  …x before final   "
+  - "  …x before final   "
+  - "  …t before final   "
+  - "  …y before final   "
+  - "  …g before final   "
+  - "  …y before final   "
+  - "  …… 종착점 final   "
+  - "  …… 종착점 final   "
+  - "  …後の終点 final   "
+  - "▌ …後の終点 final   "
+  - "  10/10 ────────────"
+  - "> final             "
+styles:
+  - row: 0
+    start: 12
+    end: 17
+    foreground: "#70c0b1"
+  - row: 1
+    start: 12
+    end: 17
+    foreground: "#70c0b1"
+  - row: 2
+    start: 12
+    end: 17
+    foreground: "#70c0b1"
+  - row: 3
+    start: 12
+    end: 17
+    foreground: "#70c0b1"
+  - row: 4
+    start: 12
+    end: 17
+    foreground: "#70c0b1"
+  - row: 5
+    start: 12
+    end: 17
+    foreground: "#70c0b1"
+  - row: 6
+    start: 12
+    end: 17
+    foreground: "#70c0b1"
+  - row: 7
+    start: 12
+    end: 17
+    foreground: "#70c0b1"
+  - row: 8
+    start: 12
+    end: 17
+    foreground: "#70c0b1"
+  - row: 9
+    start: 0
+    end: 1
+    foreground: "#c397d8"
+    background: "#666666"
+    bold: true
+  - row: 9
+    start: 1
+    end: 12
+    background: "#666666"
+    bold: true
+  - row: 9
+    start: 12
+    end: 17
+    foreground: "#70c0b1"
+    background: "#666666"
+    bold: true
+  - row: 10
+    start: 0
+    end: 7
+    foreground: "#b9ca4a"
+    italic: true
+  - row: 10
+    start: 7
+    end: 20
+    foreground: "#c5c8c6"
+    italic: true

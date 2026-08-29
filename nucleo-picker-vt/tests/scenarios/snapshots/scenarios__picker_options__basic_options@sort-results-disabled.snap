@@ -1,0 +1,168 @@
+---
+source: nucleo-picker-vt/tests/scenarios/picker_options.rs
+expression: sr.checkpoint(resolved_name.to_owned())?
+info:
+  resolved_name: sort-results-disabled
+  name_expression: "\"sort-results-disabled\""
+  sequence: 1
+---
+version: 1
+size:
+  cols: 60
+  rows: 16
+screen: alternate
+cursor:
+  position:
+    x: 4
+    y: 0
+  visible: true
+  shape: block
+  blinking: false
+  pending_wrap: false
+  at_wide_tail: false
+  password_input: false
+colors:
+  foreground: "#ffffff"
+  background: "#000000"
+  cursor: ~
+text:
+  - "> ia                                                        "
+  - "  11/24 (0/2) ──────────────────────────────────────────────"
+  - "▌ item-23 xray                                              "
+  - "  item-19 tango                                             "
+  - "  item-18 sierra                                            "
+  - "  item-15 papa                                              "
+  - "  item-14 oscar                                             "
+  - "  item-11 lima                                              "
+  - "  item-08 india                                             "
+  - "  item-03 delta                                             "
+  - "  item-02 charlie                                           "
+  - "  item-01 bravo                                             "
+  - "  item-00 alpha                                             "
+  - "                                                            "
+  - "                                                            "
+  - "                                                            "
+styles:
+  - row: 1
+    start: 0
+    end: 7
+    foreground: "#b9ca4a"
+    italic: true
+  - row: 1
+    start: 7
+    end: 60
+    foreground: "#c5c8c6"
+    italic: true
+  - row: 2
+    start: 0
+    end: 1
+    foreground: "#c397d8"
+    background: "#666666"
+    bold: true
+  - row: 2
+    start: 1
+    end: 2
+    background: "#666666"
+    bold: true
+  - row: 2
+    start: 2
+    end: 3
+    foreground: "#70c0b1"
+    background: "#666666"
+    bold: true
+  - row: 2
+    start: 3
+    end: 12
+    background: "#666666"
+    bold: true
+  - row: 2
+    start: 12
+    end: 13
+    foreground: "#70c0b1"
+    background: "#666666"
+    bold: true
+  - row: 2
+    start: 13
+    end: 14
+    background: "#666666"
+    bold: true
+  - row: 3
+    start: 2
+    end: 3
+    foreground: "#70c0b1"
+  - row: 3
+    start: 11
+    end: 12
+    foreground: "#70c0b1"
+  - row: 4
+    start: 2
+    end: 3
+    foreground: "#70c0b1"
+  - row: 4
+    start: 15
+    end: 16
+    foreground: "#70c0b1"
+  - row: 5
+    start: 2
+    end: 3
+    foreground: "#70c0b1"
+  - row: 5
+    start: 11
+    end: 12
+    foreground: "#70c0b1"
+  - row: 6
+    start: 2
+    end: 3
+    foreground: "#70c0b1"
+  - row: 6
+    start: 13
+    end: 14
+    foreground: "#70c0b1"
+  - row: 7
+    start: 2
+    end: 3
+    foreground: "#70c0b1"
+  - row: 7
+    start: 13
+    end: 14
+    foreground: "#70c0b1"
+  - row: 8
+    start: 10
+    end: 11
+    foreground: "#70c0b1"
+  - row: 8
+    start: 14
+    end: 15
+    foreground: "#70c0b1"
+  - row: 9
+    start: 2
+    end: 3
+    foreground: "#70c0b1"
+  - row: 9
+    start: 14
+    end: 15
+    foreground: "#70c0b1"
+  - row: 10
+    start: 2
+    end: 3
+    foreground: "#70c0b1"
+  - row: 10
+    start: 12
+    end: 13
+    foreground: "#70c0b1"
+  - row: 11
+    start: 2
+    end: 3
+    foreground: "#70c0b1"
+  - row: 11
+    start: 12
+    end: 13
+    foreground: "#70c0b1"
+  - row: 12
+    start: 2
+    end: 3
+    foreground: "#70c0b1"
+  - row: 12
+    start: 10
+    end: 11
+    foreground: "#70c0b1"

@@ -1,0 +1,55 @@
+---
+source: nucleo-picker-vt/tests/scenarios/default.rs
+expression: sr.checkpoint(resolved_name.to_owned())?
+info:
+  resolved_name: no-match
+  name_expression: "\"no-match\""
+  sequence: 3
+---
+version: 1
+size:
+  cols: 60
+  rows: 16
+screen: alternate
+cursor:
+  position:
+    x: 9
+    y: 15
+  visible: true
+  shape: block
+  blinking: false
+  pending_wrap: false
+  at_wide_tail: false
+  password_input: false
+colors:
+  foreground: "#ffffff"
+  background: "#000000"
+  cursor: ~
+text:
+  - "                                                            "
+  - "                                                            "
+  - "                                                            "
+  - "                                                            "
+  - "                                                            "
+  - "                                                            "
+  - "                                                            "
+  - "                                                            "
+  - "                                                            "
+  - "                                                            "
+  - "                                                            "
+  - "                                                            "
+  - "                                                            "
+  - "                                                            "
+  - "  0/24 ─────────────────────────────────────────────────────"
+  - "> itemzzz1                                                  "
+styles:
+  - row: 14
+    start: 0
+    end: 6
+    foreground: "#b9ca4a"
+    italic: true
+  - row: 14
+    start: 6
+    end: 60
+    foreground: "#c5c8c6"
+    italic: true

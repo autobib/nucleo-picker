@@ -1,0 +1,29 @@
+---
+source: nucleo-picker-vt/tests/scenarios/multiline.rs
+expression: sr.checkpoint(resolved_name.to_owned())?
+info:
+  resolved_name: default-size-1x1
+  name_expression: "\"default-size-1x1\""
+  sequence: 16
+---
+version: 1
+size:
+  cols: 1
+  rows: 1
+screen: alternate
+cursor:
+  position:
+    x: 0
+    y: 0
+  visible: true
+  shape: block
+  blinking: false
+  pending_wrap: false
+  at_wide_tail: false
+  password_input: false
+colors:
+  foreground: "#ffffff"
+  background: "#000000"
+  cursor: ~
+text:
+  - ">"

@@ -1,0 +1,58 @@
+---
+source: nucleo-picker-vt/tests/scenarios/picker_options.rs
+expression: sr.checkpoint(resolved_name.to_owned())?
+info:
+  resolved_name: scroll-padding-before-scroll
+  name_expression: "\"scroll-padding-before-scroll\""
+  sequence: 3
+---
+version: 1
+size:
+  cols: 24
+  rows: 8
+screen: alternate
+cursor:
+  position:
+    x: 2
+    y: 0
+  visible: true
+  shape: block
+  blinking: false
+  pending_wrap: false
+  at_wide_tail: false
+  password_input: false
+colors:
+  foreground: "#ffffff"
+  background: "#000000"
+  cursor: ~
+text:
+  - ">                       "
+  - "  24/24 (0/2) ──────────"
+  - "  item-00 alpha         "
+  - "  item-01 bravo         "
+  - "▌ item-02 charlie       "
+  - "  item-03 delta         "
+  - "  item-04 echo          "
+  - "  item-05 foxtrot       "
+styles:
+  - row: 1
+    start: 0
+    end: 7
+    foreground: "#b9ca4a"
+    italic: true
+  - row: 1
+    start: 7
+    end: 24
+    foreground: "#c5c8c6"
+    italic: true
+  - row: 4
+    start: 0
+    end: 1
+    foreground: "#c397d8"
+    background: "#666666"
+    bold: true
+  - row: 4
+    start: 1
+    end: 17
+    background: "#666666"
+    bold: true

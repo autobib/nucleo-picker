@@ -9,6 +9,8 @@ use crossterm::{
 };
 
 #[cfg(all(test, feature = "unstable-backend"))]
+mod panic_test;
+#[cfg(all(test, feature = "unstable-backend"))]
 mod size_test;
 
 /// A generic terminal backend accepting raw bytes with ANSI escape sequences, with special

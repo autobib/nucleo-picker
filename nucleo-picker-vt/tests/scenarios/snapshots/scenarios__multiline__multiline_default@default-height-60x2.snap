@@ -1,0 +1,41 @@
+---
+source: nucleo-picker-vt/tests/scenarios/multiline.rs
+expression: sr.checkpoint(resolved_name.to_owned())?
+info:
+  resolved_name: default-height-60x2
+  name_expression: "format!(\"default-height-60x{rows}\")"
+  sequence: 4
+---
+version: 1
+size:
+  cols: 60
+  rows: 2
+screen: alternate
+cursor:
+  position:
+    x: 2
+    y: 1
+  visible: true
+  shape: block
+  blinking: false
+  pending_wrap: false
+  at_wide_tail: false
+  password_input: false
+colors:
+  foreground: "#ffffff"
+  background: "#000000"
+  cursor: ~
+text:
+  - "  24/24 ────────────────────────────────────────────────────"
+  - ">                                                           "
+styles:
+  - row: 0
+    start: 0
+    end: 7
+    foreground: "#b9ca4a"
+    italic: true
+  - row: 0
+    start: 7
+    end: 60
+    foreground: "#c5c8c6"
+    italic: true

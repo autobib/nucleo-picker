@@ -29,6 +29,13 @@ fn main() -> io::Result<()> {
         injector.push(opt);
     }
 
+    // this declares to the picker that we are done sending items, so a
+    // 'pending' indicator is not displayed
+    drop(injector);
+
+    // alternatively, you could use the convenience blocking method
+    // picker.push_batch(choices);
+
     // open interactive prompt
     match picker.pick()? {
         Some(opt) => println!("You selected: '{opt}'"),

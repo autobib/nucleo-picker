@@ -1,0 +1,15 @@
+[package]
+edition = "2024"
+name = "nucleo-picker-vt"
+publish = false
+version = "0.0.0"
+
+[dependencies]
+crossterm = "0.29.0"
+libghostty-vt = "=0.2.1"
+nucleo-picker = { path = "..", features = ["unstable-backend"] }
+oneshot = { version = "0.2.1", features = ["std"] }
+serde = { version = "1.0.229", features = ["derive"] }
+
+[dev-dependencies]
+insta = { version = "1.48.0", features = ["yaml"] }

@@ -9,6 +9,11 @@ name = "nucleo-picker"
 repository = "https://github.com/autobib/nucleo-picker"
 version = "0.12.0"
 
+[workspace]
+default-members = ["."]
+members = ["nucleo-picker-vt"]
+resolver = "3"
+
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]

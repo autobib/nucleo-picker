@@ -1,0 +1,101 @@
+---
+source: nucleo-picker-vt/tests/scenarios/multiline.rs
+expression: sr.checkpoint(resolved_name.to_owned())?
+info:
+  resolved_name: default-narrow-12x40-item-16
+  name_expression: "format!(\"default-narrow-12x40-item-{item:02}\")"
+  sequence: 21
+---
+version: 1
+size:
+  cols: 12
+  rows: 40
+screen: alternate
+cursor:
+  position:
+    x: 2
+    y: 39
+  visible: true
+  shape: block
+  blinking: false
+  pending_wrap: false
+  at_wide_tail: false
+  password_input: false
+colors:
+  foreground: "#ffffff"
+  background: "#000000"
+  cursor: ~
+text:
+  - "    detail-…"
+  - "    detail-…"
+  - "    detail-…"
+  - "▌ item-16   "
+  - ▌   detail-…
+  - "  item-15   "
+  - "  item-14   "
+  - "    detail-…"
+  - "    detail-…"
+  - "    detail-…"
+  - "  item-13   "
+  - "    detail-…"
+  - "  item-12   "
+  - "  item-11   "
+  - "    detail-…"
+  - "    detail-…"
+  - "    detail-…"
+  - "  item-10   "
+  - "    detail-…"
+  - "  item-09   "
+  - "  item-08   "
+  - "    detail-…"
+  - "    detail-…"
+  - "    detail-…"
+  - "  item-07   "
+  - "    detail-…"
+  - "  item-06   "
+  - "  item-05   "
+  - "    detail-…"
+  - "    detail-…"
+  - "    detail-…"
+  - "  item-04   "
+  - "    detail-…"
+  - "  item-03   "
+  - "  item-02   "
+  - "    detail-…"
+  - "    detail-…"
+  - "    detail-…"
+  - "  24/24 ────"
+  - ">           "
+styles:
+  - row: 3
+    start: 0
+    end: 1
+    foreground: "#c397d8"
+    background: "#666666"
+    bold: true
+  - row: 3
+    start: 1
+    end: 9
+    background: "#666666"
+    bold: true
+  - row: 4
+    start: 0
+    end: 1
+    foreground: "#c397d8"
+    background: "#666666"
+    bold: true
+  - row: 4
+    start: 1
+    end: 12
+    background: "#666666"
+    bold: true
+  - row: 38
+    start: 0
+    end: 7
+    foreground: "#b9ca4a"
+    italic: true
+  - row: 38
+    start: 7
+    end: 12
+    foreground: "#c5c8c6"
+    italic: true

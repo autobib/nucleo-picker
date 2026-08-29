@@ -1,0 +1,56 @@
+---
+source: nucleo-picker-vt/tests/scenarios/multiline.rs
+expression: sr.checkpoint(resolved_name.to_owned())?
+info:
+  resolved_name: default-width-4x16
+  name_expression: "format!(\"default-width-{cols}x16\")"
+  sequence: 9
+---
+version: 1
+size:
+  cols: 4
+  rows: 16
+screen: alternate
+cursor:
+  position:
+    x: 2
+    y: 15
+  visible: true
+  shape: block
+  blinking: false
+  pending_wrap: false
+  at_wide_tail: false
+  password_input: false
+colors:
+  foreground: "#ffffff"
+  background: "#000000"
+  cursor: ~
+text:
+  - "  ……"
+  - "  ……"
+  - "  ……"
+  - "  ……"
+  - "  ……"
+  - "  ……"
+  - "  ……"
+  - "  ……"
+  - "  ……"
+  - "  ……"
+  - "  ……"
+  - "  ……"
+  - "  ……"
+  - ▌ ……
+  - "    "
+  - ">   "
+styles:
+  - row: 13
+    start: 0
+    end: 1
+    foreground: "#c397d8"
+    background: "#666666"
+    bold: true
+  - row: 13
+    start: 1
+    end: 4
+    background: "#666666"
+    bold: true

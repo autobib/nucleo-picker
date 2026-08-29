@@ -1,0 +1,64 @@
+---
+source: nucleo-picker-vt/tests/scenarios/unicode.rs
+expression: sr.checkpoint(resolved_name.to_owned())?
+info:
+  resolved_name: family-emoji-highlight
+  name_expression: checkpoint
+  sequence: 7
+---
+version: 1
+size:
+  cols: 20
+  rows: 3
+screen: alternate
+cursor:
+  position:
+    x: 4
+    y: 2
+  visible: true
+  shape: block
+  blinking: false
+  pending_wrap: false
+  at_wide_tail: false
+  password_input: false
+colors:
+  foreground: "#ffffff"
+  background: "#000000"
+  cursor: ~
+text:
+  - ▌ emoji family 👨‍👩‍👧‍👦 —…
+  - "  1/10 ─────────────"
+  - "> 👨‍👩‍👧‍👦                "
+styles:
+  - row: 0
+    start: 0
+    end: 1
+    foreground: "#c397d8"
+    background: "#666666"
+    bold: true
+  - row: 0
+    start: 1
+    end: 15
+    background: "#666666"
+    bold: true
+  - row: 0
+    start: 15
+    end: 17
+    foreground: "#70c0b1"
+    background: "#666666"
+    bold: true
+  - row: 0
+    start: 17
+    end: 20
+    background: "#666666"
+    bold: true
+  - row: 1
+    start: 0
+    end: 6
+    foreground: "#b9ca4a"
+    italic: true
+  - row: 1
+    start: 6
+    end: 20
+    foreground: "#c5c8c6"
+    italic: true

@@ -1,0 +1,136 @@
+---
+source: nucleo-picker-vt/tests/scenarios/multiline.rs
+expression: sr.checkpoint(resolved_name.to_owned())?
+info:
+  resolved_name: distant-highlights-prefer-earlier
+  name_expression: "\"distant-highlights-prefer-earlier\""
+  sequence: 2
+---
+version: 1
+size:
+  cols: 15
+  rows: 9
+screen: alternate
+cursor:
+  position:
+    x: 5
+    y: 0
+  visible: true
+  shape: block
+  blinking: false
+  pending_wrap: false
+  at_wide_tail: false
+  password_input: false
+colors:
+  foreground: "#ffffff"
+  background: "#000000"
+  cursor: ~
+text:
+  - "> x語          "
+  - "  1/1 ─────────"
+  - "▌ …x-head      "
+  - ▌ …efghijk界-t…
+  - ▌ …界界界界界……
+  - "▌ …t-row       "
+  - ▌ …efghijkl界-…
+  - "▌ …en-spacer   "
+  - ▌ …界界界界界……
+styles:
+  - row: 1
+    start: 0
+    end: 5
+    foreground: "#b9ca4a"
+    italic: true
+  - row: 1
+    start: 5
+    end: 15
+    foreground: "#c5c8c6"
+    italic: true
+  - row: 2
+    start: 0
+    end: 1
+    foreground: "#c397d8"
+    background: "#666666"
+    bold: true
+  - row: 2
+    start: 1
+    end: 3
+    background: "#666666"
+    bold: true
+  - row: 2
+    start: 3
+    end: 4
+    foreground: "#70c0b1"
+    background: "#666666"
+    bold: true
+  - row: 2
+    start: 4
+    end: 9
+    background: "#666666"
+    bold: true
+  - row: 3
+    start: 0
+    end: 1
+    foreground: "#c397d8"
+    background: "#666666"
+    bold: true
+  - row: 3
+    start: 1
+    end: 15
+    background: "#666666"
+    bold: true
+  - row: 4
+    start: 0
+    end: 1
+    foreground: "#c397d8"
+    background: "#666666"
+    bold: true
+  - row: 4
+    start: 1
+    end: 15
+    background: "#666666"
+    bold: true
+  - row: 5
+    start: 0
+    end: 1
+    foreground: "#c397d8"
+    background: "#666666"
+    bold: true
+  - row: 5
+    start: 1
+    end: 8
+    background: "#666666"
+    bold: true
+  - row: 6
+    start: 0
+    end: 1
+    foreground: "#c397d8"
+    background: "#666666"
+    bold: true
+  - row: 6
+    start: 1
+    end: 15
+    background: "#666666"
+    bold: true
+  - row: 7
+    start: 0
+    end: 1
+    foreground: "#c397d8"
+    background: "#666666"
+    bold: true
+  - row: 7
+    start: 1
+    end: 12
+    background: "#666666"
+    bold: true
+  - row: 8
+    start: 0
+    end: 1
+    foreground: "#c397d8"
+    background: "#666666"
+    bold: true
+  - row: 8
+    start: 1
+    end: 15
+    background: "#666666"
+    bold: true

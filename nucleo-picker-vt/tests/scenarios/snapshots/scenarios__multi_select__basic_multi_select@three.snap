@@ -1,0 +1,78 @@
+---
+source: nucleo-picker-vt/tests/scenarios/multi_select.rs
+expression: sr.checkpoint(resolved_name.to_owned())?
+info:
+  resolved_name: three
+  name_expression: name
+  sequence: 2
+---
+version: 1
+size:
+  cols: 60
+  rows: 16
+screen: alternate
+cursor:
+  position:
+    x: 2
+    y: 15
+  visible: true
+  shape: block
+  blinking: false
+  pending_wrap: false
+  at_wide_tail: false
+  password_input: false
+colors:
+  foreground: "#ffffff"
+  background: "#000000"
+  cursor: ~
+text:
+  - "  item-13 november                                          "
+  - "  item-12 mike                                              "
+  - "  item-11 lima                                              "
+  - "  item-10 kilo                                              "
+  - "  item-09 juliet                                            "
+  - "  item-08 india                                             "
+  - "  item-07 hotel                                             "
+  - "  item-06 golf                                              "
+  - "  item-05 foxtrot                                           "
+  - "  item-04 echo                                              "
+  - "▌ item-03 delta                                             "
+  - " ┃item-02 charlie                                           "
+  - " ┃item-01 bravo                                             "
+  - " ┃item-00 alpha                                             "
+  - "  24/24 (3/3) ──────────────────────────────────────────────"
+  - ">                                                           "
+styles:
+  - row: 10
+    start: 0
+    end: 1
+    foreground: "#c397d8"
+    background: "#666666"
+    bold: true
+  - row: 10
+    start: 1
+    end: 15
+    background: "#666666"
+    bold: true
+  - row: 11
+    start: 1
+    end: 2
+    foreground: "#c397d8"
+  - row: 12
+    start: 1
+    end: 2
+    foreground: "#c397d8"
+  - row: 13
+    start: 1
+    end: 2
+    foreground: "#c397d8"
+  - row: 14
+    start: 0
+    end: 7
+    foreground: "#b9ca4a"
+    italic: true
+  - row: 14
+    start: 7
+    end: 60
+    foreground: "#c5c8c6"
+    italic: true
