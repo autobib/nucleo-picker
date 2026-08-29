@@ -12,6 +12,7 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
   RUSTDOCFLAGS: -D warnings
+  INSTA_UPDATE: no
 
 jobs:
   tests:
@@ -21,25 +22,35 @@ jobs:
       with:
         persist-credentials: false
     - uses: dtolnay/rust-toolchain@1.97.1
+    - uses: mlugg/setup-zig@v2
+      with:
+        version: 0.15.2
     - uses: Swatinem/rust-cache@v2
     - name: Build test binaries
       run: cargo test --locked --no-run --all-features
     - name: Run tests
       run: cargo test --locked --no-fail-fast --all-features
+    - name: Build VT test binaries
+      run: cargo test --locked --release --package nucleo-picker-vt --no-run
+    - name: Run VT tests
+      run: cargo test --locked --release --package nucleo-picker-vt --no-fail-fast
 
   checks:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
       with:
         persist-credentials: false
     - uses: dtolnay/rust-toolchain@1.97.1
       with:
         components: clippy, rustfmt
+    - uses: mlugg/setup-zig@v2
+      with:
+        version: 0.15.2
     - uses: Swatinem/rust-cache@v2
     - name: Build docs
-      run: cargo doc --locked --no-deps --all-features
+      run: cargo doc --locked --workspace --no-deps --all-features
     - name: Run Clippy lints
-      run: cargo clippy --locked --all-targets --all-features
+      run: cargo clippy --locked --workspace --all-targets --all-features
     - name: Check formatting
-      run: cargo fmt --check
+      run: cargo fmt --all --check
