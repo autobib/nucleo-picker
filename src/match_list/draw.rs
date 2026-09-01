@@ -13,7 +13,7 @@ use super::{
     unicode::{AsciiProcessor, UnicodeProcessor},
 };
 use crate::{
-    Render,
+    PickerChars, Render,
     frame::ClearMode,
     util::{as_u16, write_spaces},
 };
@@ -46,6 +46,7 @@ fn draw_single_match<
     matcher: &mut nc::Matcher,
     height: u16,
     render: &R,
+    chars: &PickerChars,
 ) -> io::Result<()> {
     // generate the indices
     if config.highlight {
@@ -75,6 +76,7 @@ fn draw_single_match<
             config.highlight_padding,
             config.highlight_line,
             clear_mode,
+            chars,
         ),
         RenderedItem::Unicode(r) => Spanned::<'_, UnicodeProcessor>::new(
             &buffer.indices,
@@ -91,6 +93,7 @@ fn draw_single_match<
             config.highlight_padding,
             config.highlight_line,
             clear_mode,
+            chars,
         ),
     }
 }
@@ -108,6 +111,7 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, W: io::Write + ?Size
     above: &[usize],
     below: &[usize],
     mut item_iter: impl Iterator<Item = (nc::Item<'a, T>, bool)>,
+    chars: &PickerChars,
 ) -> io::Result<()> {
     // render above the selection
     for (item_height, (item, queued)) in above.iter().rev().zip(item_iter.by_ref()) {
@@ -123,6 +127,7 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, W: io::Write + ?Size
             matcher,
             as_u16(*item_height),
             render,
+            chars,
         )?;
     }
 
@@ -140,6 +145,7 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, W: io::Write + ?Size
         matcher,
         as_u16(below[0]),
         render,
+        chars,
     )?;
 
     // render below the selection
@@ -156,6 +162,7 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, W: io::Write + ?Size
             matcher,
             as_u16(*item_height),
             render,
+            chars,
         )?;
     }
 
@@ -166,6 +173,7 @@ fn decimal_width(value: u32) -> usize {
     value.checked_ilog10().unwrap_or(0) as usize + 1
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_match_counts<W: io::Write + ?Sized>(
     writer: &mut W,
     width: u16,
@@ -174,6 +182,7 @@ fn draw_match_counts<W: io::Write + ?Sized>(
     total: u32,
     multi: Option<(u32, Option<NonZero<u32>>)>,
     status_marker: Option<char>,
+    chars: &PickerChars,
 ) -> io::Result<()> {
     if clear_mode != ClearMode::All {
         writer
@@ -226,8 +235,10 @@ fn draw_match_counts<W: io::Write + ?Sized>(
     if fill_width != 0 {
         writer
             .queue(SetForegroundColor(Color::Grey))?
-            .queue(Print(" "))?
-            .queue(Print("─".repeat(fill_width - 1)))?;
+            .queue(Print(" "))?;
+        for _ in 1..fill_width {
+            writer.queue(Print(chars.separator))?;
+        }
     }
 
     writer
@@ -264,6 +275,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
         writer: &mut W,
         multi: Option<(u32, Option<NonZero<u32>>)>,
         status_marker: Option<char>,
+        chars: &PickerChars,
     ) -> std::io::Result<()> {
         let snapshot = self.nucleo.snapshot();
         draw_match_counts(
@@ -274,6 +286,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
             snapshot.item_count(),
             multi,
             status_marker,
+            chars,
         )
     }
 
@@ -282,6 +295,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
         width: u16,
         clear_mode: ClearMode,
         writer: &mut W,
+        chars: &PickerChars,
         mut is_queued: F,
     ) -> std::io::Result<()> {
         let snapshot = self.nucleo.snapshot();
@@ -306,6 +320,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
                     &self.above,
                     &self.below,
                     items,
+                    chars,
                 )?;
             }
 
@@ -330,6 +345,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
                     &self.above,
                     &self.below,
                     items.rev(),
+                    chars,
                 )?;
             }
         }
@@ -340,7 +356,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> MatchList<T, R> {
 
 #[cfg(test)]
 mod tests {
-    use crate::frame::ClearMode;
+    use crate::{PickerChars, frame::ClearMode};
 
     use super::{decimal_width, draw_match_counts};
 
@@ -354,6 +370,7 @@ mod tests {
             5,
             None,
             status_marker,
+            &PickerChars::new(),
         )
         .unwrap();
         String::from_utf8(output).unwrap()
@@ -382,7 +399,17 @@ mod tests {
     #[test]
     fn exact_status_clear_fills_a_too_narrow_line() {
         let mut output = Vec::new();
-        draw_match_counts(&mut output, 4, ClearMode::Exact, 3, 5, None, None).unwrap();
+        draw_match_counts(
+            &mut output,
+            4,
+            ClearMode::Exact,
+            3,
+            5,
+            None,
+            None,
+            &PickerChars::new(),
+        )
+        .unwrap();
 
         assert!(output.ends_with(b"    "));
         assert!(!String::from_utf8(output).unwrap().contains("\x1b[K"));

@@ -194,7 +194,9 @@ impl FrameState {
                 writer.queue(MoveTo(0, match_list_row))?;
                 picker
                     .match_list
-                    .draw_items(width, clear_mode, writer, |idx| queued_items.is_queued(idx))?;
+                    .draw_items(width, clear_mode, writer, &picker.chars, |idx| {
+                        queued_items.is_queued(idx)
+                    })?;
             }
 
             if redraw.match_status && height >= 2 {
@@ -205,13 +207,16 @@ impl FrameState {
                     writer,
                     queued_items.count(picker.max_selection_count),
                     self.status_marker,
+                    &picker.chars,
                 )?;
             }
 
             if redraw.prompt && height >= 1 {
                 writer.queue(MoveTo(0, prompt_row))?;
 
-                picker.prompt.draw(width, 1, clear_mode, writer)?;
+                picker
+                    .prompt
+                    .draw(width, 1, clear_mode, writer, &picker.chars)?;
             }
 
             writer

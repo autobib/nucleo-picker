@@ -4,7 +4,7 @@ mod tests;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::{component::ComponentStatus, util::as_u16};
+use crate::{PickerChars, component::ComponentStatus, util::as_u16};
 
 trait Cursor {
     fn right(self, s: &str, steps: usize) -> Self;
@@ -522,6 +522,7 @@ impl Prompt {
         _height: u16,
         clear_mode: crate::frame::ClearMode,
         writer: &mut W,
+        chars: &PickerChars,
     ) -> std::io::Result<()> {
         use crossterm::{
             QueueableCommand,
@@ -534,7 +535,7 @@ impl Prompt {
             writer.queue(Clear(ClearType::CurrentLine))?;
         }
 
-        writer.queue(Print(">"))?;
+        writer.queue(Print(chars.prompt))?;
 
         if let Some(width) = width.checked_sub(2) {
             writer.queue(Print(" "))?;

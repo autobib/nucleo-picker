@@ -13,7 +13,13 @@ fn draw_does_not_exceed_the_available_width() {
     let mut output = Vec::new();
 
     prompt
-        .draw(1, 1, crate::frame::ClearMode::All, &mut output)
+        .draw(
+            1,
+            1,
+            crate::frame::ClearMode::All,
+            &mut output,
+            &crate::PickerChars::new(),
+        )
         .unwrap();
 
     assert_eq!(output, b">");
@@ -26,7 +32,13 @@ fn exact_draw_fills_the_owned_width() {
     let mut output = Vec::new();
 
     prompt
-        .draw(6, 1, crate::frame::ClearMode::Exact, &mut output)
+        .draw(
+            6,
+            1,
+            crate::frame::ClearMode::Exact,
+            &mut output,
+            &crate::PickerChars::new(),
+        )
         .unwrap();
 
     assert_eq!(output, b"> a   ");

@@ -2,6 +2,7 @@ use super::{
     super::unicode::{AsciiProcessor, UnicodeProcessor, is_ascii_safe, is_unicode_safe},
     *,
 };
+use crate::PickerChars;
 
 #[test]
 fn required_width() {
@@ -94,7 +95,16 @@ fn line_prefix_does_not_exceed_the_available_width() {
     let mut output = Vec::new();
 
     spanned
-        .queue_print(&mut output, false, false, 1, 0, false, ClearMode::All)
+        .queue_print(
+            &mut output,
+            false,
+            false,
+            1,
+            0,
+            false,
+            ClearMode::All,
+            &PickerChars::new(),
+        )
         .unwrap();
 
     assert!(output.starts_with(b" "));
@@ -124,6 +134,7 @@ fn render_ascii_line(
             0,
             highlight_line,
             clear_mode,
+            &PickerChars::new(),
         )
         .unwrap();
 
@@ -155,7 +166,16 @@ fn trailing_columns_use_display_width() {
     let mut output = Vec::new();
 
     spanned
-        .queue_print(&mut output, true, false, 8, 0, true, ClearMode::All)
+        .queue_print(
+            &mut output,
+            true,
+            false,
+            8,
+            0,
+            true,
+            ClearMode::All,
+            &PickerChars::new(),
+        )
         .unwrap();
 
     assert!(String::from_utf8(output).unwrap().contains("界    \x1b[0m"));
@@ -171,7 +191,7 @@ fn queue_print_line_returns_remaining_columns() {
         let line = spanned.lines().next().unwrap();
 
         spanned
-            .queue_print_line(&mut Vec::new(), line, 0, 0, capacity)
+            .queue_print_line(&mut Vec::new(), line, 0, 0, capacity, &PickerChars::new())
             .unwrap()
     }
 
@@ -185,7 +205,7 @@ fn queue_print_line_returns_remaining_columns() {
     let line = spanned.lines().next().unwrap();
     assert_eq!(
         spanned
-            .queue_print_line(&mut Vec::new(), line, 0, 0, 6)
+            .queue_print_line(&mut Vec::new(), line, 0, 0, 6, &PickerChars::new())
             .unwrap(),
         3
     );

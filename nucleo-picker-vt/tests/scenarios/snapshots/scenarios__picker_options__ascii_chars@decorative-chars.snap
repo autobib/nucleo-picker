@@ -1,0 +1,55 @@
+---
+source: nucleo-picker-vt/tests/scenarios/picker_options.rs
+expression: snapshot
+info:
+  resolved_name: decorative-chars
+  name_expression: "\"decorative-chars\""
+  sequence: 1
+---
+version: 1
+size:
+  cols: 14
+  rows: 5
+screen: alternate
+cursor:
+  position:
+    x: 2
+    y: 4
+  visible: true
+  shape: block
+  blinking: false
+  pending_wrap: false
+  at_wide_tail: false
+  password_input: false
+colors:
+  foreground: "#ffffff"
+  background: "#000000"
+  cursor: ~
+text:
+  - "  ghijklmnopq."
+  - "  qrstuvwxyza."
+  - ">|abcdefghijk."
+  - "  3/3 (1) ----"
+  - ">             "
+styles:
+  - row: 2
+    start: 0
+    end: 2
+    foreground: "#c397d8"
+    background: "#666666"
+    bold: true
+  - row: 2
+    start: 2
+    end: 14
+    background: "#666666"
+    bold: true
+  - row: 3
+    start: 0
+    end: 5
+    foreground: "#b9ca4a"
+    italic: true
+  - row: 3
+    start: 5
+    end: 14
+    foreground: "#c5c8c6"
+    italic: true

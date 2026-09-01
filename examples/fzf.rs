@@ -81,6 +81,10 @@ struct Args {
     #[arg(long, conflicts_with = "multi")]
     no_multi: bool,
 
+    /// Only use ASCII characters in the interface.
+    #[arg(long)]
+    no_unicode: bool,
+
     /// Split input using null characters instead of newlines.
     #[arg(long)]
     read0: bool,
@@ -106,6 +110,7 @@ fn main() -> io::Result<()> {
             CaseMatching::Smart
         })
         .reversed(args.reverse || matches!(args.layout, Layout::Reverse))
+        .ascii_compatible(args.no_unicode)
         .query(args.query);
 
     let mut picker = options.picker(StrRenderer);

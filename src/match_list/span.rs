@@ -19,9 +19,7 @@ use crossterm::{
 };
 
 use super::unicode::{Processor, Span, consume, spans_from_indices, truncate};
-use crate::{frame::ClearMode, util::write_spaces};
-
-const ELLIPSIS: char = '…';
+use crate::{PickerChars, frame::ClearMode, util::write_spaces};
 
 /// An iterator over lines, as span slices.
 pub struct SpannedLines<'a> {
@@ -195,6 +193,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
         queued: bool,
         prefix_width: u16,
         highlight_line: bool,
+        chars: &PickerChars,
     ) -> io::Result<()> {
         if prefix_width == 0 {
             return Ok(());
@@ -206,7 +205,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
             if !highlight_line {
                 stderr.queue(SetBackgroundColor(Color::DarkGrey))?;
             }
-            stderr.queue(PrintStyledContent("▌".magenta()))?;
+            stderr.queue(PrintStyledContent(chars.selection.magenta()))?;
         } else {
             // print a blank instead
             stderr.queue(Print(" "))?;
@@ -214,7 +213,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
 
         if prefix_width >= 2 {
             if queued {
-                stderr.queue(PrintStyledContent("┃".magenta()))?;
+                stderr.queue(PrintStyledContent(chars.queued.magenta()))?;
             } else {
                 stderr.queue(Print(" "))?;
             }
@@ -278,6 +277,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
         highlight_padding: u16,
         highlight_line: bool,
         clear_mode: ClearMode,
+        chars: &PickerChars,
     ) -> io::Result<()> {
         let prefix_width = width.min(2);
         let max_width = width.saturating_sub(prefix_width);
@@ -298,7 +298,14 @@ impl<'a, P: Processor> Spanned<'a, P> {
                 if clear_mode == ClearMode::Line {
                     stderr.queue(Clear(ClearType::CurrentLine))?;
                 }
-                Self::start_line(stderr, selected, queued, prefix_width, highlight_line)?;
+                Self::start_line(
+                    stderr,
+                    selected,
+                    queued,
+                    prefix_width,
+                    highlight_line,
+                    chars,
+                )?;
                 for span in line {
                     Self::print_span(stderr, self.index_in(span), span.is_match)?;
                 }
@@ -324,9 +331,16 @@ impl<'a, P: Processor> Spanned<'a, P> {
                 if clear_mode == ClearMode::Line {
                     stderr.queue(Clear(ClearType::CurrentLine))?;
                 }
-                Self::start_line(stderr, selected, queued, prefix_width, highlight_line)?;
+                Self::start_line(
+                    stderr,
+                    selected,
+                    queued,
+                    prefix_width,
+                    highlight_line,
+                    chars,
+                )?;
                 let remaining_capacity =
-                    self.queue_print_line(stderr, line, offset, prefix_width, max_width)?;
+                    self.queue_print_line(stderr, line, offset, prefix_width, max_width, chars)?;
                 Self::finish_line(stderr, remaining_capacity, fill_highlight, clear_mode)?;
             }
         }
@@ -343,6 +357,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
         offset: usize,
         prefix_width: u16,
         capacity: u16,
+        chars: &PickerChars,
     ) -> io::Result<u16> {
         let mut remaining_capacity = capacity;
 
@@ -354,7 +369,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
         if offset > 0 {
             // we just checked that `capacity != 0`
             remaining_capacity -= 1;
-            stderr.queue(Print(ELLIPSIS))?;
+            stderr.queue(Print(chars.ellipsis))?;
         }
 
         // consume as much of the first span as required to overtake the offset. since the width of
@@ -372,7 +387,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
             Some(new) => {
                 remaining_capacity = new as u16;
                 for _ in 0..alignment {
-                    stderr.queue(Print(ELLIPSIS))?;
+                    stderr.queue(Print(chars.ellipsis))?;
                 }
             }
             None => return Ok(remaining_capacity),
@@ -391,7 +406,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
                     if alignment > 0 {
                         // there is already extra space; fill it
                         for _ in 0..alignment {
-                            stderr.queue(Print(ELLIPSIS))?;
+                            stderr.queue(Print(chars.ellipsis))?;
                         }
                     } else {
                         // overwrite the previous grapheme
@@ -401,7 +416,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
 
                         stderr.queue(MoveToColumn(prefix_width + capacity - undo_width as u16))?;
                         for _ in 0..undo_width {
-                            stderr.queue(Print(ELLIPSIS))?;
+                            stderr.queue(Print(chars.ellipsis))?;
                         }
                     }
                     return Ok(0);

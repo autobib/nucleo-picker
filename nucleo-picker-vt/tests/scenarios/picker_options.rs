@@ -8,6 +8,27 @@ use nucleo_picker::{
 use super::{ScenarioRunner, lines};
 
 #[test]
+fn ascii_chars() -> Result<(), Box<dyn Error>> {
+    let options = PickerOptions::new().ascii_compatible(true);
+    let mut sr = ScenarioRunner::start_multi_with_options(
+        "ascii_chars",
+        vec!["abcdefghijklmnop", "qrstuvwxyzabcdef", "ghijklmnopqrstuv"],
+        options,
+    );
+
+    sr.set_dimensions(14, 5)?;
+    sr.wait_for_match_complete(3, 3)?;
+    sr.send(Event::MatchList(MatchListEvent::ToggleDown(1)))?;
+    let snapshot = sr.checkpoint("decorative-chars")?;
+    assert!(snapshot.text.iter().all(|line| line.is_ascii()));
+    checkpoint!(sr, "decorative-chars");
+
+    sr.send(Event::Quit)?;
+    assert!(sr.finish()?.is_empty());
+    Ok(())
+}
+
+#[test]
 fn basic_options() -> Result<(), Box<dyn Error>> {
     let options = PickerOptions::new()
         .query("item-1")

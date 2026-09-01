@@ -219,10 +219,6 @@ pub struct MatchListConfig {
     pub case_matching: NucleoCaseMatching,
     /// Normalization behaviour for matches.
     pub normalization: NucleoNormalization,
-    /// Characters used to animate the active-injector indicator.
-    pub spinner_chars: &'static [char],
-    /// Character used to indicate that the matcher is working.
-    pub matching_indicator: char,
 }
 
 impl MatchListConfig {
@@ -235,8 +231,6 @@ impl MatchListConfig {
             scroll_padding: 3,
             case_matching: NucleoCaseMatching::Smart,
             normalization: NucleoNormalization::Smart,
-            spinner_chars: &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'],
-            matching_indicator: '·',
         }
     }
 }
@@ -649,14 +643,6 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
 
     pub fn reversed(&self) -> bool {
         self.config.reversed
-    }
-
-    pub fn spinner_chars(&self) -> &'static [char] {
-        self.config.spinner_chars
-    }
-
-    pub fn matching_indicator(&self) -> char {
-        self.config.matching_indicator
     }
 
     /// A convenience function to render a given item using the internal [`Render`] implementation.

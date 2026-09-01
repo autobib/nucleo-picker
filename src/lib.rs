@@ -286,6 +286,65 @@ impl Normalization {
     }
 }
 
+/// Decorative characters used by the picker UI.
+///
+/// Note that all of the supplied characters must be single-width, or the picker screen will be
+/// corrupted.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub(crate) struct PickerChars {
+    /// The prompt indicator.
+    pub prompt: char,
+    /// The marker for the currently selected item.
+    pub selection: char,
+    /// The marker for any queued items.
+    pub queued: char,
+    /// An indicator for truncated text.
+    pub ellipsis: char,
+    /// The horizontal separator between the prompt and the match list.
+    pub separator: char,
+    /// The characters used by the item spinner.
+    pub spinner_chars: &'static [char],
+    /// An indicator that matching is ongoing in the background.
+    pub matching_indicator: char,
+}
+
+impl PickerChars {
+    /// The default the Unicode character set.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            prompt: '>',
+            selection: '▌',
+            queued: '┃',
+            ellipsis: '…',
+            separator: '─',
+            spinner_chars: &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'],
+            matching_indicator: '·',
+        }
+    }
+
+    /// An ASCII-compatible character set.
+    #[must_use]
+    pub const fn ascii() -> Self {
+        Self {
+            prompt: '>',
+            selection: '>',
+            queued: '|',
+            ellipsis: '.',
+            separator: '-',
+            spinner_chars: &['|', '|', '/', '/', '-', '-', '\\', '\\'],
+            matching_indicator: '.',
+        }
+    }
+}
+
+impl Default for PickerChars {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Specify configuration options for a [`Picker`].
 ///
 /// Initialize with [`new`](PickerOptions::new) or (equivalently) the
@@ -328,6 +387,7 @@ pub struct PickerOptions {
     max_selection_count: Option<NonZero<u32>>,
     interval: Duration,
     background_frame_interval: Duration,
+    chars: PickerChars,
     match_list_config: MatchListConfig,
     prompt_config: PromptConfig,
     sort_results: bool,
@@ -354,6 +414,7 @@ impl PickerOptions {
             max_selection_count: None,
             interval: Duration::from_millis(15),
             background_frame_interval: Duration::from_millis(60),
+            chars: PickerChars::new(),
             match_list_config: MatchListConfig::new(),
             prompt_config: PromptConfig::new(),
             sort_results: true,
@@ -416,6 +477,7 @@ impl PickerOptions {
             prompt,
             interval: self.interval,
             background_frame_frequency,
+            chars: self.chars,
             max_selection_count: self.max_selection_count,
             reversed,
             restart_notifier: None,
@@ -591,25 +653,103 @@ impl PickerOptions {
         self
     }
 
+    /// Set the character used for the prompt indicator.
+    ///
+    /// The default value is `'>'`. The character must have Unicode width 1.
+    #[must_use]
+    #[inline]
+    pub const fn prompt_indicator(mut self, prompt: char) -> Self {
+        self.chars.prompt = prompt;
+        self
+    }
+
+    /// Set the character used to mark the currently selected item.
+    ///
+    /// The default value is `'▌'`. The character must have Unicode width 1.
+    #[must_use]
+    #[inline]
+    pub const fn selection_indicator(mut self, selection: char) -> Self {
+        self.chars.selection = selection;
+        self
+    }
+
+    /// Set the character used to indicate items queued for selection
+    ///
+    /// The default value is `'┃'`. The character must have Unicode width 1.
+    #[must_use]
+    #[inline]
+    pub const fn queued_indicator(mut self, queued: char) -> Self {
+        self.chars.queued = queued;
+        self
+    }
+
+    /// Set the character used to indicate text that has been truncated.
+    ///
+    /// The default value is `'…'`. The character must have Unicode width 1.
+    #[must_use]
+    #[inline]
+    pub const fn truncation_ellipsis(mut self, ellipsis: char) -> Self {
+        self.chars.ellipsis = ellipsis;
+        self
+    }
+
+    /// Set the character used for the horizontal rule separating the prompt and the match list.
+    ///
+    /// The default value is `'─'`. The character must have Unicode width 1.
+    #[must_use]
+    #[inline]
+    pub const fn separator(mut self, ellipsis: char) -> Self {
+        self.chars.ellipsis = ellipsis;
+        self
+    }
+
     /// Set the characters used to animate the input status spinner.
     ///
     /// While the picker may still receive items, an indicator cycles through the characters.
-    /// An empty slice disables the indicator entirely. The default value is `&['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']`.
+    /// An empty slice disables the indicator entirely. The default value is
+    /// `&['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']`.  The characters
+    /// must all Unicode width 1.
     #[must_use]
     #[inline]
     pub const fn spinner_chars(mut self, spinner: &'static [char]) -> Self {
-        self.match_list_config.spinner_chars = spinner;
+        self.chars.spinner_chars = spinner;
         self
     }
 
     /// Set the character used to indicate that the matcher is working.
     ///
     /// This indicator is only displayed when the picker is no longer waiting for items; otherwise,
-    /// the active spinner takes priority. The default value is `'·'`.
+    /// the active spinner takes priority. The default value is `'·'`. The character must
+    /// have Unicode width 1.
     #[must_use]
     #[inline]
     pub const fn matching_indicator(mut self, indicator: char) -> Self {
-        self.match_list_config.matching_indicator = indicator;
+        self.chars.matching_indicator = indicator;
+        self
+    }
+
+    /// Override all previously set UI characters to a default set.
+    ///
+    /// If `ascii` is `true` this uses an ASCII-compatible set.
+    /// This is equivalent to:
+    /// ```
+    /// # use nucleo_picker::PickerOptions;
+    /// PickerOptions::new()
+    ///     .prompt_indicator('>')
+    ///     .selection_indicator('>')
+    ///     .queued_indicator('|')
+    ///     .truncation_ellipsis('.')
+    ///     .separator('-')
+    ///     .spinner_chars(&['|', '|', '/', '/', '-', '-', '\\', '\\'])
+    ///     .matching_indicator('.');
+    /// ```
+    /// If `ascii` is `false`, this uses the default Unicode character set.
+    pub const fn ascii_compatible(mut self, ascii: bool) -> Self {
+        self.chars = if ascii {
+            PickerChars::ascii()
+        } else {
+            PickerChars::new()
+        };
         self
     }
 
@@ -719,6 +859,7 @@ impl PickerOptions {
 /// ```
 pub struct Picker<T, R> {
     match_list: MatchList<T, R>,
+    chars: PickerChars,
     max_selection_count: Option<NonZero<u32>>,
     prompt: Prompt,
     interval: Duration,
@@ -1169,10 +1310,8 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
             redraw.match_list |= update_status.items_changed;
             redraw.match_status |= update_status.items_changed;
             if background_frame {
-                redraw.match_status |= frame_state.update_marker(
-                    self.match_list.spinner_chars(),
-                    self.match_list.matching_indicator(),
-                );
+                redraw.match_status |= frame_state
+                    .update_marker(self.chars.spinner_chars, self.chars.matching_indicator);
             }
 
             // process size changes and redraw the frame
