@@ -5,11 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.12.1] - 2026-09-02
 
 ### Added
 - Added configuration options to set decorative UI chars.
   New methods: `PickerOptions::{prompt_indicator, selection_indicator, queued_indicator, truncation_ellipsis, separator, ascii_compatible}`
+
+## Changed
+- Unicode NFC canonicalization is now always applied when sending items to the picker.
+  If you were previously canonicalizing your input, you can now skip this step as it is done internally.
+
+### Fixed
+
+- Many internal matcher engine fixes, including:
+  - Catch missing exact matches at the end of string
+  - Score fixes for case-insensitive ASCII substring matching
+  - `Picker` now has a non-blocking drop implementation
+  - Simplified item allocation strategy to avoid rare but substantial overallocation
 
 ## [0.12.0] - 2026-08-29
 
