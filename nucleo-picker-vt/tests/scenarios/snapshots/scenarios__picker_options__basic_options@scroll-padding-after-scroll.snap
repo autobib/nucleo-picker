@@ -28,12 +28,12 @@ colors:
 text:
   - ">                       "
   - "  24/24 (0/2) ──────────"
-  - "  item-00 alpha         "
-  - "  item-01 bravo         "
-  - "  item-02 charlie       "
-  - "▌ item-03 delta         "
-  - "  item-04 echo          "
-  - "  item-05 foxtrot       "
+  - "  item-23 xray          "
+  - "  item-22 whiskey       "
+  - "  item-21 victor        "
+  - "▌ item-20 uniform       "
+  - "  item-19 tango         "
+  - "  item-18 sierra        "
 styles:
   - row: 1
     start: 0
@@ -53,6 +53,6 @@ styles:
     bold: true
   - row: 5
     start: 1
-    end: 15
+    end: 17
     background: "#666666"
     bold: true
