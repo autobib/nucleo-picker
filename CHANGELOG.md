@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Added configuration options to set decorative UI chars.
+  New methods: `PickerOptions::{prompt_indicator, selection_indicator, queued_indicator, truncation_ellipsis, separator, ascii_compatible}`
+
 ## [0.12.0] - 2026-08-29
 
 ### Changed
@@ -22,12 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Fixed many minor bugs:
-  - Combining graphemes (e.g. emojis followed by skin-tone modifiers) pasted inserted separately would corrupt the prompt cursor position.
+  - Combining graphemes (e.g. emojis followed by skin-tone modifiers) inserted separately would corrupt the prompt cursor position.
   - Terminal screen cleanup on interrupt or panic is now writer-agnostic.
   - Handling of extremely narrow terminals is now more correct.
   - Prompt resize logic is a bit smoother.
   - Integer overflow when queueing a massive number of items via an event.
-  - Out-of-order event handling bug where `QuitPromptEmpty` could have resulted in cancellation even with non-empty bugs.
+  - Out-of-order event handling bug where `QuitPromptEmpty` could have resulted in cancellation even with non-empty prompt.
   - Picker now uses all of the columns provided by the terminal.
 - No longer query for terminal size unless a redraw is actually required.
 
