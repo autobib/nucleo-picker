@@ -48,14 +48,12 @@ use std::{
     io::{self, BufWriter, IsTerminal},
     iter::Extend,
     num::NonZero,
-    sync::Arc,
-    thread::available_parallelism,
     time::{Duration, Instant},
 };
 
 use crossterm::event::KeyEvent;
 use nucleo::{
-    self as nc, Nucleo,
+    self as nc,
     pattern::{CaseMatching as NucleoCaseMatching, Normalization as NucleoNormalization},
 };
 use observer::{Notifier, Observer};
@@ -440,31 +438,18 @@ impl PickerOptions {
             NonZero::new(usize::try_from(frames).unwrap_or(usize::MAX)).unwrap()
         };
 
-        let engine = Nucleo::with_match_list_config(
-            self.config.clone(),
-            Arc::new(|| {}),
-            // nucleo's API is a bit weird here in that it does not accept `NonZero<usize>`
-            self.threads
-                .or_else(|| {
-                    // Reserve two threads:
-                    // 1. for populating the matcher
-                    // 2. for rendering the terminal UI and handling user input
-                    available_parallelism()
-                        .ok()
-                        .and_then(|it| it.get().checked_sub(2).and_then(NonZero::new))
-                })
-                .map(NonZero::get),
-            1,
+        let reversed = self.match_list_config.reversed;
+
+        let mut match_list = MatchList::new(
+            self.match_list_config,
+            self.config,
             nc::MatchListConfig {
                 sort_results: self.sort_results,
                 reverse_items: self.reverse_items,
             },
+            self.threads,
+            render.into(),
         );
-
-        let reversed = self.match_list_config.reversed;
-
-        let mut match_list =
-            MatchList::new(self.match_list_config, self.config, engine, render.into());
 
         let mut prompt = Prompt::new(self.prompt_config);
 

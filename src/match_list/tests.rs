@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use nucleo::{Config, Nucleo, Utf32String};
 
 use super::*;
@@ -45,15 +43,22 @@ struct LayoutView<'a> {
 
 impl MatchListTester {
     fn init_inner(size: u16, max_padding: u16, reversed: bool) -> Self {
-        let mut nc = Nucleo::new(Config::DEFAULT, Arc::new(|| {}), Some(1), 1);
-        nc.sort_results(false);
         let mc = MatchListConfig {
             scroll_padding: max_padding,
             reversed,
             ..MatchListConfig::default()
         };
 
-        let mut match_list = MatchList::new(mc, Config::DEFAULT, nc, StrRenderer.into());
+        let mut match_list = MatchList::new(
+            mc,
+            Config::DEFAULT,
+            nucleo::MatchListConfig {
+                sort_results: false,
+                reverse_items: false,
+            },
+            NonZero::new(1),
+            StrRenderer.into(),
+        );
         match_list.resize(size);
 
         Self { match_list }

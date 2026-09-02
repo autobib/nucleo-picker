@@ -49,7 +49,11 @@ use std::{
     collections::{BTreeMap, btree_map::Entry},
     num::NonZero,
     ops::Range,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::available_parallelism,
 };
 
 use self::{
@@ -597,6 +601,10 @@ pub struct MatchList<T, R> {
     config: MatchListConfig,
     /// The internal matcher engine.
     nucleo: nc::Nucleo<T>,
+    /// Whether the matcher engine should be ticked.
+    needs_tick: Arc<AtomicBool>,
+    /// A cache for the internal running state.
+    nucleo_is_running: bool,
     /// Scratch space for index computations during rendering.
     scratch: IndexBuffer,
     /// The method which actually renders the items.
@@ -612,9 +620,29 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
     pub fn new(
         config: MatchListConfig,
         nucleo_config: nc::Config,
-        nucleo: nc::Nucleo<T>,
+        nucleo_match_config: nc::MatchListConfig,
+        threads: Option<NonZero<usize>>,
         render: Arc<R>,
     ) -> Self {
+        let needs_tick = Arc::new(AtomicBool::new(false));
+        let notify_tick = Arc::clone(&needs_tick);
+        let nucleo = nc::Nucleo::with_match_list_config(
+            nucleo_config.clone(),
+            Arc::new(move || notify_tick.store(true, Ordering::Relaxed)),
+            // nucleo's API is a bit weird here in that it does not accept `NonZero<usize>`
+            threads
+                .or_else(|| {
+                    // Reserve two threads:
+                    // 1. for populating the matcher
+                    // 2. for rendering the terminal UI and handling user input
+                    available_parallelism()
+                        .ok()
+                        .and_then(|it| it.get().checked_sub(2).and_then(NonZero::new))
+                })
+                .map(NonZero::get),
+            1,
+            nucleo_match_config,
+        );
         Self {
             size: 0,
             selection: 0,
@@ -626,6 +654,8 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
             render,
             scratch: IndexBuffer::new(),
             prompt: String::with_capacity(32),
+            needs_tick,
+            nucleo_is_running: false,
         }
     }
 
@@ -667,12 +697,14 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
     /// Clear all of the items and restart the match engine.
     pub fn restart(&mut self) {
         self.nucleo.restart(true);
+        self.needs_tick.store(true, Ordering::Relaxed);
         self.update_items();
     }
 
     /// Replace the internal [`nucleo`] configuration.
     pub fn update_nucleo_config(&mut self, config: nc::Config) {
         self.nucleo.update_config(config);
+        self.needs_tick.store(true, Ordering::Relaxed);
     }
 
     /// Returns a self-contained representation of the screen state required for correct layout
@@ -721,6 +753,7 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
             self.config.normalization,
             appending,
         );
+        self.needs_tick.store(true, Ordering::Relaxed);
         new.clone_into(&mut self.prompt);
     }
 
@@ -881,14 +914,21 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
     ///
     /// Check if the internal match workers have returned any new updates for matched items.
     pub fn update(&mut self, millis: u64) -> MatchListStatus {
-        let status = self.nucleo.tick(millis);
-        if status.changed {
-            self.update_items();
-        }
+        let items_changed = if self.needs_tick.swap(false, Ordering::Relaxed) {
+            let status = self.nucleo.tick(millis);
+
+            self.nucleo_is_running = status.running;
+            if status.changed {
+                self.update_items();
+            }
+            status.changed
+        } else {
+            false
+        };
 
         MatchListStatus {
-            items_changed: status.changed,
-            matching: status.running,
+            items_changed,
+            matching: self.nucleo_is_running,
             injecting: self.nucleo.active_injectors() != 0,
         }
     }
