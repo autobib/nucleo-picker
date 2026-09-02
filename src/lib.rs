@@ -698,8 +698,8 @@ impl PickerOptions {
     /// The default value is `'─'`. The character must have Unicode width 1.
     #[must_use]
     #[inline]
-    pub const fn separator(mut self, ellipsis: char) -> Self {
-        self.chars.ellipsis = ellipsis;
+    pub const fn separator(mut self, sep: char) -> Self {
+        self.chars.separator = sep;
         self
     }
 
