@@ -55,9 +55,18 @@ impl<T> Notifier<T> {
             // overwrite the channel with the new message and notify an observer that a message
             // is available
             let (lock, cvar) = &*self.inner;
-            let mut channel = lock.lock();
-            channel.0 = Some(msg);
-            cvar.notify_one();
+
+            let previous = {
+                let mut channel = lock.lock();
+                let previous = channel.0.replace(msg);
+                if previous.is_none() {
+                    // only notify if we went from unoccupied -> occupied
+                    cvar.notify_one();
+                }
+                previous
+            };
+            // drop outside the mutex in case of slow / blocking drop
+            drop(previous);
             Ok(())
         }
     }
@@ -103,29 +112,10 @@ impl<T> Observer<T> {
     pub fn recv(&self) -> Result<T, RecvError> {
         let (lock, cvar) = &*self.inner;
         let mut channel = lock.lock();
-        match channel.0.take() {
-            Some(msg) => Ok(msg),
-            None => {
-                if channel.1 {
-                    // the channel is active, so we wait for a notification
-                    // this uses `parking_lot::Condvar`, which is guaranteed not to wake up
-                    // spuriously
-                    cvar.wait(&mut channel);
-
-                    // we received a notification that there was a change
-                    match channel.0.take() {
-                        // the change was that a new message has been pushed, so we can return it
-                        Some(msg) => Ok(msg),
-                        // there is no message despite the notification, so the channel is
-                        // disconnected. this path is followed if the notifier is dropped while we
-                        // are waiting for a new message
-                        None => Err(RecvError),
-                    }
-                } else {
-                    Err(RecvError)
-                }
-            }
-        }
+        // we need the `none` check since observers can be cloned and another observer could
+        // take the item out of the channel between the 'wake' and mutex acquisition
+        cvar.wait_while(&mut channel, |channel| channel.0.is_none() && channel.1);
+        channel.0.take().ok_or(RecvError)
     }
 
     /// Receive a message, blocking for at at most the timeout until a message is available or the
@@ -137,17 +127,14 @@ impl<T> Observer<T> {
         let (lock, cvar) = &*self.inner;
         let mut channel = lock.lock();
 
-        if let Some(msg) = channel.0.take() {
-            return Ok(msg);
-        }
-        if !channel.1 {
-            return Err(RecvTimeoutError::Disconnected);
-        }
-
-        let wait = cvar.wait_for(&mut channel, timeout);
+        cvar.wait_while_for(
+            &mut channel,
+            |channel| channel.0.is_none() && channel.1,
+            timeout,
+        );
         match channel.0.take() {
             Some(msg) => Ok(msg),
-            None if wait.timed_out() => Err(RecvTimeoutError::Timeout),
+            None if channel.1 => Err(RecvTimeoutError::Timeout),
             None => Err(RecvTimeoutError::Disconnected),
         }
     }

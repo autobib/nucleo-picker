@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed suprious observer wakeups and potential incorrect reporting of channel disconnection with cloned observers simultaneously.
 - We now only poll the underlying matching engine when there are actually changes to read.
   This can decrease frame tail latency under very heavy matching load.
 
