@@ -103,8 +103,9 @@ If there are particular `fzf`-specific features that you would like to see suppo
 - [x] `--(no-)ignore-case`, `--smart-case`: `PickerOptions::case_matching`
 - [x] `--literal`: `PickerOptions::normalization`
 - [x] `--query`: `PickerOptions::query`
+- [x] `--highlight-line`: `PickerOptions::highlight_line`
+- [x] `--no-unicode`: `PickerOptions::ascii_compatible`
 - [ ] `--preview`: https://github.com/autobib/nucleo-picker/issues/5
-- [x] `--highlight-line`
 - [ ] `--gap`: https://github.com/autobib/nucleo-picker/issues/91
 - [ ] `--cycle`
 - [ ] `--track`
