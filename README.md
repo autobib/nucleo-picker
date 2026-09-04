@@ -10,21 +10,19 @@ This library provides a TUI for the [`nucleo`](https://docs.rs/nucleo/latest/nuc
 - For documentation of interactive usage of the picker, see the [`USAGE.md`](USAGE.md) file.
 - For a list of recent changes, see the [`CHANGELOG.md`](CHANGELOG.md) file.
 
-## Elevator pitch
-Why use this library instead of a general-purpose fuzzy-finder such as `fzf` or a lower level library such as `nucleo`?
+## Overview
+This library sits between a general-purpose fuzzy-finder (such as `fzf`) and a lower level library (such as `nucleo`).
 
-1. **Much tighter integration between your data source and your application.**
-   Instead of reading from a SQLite database with `sqlite3` and then parsing raw text, read directly into in-memory data structures with [`rusqlite`](https://docs.rs/rusqlite/latest/rusqlite/) and render the in-memory objects in the picker.
-2. **Skip the subprocess overhead and improve startup time.**
-   Instead of starting up a subprocess to call `fzf`, have the picker integrated directly into your binary.
-3. **Distinguish items from their matcher representation.**
+1. **Remove subprocess overhead and failure modes**
+   Instead of starting up a subprocess to call `fzf` and using inter-process communication, integrate the picker directly into your binary.
+2. **Distinguish items from their matcher representation.**
    Instead of writing your data structure to a string, passing it to `fzf`, and then parsing the resulting match string back into your data structure, directly obtain the original data structure when matching is complete.
-4. **Don't spend time debugging terminal rendering edge cases.**
+3. **Don't spend time debugging terminal rendering edge cases.**
    Out-of-the-box, `nucleo-picker` handles terminal rendering subtleties such as *multiline rendering*, *double-width Unicode*, *automatic overflow scrollthrough*, and *grapheme-aware query input* so you don't have to.
-5. **Handle complex use cases using events.**
+4. **Handle complex use cases using events.**
    `nucleo-picker` exposes a fully-featured [event system](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/) which can be used to drive the picker.
    This lets you [*customize keybindings*](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/struct.StdinReader.html), support [*interactive restarts*](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/enum.Event.html#restart), and much more by implementing the [`EventSource`](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/trait.EventSource.html) trait.
-   Simplified versions of such features are available in [fzf](https://github.com/junegunn/fzf) but essentially require manual configuration via an embedded DSL.
+   Versions of such features are available in [fzf](https://github.com/junegunn/fzf) but require manual configuration via an embedded DSL.
 
 ## Features
 
@@ -38,7 +36,7 @@ Why use this library instead of a general-purpose fuzzy-finder such as `fzf` or 
   - Fully concurrent lock- and wait-free streaming of input items.
   - Generic [`Picker`](https://docs.rs/nucleo-picker/latest/nucleo_picker/struct.Picker.html) for any type `T` which is `Send + Sync + 'static`.
   - [Customizable rendering](https://docs.rs/nucleo-picker/latest/nucleo_picker/trait.Render.html) of crate-local and foreign types with the `Render` trait.
-- Fully configurable event system:
+- Configurable event system:
   - Easily customizable keybindings.
   - Run the picker concurrently with your application using a fully-featured [event system](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/), with optional support for complex features such as [*interactive restarting*](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/enum.Event.html#restart).
   - Optional and flexible [error propagation generics](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/enum.Event.html#application-defined-abort) so your application errors can interface cleanly with the picker.
@@ -46,7 +44,7 @@ Why use this library instead of a general-purpose fuzzy-finder such as `fzf` or 
 ## Example
 Implement a heavily simplified `fzf` clone in 25 lines of code.
 Try it out with:
-```
+```sh
 cargo build --release --example fzf_basic
 cat myfile.txt | ./target/release/examples/fzf_basic
 ```
