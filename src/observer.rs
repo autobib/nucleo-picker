@@ -133,7 +133,6 @@ impl<T> Observer<T> {
     ///
     /// This operation will fail if no message is received within the given timeout or if there are
     /// no remaining senders.
-    /// case [`RecvTimeoutError::Disconnected`] is returned).
     pub fn recv_timeout(&self, timeout: Duration) -> Result<T, RecvTimeoutError> {
         let (lock, cvar) = &*self.inner;
         let mut channel = lock.lock();
