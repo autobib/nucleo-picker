@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### [Unreleased]
+
+### Fixed
+
+- We now only poll the underlying matching engine when there are actually changes to read.
+  This can decrease frame tail latency under very heavy matching load.
+
 ## [0.12.1] - 2026-09-02
 
 ### Added
