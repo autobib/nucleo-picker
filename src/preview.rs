@@ -20,11 +20,13 @@
 //!
 //! ### Implementing slow (asynchronous) previews
 
+mod buffer;
 mod lock;
 mod picker;
 
 use std::time::Duration;
 
+pub use buffer::{PreviewBuffer, PreviewLine};
 use lock::{ActiveWriter, QueuedWriter, Reader, request};
 pub use picker::PreviewPicker;
 
@@ -93,15 +95,6 @@ pub enum PreviewResponse {
     Ready(PreviewBuffer),
     /// Preview generation has been deferred.
     Pending(PendingPreview),
-}
-
-/// A buffer holding the contents of a single preview pane.
-#[expect(unused)]
-pub struct PreviewBuffer {
-    // TODO: placeholder
-    // TODO: add 'set_failed' method, to change boundary styling
-    inner: String,
-    is_err: bool,
 }
 
 /// A request to generate a preview.
