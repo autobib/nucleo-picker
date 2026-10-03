@@ -60,6 +60,8 @@ use nucleo::{
     pattern::{CaseMatching as NucleoCaseMatching, Normalization as NucleoNormalization},
 };
 use observer::{Notifier, Observer};
+#[cfg(feature = "preview")]
+use preview::PreviewConfig;
 
 use crate::{
     component::{ComponentStatus, PreviewComponent},
@@ -391,6 +393,8 @@ pub struct PickerOptions {
     chars: PickerChars,
     match_list_config: MatchListConfig,
     prompt_config: PromptConfig,
+    #[cfg(feature = "preview")]
+    preview_config: PreviewConfig,
     sort_results: bool,
     reverse_items: bool,
 }
@@ -418,6 +422,8 @@ impl PickerOptions {
             chars: PickerChars::new(),
             match_list_config: MatchListConfig::new(),
             prompt_config: PromptConfig::new(),
+            #[cfg(feature = "preview")]
+            preview_config: PreviewConfig::new(),
             sort_results: true,
             reverse_items: false,
         }
@@ -463,6 +469,8 @@ impl PickerOptions {
         Picker {
             match_list,
             prompt,
+            #[cfg(feature = "preview")]
+            preview_config: self.preview_config,
             interval: self.interval,
             background_frame_frequency,
             chars: self.chars,
@@ -769,6 +777,21 @@ impl PickerOptions {
     }
 }
 
+impl PickerOptions {
+    /// Set the capacity of the preview cache.
+    ///
+    /// The preview cache is used to reduce preview requests when scrolling onto an item and to
+    /// cache the scroll state of the preview pane. The default value is 128.
+    #[cfg(feature = "preview")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
+    #[must_use]
+    #[inline]
+    pub const fn preview_cache_size(mut self, size: NonZero<usize>) -> Self {
+        self.preview_config.cache_size = size;
+        self
+    }
+}
+
 /// A fuzzy matching interactive item picker.
 ///
 /// The parameter `T` is the item type and the parameter `R` is the [renderer](Render), which
@@ -850,6 +873,8 @@ pub struct Picker<T, R> {
     chars: PickerChars,
     max_selection_count: Option<NonZero<u32>>,
     prompt: Prompt,
+    #[cfg(feature = "preview")]
+    preview_config: PreviewConfig,
     interval: Duration,
     background_frame_frequency: NonZero<usize>,
     reversed: bool,
