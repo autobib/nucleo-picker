@@ -152,7 +152,6 @@ pub struct ActivePreviewRequest {
 }
 
 /// A subscription to a pending preview.
-#[expect(unused)]
 pub struct PendingPreview {
     reader: Reader<PreviewBuffer>,
     epoch: u64,
@@ -165,14 +164,12 @@ pub(crate) struct Cached {
 }
 
 /// The status of a preview request.
-#[expect(unused)]
 pub(crate) enum State {
     Pending(PendingPreview),
     Ready(PreviewBuffer),
 }
 
 /// A preview buffer that is not ready yet.
-#[expect(unused)]
 pub(crate) enum BufferNotReady {
     /// The preview request is waiting to be processed.
     Queued(State),
@@ -186,7 +183,6 @@ impl State {
     /// Obtain the preview buffer if it is ready, without blocking.
     ///
     /// If the preview is queued or active, the corresponding state is returned in the `Err` variant.
-    #[expect(unused)]
     pub fn try_into_buffer(self) -> Result<PreviewBuffer, BufferNotReady> {
         match self {
             Self::Pending(subscription) => {
@@ -209,6 +205,24 @@ impl State {
                 }
             }
             Self::Ready(buffer) => Ok(buffer),
+        }
+    }
+}
+
+impl PendingPreview {
+    /// Attempt to cancel a queued request in order to later resubmit it (for higher priority).
+    ///
+    /// If the buffer is in fact ready, or a worker is currently preparing the buffer, this is
+    /// returned in the `Ok` variant through [`State`]. Otherwise, the buffer is recovered and
+    /// returned in the `Err` variant.
+    pub(crate) fn reprioritize(self) -> Result<State, PreviewBuffer> {
+        let Self { reader, epoch } = self;
+        match reader.cancel_queued() {
+            lock::CancelQueued::Cancelled(buffer) | lock::CancelQueued::Dropped(buffer) => {
+                Err(buffer)
+            }
+            lock::CancelQueued::Active(reader) => Ok(State::Pending(Self { reader, epoch })),
+            lock::CancelQueued::Ready(buffer) => Ok(State::Ready(buffer)),
         }
     }
 }

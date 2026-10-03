@@ -1214,21 +1214,23 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         let mut frame_state = FrameState::new(size);
         frame_state.observe(&update_status);
         self.match_list.resize(frame_state.match_list_height());
+        preview.resize(frame_state.preview_height());
         preview
             .update(&self.match_list, frame_start + self.interval)
             .map_err(PickError::Aborted)?;
-        frame_state.render_frame(self, &mut terminal, Redraw::all(), &queued_items)?;
-        #[cfg(feature = "preview")]
-        if frame_state.dimensions().0 != 0 {
-            preview.draw(&self.match_list, frame_state.preview_height());
-        }
+        frame_state.render_frame(
+            self,
+            &mut terminal,
+            Redraw::all(),
+            &queued_items,
+            #[cfg(feature = "preview")]
+            preview.cached(),
+        )?;
 
         let mut redraw = Redraw::default();
         let mut handle_status = None;
 
         let selection = 'selection: loop {
-            #[cfg(feature = "preview")]
-            let mut preview_changed = false;
             let mut lazy_match_list = LazyMatchList::new(&mut self.match_list, &mut queued_items);
             let mut lazy_prompt = LazyPrompt::new(&mut self.prompt);
 
@@ -1245,7 +1247,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
                         #[cfg(feature = "preview")]
                         Event::Preview(event) => {
                             if frame_state.dimensions().0 != 0 {
-                                preview_changed |= preview.scroll(
+                                redraw.preview |= preview.scroll(
                                     lazy_match_list.selected_item_id(),
                                     event,
                                     frame_state.preview_height(),
@@ -1338,14 +1340,13 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
                     .update_marker(self.chars.spinner_chars, self.chars.matching_indicator);
             }
 
-            preview
+            // update the preview pane
+            redraw.preview |= preview
                 .update(&self.match_list, frame_start + self.interval)
                 .map_err(PickError::Aborted)?;
 
             // process size changes and redraw the frame
             let changed = redraw.any_required();
-            #[cfg(feature = "preview")]
-            let changed = changed || preview_changed;
             if changed {
                 // note: we re-poll the size as late as possible instead of depending
                 // on explicit 'Resize' events because a resize event might be up to
@@ -1357,14 +1358,16 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
                 }
                 if size_change.height_changed() {
                     self.match_list.resize(frame_state.match_list_height());
+                    preview.resize(frame_state.preview_height());
                 }
-                if redraw.any_required() {
-                    frame_state.render_frame(self, &mut terminal, redraw, &queued_items)?;
-                }
-                #[cfg(feature = "preview")]
-                if frame_state.dimensions().0 != 0 {
-                    preview.draw(&self.match_list, frame_state.preview_height());
-                }
+                frame_state.render_frame(
+                    self,
+                    &mut terminal,
+                    redraw,
+                    &queued_items,
+                    #[cfg(feature = "preview")]
+                    preview.cached(),
+                )?;
             }
             terminal.end_frame(changed)?;
 

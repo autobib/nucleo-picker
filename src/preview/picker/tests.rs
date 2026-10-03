@@ -6,7 +6,9 @@ struct TestPreviewer {
     requested: Vec<&'static str>,
     queued: Vec<QueuedPreviewRequest>,
     defer: bool,
+    drop_requests: bool,
     fail: bool,
+    fail_after: Option<usize>,
     lines: usize,
 }
 
@@ -21,12 +23,18 @@ impl Preview<&'static str> for TestPreviewer {
     ) -> Result<PreviewResponse, Self::AbortErr> {
         assert!(timeout >= Duration::from_millis(2));
         self.requested.push(item);
-        if self.fail {
+        if self.fail
+            || self
+                .fail_after
+                .is_some_and(|count| self.requested.len() > count)
+        {
             return Err("preview failed");
         }
         if self.defer {
             let (pending, queued) = request.defer();
-            self.queued.push(queued);
+            if !self.drop_requests {
+                self.queued.push(queued);
+            }
             Ok(PreviewResponse::Pending(pending))
         } else {
             let mut buffer = request.ready();
@@ -113,21 +121,277 @@ fn cache_evicts_the_least_recently_visited_item() {
 }
 
 #[test]
-fn pending_previews_are_cached_without_duplicate_requests() {
+fn queued_previews_are_promoted_once_per_revisit() {
     let mut picker = picker(["alpha", "beta"]);
     let mut session = PreviewSession::new(TestPreviewer {
         defer: true,
         ..TestPreviewer::default()
     });
-    for selection in [0, 0, 1, 0] {
+    for selection in [0, 0, 1, 0, 0, 0] {
         picker.match_list.set_selection(selection);
         session.update(&picker.match_list, Instant::now()).unwrap();
     }
+    assert_eq!(session.previewer.requested, ["alpha", "beta", "alpha"]);
+    assert!(session.previewer.queued[0].is_cancelled());
+    assert!(!session.previewer.queued[1].is_cancelled());
+    assert!(!session.previewer.queued[2].is_cancelled());
+    let Some(State::Pending(pending)) = &session.cache.peek(&0).unwrap().state else {
+        panic!("expected pending preview");
+    };
+    assert_eq!(pending.epoch, session.epoch);
+}
+
+#[test]
+fn ready_previews_only_report_changes_on_selection() {
+    let mut picker = picker(["alpha", "beta"]);
+    let mut session = PreviewSession::new(TestPreviewer::default());
+    for (selection, changed) in [(0, true), (0, false), (1, true), (0, true), (0, false)] {
+        picker.match_list.set_selection(selection);
+        assert_eq!(
+            session.update(&picker.match_list, Instant::now()).unwrap(),
+            changed
+        );
+    }
     assert_eq!(session.previewer.requested, ["alpha", "beta"]);
+}
+
+#[test]
+fn active_previews_survive_revisits_and_complete_once() {
+    let mut picker = picker(["alpha", "beta"]);
+    let mut session = PreviewSession::new(TestPreviewer {
+        defer: true,
+        ..TestPreviewer::default()
+    });
+    session.update(&picker.match_list, Instant::now()).unwrap();
+    let active = session.previewer.queued.pop().unwrap().start().unwrap();
+    session.cache.get_mut(&0).unwrap().scroll_position = 3;
+    for selection in [1, 0, 0] {
+        picker.match_list.set_selection(selection);
+        session.update(&picker.match_list, Instant::now()).unwrap();
+    }
+    assert!(!active.is_cancelled());
+    assert_eq!(session.previewer.requested, ["alpha", "beta"]);
+    let mut buffer = PreviewBuffer::new();
+    buffer.push_str("completed alpha");
+    buffer.set_err(true);
+    assert!(active.publish(&mut buffer));
+    assert!(session.update(&picker.match_list, Instant::now()).unwrap());
+    assert!(!session.update(&picker.match_list, Instant::now()).unwrap());
+    let cached = session.cache.peek(&0).unwrap();
+    assert_eq!(cached.scroll_position, 3);
+    let Some(State::Ready(buffer)) = &cached.state else {
+        panic!("expected completed preview");
+    };
+    assert_eq!(buffer.line(0).unwrap().as_str(), "completed alpha");
+    assert!(buffer.is_err());
+}
+
+#[test]
+fn completed_previews_are_collected_on_revisit_without_resubmission() {
+    let mut picker = picker(["alpha", "beta"]);
+    let mut session = PreviewSession::new(TestPreviewer {
+        defer: true,
+        ..TestPreviewer::default()
+    });
+    session.update(&picker.match_list, Instant::now()).unwrap();
+    let queued = session.previewer.queued.pop().unwrap();
+    picker.match_list.set_selection(1);
+    session.update(&picker.match_list, Instant::now()).unwrap();
+    let mut buffer = PreviewBuffer::new();
+    buffer.push_str("completed alpha");
+    assert!(queued.start().unwrap().publish(&mut buffer));
+    assert!(!session.update(&picker.match_list, Instant::now()).unwrap());
     assert!(matches!(
         session.cache.peek(&0).unwrap().state,
         Some(State::Pending(_))
     ));
+    picker.match_list.set_selection(0);
+    assert!(session.update(&picker.match_list, Instant::now()).unwrap());
+    assert!(matches!(
+        session.cache.peek(&0).unwrap().state,
+        Some(State::Ready(_))
+    ));
+    assert_eq!(session.previewer.requested, ["alpha", "beta"]);
+}
+
+#[test]
+fn filtering_and_empty_selections_reprioritize_by_item_identity() {
+    let mut picker = picker(["alpha", "beta"]);
+    let mut session = PreviewSession::new(TestPreviewer {
+        defer: true,
+        ..TestPreviewer::default()
+    });
+    for (query, changed) in [
+        ("", true),
+        ("alp", false),
+        ("beta", true),
+        ("alpha", true),
+        ("missing", true),
+        ("missing", false),
+        ("alpha", true),
+    ] {
+        picker.update_query(query);
+        settle(&mut picker);
+        assert_eq!(
+            session.update(&picker.match_list, Instant::now()).unwrap(),
+            changed
+        );
+    }
+    assert_eq!(
+        session.previewer.requested,
+        ["alpha", "beta", "alpha", "alpha"]
+    );
+    assert!(session.previewer.queued[0].is_cancelled());
+    assert!(!session.previewer.queued[1].is_cancelled());
+    assert!(session.previewer.queued[2].is_cancelled());
+    assert!(!session.previewer.queued[3].is_cancelled());
+}
+
+#[test]
+fn dropped_queued_and_active_requests_are_retried() {
+    for start in [false, true] {
+        let picker = picker(["alpha"]);
+        let mut session = PreviewSession::new(TestPreviewer {
+            defer: true,
+            ..TestPreviewer::default()
+        });
+        session.update(&picker.match_list, Instant::now()).unwrap();
+        let queued = session.previewer.queued.pop().unwrap();
+        if start {
+            drop(queued.start().unwrap());
+        } else {
+            drop(queued);
+        }
+        session.cache.get_mut(&0).unwrap().scroll_position = 3;
+        assert!(!session.update(&picker.match_list, Instant::now()).unwrap());
+        assert!(!session.update(&picker.match_list, Instant::now()).unwrap());
+        assert_eq!(session.previewer.requested, ["alpha", "alpha"]);
+        assert_eq!(session.cache.peek(&0).unwrap().scroll_position, 3);
+        let Some(State::Pending(pending)) = &session.cache.peek(&0).unwrap().state else {
+            panic!("expected replacement request");
+        };
+        assert_eq!(pending.epoch, session.epoch);
+    }
+}
+
+#[test]
+fn immediately_dropped_requests_are_submitted_at_most_once_per_update() {
+    let picker = picker(["alpha"]);
+    let mut session = PreviewSession::new(TestPreviewer {
+        defer: true,
+        drop_requests: true,
+        ..TestPreviewer::default()
+    });
+    for count in 1..=4 {
+        assert_eq!(
+            session.update(&picker.match_list, Instant::now()).unwrap(),
+            count == 1
+        );
+        assert_eq!(session.previewer.requested.len(), count);
+    }
+    session.previewer.defer = false;
+    assert!(session.update(&picker.match_list, Instant::now()).unwrap());
+    assert!(!session.update(&picker.match_list, Instant::now()).unwrap());
+    assert_eq!(session.previewer.requested.len(), 5);
+}
+
+#[test]
+fn promotion_and_retry_clear_and_reuse_buffers_without_resetting_scroll() {
+    for dropped in [false, true] {
+        let picker = picker(["alpha"]);
+        let mut session = PreviewSession::new(TestPreviewer::default());
+        let mut buffer = PreviewBuffer::new();
+        buffer.push_str("previous contents");
+        buffer.newline();
+        buffer.set_err(true);
+        let allocation = buffer.line(0).unwrap().as_str().as_ptr();
+        let (pending, queued) = PreviewRequest { buffer, epoch: 0 }.defer();
+        let queued = if dropped {
+            drop(queued);
+            None
+        } else {
+            Some(queued)
+        };
+        session.cache.put(
+            0,
+            Cached {
+                scroll_position: 3,
+                state: Some(State::Pending(pending)),
+            },
+        );
+        assert!(session.update(&picker.match_list, Instant::now()).unwrap());
+        if let Some(queued) = queued {
+            assert!(queued.is_cancelled());
+        }
+        let cached = session.cache.peek(&0).unwrap();
+        assert_eq!(cached.scroll_position, 3);
+        let Some(State::Ready(buffer)) = &cached.state else {
+            panic!("expected ready preview");
+        };
+        assert_eq!(buffer.line(0).unwrap().as_str(), "alpha");
+        assert_eq!(buffer.line(0).unwrap().as_str().as_ptr(), allocation);
+        assert_eq!(buffer.lines().len(), 1);
+        assert!(!buffer.is_err());
+    }
+}
+
+fn polled_queued_request() -> (crate::preview::PendingPreview, QueuedPreviewRequest) {
+    let (pending, queued) = PreviewRequest {
+        buffer: PreviewBuffer::new(),
+        epoch: 1,
+    }
+    .defer();
+    let Err(BufferNotReady::Queued(State::Pending(pending))) =
+        State::Pending(pending).try_into_buffer()
+    else {
+        panic!("expected queued preview");
+    };
+    (pending, queued)
+}
+
+#[test]
+fn promotion_preserves_work_that_starts_after_polling() {
+    let (pending, queued) = polled_queued_request();
+    let active = queued.start().unwrap();
+    let State::Pending(pending) = pending.reprioritize().unwrap() else {
+        panic!("expected active preview");
+    };
+    assert!(!active.is_cancelled());
+    let mut buffer = PreviewBuffer::new();
+    assert!(active.publish(&mut buffer));
+    assert!(State::Pending(pending).try_into_buffer().is_ok());
+}
+
+#[test]
+fn promotion_collects_work_published_after_polling() {
+    let (pending, queued) = polled_queued_request();
+    let mut buffer = PreviewBuffer::new();
+    buffer.push_str("completed");
+    assert!(queued.start().unwrap().publish(&mut buffer));
+    let State::Ready(buffer) = pending.reprioritize().unwrap() else {
+        panic!("expected ready preview");
+    };
+    assert_eq!(buffer.line(0).unwrap().as_str(), "completed");
+}
+
+#[test]
+fn promotion_reclaims_work_dropped_after_polling() {
+    let (pending, queued) = polled_queued_request();
+    drop(queued);
+    assert!(pending.reprioritize().is_err());
+}
+
+#[test]
+fn restart_resets_selection_and_priority_bookkeeping() {
+    let picker = picker(["alpha"]);
+    let mut session = PreviewSession::new(TestPreviewer::default());
+    session.update(&picker.match_list, Instant::now()).unwrap();
+    PreviewComponent::<&'static str, StrRenderer, &'static str>::restart(&mut session);
+    assert_eq!(session.last_item, None);
+    assert_eq!(session.epoch, 0);
+    assert!(session.cache.is_empty());
+    assert!(session.update(&picker.match_list, Instant::now()).unwrap());
+    assert_eq!(session.previewer.requested, ["alpha", "alpha"]);
 }
 
 #[test]
@@ -137,6 +401,55 @@ fn an_empty_match_list_does_not_request_previews() {
     session.update(&picker.match_list, Instant::now()).unwrap();
     assert!(session.previewer.requested.is_empty());
     assert!(session.cache.is_empty());
+}
+
+#[test]
+fn current_entry_exposes_pending_and_ready_states_without_polling() {
+    fn current(session: &PreviewSession<TestPreviewer>) -> Option<&Cached> {
+        PreviewComponent::<&'static str, StrRenderer, &'static str>::cached(session)
+    }
+
+    let mut picker = picker(["alpha"]);
+    let mut session = PreviewSession::new(TestPreviewer {
+        defer: true,
+        ..TestPreviewer::default()
+    });
+    assert!(current(&session).is_none());
+    session.update(&picker.match_list, Instant::now()).unwrap();
+    assert!(matches!(
+        current(&session).unwrap().state,
+        Some(State::Pending(_))
+    ));
+
+    let mut buffer = PreviewBuffer::new();
+    buffer.push_str("completed alpha");
+    assert!(
+        session
+            .previewer
+            .queued
+            .pop()
+            .unwrap()
+            .start()
+            .unwrap()
+            .publish(&mut buffer)
+    );
+    assert!(matches!(
+        current(&session).unwrap().state,
+        Some(State::Pending(_))
+    ));
+
+    session.update(&picker.match_list, Instant::now()).unwrap();
+    let cached = current(&session).unwrap();
+    assert_eq!(cached.scroll_position, 0);
+    let Some(State::Ready(buffer)) = &cached.state else {
+        panic!("expected completed preview");
+    };
+    assert_eq!(buffer.line(0).unwrap().as_str(), "completed alpha");
+
+    picker.update_query("missing");
+    settle(&mut picker);
+    session.update(&picker.match_list, Instant::now()).unwrap();
+    assert!(current(&session).is_none());
 }
 
 #[cfg(feature = "unstable-backend")]
@@ -156,6 +469,16 @@ mod picker_loop {
 
         fn recv_timeout(&mut self, _: Duration) -> Result<Event<Self::AbortErr>, RecvError> {
             self.0.pop_front().expect("event script exhausted")
+        }
+    }
+
+    struct CallbackEvents<F>(F);
+
+    impl<F: FnMut() -> Result<Event<&'static str>, RecvError>> EventSource for CallbackEvents<F> {
+        type AbortErr = &'static str;
+
+        fn recv_timeout(&mut self, _: Duration) -> Result<Event<Self::AbortErr>, RecvError> {
+            (self.0)()
         }
     }
 
@@ -209,7 +532,7 @@ mod picker_loop {
             &mut self,
             matches: &MatchList<&'static str, StrRenderer>,
             deadline: Instant,
-        ) -> Result<(), &'static str> {
+        ) -> Result<bool, &'static str> {
             (**self).update(matches, deadline)
         }
 
@@ -223,8 +546,12 @@ mod picker_loop {
             )
         }
 
-        fn draw(&mut self, matches: &MatchList<&'static str, StrRenderer>, height: u16) {
-            (**self).draw(matches, height);
+        fn resize(&mut self, height: u16) {
+            PreviewComponent::<&'static str, StrRenderer, &'static str>::resize(*self, height);
+        }
+
+        fn cached(&self) -> Option<&Cached> {
+            PreviewComponent::<&'static str, StrRenderer, &'static str>::cached(*self)
         }
     }
 
@@ -335,6 +662,110 @@ mod picker_loop {
     }
 
     #[test]
+    fn idle_frames_collect_completed_previews_and_enable_scrolling() {
+        let mut picker = picker(["alpha"]);
+        let mut session = PreviewSession::new(TestPreviewer {
+            defer: true,
+            ..TestPreviewer::default()
+        });
+        session.update(&picker.match_list, Instant::now()).unwrap();
+        let mut queued = session.previewer.queued.pop();
+        let mut step = 0;
+        let events = CallbackEvents(move || {
+            step += 1;
+            match step {
+                1 | 4 | 5 => Err(RecvError::Timeout),
+                2 => {
+                    let mut buffer = PreviewBuffer::new();
+                    for _ in 1..30 {
+                        buffer.newline();
+                    }
+                    assert!(queued.take().unwrap().start().unwrap().publish(&mut buffer));
+                    Err(RecvError::Timeout)
+                }
+                3 => Ok(Event::Preview(PreviewEvent::Down(1))),
+                _ => Ok(Event::Quit),
+            }
+        });
+        let mut terminal = TestTerminal::default();
+        picker
+            .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
+            .unwrap();
+        assert_eq!(terminal.changed, [false, true, true, false]);
+        assert_eq!(session.cache.peek(&0).unwrap().scroll_position, 1);
+        assert_eq!(session.previewer.requested, ["alpha"]);
+
+        let mut plain_terminal = TestTerminal::default();
+        picker
+            .pick_with_terminal_io(
+                Events(VecDeque::from([Ok(Event::Quit)])),
+                &mut plain_terminal,
+            )
+            .unwrap();
+        assert!(terminal.output.starts_with(&plain_terminal.output));
+        assert_eq!(
+            &terminal.output[plain_terminal.output.len()..],
+            b"\x1b[?2026h\x1b[10;3H\x1b[?2026l".repeat(2),
+        );
+    }
+
+    #[test]
+    fn batched_navigation_back_to_the_same_item_does_not_promote() {
+        let mut picker = picker(["alpha", "beta"]);
+        let mut session = PreviewSession::new(TestPreviewer {
+            defer: true,
+            ..TestPreviewer::default()
+        });
+        let events = Events(VecDeque::from([
+            Ok(Event::MatchList(MatchListEvent::Up(1))),
+            Ok(Event::MatchList(MatchListEvent::Down(1))),
+            Err(RecvError::Timeout),
+            Ok(Event::Quit),
+        ]));
+        let mut terminal = TestTerminal::default();
+        picker
+            .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
+            .unwrap();
+        assert_eq!(terminal.changed, [false]);
+        assert_eq!(session.previewer.requested, ["alpha"]);
+        assert!(!session.previewer.queued[0].is_cancelled());
+    }
+
+    #[test]
+    fn retry_and_promotion_errors_abort_and_clean_up_the_terminal() {
+        for retry in [false, true] {
+            let mut picker = picker(["alpha", "beta"]);
+            let mut previewer = TestPreviewer {
+                defer: true,
+                drop_requests: retry,
+                fail_after: Some(if retry { 1 } else { 2 }),
+                ..TestPreviewer::default()
+            };
+            let mut terminal = TestTerminal::default();
+            let events = if retry {
+                VecDeque::from([Err(RecvError::Timeout)])
+            } else {
+                VecDeque::from([
+                    Ok(Event::MatchList(MatchListEvent::Up(1))),
+                    Err(RecvError::Timeout),
+                    Ok(Event::MatchList(MatchListEvent::Down(1))),
+                    Err(RecvError::Timeout),
+                ])
+            };
+            let mut preview_picker = picker.with_preview(&mut previewer);
+            let result = preview_picker.pick_with_terminal_io(Events(events), &mut terminal);
+            assert!(matches!(result, Err(PickError::Aborted("preview failed"))));
+            assert_eq!(terminal.cleanups, 1);
+            if retry {
+                assert_eq!(previewer.requested, ["alpha", "alpha"]);
+            } else {
+                assert_eq!(previewer.requested, ["alpha", "beta", "alpha"]);
+                assert!(previewer.queued[0].is_cancelled());
+            }
+        }
+    }
+
+    #[test]
     fn scroll_changes_are_reported_without_redrawing_the_match_list() {
         let mut picker = picker(["alpha"]);
         let mut session = PreviewSession::new(TestPreviewer {
@@ -360,7 +791,11 @@ mod picker_loop {
                 &mut plain_terminal,
             )
             .unwrap();
-        assert_eq!(terminal.output, plain_terminal.output);
+        assert!(terminal.output.starts_with(&plain_terminal.output));
+        assert_eq!(
+            &terminal.output[plain_terminal.output.len()..],
+            b"\x1b[?2026h\x1b[10;3H\x1b[?2026l",
+        );
     }
 
     #[test]
@@ -386,6 +821,84 @@ mod picker_loop {
             .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
             .unwrap();
         assert_eq!(session.cache.peek(&0).unwrap().scroll_position, 6);
+    }
+
+    #[test]
+    fn initial_layout_resizes_retained_preview_state() {
+        let mut picker = picker(["alpha"]);
+        let mut session = PreviewSession::new(TestPreviewer {
+            lines: 30,
+            ..TestPreviewer::default()
+        });
+        session.update(&picker.match_list, Instant::now()).unwrap();
+        session
+            .cache
+            .get_mut(&0)
+            .unwrap()
+            .scroll(PreviewEvent::Down(usize::MAX), 4);
+        assert_eq!(session.cache.peek(&0).unwrap().scroll_position, 26);
+
+        picker
+            .pick_impl::<_, _, (), _>(
+                Events(VecDeque::from([Ok(Event::Quit)])),
+                &mut TestTerminal::default(),
+                &mut session,
+            )
+            .unwrap();
+        assert_eq!(session.cache.peek(&0).unwrap().scroll_position, 22);
+    }
+
+    #[test]
+    fn resizing_clamps_cached_previews_before_they_are_revisited() {
+        let mut picker = picker(["alpha", "beta"]);
+        let mut session = PreviewSession::new(TestPreviewer {
+            lines: 30,
+            ..TestPreviewer::default()
+        });
+        session.update(&picker.match_list, Instant::now()).unwrap();
+        session
+            .cache
+            .get_mut(&0)
+            .unwrap()
+            .scroll(PreviewEvent::Down(usize::MAX), 8);
+        picker.match_list.set_selection(1);
+        let events = Events(VecDeque::from([
+            Ok(Event::Redraw),
+            Err(RecvError::Timeout),
+            Ok(Event::MatchList(MatchListEvent::Down(1))),
+            Err(RecvError::Timeout),
+            Ok(Event::Quit),
+        ]));
+        let mut terminal = TestTerminal {
+            sizes: VecDeque::from([(20, 10), (20, 14)]),
+            ..TestTerminal::default()
+        };
+        picker
+            .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
+            .unwrap();
+        assert_eq!(session.cache.peek(&0).unwrap().scroll_position, 18);
+        assert_eq!(session.previewer.requested, ["alpha", "beta"]);
+    }
+
+    #[test]
+    fn scrolling_down_down_up_at_the_bottom_moves_up_one_line() {
+        let mut picker = picker(["alpha"]);
+        let mut session = PreviewSession::new(TestPreviewer {
+            lines: 30,
+            ..TestPreviewer::default()
+        });
+        let events = Events(VecDeque::from([
+            Ok(Event::Preview(PreviewEvent::Down(usize::MAX))),
+            Ok(Event::Preview(PreviewEvent::Down(1))),
+            Ok(Event::Preview(PreviewEvent::Down(1))),
+            Ok(Event::Preview(PreviewEvent::Up(1))),
+            Err(RecvError::Timeout),
+            Ok(Event::Quit),
+        ]));
+        picker
+            .pick_impl::<_, _, (), _>(events, &mut TestTerminal::default(), &mut session)
+            .unwrap();
+        assert_eq!(session.cache.peek(&0).unwrap().scroll_position, 21);
     }
 
     #[test]
