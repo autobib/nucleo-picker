@@ -62,7 +62,7 @@ use nucleo::{
 use observer::{Notifier, Observer};
 
 use crate::{
-    component::ComponentStatus,
+    component::{ComponentStatus, PreviewComponent},
     error::PickError,
     event::{
         Event, EventSource, PickerStatus, RecvError, StdinReader, keybind_default, keybind_no_multi,
@@ -883,7 +883,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     where
         P: preview::Preview<T>,
     {
-        todo!()
+        preview::PreviewPicker::new(self, previewer)
     }
 
     /// Update the default query string. This is mainly useful for modifying the query string
@@ -1114,7 +1114,6 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// Open the interactive picker prompt and return the picked item, if any. The provided
     /// keybindings are used in the interactive picker.
     ///
-    ///
     /// This method permits the user to select multiple items, but is otherwise identical to [`pick_with_keybind`](Self::pick_with_keybind). See those docs as well as the
     /// [docs on multiple selections](Picker#multiple-selections) for more detail.
     #[inline]
@@ -1131,7 +1130,8 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         }
     }
 
-    /// Run the picker interactively with a custom event source and writer.
+    /// Run the picker interactively with a custom event source and writer, returning the selected
+    /// item, if any.
     ///
     /// The picker is rendered using the given writer. In most situations, you want to check that
     /// the writer is interactive using, for instance, [`IsTerminal`]. The picker reads
@@ -1164,7 +1164,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         E: EventSource,
         W: io::Write,
     {
-        self.pick_impl::<_, _, ()>(event_source, &mut CrosstermTerminal::new(writer))
+        self.pick_impl::<_, _, (), _>(event_source, &mut CrosstermTerminal::new(writer), ())
     }
 
     /// Run the picker interactively with a custom event source and writer, allowing the user to
@@ -1182,36 +1182,24 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         E: EventSource,
         W: io::Write,
     {
-        self.pick_impl::<_, _, SelectedIndices>(event_source, &mut CrosstermTerminal::new(writer))
+        self.pick_impl::<_, _, SelectedIndices, _>(
+            event_source,
+            &mut CrosstermTerminal::new(writer),
+            (),
+        )
     }
 
-    /// TODO
-    #[cfg(feature = "preview")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
-    pub fn preview_multi_with_io<E, W, P>(
-        &mut self,
-        event_source: E,
-        previewer: P,
-        writer: &mut W,
-    ) -> Result<Selection<'_, T>, PickError<<E as EventSource>::AbortErr>>
-    where
-        P: preview::Preview<T>,
-        R: Render<T>,
-        E: EventSource<AbortErr = P::AbortErr>,
-        W: io::Write,
-    {
-        todo!()
-    }
-
-    fn pick_impl<E, W, Q: Queued>(
+    fn pick_impl<E, W, Q: Queued, P>(
         &mut self,
         mut event_source: E,
         writer: &mut W,
+        mut preview: P,
     ) -> Result<Q::Output<'_, T>, PickError<<E as EventSource>::AbortErr>>
     where
         R: Render<T>,
         E: EventSource,
         W: Terminal,
+        P: PreviewComponent<T, R, E::AbortErr>,
     {
         let mut queued_items = Q::init(self.max_selection_count);
         let mut terminal = TerminalSession::new(writer);
@@ -1226,6 +1214,9 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         let mut frame_state = FrameState::new(size);
         frame_state.observe(&update_status);
         self.match_list.resize(frame_state.match_list_height());
+        preview
+            .update(&self.match_list, frame_start + self.interval)
+            .map_err(PickError::Aborted)?;
         frame_state.render_frame(self, &mut terminal, Redraw::all(), &queued_items)?;
 
         let mut redraw = Redraw::default();
@@ -1273,6 +1264,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
                         }
                         Event::Restart => match self.restart_notifier {
                             Some(ref notifier) => {
+                                preview.restart();
                                 if notifier.push(lazy_match_list.restart()).is_err() {
                                     break 'selection Err(PickError::Disconnected);
                                 }
@@ -1329,6 +1321,10 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
                 redraw.match_status |= frame_state
                     .update_marker(self.chars.spinner_chars, self.chars.matching_indicator);
             }
+
+            preview
+                .update(&self.match_list, frame_start + self.interval)
+                .map_err(PickError::Aborted)?;
 
             // process size changes and redraw the frame
             let changed = redraw.any_required();
@@ -1395,7 +1391,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         E: EventSource,
         W: Terminal,
     {
-        self.pick_impl::<_, _, ()>(event_source, terminal)
+        self.pick_impl::<_, _, (), _>(event_source, terminal, ())
     }
 
     /// Run the picker interactively with a custom event source and terminal backend, allowing the
@@ -1413,6 +1409,6 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         E: EventSource,
         W: Terminal,
     {
-        self.pick_impl::<_, _, SelectedIndices>(event_source, terminal)
+        self.pick_impl::<_, _, SelectedIndices, _>(event_source, terminal, ())
     }
 }
