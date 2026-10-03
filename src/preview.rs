@@ -26,12 +26,32 @@ mod lock;
 mod picker;
 mod scroll;
 
-use std::time::Duration;
+use std::{num::NonZero, time::Duration};
 
 pub use buffer::{PreviewBuffer, PreviewLine};
 use lock::{ActiveWriter, QueuedWriter, Reader, request};
 pub use picker::PreviewPicker;
 pub use scroll::PreviewEvent;
+
+/// Internal preview configuration.
+#[derive(Debug, Clone)]
+pub(crate) struct PreviewConfig {
+    pub cache_size: NonZero<usize>,
+}
+
+impl PreviewConfig {
+    pub const fn new() -> Self {
+        Self {
+            cache_size: NonZero::new(128).unwrap(),
+        }
+    }
+}
+
+impl Default for PreviewConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Types which know how to generate previews of items.
 ///

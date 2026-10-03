@@ -3,7 +3,6 @@ mod tests;
 
 use std::{
     io::{self, BufWriter, IsTerminal},
-    num::NonZeroUsize,
     time::{Duration, Instant},
 };
 
@@ -11,8 +10,8 @@ use crossterm::event::KeyEvent;
 use lru::LruCache;
 
 use super::{
-    BufferNotReady, Cached, Preview, PreviewBuffer, PreviewEvent, PreviewRequest, PreviewResponse,
-    State,
+    BufferNotReady, Cached, Preview, PreviewBuffer, PreviewConfig, PreviewEvent, PreviewRequest,
+    PreviewResponse, State,
 };
 #[cfg(feature = "unstable-backend")]
 use crate::Terminal;
@@ -151,7 +150,7 @@ impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<'_, T,
         self.picker.pick_impl::<_, _, (), _>(
             event_source,
             &mut CrosstermTerminal::new(writer),
-            PreviewSession::new(&mut self.previewer),
+            PreviewSession::new(&self.picker.preview_config, &mut self.previewer),
         )
     }
 
@@ -172,7 +171,7 @@ impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<'_, T,
         self.picker.pick_impl::<_, _, SelectedIndices, _>(
             event_source,
             &mut CrosstermTerminal::new(writer),
-            PreviewSession::new(&mut self.previewer),
+            PreviewSession::new(&self.picker.preview_config, &mut self.previewer),
         )
     }
 }
@@ -196,7 +195,7 @@ impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<'_, T,
         self.picker.pick_impl::<_, _, (), _>(
             event_source,
             terminal,
-            PreviewSession::new(&mut self.previewer),
+            PreviewSession::new(&self.picker.preview_config, &mut self.previewer),
         )
     }
 
@@ -218,7 +217,7 @@ impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<'_, T,
         self.picker.pick_impl::<_, _, SelectedIndices, _>(
             event_source,
             terminal,
-            PreviewSession::new(&mut self.previewer),
+            PreviewSession::new(&self.picker.preview_config, &mut self.previewer),
         )
     }
 }
@@ -234,10 +233,10 @@ pub(crate) struct PreviewSession<P> {
 }
 
 impl<P> PreviewSession<P> {
-    pub(crate) fn new(previewer: P) -> Self {
+    pub(crate) fn new(config: &PreviewConfig, previewer: P) -> Self {
         Self {
             previewer,
-            cache: LruCache::new(NonZeroUsize::new(128).unwrap()),
+            cache: LruCache::new(config.cache_size),
             last_item: None,
             epoch: 0,
         }
