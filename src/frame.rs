@@ -116,6 +116,11 @@ impl FrameState {
         self.size.height.saturating_sub(2)
     }
 
+    #[cfg(feature = "preview")]
+    pub fn preview_height(&self) -> u16 {
+        self.size.height.saturating_sub(2)
+    }
+
     pub fn dimensions(&self) -> (u16, u16) {
         (self.size.width, self.size.height)
     }

@@ -779,7 +779,7 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
             .saturating_sub(1)
     }
 
-    fn idx_from_match_unchecked(&self, n: u32) -> u32 {
+    pub fn idx_from_match_unchecked(&self, n: u32) -> u32 {
         self.nucleo
             .snapshot()
             .matches()
