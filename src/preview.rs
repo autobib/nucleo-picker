@@ -24,12 +24,14 @@
 mod buffer;
 mod lock;
 mod picker;
+mod scroll;
 
 use std::time::Duration;
 
 pub use buffer::{PreviewBuffer, PreviewLine};
 use lock::{ActiveWriter, QueuedWriter, Reader, request};
 pub use picker::PreviewPicker;
+pub use scroll::PreviewEvent;
 
 /// Types which know how to generate previews of items.
 ///
@@ -157,7 +159,6 @@ pub struct PendingPreview {
 }
 
 /// A single entry in the preview cache.
-#[cfg_attr(not(test), expect(unused))]
 pub(crate) struct Cached {
     pub scroll_position: usize,
     pub state: Option<State>,

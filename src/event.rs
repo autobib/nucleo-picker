@@ -37,6 +37,9 @@ use crossterm::event::{KeyEvent, poll, read};
 use self::bind::convert_crossterm_event;
 
 pub use self::bind::{keybind_default, keybind_no_multi};
+#[cfg(feature = "preview")]
+#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
+pub use crate::preview::PreviewEvent;
 pub use crate::{match_list::MatchListEvent, observer::Observer, prompt::PromptEvent};
 
 /// An event which controls the picker behaviour.
@@ -120,6 +123,10 @@ pub enum Event<A = Infallible> {
     Prompt(PromptEvent),
     /// Modify the list of matches.
     MatchList(MatchListEvent),
+    /// Modify the preview pane.
+    #[cfg(feature = "preview")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
+    Preview(PreviewEvent),
     /// Quit the picker (no selection).
     Quit,
     /// Quit the picker (no selection) if the prompt is empty.

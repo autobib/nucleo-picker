@@ -10,7 +10,7 @@ use std::{
 use crossterm::event::KeyEvent;
 use lru::LruCache;
 
-use super::{Cached, Preview, PreviewBuffer, PreviewRequest, PreviewResponse, State};
+use super::{Cached, Preview, PreviewBuffer, PreviewEvent, PreviewRequest, PreviewResponse, State};
 #[cfg(feature = "unstable-backend")]
 use crate::Terminal;
 use crate::{
@@ -263,5 +263,18 @@ impl<T: Send + Sync + 'static, R, P: Preview<T>> PreviewComponent<T, R, P::Abort
 
     fn restart(&mut self) {
         self.cache.clear();
+    }
+
+    fn scroll(&mut self, idx: Option<u32>, event: PreviewEvent, height: u16) -> bool {
+        idx.and_then(|idx| self.cache.get_mut(&idx))
+            .is_some_and(|cached| cached.scroll(event, height))
+    }
+
+    fn draw(&mut self, matches: &MatchList<T, R>, height: u16) {
+        if let Some((idx, _)) = matches.selected_item()
+            && let Some(cached) = self.cache.peek_mut(&idx)
+        {
+            cached.draw(height);
+        }
     }
 }

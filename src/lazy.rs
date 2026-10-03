@@ -52,6 +52,12 @@ impl<'a, T: Send + Sync + 'static, R: Render<T>, Q: crate::Queued> LazyMatchList
         }
     }
 
+    #[cfg(feature = "preview")]
+    pub fn selected_item_id(&self) -> Option<u32> {
+        self.selection()
+            .map(|selection| self.match_list.idx_from_match_unchecked(selection))
+    }
+
     pub fn toggle_selection(&mut self) -> bool {
         if !self.is_empty()
             && self

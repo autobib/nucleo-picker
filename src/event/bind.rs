@@ -1,5 +1,7 @@
 use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
+#[cfg(feature = "preview")]
+use super::PreviewEvent;
 use super::{Event, MatchListEvent, PromptEvent};
 
 /// The default keybindings.
@@ -14,6 +16,11 @@ use super::{Event, MatchListEvent, PromptEvent};
 /// [`Event::Abort`] is never produced by the default keybindings. This type parameter is simply
 /// here for flexibility to generate events of a particular type when used in situations where `A`
 /// is not the default `!`.
+///
+/// # Preview bindings
+///
+/// When the `preview` feature is enabled, the default keybindings include keybindings which target
+/// the preview pane.
 #[inline]
 pub fn keybind_default<A>(key_event: KeyEvent) -> Option<Event<A>> {
     keybind_no_multi_passthrough(key_event)
@@ -74,6 +81,34 @@ pub fn keybind_multi_passthrough<A>(key_event: KeyEvent) -> Result<Event<A>, Key
 /// A composable version of `keybind_no_multi`.
 #[inline]
 fn keybind_no_multi_passthrough<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEvent> {
+    let event = keybind_core_passthrough(key_event);
+    #[cfg(feature = "preview")]
+    let event = event.or_else(keybind_preview_passthrough);
+    event
+}
+
+#[cfg(feature = "preview")]
+#[inline]
+fn keybind_preview_passthrough<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEvent> {
+    match key_event {
+        KeyEvent {
+            kind: KeyEventKind::Press,
+            modifiers: KeyModifiers::SHIFT,
+            code,
+            ..
+        } => match code {
+            KeyCode::Up => Ok(Event::Preview(PreviewEvent::Up(1))),
+            KeyCode::Down => Ok(Event::Preview(PreviewEvent::Down(1))),
+            KeyCode::PageUp => Ok(Event::Preview(PreviewEvent::PageUp(1))),
+            KeyCode::PageDown => Ok(Event::Preview(PreviewEvent::PageDown(1))),
+            _ => Err(key_event),
+        },
+        _ => Err(key_event),
+    }
+}
+
+#[inline]
+fn keybind_core_passthrough<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEvent> {
     match key_event {
         KeyEvent {
             kind: KeyEventKind::Press,
