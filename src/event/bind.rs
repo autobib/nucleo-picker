@@ -122,8 +122,8 @@ fn keybind_no_multi_passthrough<A>(key_event: KeyEvent) -> Result<Event<A>, KeyE
             code,
             ..
         } => match code {
-            KeyCode::Char('f') => Ok(Event::Prompt(PromptEvent::WordLeft(1))),
-            KeyCode::Char('b') => Ok(Event::Prompt(PromptEvent::WordRight(1))),
+            KeyCode::Char('f') => Ok(Event::Prompt(PromptEvent::WordRight(1))),
+            KeyCode::Char('b') => Ok(Event::Prompt(PromptEvent::WordLeft(1))),
             _ => Err(key_event),
         },
         KeyEvent {

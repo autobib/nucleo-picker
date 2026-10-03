@@ -44,6 +44,8 @@ ctrl + d                           | Quit If Query Empty (no selection)
 ctrl + 0                           | Reset Selection Scroll
 ←, ctrl + b                        | Cursor Left
 →, ctrl + f                        | Cursor Right
+alt + b                            | Cursor Word Left
+alt + f                            | Cursor Word Right
 ctrl + a, ⇱                        | Cursor To Start
 ctrl + e                           | Cursor To End
 ctrl + u                           | Clear Before Cursor
