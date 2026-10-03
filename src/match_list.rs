@@ -663,6 +663,12 @@ impl<T: Send + Sync + 'static, R> MatchList<T, R> {
         (!self.is_empty()).then_some(self.selection)
     }
 
+    #[cfg(feature = "preview")]
+    pub fn selected_item(&self) -> Option<(u32, &T)> {
+        let idx = self.idx_from_match_unchecked(self.selection()?);
+        Some((idx, self.nucleo.snapshot().get_item(idx).unwrap().data))
+    }
+
     pub fn item_count(&self) -> u32 {
         self.nucleo.snapshot().item_count()
     }

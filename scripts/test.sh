@@ -9,6 +9,7 @@ cd "$(dirname "$manifest_path")"
 
 cargo test --locked --no-run --all-features
 cargo test --locked --no-fail-fast --all-features
+cargo test --locked --no-fail-fast
 cargo test --locked --release --package nucleo-picker-vt --no-run
 cargo test --locked --release --package nucleo-picker-vt --no-fail-fast
 cargo doc --locked --workspace --no-deps --all-features

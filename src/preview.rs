@@ -16,9 +16,10 @@
 //! If the preview can be generated directly from data stored in the item `T`, you most likely have
 //! a fast previewer. For example:
 //! A fast preview typically looks something like
-//! TODO: example
+//! TODO: write
 //!
 //! ### Implementing slow (asynchronous) previews
+//! TODO: write
 
 mod buffer;
 mod lock;
@@ -156,7 +157,7 @@ pub struct PendingPreview {
 }
 
 /// A single entry in the preview cache.
-#[expect(unused)]
+#[cfg_attr(not(test), expect(unused))]
 pub(crate) struct Cached {
     pub scroll_position: usize,
     pub state: Option<State>,
