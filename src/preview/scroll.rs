@@ -1,4 +1,4 @@
-use super::{Cached, PreviewBuffer, State};
+use super::{Cached, State};
 
 /// Events which target the preview pane.
 #[derive(Debug, PartialEq, Eq)]
@@ -38,7 +38,7 @@ impl Cached {
         changed
     }
 
-    pub fn draw(&mut self, height: u16) {
+    pub fn resize(&mut self, height: u16) {
         if height == 0 {
             return;
         }
@@ -46,17 +46,14 @@ impl Cached {
             self.scroll_position = self
                 .scroll_position
                 .min(buffer.lines().len().saturating_sub(usize::from(height)));
-            render(buffer, self.scroll_position);
         }
     }
 }
 
-fn render(_buffer: &PreviewBuffer, _scroll_position: usize) {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::preview::PreviewRequest;
+    use crate::preview::{PreviewBuffer, PreviewRequest};
 
     fn ready(lines: usize) -> Cached {
         let mut buffer = PreviewBuffer::new();
@@ -127,19 +124,19 @@ mod tests {
             assert!(!cached.scroll(event, 0));
             assert_eq!(cached.scroll_position, 9);
         }
-        cached.draw(0);
+        cached.resize(0);
         assert_eq!(cached.scroll_position, 9);
     }
 
     #[test]
-    fn drawing_reclamps_after_a_resize() {
+    fn resizing_clamps_the_offset_to_avoid_unused_space() {
         let mut cached = ready(23);
         cached.scroll(PreviewEvent::Down(usize::MAX), 8);
-        cached.draw(12);
+        cached.resize(12);
         assert_eq!(cached.scroll_position, 11);
-        cached.draw(4);
+        cached.resize(4);
         assert_eq!(cached.scroll_position, 11);
-        cached.draw(30);
+        cached.resize(30);
         assert_eq!(cached.scroll_position, 0);
     }
 
@@ -152,7 +149,7 @@ mod tests {
         .defer();
         let mut cached = Cached {
             state: Some(State::Pending(pending)),
-            scroll_position: 3,
+            scroll_position: 0,
         };
         assert!(!cached.scroll(PreviewEvent::Down(1), 8));
         let active = queued.start().unwrap();
@@ -160,8 +157,8 @@ mod tests {
         let mut buffer = PreviewBuffer::new();
         assert!(active.publish(&mut buffer));
         assert!(!cached.scroll(PreviewEvent::PageUp(1), 8));
-        cached.draw(8);
-        assert_eq!(cached.scroll_position, 3);
+        cached.resize(8);
+        assert_eq!(cached.scroll_position, 0);
         assert!(matches!(cached.state, Some(State::Pending(_))));
     }
 }

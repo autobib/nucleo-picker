@@ -10,7 +10,10 @@ use std::{
 use crossterm::event::KeyEvent;
 use lru::LruCache;
 
-use super::{Cached, Preview, PreviewBuffer, PreviewEvent, PreviewRequest, PreviewResponse, State};
+use super::{
+    BufferNotReady, Cached, Preview, PreviewBuffer, PreviewEvent, PreviewRequest, PreviewResponse,
+    State,
+};
 #[cfg(feature = "unstable-backend")]
 use crate::Terminal;
 use crate::{
@@ -223,6 +226,11 @@ impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<'_, T,
 pub(crate) struct PreviewSession<P> {
     previewer: P,
     cache: LruCache<u32, Cached>,
+    last_item: Option<u32>,
+    // the epoch is advanced when the item changes and is reset on restart. the epoch is passed to
+    // each preview request and then returned by the previewer. it is used to prevent repeated
+    // resubmission when there are no changes.
+    epoch: u64,
 }
 
 impl<P> PreviewSession<P> {
@@ -230,6 +238,8 @@ impl<P> PreviewSession<P> {
         Self {
             previewer,
             cache: LruCache::new(NonZeroUsize::new(128).unwrap()),
+            last_item: None,
+            epoch: 0,
         }
     }
 }
@@ -237,32 +247,66 @@ impl<P> PreviewSession<P> {
 impl<T: Send + Sync + 'static, R, P: Preview<T>> PreviewComponent<T, R, P::AbortErr>
     for PreviewSession<P>
 {
-    fn update(&mut self, matches: &MatchList<T, R>, deadline: Instant) -> Result<(), P::AbortErr> {
+    fn update(
+        &mut self,
+        matches: &MatchList<T, R>,
+        deadline: Instant,
+    ) -> Result<bool, P::AbortErr> {
         let Some((idx, item)) = matches.selected_item() else {
-            return Ok(());
+            // no selected item: if the previous item was selected, bump the epoch
+            let changed = self.last_item.take().is_some();
+            if changed {
+                self.epoch = self.epoch.wrapping_add(1);
+            }
+            return Ok(changed);
         };
-        self.cache.try_get_or_insert(idx, || {
-            let request = PreviewRequest {
-                buffer: PreviewBuffer::new(),
-                epoch: 0,
-            };
-            let timeout = deadline
-                .saturating_duration_since(Instant::now())
-                .max(Duration::from_millis(2));
-            let response = self.previewer.preview(item, request, timeout)?;
-            Ok(Cached {
-                scroll_position: 0,
-                state: Some(match response {
-                    PreviewResponse::Ready(buffer) => State::Ready(buffer),
-                    PreviewResponse::Pending(pending) => State::Pending(pending),
-                }),
-            })
-        })?;
-        Ok(())
+
+        let mut changed = self.last_item.replace(idx) != Some(idx);
+        if changed {
+            self.epoch = self.epoch.wrapping_add(1);
+        }
+        let cached = self.cache.get_or_insert_mut(idx, || Cached {
+            scroll_position: 0,
+            state: None,
+        });
+        if matches!(cached.state, Some(State::Ready(_))) {
+            return Ok(changed);
+        }
+
+        // check the state:
+        //
+        // - if ready, we're done
+        // - if pending, check if the epoch is different. if so, reprioritize it by
+        //   cancelling and resubmitting
+        // - if the epoch is the same, or a worker is currently handing the request,
+        //   wait
+        // - if dropped, recover the buffer and resubmit
+        let state = match cached.state.take() {
+            Some(state) => match state.try_into_buffer() {
+                Ok(buffer) => Ok(State::Ready(buffer)),
+                Err(BufferNotReady::Queued(State::Pending(pending)))
+                    if pending.epoch != self.epoch =>
+                {
+                    pending.reprioritize()
+                }
+                Err(BufferNotReady::Queued(state) | BufferNotReady::Active(state)) => Ok(state),
+                Err(BufferNotReady::Dropped(buffer)) => Err(buffer),
+            },
+            None => Err(PreviewBuffer::new()),
+        };
+        let state = match state {
+            Ok(state) => state,
+            Err(buffer) => submit(&mut self.previewer, item, buffer, self.epoch, deadline)?,
+        };
+        changed |= matches!(state, State::Ready(_));
+        cached.state = Some(state);
+        Ok(changed)
     }
 
     fn restart(&mut self) {
         self.cache.clear();
+        self.last_item = None;
+        self.epoch = 0;
     }
 
     fn scroll(&mut self, idx: Option<u32>, event: PreviewEvent, height: u16) -> bool {
@@ -270,11 +314,33 @@ impl<T: Send + Sync + 'static, R, P: Preview<T>> PreviewComponent<T, R, P::Abort
             .is_some_and(|cached| cached.scroll(event, height))
     }
 
-    fn draw(&mut self, matches: &MatchList<T, R>, height: u16) {
-        if let Some((idx, _)) = matches.selected_item()
-            && let Some(cached) = self.cache.peek_mut(&idx)
-        {
-            cached.draw(height);
+    fn resize(&mut self, height: u16) {
+        for (_, cached) in self.cache.iter_mut() {
+            cached.resize(height);
         }
     }
+
+    fn cached(&self) -> Option<&Cached> {
+        self.last_item.and_then(|idx| self.cache.peek(&idx))
+    }
+}
+
+fn submit<T, P: Preview<T>>(
+    previewer: &mut P,
+    item: &T,
+    mut buffer: PreviewBuffer,
+    epoch: u64,
+    deadline: Instant,
+) -> Result<State, P::AbortErr> {
+    buffer.clear();
+    let request = PreviewRequest { buffer, epoch };
+    let timeout = deadline
+        .saturating_duration_since(Instant::now())
+        .max(Duration::from_millis(2));
+    previewer
+        .preview(item, request, timeout)
+        .map(|response| match response {
+            PreviewResponse::Ready(buffer) => State::Ready(buffer),
+            PreviewResponse::Pending(pending) => State::Pending(pending),
+        })
 }

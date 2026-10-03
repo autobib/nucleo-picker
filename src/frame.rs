@@ -7,6 +7,8 @@ use crossterm::{
     terminal::{BeginSynchronizedUpdate, Clear, ClearType, EndSynchronizedUpdate},
 };
 
+#[cfg(feature = "preview")]
+use crate::preview::Cached;
 use crate::{
     Picker, Render, Terminal,
     match_list::{MatchListStatus, Queued},
@@ -24,15 +26,12 @@ pub struct Redraw {
     pub prompt: bool,
     pub match_list: bool,
     pub match_status: bool,
+    pub preview: bool,
 }
 
 impl Redraw {
     pub fn any_required(self) -> bool {
-        self.prompt || self.match_list || self.match_status
-    }
-
-    pub fn all_required(self) -> bool {
-        self.prompt && self.match_list && self.match_status
+        self.prompt || self.match_list || self.match_status || self.preview
     }
 
     pub fn all() -> Self {
@@ -40,6 +39,7 @@ impl Redraw {
             prompt: true,
             match_list: true,
             match_status: true,
+            preview: true,
         }
     }
 
@@ -116,7 +116,6 @@ impl FrameState {
         self.size.height.saturating_sub(2)
     }
 
-    #[cfg(feature = "preview")]
     pub fn preview_height(&self) -> u16 {
         self.size.height.saturating_sub(2)
     }
@@ -171,9 +170,10 @@ impl FrameState {
         writer: &mut W,
         redraw: Redraw,
         queued_items: &Q,
+        #[cfg(feature = "preview")] preview: Option<&Cached>,
     ) -> io::Result<()> {
         let ScreenSize { width, height } = self.size;
-        let clear_mode = if redraw.all_required() {
+        let clear_mode = if redraw.prompt && redraw.match_list && redraw.match_status {
             ClearMode::All
         } else {
             ClearMode::Line
@@ -224,6 +224,11 @@ impl FrameState {
                     .draw(width, 1, clear_mode, writer, &picker.chars)?;
             }
 
+            #[cfg(feature = "preview")]
+            if redraw.preview || clear_mode == ClearMode::All {
+                self.render_preview(writer, preview, clear_mode)?;
+            }
+
             writer
                 .queue(MoveTo(
                     picker
@@ -240,6 +245,17 @@ impl FrameState {
 
         Ok(())
     }
+
+    #[cfg(feature = "preview")]
+    fn render_preview<W: io::Write>(
+        &self,
+        _writer: &mut W,
+        _preview: Option<&Cached>,
+        _clear_mode: ClearMode,
+    ) -> io::Result<()> {
+        // TODO
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -250,9 +266,11 @@ mod tests {
 
     use super::{FrameState, MatchListStatus, Redraw};
 
+    #[derive(Default)]
     struct TestTerminal {
         output: Vec<u8>,
         size: (u16, u16),
+        rendering: bool,
     }
 
     impl Write for TestTerminal {
@@ -278,19 +296,42 @@ mod tests {
         fn size(&mut self) -> io::Result<(u16, u16)> {
             Ok(self.size)
         }
+
+        fn begin_render(&mut self) -> io::Result<()> {
+            assert!(!self.rendering);
+            self.rendering = true;
+            Ok(())
+        }
+
+        fn end_render(&mut self) -> io::Result<()> {
+            assert!(self.rendering);
+            self.rendering = false;
+            Ok(())
+        }
     }
 
     fn render(redraw: Redraw) -> String {
+        render_at_size(redraw, (20, 4))
+    }
+
+    fn render_at_size(redraw: Redraw, size: (u16, u16)) -> String {
         let mut picker = Picker::<String, _>::new(StrRenderer);
         let mut terminal = TestTerminal {
-            output: Vec::new(),
-            size: (20, 4),
+            size,
+            ..TestTerminal::default()
         };
-
-        FrameState::new((20, 4))
-            .render_frame(&mut picker, &mut terminal, redraw, &())
+        FrameState::new(size)
+            .render_frame(
+                &mut picker,
+                &mut terminal,
+                redraw,
+                &(),
+                #[cfg(feature = "preview")]
+                None,
+            )
             .unwrap();
 
+        assert!(!terminal.rendering);
         String::from_utf8(terminal.output).unwrap()
     }
 
@@ -320,6 +361,35 @@ mod tests {
 
         assert!(output.contains("\x1b[2J"));
         assert!(!output.contains("\x1b[2K"));
+    }
+
+    #[test]
+    fn preview_only_redraw_does_not_draw_other_components() {
+        let output = render(Redraw {
+            preview: true,
+            ..Redraw::default()
+        });
+
+        assert_eq!(output, "\x1b[?2026h\x1b[4;3H\x1b[?2026l");
+    }
+
+    #[test]
+    fn full_screen_clear_does_not_require_a_preview_change() {
+        let output = render(Redraw {
+            prompt: true,
+            match_list: true,
+            match_status: true,
+            preview: false,
+        });
+
+        assert!(output.contains("\x1b[2J"));
+    }
+
+    #[test]
+    fn zero_width_skips_preview_drawing() {
+        let output = render_at_size(Redraw::all(), (0, 4));
+
+        assert!(output.is_empty());
     }
 
     #[test]
