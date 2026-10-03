@@ -38,6 +38,8 @@ mod injector;
 mod lazy;
 mod match_list;
 mod observer;
+#[cfg(feature = "preview")]
+#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
 pub mod preview;
 mod prompt;
 pub mod render;
@@ -875,6 +877,8 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     }
 
     /// Get a picker variant which also generates previews.
+    #[cfg(feature = "preview")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     pub fn with_preview<P>(&mut self, previewer: P) -> preview::PreviewPicker<'_, T, R, P>
     where
         P: preview::Preview<T>,
@@ -1182,6 +1186,8 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     }
 
     /// TODO
+    #[cfg(feature = "preview")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     pub fn preview_multi_with_io<E, W, P>(
         &mut self,
         event_source: E,

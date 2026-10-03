@@ -19,10 +19,14 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
+# expose 'custom backend' traits
+# unstable and subject to change on every version bump
 unstable-backend = []
+preview = ["dep:lru"]
 
 [dependencies]
 crossterm = { version = "0.29.0", features = ["use-dev-tty"] }
+lru = { version = "0.18.5", optional = true }
 memchr = "2.7"
 nucleo = { version = "0.3.0", package = "ncp-engine" }
 parking_lot = "0.12.3"
