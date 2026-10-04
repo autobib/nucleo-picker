@@ -5,8 +5,7 @@ mod state;
 mod tests;
 
 pub(crate) use component::Prompt;
-use state::PromptView;
-pub(crate) use state::{PromptData, PromptState};
+pub(crate) use state::PromptState;
 
 /// An event that modifies the prompt.
 #[derive(Debug, PartialEq, Eq)]

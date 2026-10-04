@@ -1,4 +1,4 @@
-use super::{PromptData, PromptEvent, PromptState, PromptView, state::PromptStatus};
+use super::{PromptEvent, PromptState, state::PromptStatus};
 use crate::{
     PickerChars,
     component::Component,
@@ -11,8 +11,7 @@ pub(crate) struct Prompt<'a> {
     chars: &'a PickerChars,
     area: Area,
     buffered_event: Option<PromptEvent>,
-    pending_redraw: bool,
-    query_changed: bool,
+    pending: PromptStatus,
 }
 
 impl<'a> Prompt<'a> {
@@ -22,8 +21,7 @@ impl<'a> Prompt<'a> {
             chars,
             area: Area::default(),
             buffered_event: None,
-            pending_redraw: false,
-            query_changed: false,
+            pending: PromptStatus::default(),
         }
     }
 
@@ -33,14 +31,14 @@ impl<'a> Prompt<'a> {
 
     pub fn flush(&mut self) {
         if let Some(event) = self.buffered_event.take() {
-            let status = self.state.handle(event);
-            self.pending_redraw |= status.needs_redraw;
-            self.query_changed |= status.contents_changed;
+            self.apply(event);
         }
     }
 
-    pub fn clear(&mut self) {
-        self.state.set_query("");
+    fn apply(&mut self, event: PromptEvent) {
+        let status = self.state.apply(event);
+        self.pending.needs_redraw |= status.needs_redraw;
+        self.pending.contents_changed |= status.contents_changed;
     }
 
     pub fn handle(&mut self, event: PromptEvent) {
@@ -90,63 +88,44 @@ impl<'a> Prompt<'a> {
             (b, mut e) => {
                 // move the incoming event into the buffer and handle the buffered event
                 std::mem::swap(b, &mut e);
-                let status = self.state.handle(e);
-                self.pending_redraw |= status.needs_redraw;
-                self.query_changed |= status.contents_changed;
+                self.apply(e);
             }
         }
     }
 
     pub fn update(&mut self) -> PromptStatus {
         self.flush();
-        PromptStatus {
-            needs_redraw: std::mem::take(&mut self.pending_redraw),
-            contents_changed: std::mem::take(&mut self.query_changed),
-        }
+        std::mem::take(&mut self.pending)
     }
 }
 
 impl<E> Component<E> for Prompt<'_> {
     fn resize(&mut self, area: Area, _engine: &E) {
         self.area = area;
-        if let Some(width) = area.width.checked_sub(2)
-            && width != self.state.view.width
-        {
+        if let Some(width) = area.width.checked_sub(2) {
             self.state.resize(width);
         }
     }
     fn draw<D: Rect>(&mut self, _engine: &E, rect: &mut D) -> io::Result<()> {
-        self.state.view.draw(&self.state.data, rect, self.chars)
+        rect.clear_line()?;
+        rect.print(self.chars.prompt)?;
+
+        if rect.width().get() >= 2 {
+            rect.print(" ")?;
+            let (contents, shift) = self.state.view();
+            rect.spaces(shift)?;
+            rect.print(contents)?;
+        }
+        Ok(())
     }
     fn cursor(&self, _engine: &E) -> Option<Position> {
         (!self.area.is_empty()).then(|| Position {
             column: self
                 .state
-                .view
-                .screen_offset()
+                .cursor_column()
                 .saturating_add(2)
                 .min(self.area.width - 1),
             row: 0,
         })
-    }
-}
-
-impl PromptView {
-    pub fn draw<D: Rect>(
-        &self,
-        data: &PromptData,
-        rect: &mut D,
-        chars: &PickerChars,
-    ) -> io::Result<()> {
-        rect.clear_line()?;
-        rect.print(chars.prompt)?;
-
-        if rect.width().get() >= 2 {
-            rect.print(" ")?;
-            let (contents, shift) = self.view(data);
-            rect.spaces(shift)?;
-            rect.print(contents)?;
-        }
-        Ok(())
     }
 }
