@@ -264,10 +264,22 @@ impl<T: Send + Sync + 'static, R, P: Preview<T>> PreviewComponent<T, R, P::Abort
         if changed {
             self.epoch = self.epoch.wrapping_add(1);
         }
-        let cached = self.cache.get_or_insert_mut(idx, || Cached {
-            scroll_position: 0,
-            state: None,
-        });
+        let Some(cached) = self.cache.get_mut(&idx) else {
+            let evicted = self.cache.push(
+                idx,
+                Cached {
+                    scroll_position: 0,
+                    state: None,
+                },
+            );
+            let buffer = evicted
+                .and_then(|(_, cached)| cached.state)
+                .map_or_else(PreviewBuffer::new, State::into_buffer);
+            let state = submit(&mut self.previewer, item, buffer, self.epoch, deadline)?;
+            changed |= matches!(state, State::Ready(_));
+            self.cache.peek_mut(&idx).unwrap().state = Some(state);
+            return Ok(changed);
+        };
         if matches!(cached.state, Some(State::Ready(_))) {
             return Ok(changed);
         }
