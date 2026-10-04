@@ -1,5 +1,8 @@
 //! The internal generic pick implementation
 
+#[cfg(test)]
+mod tests;
+
 use std::time::Instant;
 
 use crate::{
@@ -105,7 +108,6 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                         Event::QuitPromptEmpty => {
                             prompt.flush();
                             if prompt.contents().is_empty() {
-                                prompt.clear();
                                 break 'selection Ok(SelectionTarget::None);
                             }
                         }
@@ -228,6 +230,9 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
             }
         };
 
+        if prompt.update().contents_changed {
+            engine.reparse(prompt.contents());
+        }
         terminal.finish()?;
 
         // process and return the selection

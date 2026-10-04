@@ -784,12 +784,12 @@ impl PickerOptions {
     }
 }
 
+#[cfg(feature = "preview")]
 impl PickerOptions {
     /// Set the capacity of the preview cache.
     ///
     /// The preview cache is used to reduce preview requests when scrolling onto an item and to
     /// cache the scroll state of the preview pane. The default value is 128.
-    #[cfg(feature = "preview")]
     #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     #[must_use]
     #[inline]
@@ -817,6 +817,17 @@ impl PickerOptions {
 /// See also the [usage
 /// examples](https://github.com/autobib/nucleo-picker/tree/master/examples).
 ///
+/// ## Reusing the picker
+///
+/// By default, the picker **maintains state between sessions**. For example, calling [`Picker::pick`],
+/// processing a selection, and then calling it again, will retain the prompt and items
+/// from the previous sessions. This can be useful when resuming from errors (in
+/// particular, for handling application-defined errors or IO errors).
+///
+/// To reuse the picker with new items and cleared prompt use [`Picker::restart`]. If you want to
+/// retain the items and continue use of existing injectors, reset only the prompt by calling
+/// [`Picker::reset_query`].
+///
 /// ## Picker variants
 ///
 /// The picker can be run in a number of different modes.
@@ -830,8 +841,7 @@ impl PickerOptions {
 ///
 /// ### Multiple selections
 ///
-/// If you wish to permit the user to make multiple selections, use one of the similarly named
-/// methods:
+/// If you wish to permit multiple selections, use one of the similarly named methods:
 ///
 /// 1. [`Picker::pick_multi`]
 /// 2. [`Picker::pick_multi_with_keybind`]
@@ -861,6 +871,13 @@ impl PickerOptions {
 /// Note that the picker interface will be slightly different: it is still possible to
 /// queue at most one picked item using `⇥`. With the non-multi-pickers, it is not possible to
 /// queue items at all.
+///
+/// ### Previewer
+///
+/// In order to use previews, enable the `preview` feature and pass a previewer to the
+/// picker with [`Picker::with_preview`]. The corresponding pick methods on the resulting
+/// [`PreviewPicker`](preview::PreviewPicker) have the same names and behaviour, except with an
+/// additional preview pane rendered on the right hand side of the screen.
 ///
 /// ## A note on memory usage
 /// Initializing a picker is a relatively expensive operation since the internal match engine uses
@@ -929,6 +946,13 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     pub fn update_query<Q: Into<String>>(&mut self, query: Q) {
         self.prompt.set_query(query);
         self.engine.reparse(self.prompt.contents());
+    }
+
+    /// Reset the query string to the empty string. This is a convenience method to call
+    /// [`update_query`](Self::update_query) with query string `""`.
+    #[inline]
+    pub fn reset_query(&mut self) {
+        self.update_query(String::new());
     }
 
     /// Returns the contents of the query string internal to the picker.
