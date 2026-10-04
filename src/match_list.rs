@@ -529,7 +529,6 @@ impl<'a, T: Send + Sync + 'static> Selection<'a, T> {
     /// selected by the user.
     ///
     /// The iterator will be empty if the picker quit without selecting any items.
-    #[must_use]
     pub fn iter(&self) -> impl ExactSizeIterator<Item = &'a T> + DoubleEndedIterator {
         self.queued.inner.keys().map(|idx| {
             // SAFETY: the indices were produced by the same snapshot which is stored inside this
@@ -548,7 +547,6 @@ impl<'a, T: Send + Sync + 'static> Selection<'a, T> {
     /// selection order, so calling this method requires allocating a new container and then sorting.
     ///
     /// The iterator will be empty if the picker quit without selecting any items.
-    #[must_use]
     pub fn iter_selected_order(
         &self,
     ) -> impl ExactSizeIterator<Item = &'a T> + DoubleEndedIterator {

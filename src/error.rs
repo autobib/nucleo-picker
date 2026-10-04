@@ -22,6 +22,8 @@
 
 use std::{convert::Infallible, error::Error as StdError, fmt, io};
 
+// see https://github.com/rust-lang/rust/issues/161699
+#[expect(rustdoc::broken_intra_doc_links)]
 /// An error which may occur while running the picker interactively.
 ///
 /// This is marked non-exhaustive since more variants may be added in the future. It is recommended
