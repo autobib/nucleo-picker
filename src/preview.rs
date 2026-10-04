@@ -64,7 +64,7 @@ impl Default for PreviewConfig {
 /// provided timeout is a hint to the previewer which indicates how much time remains before the
 /// next frame should be rendered. If the preview method does not return in time, the picker
 /// interface will lag. In practice, the timeout will always be at least 2ms, so the duration does
-/// not need to be checked if rendering the preview would less time.
+/// not need to be checked if rendering the preview would take less time.
 ///
 /// When the preview can be generated in time, this should be done to reduce overhead.
 /// For example, this is typically the case if the contents of the preview depend only on data
@@ -75,7 +75,7 @@ impl Default for PreviewConfig {
 /// # Preview priority
 ///
 /// The picker will only request previews for items which are either immediately required by the
-/// interface. In particular, requests should be handled last-in first-out (LIFO) order. Since
+/// interface. In particular, requests should be handled in last-in first-out (LIFO) order. Since
 /// preview requests may become stale (for instance, if the highlighted item has moved many
 /// times and there is backlog), the picker will re-prioritize preview requests by cancelling
 /// old requests and calling this method again.
@@ -145,6 +145,9 @@ pub enum PreviewResponse {
 /// longer required. When the preview itself is ready, call [`ActivePreviewRequest::publish`] to make the
 /// preview available to the picker.
 ///
+/// When a queued request is very outdated, the picker will cancel the request regardless of its
+/// state. When the picker restarts or exits, all open requests will be cancelled before the previewer drops.
+///
 /// # Non-blocking
 ///
 /// All of the operations associated with a [`QueuedPreviewRequest`] and [`ActivePreviewRequest`] are
@@ -181,6 +184,14 @@ pub struct PendingPreview {
 pub(crate) struct Cached {
     pub scroll_position: usize,
     pub state: Option<State>,
+}
+
+impl Drop for Cached {
+    fn drop(&mut self) {
+        if let Some(state) = self.state.take() {
+            drop(state.into_buffer());
+        }
+    }
 }
 
 /// The status of a preview request.
