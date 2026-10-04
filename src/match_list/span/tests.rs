@@ -1,7 +1,5 @@
-use super::{
-    super::unicode::{AsciiProcessor, UnicodeProcessor, is_ascii_safe},
-    *,
-};
+use super::*;
+use crate::util::unicode::{AsciiProcessor, UnicodeProcessor, is_ascii_safe};
 use crate::{
     PickerChars,
     rect::{Area, ClearState, CrosstermRect},

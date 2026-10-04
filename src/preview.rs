@@ -23,6 +23,7 @@
 
 mod buffer;
 mod cache;
+mod draw;
 mod lock;
 pub(crate) mod pane;
 mod picker;
@@ -40,6 +41,7 @@ pub use scroll::PreviewEvent;
 pub(crate) struct PreviewConfig {
     pub cache_size: NonZero<usize>,
     pub boundary_box_chars: [char; 6],
+    pub line_numbers: bool,
 }
 
 impl PreviewConfig {
@@ -47,6 +49,7 @@ impl PreviewConfig {
         Self {
             cache_size: NonZero::new(128).unwrap(),
             boundary_box_chars: ['╭', '╮', '╯', '╰', '│', '─'],
+            line_numbers: false,
         }
     }
 }

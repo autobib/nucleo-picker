@@ -27,7 +27,7 @@ colors:
   cursor: ~
 text:
   - "  item-13 november            ╭────────────────────────────╮"
-  - "  item-12 mike                │                            │"
+  - "  item-12 mike                │item-00 alpha               │"
   - "  item-11 lima                │                            │"
   - "  item-10 kilo                │                            │"
   - "  item-09 juliet              │                            │"

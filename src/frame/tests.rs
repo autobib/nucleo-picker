@@ -242,7 +242,11 @@ mod preview {
         render_with(
             redraw,
             size,
-            PreviewPane::new(&PreviewConfig::default(), EmptyPreview),
+            PreviewPane::new(
+                &PreviewConfig::default(),
+                &crate::PickerChars::new(),
+                EmptyPreview,
+            ),
         )
     }
     #[test]
