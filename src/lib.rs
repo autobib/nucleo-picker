@@ -1020,7 +1020,8 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// Update the internal nucleo configuration.
     #[inline]
     pub fn update_config(&mut self, config: nc::Config) {
-        self.engine.update_nucleo_config(config);
+        self.engine.update_nucleo_config(config.clone());
+        self.list_state.update_nucleo_config(config);
     }
 
     /// Restart the match engine, disconnecting all active injectors and clearing the existing

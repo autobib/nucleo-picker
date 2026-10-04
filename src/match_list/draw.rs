@@ -168,6 +168,10 @@ fn draw_whitespace<D: Rect>(rect: &mut D, height: u16) -> io::Result<()> {
 }
 
 impl MatchListState {
+    pub fn update_nucleo_config(&mut self, config: nc::Config) {
+        self.scratch.matcher.config = config;
+    }
+
     pub fn draw_items<T: Send + Sync + 'static, R: Render<T>, D: Rect, F: FnMut(u32) -> bool>(
         &mut self,
         engine: &MatchEngine<T, R>,
