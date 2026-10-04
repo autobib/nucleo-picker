@@ -37,6 +37,8 @@ use crate::{
 /// the the internal previewer may not be called to generate the preview pane if previewing already
 /// succeeded earlier. The cache is cleared when processing a [restart event](Event::Restart).
 /// See the [`Preview`] docs for more detail.
+///
+/// The buffers are reused within a given session and are dropped on exit or restart.
 pub struct PreviewPicker<'a, T, R, P> {
     picker: &'a mut Picker<T, R>,
     previewer: P,
@@ -223,8 +225,10 @@ impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<'_, T,
 }
 
 pub(crate) struct PreviewSession<P> {
-    previewer: P,
+    // fields drop in declaration order: cancel requests *before* dropping the
+    // previewer so that it may join its workers if desired
     cache: LruCache<u32, Cached>,
+    previewer: P,
     last_item: Option<u32>,
     // the epoch is advanced when the item changes and is reset on restart. the epoch is passed to
     // each preview request and then returned by the previewer. it is used to prevent repeated
@@ -235,8 +239,8 @@ pub(crate) struct PreviewSession<P> {
 impl<P> PreviewSession<P> {
     pub(crate) fn new(config: &PreviewConfig, previewer: P) -> Self {
         Self {
-            previewer,
             cache: LruCache::new(config.cache_size),
+            previewer,
             last_item: None,
             epoch: 0,
         }
@@ -273,7 +277,7 @@ impl<T: Send + Sync + 'static, R, P: Preview<T>> PreviewComponent<T, R, P::Abort
                 },
             );
             let buffer = evicted
-                .and_then(|(_, cached)| cached.state)
+                .and_then(|(_, mut cached)| cached.state.take())
                 .map_or_else(PreviewBuffer::new, State::into_buffer);
             let state = submit(&mut self.previewer, item, buffer, self.epoch, deadline)?;
             changed |= matches!(state, State::Ready(_));

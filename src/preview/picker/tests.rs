@@ -601,6 +601,81 @@ fn restart_resets_selection_and_priority_bookkeeping() {
 }
 
 #[test]
+fn restart_and_session_drop_cancel_all_pending_requests() {
+    for restart in [true, false] {
+        let mut picker = picker(["alpha", "beta"]);
+        let mut session = PreviewSession::new(
+            &PreviewConfig::default(),
+            TestPreviewer {
+                defer: true,
+                ..TestPreviewer::default()
+            },
+        );
+        session.update(&picker.match_list, Instant::now()).unwrap();
+        let active = session.previewer.queued.pop().unwrap().start().unwrap();
+        picker.match_list.set_selection(1);
+        session.update(&picker.match_list, Instant::now()).unwrap();
+        let queued = session.previewer.queued.pop().unwrap();
+
+        if restart {
+            PreviewComponent::<&'static str, StrRenderer, &'static str>::restart(&mut session);
+            assert!(session.cache.is_empty());
+            assert_eq!(session.last_item, None);
+            assert_eq!(session.epoch, 0);
+            PreviewComponent::<&'static str, StrRenderer, &'static str>::restart(&mut session);
+        } else {
+            drop(session);
+        }
+
+        assert!(queued.is_cancelled());
+        assert!(queued.start().is_none());
+        assert!(active.is_cancelled());
+        let mut buffer = PreviewBuffer::new();
+        buffer.push_str("unused result");
+        assert!(!active.publish(&mut buffer));
+        assert_eq!(buffer.line(0).unwrap().as_str(), "unused result");
+    }
+}
+
+#[test]
+fn session_cancels_requests_before_dropping_its_previewer() {
+    struct PreviewerDrop<'a> {
+        queued: QueuedPreviewRequest,
+        cancelled: &'a std::cell::Cell<bool>,
+    }
+
+    impl Drop for PreviewerDrop<'_> {
+        fn drop(&mut self) {
+            self.cancelled.set(self.queued.is_cancelled());
+        }
+    }
+
+    let cancelled = std::cell::Cell::new(false);
+    let (pending, queued) = PreviewRequest {
+        buffer: PreviewBuffer::new(),
+        epoch: 0,
+    }
+    .defer();
+    let mut session = PreviewSession::new(
+        &PreviewConfig::default(),
+        PreviewerDrop {
+            queued,
+            cancelled: &cancelled,
+        },
+    );
+    session.cache.put(
+        0,
+        Cached {
+            scroll_position: 0,
+            state: Some(State::Pending(pending)),
+        },
+    );
+
+    drop(session);
+    assert!(cancelled.get());
+}
+
+#[test]
 fn an_empty_match_list_does_not_request_previews() {
     let picker = picker([]);
     let mut session = PreviewSession::new(&PreviewConfig::default(), TestPreviewer::default());
@@ -697,10 +772,15 @@ mod picker_loop {
         cleanups: usize,
         sizes: VecDeque<(u16, u16)>,
         changed: Vec<bool>,
+        fail_write: bool,
+        fail_cleanup: bool,
     }
 
     impl io::Write for TestTerminal {
         fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.fail_write {
+                return Err(io::Error::other("write failed"));
+            }
             self.output.extend_from_slice(bytes);
             Ok(bytes.len())
         }
@@ -717,6 +797,9 @@ mod picker_loop {
 
         fn cleanup(&mut self) -> io::Result<()> {
             self.cleanups += 1;
+            if self.fail_cleanup {
+                return Err(io::Error::other("cleanup failed"));
+            }
             Ok(())
         }
 
@@ -988,6 +1071,7 @@ mod picker_loop {
             } else {
                 assert_eq!(previewer.requested, ["alpha", "beta", "alpha"]);
                 assert!(previewer.queued[0].is_cancelled());
+                assert!(previewer.queued[1].is_cancelled());
             }
         }
     }
@@ -1249,6 +1333,88 @@ mod picker_loop {
         let result = preview_picker.pick_with_terminal_io(Events(VecDeque::new()), &mut terminal);
         assert!(matches!(result, Err(PickError::Aborted("preview failed"))));
         assert_eq!(terminal.cleanups, 1);
+    }
+
+    #[test]
+    fn picker_exits_cancel_all_pending_requests() {
+        for (exit, succeeds) in [
+            (Ok(Event::Select), true),
+            (Ok(Event::Quit), true),
+            (Ok(Event::QuitPromptEmpty), true),
+            (Ok(Event::UserInterrupt), false),
+            (Ok(Event::Abort("aborted")), false),
+            (Ok(Event::Restart), false),
+            (Err(RecvError::Disconnected), false),
+            (Err(RecvError::IO(io::Error::other("read failed"))), false),
+        ] {
+            let mut picker = picker(["alpha", "beta"]);
+            let mut previewer = TestPreviewer {
+                defer: true,
+                ..TestPreviewer::default()
+            };
+            let events = Events(VecDeque::from([
+                Ok(Event::MatchList(MatchListEvent::Up(1))),
+                Err(RecvError::Timeout),
+                exit,
+            ]));
+            let mut terminal = TestTerminal::default();
+            let mut preview_picker = picker.with_preview(&mut previewer);
+            let result = preview_picker.pick_with_terminal_io(events, &mut terminal);
+
+            assert_eq!(result.is_ok(), succeeds);
+            assert_eq!(terminal.cleanups, 1);
+            assert_eq!(previewer.queued.len(), 2);
+            assert!(
+                previewer
+                    .queued
+                    .iter()
+                    .all(QueuedPreviewRequest::is_cancelled)
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_errors_cancel_pending_requests() {
+        for fail_write in [true, false] {
+            let mut picker = picker(["alpha"]);
+            let mut previewer = TestPreviewer {
+                defer: true,
+                ..TestPreviewer::default()
+            };
+            let mut terminal = TestTerminal {
+                fail_write,
+                fail_cleanup: !fail_write,
+                ..TestTerminal::default()
+            };
+            let mut preview_picker = picker.with_preview(&mut previewer);
+            let result = preview_picker
+                .pick_with_terminal_io(Events(VecDeque::from([Ok(Event::Quit)])), &mut terminal);
+
+            assert!(matches!(result, Err(PickError::IO(_))));
+            assert_eq!(terminal.cleanups, 1);
+            assert!(previewer.queued[0].is_cancelled());
+        }
+    }
+
+    #[test]
+    fn unwinding_cancels_pending_requests() {
+        let mut picker = picker(["alpha"]);
+        let mut previewer = TestPreviewer {
+            defer: true,
+            ..TestPreviewer::default()
+        };
+        let mut terminal = TestTerminal::default();
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut preview_picker = picker.with_preview(&mut previewer);
+            let _ = preview_picker.pick_with_terminal_io(
+                CallbackEvents(|| panic!("event source panic")),
+                &mut terminal,
+            );
+        }));
+
+        assert!(panic.is_err());
+        assert_eq!(terminal.cleanups, 1);
+        assert!(previewer.queued[0].is_cancelled());
     }
 
     #[test]
