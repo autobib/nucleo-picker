@@ -36,11 +36,70 @@ use lock::{ActiveWriter, QueuedWriter, Reader, request};
 pub use picker::PreviewPicker;
 pub use scroll::PreviewEvent;
 
+/// Preview boundary characters.
+///
+/// This is the value used to set
+/// [`PickerOptions::preview_boundary_chars`](crate::PickerOptions::preview_boundary_chars). Note
+/// that all characters must have Unicode width 1 or the terminal may be corrupted.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BoundaryChars {
+    /// Top left, default `╭`.
+    pub top_left: char,
+    /// Top right, default `╮`
+    pub top_right: char,
+    /// Bottom left, default `╰`
+    pub bottom_left: char,
+    /// Bottom right, default `╯`
+    pub bottom_right: char,
+    /// Left and right edges, default `│`
+    pub vertical: char,
+    /// Top and bottom edges, default `─`
+    pub horizontal: char,
+}
+
+impl BoundaryChars {
+    /// Initialize with default Unicode boundary characters.
+    ///
+    /// This is the same as the [`Default`] implementation but as a `const fn`.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            top_left: '╭',
+            top_right: '╮',
+            bottom_left: '╰',
+            bottom_right: '╯',
+            vertical: '│',
+            horizontal: '─',
+        }
+    }
+
+    /// Initialize with ASCII boundary characters.
+    ///
+    /// This sets `+` for corners, `|` for vertical edges, and `-` for horizontal edges.
+    #[must_use]
+    pub const fn ascii() -> Self {
+        Self {
+            top_left: '+',
+            top_right: '+',
+            bottom_left: '+',
+            bottom_right: '+',
+            vertical: '|',
+            horizontal: '-',
+        }
+    }
+}
+
+impl Default for BoundaryChars {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Internal preview configuration.
 #[derive(Debug, Clone)]
 pub(crate) struct PreviewConfig {
     pub cache_size: NonZero<usize>,
-    pub boundary_box_chars: [char; 6],
+    pub boundary_chars: BoundaryChars,
     pub line_numbers: bool,
 }
 
@@ -48,7 +107,7 @@ impl PreviewConfig {
     pub const fn new() -> Self {
         Self {
             cache_size: NonZero::new(128).unwrap(),
-            boundary_box_chars: ['╭', '╮', '╯', '╰', '│', '─'],
+            boundary_chars: BoundaryChars::new(),
             line_numbers: false,
         }
     }

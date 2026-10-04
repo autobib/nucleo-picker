@@ -2,7 +2,7 @@ use std::io;
 
 use crossterm::style::Color;
 
-use super::{PreviewBuffer, PreviewLine};
+use super::{BoundaryChars, PreviewBuffer, PreviewLine};
 use crate::{
     rect::Rect,
     util::unicode::{AsciiProcessor, Processor, UnicodeProcessor, is_ascii_safe, truncate},
@@ -11,20 +11,20 @@ use crate::{
 pub(super) fn draw<D: Rect>(
     rect: &mut D,
     preview: Option<(&PreviewBuffer, usize)>,
-    chars: [char; 6],
+    chars: BoundaryChars,
     ellipsis: char,
     line_numbers: bool,
 ) -> io::Result<()> {
     let width = rect.width().get();
     let height = rect.height().get();
-    let [
+    let BoundaryChars {
         top_left,
         top_right,
-        bottom_right,
         bottom_left,
+        bottom_right,
         vertical,
         horizontal,
-    ] = chars;
+    } = chars;
     for (row, left, right) in [
         (0, top_left, top_right),
         (height - 1, bottom_left, bottom_right),

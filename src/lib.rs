@@ -64,7 +64,7 @@ use nucleo::{
 };
 use observer::{Notifier, Observer};
 #[cfg(feature = "preview")]
-use preview::PreviewConfig;
+use preview::{BoundaryChars, PreviewConfig};
 
 use crate::{
     component::NoPreview,
@@ -747,12 +747,23 @@ impl PickerOptions {
     ///     .matching_indicator('.');
     /// ```
     /// If `ascii` is `false`, this uses the default Unicode character set.
+    ///
+    /// When the `preview` feature is enabled, this also sets the preview boundary characters to use
+    /// the ASCII or Unicode defaults.
     pub const fn ascii_compatible(mut self, ascii: bool) -> Self {
         self.chars = if ascii {
             PickerChars::ascii()
         } else {
             PickerChars::new()
         };
+        #[cfg(feature = "preview")]
+        {
+            self.preview_config.boundary_chars = if ascii {
+                BoundaryChars::ascii()
+            } else {
+                BoundaryChars::new()
+            };
+        }
         self
     }
 
@@ -786,6 +797,18 @@ impl PickerOptions {
 
 #[cfg(feature = "preview")]
 impl PickerOptions {
+    /// Set the preview boundary characters.
+    ///
+    /// This defaults to the value returned by [`BoundaryChars::new`]. Note that each character must
+    /// have Unicode width 1.
+    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
+    #[must_use]
+    #[inline]
+    pub const fn preview_boundary_chars(mut self, chars: BoundaryChars) -> Self {
+        self.preview_config.boundary_chars = chars;
+        self
+    }
+
     /// Enable preview line numbers.
     ///
     /// This prints line numbers in a column on the left side of the preview with an extra column of
