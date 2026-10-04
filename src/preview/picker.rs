@@ -230,6 +230,9 @@ pub(crate) struct PreviewSession<P> {
     cache: LruCache<u32, Cached>,
     previewer: P,
     last_item: Option<u32>,
+    // state to preserve scroll and restart invalidation and return redraw sate with
+    // `update`
+    pending_redraw: bool,
     // the epoch is advanced when the item changes and is reset on restart. the epoch is passed to
     // each preview request and then returned by the previewer. it is used to prevent repeated
     // resubmission when there are no changes.
@@ -242,32 +245,32 @@ impl<P> PreviewSession<P> {
             cache: LruCache::new(config.cache_size),
             previewer,
             last_item: None,
+            pending_redraw: false,
             epoch: 0,
         }
     }
-}
 
-impl<T: Send + Sync + 'static, R, P: Preview<T>> PreviewComponent<T, R, P::AbortErr>
-    for PreviewSession<P>
-{
-    fn update(
+    /// Update the current preview by polling and resubmitting requests and keeping track if a
+    /// redraw is required.
+    fn update_current<T: Send + Sync + 'static, R>(
         &mut self,
         matches: &MatchList<T, R>,
         deadline: Instant,
-    ) -> Result<bool, P::AbortErr> {
-        let Some((idx, item)) = matches.selected_item() else {
-            // no selected item: if the previous item was selected, bump the epoch
-            let changed = self.last_item.take().is_some();
-            if changed {
-                self.epoch = self.epoch.wrapping_add(1);
-            }
-            return Ok(changed);
+    ) -> Result<(), P::AbortErr>
+    where
+        P: Preview<T>,
+    {
+        let selected = matches.selected_item();
+        let idx = selected.map(|(idx, _)| idx);
+        if self.last_item != idx {
+            self.last_item = idx;
+            self.epoch = self.epoch.wrapping_add(1);
+            self.pending_redraw = true;
+        }
+        let Some((idx, item)) = selected else {
+            return Ok(());
         };
 
-        let mut changed = self.last_item.replace(idx) != Some(idx);
-        if changed {
-            self.epoch = self.epoch.wrapping_add(1);
-        }
         let Some(cached) = self.cache.get_mut(&idx) else {
             let evicted = self.cache.push(
                 idx,
@@ -280,12 +283,12 @@ impl<T: Send + Sync + 'static, R, P: Preview<T>> PreviewComponent<T, R, P::Abort
                 .and_then(|(_, mut cached)| cached.state.take())
                 .map_or_else(PreviewBuffer::new, State::into_buffer);
             let state = submit(&mut self.previewer, item, buffer, self.epoch, deadline)?;
-            changed |= matches!(state, State::Ready(_));
+            self.pending_redraw |= matches!(state, State::Ready(_));
             self.cache.peek_mut(&idx).unwrap().state = Some(state);
-            return Ok(changed);
+            return Ok(());
         };
         if matches!(cached.state, Some(State::Ready(_))) {
-            return Ok(changed);
+            return Ok(());
         }
 
         // check the state:
@@ -313,20 +316,34 @@ impl<T: Send + Sync + 'static, R, P: Preview<T>> PreviewComponent<T, R, P::Abort
             Ok(state) => state,
             Err(buffer) => submit(&mut self.previewer, item, buffer, self.epoch, deadline)?,
         };
-        changed |= matches!(state, State::Ready(_));
+        self.pending_redraw |= matches!(state, State::Ready(_));
         cached.state = Some(state);
-        Ok(changed)
+        Ok(())
+    }
+}
+
+impl<T: Send + Sync + 'static, R, P: Preview<T>> PreviewComponent<T, R, P::AbortErr>
+    for PreviewSession<P>
+{
+    fn update(
+        &mut self,
+        matches: &MatchList<T, R>,
+        deadline: Instant,
+    ) -> Result<bool, P::AbortErr> {
+        self.update_current(matches, deadline)?;
+        Ok(std::mem::take(&mut self.pending_redraw))
     }
 
     fn restart(&mut self) {
+        self.pending_redraw |= self.last_item.take().is_some();
         self.cache.clear();
-        self.last_item = None;
         self.epoch = 0;
     }
 
-    fn scroll(&mut self, idx: Option<u32>, event: PreviewEvent, height: u16) -> bool {
-        idx.and_then(|idx| self.cache.get_mut(&idx))
-            .is_some_and(|cached| cached.scroll(event, height))
+    fn scroll(&mut self, idx: Option<u32>, event: PreviewEvent, height: u16) {
+        self.pending_redraw |= idx
+            .and_then(|idx| self.cache.get_mut(&idx))
+            .is_some_and(|cached| cached.scroll(event, height));
     }
 
     fn resize(&mut self, height: u16) {

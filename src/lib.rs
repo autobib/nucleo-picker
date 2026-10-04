@@ -1272,7 +1272,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
                         #[cfg(feature = "preview")]
                         Event::Preview(event) => {
                             if frame_state.dimensions().0 != 0 {
-                                redraw.preview |= preview.scroll(
+                                preview.scroll(
                                     lazy_match_list.selected_item_id(),
                                     event,
                                     frame_state.preview_height(),
