@@ -588,6 +588,106 @@ fn promotion_reclaims_work_dropped_after_polling() {
 }
 
 #[test]
+fn restart_preserves_invalidation_until_the_next_update() {
+    for defer in [false, true] {
+        for restarts in [1, 2] {
+            let mut picker = picker(["alpha"]);
+            let mut session = PreviewSession::new(
+                &PreviewConfig::default(),
+                TestPreviewer {
+                    defer,
+                    ..TestPreviewer::default()
+                },
+            );
+            assert!(session.update(&picker.match_list, Instant::now()).unwrap());
+
+            picker.restart();
+            settle(&mut picker);
+            assert!(picker.match_list.is_empty());
+            for _ in 0..restarts {
+                PreviewComponent::<&'static str, StrRenderer, &'static str>::restart(&mut session);
+            }
+            assert!(session.cache.is_empty());
+            assert!(
+                session
+                    .previewer
+                    .queued
+                    .iter()
+                    .all(QueuedPreviewRequest::is_cancelled)
+            );
+            assert!(session.update(&picker.match_list, Instant::now()).unwrap());
+            assert!(!session.update(&picker.match_list, Instant::now()).unwrap());
+            assert_eq!(session.epoch, 0);
+            assert_eq!(session.previewer.requested, ["alpha"]);
+
+            PreviewComponent::<&'static str, StrRenderer, &'static str>::restart(&mut session);
+            assert!(!session.update(&picker.match_list, Instant::now()).unwrap());
+        }
+    }
+}
+
+#[test]
+fn restart_with_a_reused_item_id_and_pending_preview_reports_one_change() {
+    let mut picker = picker(["alpha"]);
+    let mut session = PreviewSession::new(&PreviewConfig::default(), TestPreviewer::default());
+    session.update(&picker.match_list, Instant::now()).unwrap();
+    let old_idx = picker.match_list.selected_item().unwrap().0;
+
+    PreviewComponent::<&'static str, StrRenderer, &'static str>::restart(&mut session);
+    picker.restart();
+    picker.push_batch(["beta"]);
+    settle(&mut picker);
+    assert_eq!(picker.match_list.selected_item().unwrap().0, old_idx);
+    session.previewer.defer = true;
+
+    assert!(session.update(&picker.match_list, Instant::now()).unwrap());
+    assert!(!session.update(&picker.match_list, Instant::now()).unwrap());
+    assert_eq!(session.previewer.requested, ["alpha", "beta"]);
+    assert!(!session.previewer.queued[0].is_cancelled());
+}
+
+#[test]
+fn scrolling_accumulates_changes_without_advancing_request_priority() {
+    let mut picker = picker(["alpha", "beta"]);
+    let mut session = PreviewSession::new(
+        &PreviewConfig::default(),
+        TestPreviewer {
+            lines: 30,
+            ..TestPreviewer::default()
+        },
+    );
+    session.update(&picker.match_list, Instant::now()).unwrap();
+    let epoch = session.epoch;
+    for event in [PreviewEvent::Down(1), PreviewEvent::Up(0)] {
+        PreviewComponent::<&'static str, StrRenderer, &'static str>::scroll(
+            &mut session,
+            Some(0),
+            event,
+            8,
+        );
+    }
+    assert_eq!(session.cache.peek(&0).unwrap().scroll_position, 1);
+    assert!(session.update(&picker.match_list, Instant::now()).unwrap());
+    assert!(!session.update(&picker.match_list, Instant::now()).unwrap());
+    assert_eq!(session.epoch, epoch);
+    assert_eq!(session.previewer.requested, ["alpha"]);
+
+    PreviewComponent::<&'static str, StrRenderer, &'static str>::scroll(
+        &mut session,
+        Some(0),
+        PreviewEvent::Down(1),
+        8,
+    );
+    picker.match_list.set_selection(1);
+    session.previewer.defer = true;
+    assert!(session.update(&picker.match_list, Instant::now()).unwrap());
+    assert!(!session.update(&picker.match_list, Instant::now()).unwrap());
+    assert_eq!(session.epoch, epoch + 1);
+    assert_eq!(session.previewer.requested, ["alpha", "beta"]);
+    assert!(!session.previewer.queued[0].is_cancelled());
+}
+
+#[test]
 fn restart_resets_selection_and_priority_bookkeeping() {
     let picker = picker(["alpha"]);
     let mut session = PreviewSession::new(&PreviewConfig::default(), TestPreviewer::default());
@@ -832,10 +932,10 @@ mod picker_loop {
             PreviewComponent::<&'static str, StrRenderer, &'static str>::restart(*self);
         }
 
-        fn scroll(&mut self, idx: Option<u32>, event: PreviewEvent, height: u16) -> bool {
+        fn scroll(&mut self, idx: Option<u32>, event: PreviewEvent, height: u16) {
             PreviewComponent::<&'static str, StrRenderer, &'static str>::scroll(
                 *self, idx, event, height,
-            )
+            );
         }
 
         fn resize(&mut self, height: u16) {

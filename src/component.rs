@@ -37,15 +37,9 @@ pub(crate) trait PreviewComponent<T: Send + Sync + 'static, R, A> {
 
     /// Handle a preview event.
     ///
-    /// The preview events are forwarded in the order in which they are received, and target the
-    /// provided `idx`. Return `true` if there are changes which require drawing, and `false`
-    /// otherwise.
-    ///
     /// This method is not called if the preview frame has height 0.
     #[cfg(feature = "preview")]
-    fn scroll(&mut self, _idx: Option<u32>, _event: PreviewEvent, _height: u16) -> bool {
-        false
-    }
+    fn scroll(&mut self, _idx: Option<u32>, _event: PreviewEvent, _height: u16) {}
 
     /// Return a cached preview for the renderer to draw
     #[cfg(feature = "preview")]
