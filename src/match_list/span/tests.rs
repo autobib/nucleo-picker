@@ -1,8 +1,11 @@
 use super::{
-    super::unicode::{AsciiProcessor, UnicodeProcessor, is_ascii_safe, is_unicode_safe},
+    super::unicode::{AsciiProcessor, UnicodeProcessor, is_ascii_safe},
     *,
 };
-use crate::PickerChars;
+use crate::{
+    PickerChars,
+    rect::{Area, ClearState, CrosstermRect},
+};
 
 #[test]
 fn required_width() {
@@ -12,9 +15,7 @@ fn required_width() {
         let spanned: Spanned<'_, UnicodeProcessor> =
             Spanned::new(&indices, rendered, &mut spans, &mut lines, All);
 
-        if is_unicode_safe(rendered) {
-            assert_eq!(spanned.required_width(), expected_width);
-        }
+        assert_eq!(spanned.required_width(), expected_width);
 
         if is_ascii_safe(rendered) {
             let spanned: Spanned<'_, AsciiProcessor> =
@@ -46,11 +47,9 @@ fn required_offset() {
         let mut spans = Vec::new();
         let mut lines = Vec::new();
 
-        if is_unicode_safe(rendered) {
-            let spanned: Spanned<'_, UnicodeProcessor> =
-                Spanned::new(&indices, rendered, &mut spans, &mut lines, All);
-            assert_eq!(spanned.required_offset(max_width, 0), expected_offset);
-        }
+        let spanned: Spanned<'_, UnicodeProcessor> =
+            Spanned::new(&indices, rendered, &mut spans, &mut lines, All);
+        assert_eq!(spanned.required_offset(max_width, 0), expected_offset);
 
         if is_ascii_safe(rendered) {
             let spanned: Spanned<'_, AsciiProcessor> =
@@ -96,19 +95,25 @@ fn line_prefix_does_not_exceed_the_available_width() {
 
     spanned
         .queue_print(
-            &mut output,
+            &mut CrosstermRect::new(
+                &mut output,
+                Area {
+                    width: 1,
+                    height: 1,
+                    ..Area::default()
+                },
+                ClearState::Precleared,
+            )
+            .unwrap(),
             false,
             false,
-            1,
             0,
             false,
-            ClearMode::All,
             &PickerChars::new(),
         )
         .unwrap();
 
-    assert!(output.starts_with(b" "));
-    assert!(!output.starts_with(b"  "));
+    assert_eq!(output, b"\x1b[1G ");
     assert!(!String::from_utf8(output).unwrap().contains("\x1b[K"));
 }
 
@@ -117,7 +122,7 @@ fn render_ascii_line(
     width: u16,
     selected: bool,
     highlight_line: bool,
-    clear_mode: ClearMode,
+    clear_mode: ClearState,
 ) -> String {
     let mut spans = Vec::new();
     let mut lines = Vec::new();
@@ -127,13 +132,20 @@ fn render_ascii_line(
 
     spanned
         .queue_print(
-            &mut output,
+            &mut CrosstermRect::new(
+                &mut output,
+                Area {
+                    width,
+                    height: 1,
+                    ..Area::default()
+                },
+                clear_mode,
+            )
+            .unwrap(),
             selected,
             false,
-            width,
             0,
             highlight_line,
-            clear_mode,
             &PickerChars::new(),
         )
         .unwrap();
@@ -143,17 +155,18 @@ fn render_ascii_line(
 
 #[test]
 fn trailing_columns_follow_the_highlight_and_clear_modes() {
-    let default = render_ascii_line("abc", 8, true, false, ClearMode::All);
+    let default = render_ascii_line("abc", 8, true, false, ClearState::Precleared);
     assert!(default.contains("abc\x1b[0m"));
     assert!(!default.contains("abc \x1b[0m"));
 
-    let highlighted = render_ascii_line("abc", 8, true, true, ClearMode::All);
+    let highlighted = render_ascii_line("abc", 8, true, true, ClearState::Precleared);
     assert!(highlighted.contains("abc   \x1b[0m"));
 
-    let exact = render_ascii_line("abc", 8, true, false, ClearMode::Exact);
-    assert!(exact.contains("abc\x1b[0m   "));
+    let exact = render_ascii_line("abc", 8, true, false, ClearState::WithinRect);
+    assert!(exact.starts_with("\x1b[1G        \x1b[1G"));
+    assert!(exact.ends_with("abc\x1b[0m"));
 
-    let exact_highlighted = render_ascii_line("abc", 8, true, true, ClearMode::Exact);
+    let exact_highlighted = render_ascii_line("abc", 8, true, true, ClearState::WithinRect);
     assert!(exact_highlighted.contains("abc   \x1b[0m"));
 }
 
@@ -167,18 +180,54 @@ fn trailing_columns_use_display_width() {
 
     spanned
         .queue_print(
-            &mut output,
+            &mut CrosstermRect::new(
+                &mut output,
+                Area {
+                    width: 8,
+                    height: 1,
+                    ..Area::default()
+                },
+                ClearState::Precleared,
+            )
+            .unwrap(),
             true,
             false,
-            8,
             0,
             true,
-            ClearMode::All,
             &PickerChars::new(),
         )
         .unwrap();
 
     assert!(String::from_utf8(output).unwrap().contains("界    \x1b[0m"));
+}
+
+#[test]
+fn multiline_truncation_and_padding_use_the_rectangle_origin() {
+    let mut spans = Vec::new();
+    let mut lines = Vec::new();
+    let spanned: Spanned<'_, UnicodeProcessor> =
+        Spanned::new(&[], "abcdefghi\n界a", &mut spans, &mut lines, All);
+    let mut output = Vec::new();
+    let mut rect = CrosstermRect::new(
+        &mut output,
+        Area {
+            column: 5,
+            row: 3,
+            width: 7,
+            height: 2,
+        },
+        ClearState::WithinRect,
+    )
+    .unwrap();
+    rect.move_to(0, 0).unwrap();
+    spanned
+        .queue_print(&mut rect, false, false, 0, false, &PickerChars::new())
+        .unwrap();
+
+    assert_eq!(
+        String::from_utf8(output).unwrap(),
+        "\x1b[4;6H\x1b[6G       \x1b[6G  abcde\x1b[12G…\x1b[5;6H\x1b[6G       \x1b[6G  界a",
+    );
 }
 
 #[test]
@@ -191,7 +240,23 @@ fn queue_print_line_returns_remaining_columns() {
         let line = spanned.lines().next().unwrap();
 
         spanned
-            .queue_print_line(&mut Vec::new(), line, 0, 0, capacity, &PickerChars::new())
+            .queue_print_line(
+                &mut CrosstermRect::new(
+                    &mut Vec::new(),
+                    Area {
+                        width: capacity,
+                        height: 1,
+                        ..Area::default()
+                    },
+                    ClearState::Precleared,
+                )
+                .unwrap(),
+                line,
+                0,
+                0,
+                capacity,
+                &PickerChars::new(),
+            )
             .unwrap()
     }
 
@@ -205,7 +270,23 @@ fn queue_print_line_returns_remaining_columns() {
     let line = spanned.lines().next().unwrap();
     assert_eq!(
         spanned
-            .queue_print_line(&mut Vec::new(), line, 0, 0, 6, &PickerChars::new())
+            .queue_print_line(
+                &mut CrosstermRect::new(
+                    &mut Vec::new(),
+                    Area {
+                        width: 6,
+                        height: 1,
+                        ..Area::default()
+                    },
+                    ClearState::Precleared
+                )
+                .unwrap(),
+                line,
+                0,
+                0,
+                6,
+                &PickerChars::new()
+            )
             .unwrap(),
         3
     );

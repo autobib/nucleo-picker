@@ -1,51 +1,113 @@
-use std::{ops::BitOrAssign, time::Instant};
+//! # The component abstraction
+//!
+//! Each component is only initialized for a single picker session. The component is given read-only
+//! access to the underlying match engine and is responsible for component-specific event handling.
+//!
+//! A [`Component`] is a single part of the terminal interface. There are three core components:
+//!
+//! - the match list
+//! - the status line
+//! - the prompt
+//!
+//! as well as an additional component when enabled:
+//!
+//! - the previewer
+//!
+use std::{io, time::Instant};
 
-use crate::match_list::MatchList;
-#[cfg(feature = "preview")]
-use crate::preview::{Cached, PreviewEvent};
+use crate::rect::{Area, Position, Rect};
 
-pub trait ComponentStatus: BitOrAssign + Default {
-    fn needs_redraw(&self) -> bool;
-}
+/// A single component in the frame.
+pub(crate) trait Component<E> {
+    /// Resize the component, potentially taking into account the match data from the internal engine.
+    fn resize(&mut self, area: Area, engine: &E);
 
-impl ComponentStatus for bool {
-    fn needs_redraw(&self) -> bool {
-        *self
-    }
-}
+    /// Draw this component in the given rectangle taking into account the match data from the
+    /// internal engine. Make sure to take into account the rectangle drawing constraints.
+    fn draw<D: Rect>(&mut self, engine: &E, rect: &mut D) -> io::Result<()>;
 
-/// A trait so that `pick_impl` can be generic over the (non-)existence of a previewer.
-pub(crate) trait PreviewComponent<T: Send + Sync + 'static, R, A> {
-    /// Update the preview pane to take into account changes to the match list.
-    ///
-    /// This method is called after event handling. The provided deadline is the frame deadline,
-    /// which can be used to pass on a budget to a previewer.
-    ///
-    /// Return `true` if there are changes which require drawing, and `false` otherwise.
-    fn update(&mut self, _matches: &MatchList<T, R>, _deadline: Instant) -> Result<bool, A> {
-        Ok(false)
-    }
-
-    /// Handle a restart event.
-    ///
-    /// For example, the previewer may use this to evict items from the cache.
-    fn restart(&mut self) {}
-
-    /// Previewers may use this to adjust the starting index (for example, to avoid unnecessary
-    /// whitespace at the bottom of the screen)
-    fn resize(&mut self, _height: u16) {}
-
-    /// Handle a preview event.
-    ///
-    /// This method is not called if the preview frame has height 0.
-    #[cfg(feature = "preview")]
-    fn scroll(&mut self, _idx: Option<u32>, _event: PreviewEvent, _height: u16) {}
-
-    /// Return a cached preview for the renderer to draw
-    #[cfg(feature = "preview")]
-    fn cached(&self) -> Option<&Cached> {
+    fn cursor(&self, _engine: &E) -> Option<Position> {
         None
     }
 }
 
-impl<T: Send + Sync + 'static, R, A> PreviewComponent<T, R, A> for () {}
+pub(crate) trait PreviewComponent<T> {
+    type Error;
+
+    // this is a bit hacky: mostly we try to feature-gate the preview component but
+    // if the preview feature is enabled, one can still use the usual picker, in which case
+    // we don't want any runtime cost
+    const ENABLED: bool;
+
+    #[cfg(feature = "preview")]
+    fn handle(&mut self, event: PreviewEvent, selected_id: Option<u32>);
+
+    fn update(
+        &mut self,
+        selected: Option<(u32, &T)>,
+        deadline: Instant,
+    ) -> Result<bool, Self::Error>;
+
+    fn restart(&mut self);
+}
+
+#[cfg(feature = "preview")]
+use crate::preview::PreviewEvent;
+
+pub(crate) struct NoPreview<A>(std::marker::PhantomData<fn() -> A>);
+
+impl<A> NoPreview<A> {
+    pub fn new() -> Self {
+        Self(std::marker::PhantomData)
+    }
+}
+
+impl<E, A> Component<E> for NoPreview<A> {
+    fn resize(&mut self, _area: Area, _engine: &E) {}
+    fn draw<D: Rect>(&mut self, _engine: &E, _rect: &mut D) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<T, A> PreviewComponent<T> for NoPreview<A> {
+    type Error = A;
+    const ENABLED: bool = false;
+    #[cfg(feature = "preview")]
+    fn handle(&mut self, _event: PreviewEvent, _selected_id: Option<u32>) {}
+    fn update(&mut self, _selected: Option<(u32, &T)>, _deadline: Instant) -> Result<bool, A> {
+        Ok(false)
+    }
+    fn restart(&mut self) {}
+}
+
+#[cfg(test)]
+impl<E, C: Component<E>> Component<E> for &mut C {
+    fn resize(&mut self, area: Area, engine: &E) {
+        (**self).resize(area, engine);
+    }
+    fn draw<D: Rect>(&mut self, engine: &E, rect: &mut D) -> io::Result<()> {
+        (**self).draw(engine, rect)
+    }
+    fn cursor(&self, engine: &E) -> Option<Position> {
+        (**self).cursor(engine)
+    }
+}
+#[cfg(test)]
+impl<T, C: PreviewComponent<T>> PreviewComponent<T> for &mut C {
+    type Error = C::Error;
+    const ENABLED: bool = C::ENABLED;
+    #[cfg(feature = "preview")]
+    fn handle(&mut self, event: PreviewEvent, selected_id: Option<u32>) {
+        (**self).handle(event, selected_id);
+    }
+    fn update(
+        &mut self,
+        selected: Option<(u32, &T)>,
+        deadline: Instant,
+    ) -> Result<bool, Self::Error> {
+        (**self).update(selected, deadline)
+    }
+    fn restart(&mut self) {
+        (**self).restart();
+    }
+}
