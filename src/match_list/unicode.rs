@@ -14,17 +14,10 @@ use memchr::memchr_iter;
 /// This abstraction is sealed and only has two implementations [`UnicodeProcessor`] and
 /// [`AsciiProcessor`].
 ///
-/// Note that a [`UnicodeProcessor`] **is not a generalization** of [`AsciiProcessor`]. In most
-/// situations, it is, but the one edge case is that the windows-style newline `\r\n` is treated as
-/// a single grapheme by [`UnicodeProcessor`] but as two graphemes by [`AsciiProcessor`]. The
-/// reason for this ambiguity is that this is the handling mode in [`nucleo::Utf32String`]: the
-/// `From<&str>` implementation that we depend on for consistency of internal representation only
-/// performs an `.is_ascii()` check, and then segments based on byte offsets instead of graphemes.
-///
-/// In essence, the *correct and safe* to use these implementations is to do exactly what nucleo
-/// is doing upstream: for a given `&str`, if the match object is [`nucleo::Utf32Str::Unicode`],
-/// we use [`UnicodeProcessor`], and if the match object is [`nucleo::Utf32Str::Ascii`], we use
-/// [`AsciiProcessor`].
+/// A [`UnicodeProcessor`] is a generic processor which accepts any valid UTF-8. In contrast, the
+/// [`AsciiProcessor`] only requires ASCII characters with no Windows-style newline `\r\n`. The
+/// [`AsciiProcessor`] contains a number of optimizations which handle the ASCII-only case more
+/// performatively. This aligns with the upstream handling in Nucleo.
 pub trait Processor: private::Sealed {
     /// Compute the width (in terms of visible columns) of the input string.
     ///
@@ -48,26 +41,19 @@ mod private {
     impl Sealed for super::AsciiProcessor {}
 }
 
-/// Whether or not a given string slice is safe to use with a [`UnicodeProcessor`].
-#[inline]
-pub(crate) fn is_unicode_safe(input: &str) -> bool {
-    !input.contains('\r') || !input.is_ascii()
-}
-
 /// Whether or not a given string slice is safe to use with an [`AsciiProcessor`].
 #[inline]
 pub(crate) fn is_ascii_safe(input: &str) -> bool {
-    input.is_ascii()
+    input.is_ascii() && !input.contains("\r\n")
 }
 
-/// A [`Processor`] which is safe to use on strings for which `is_ascii()` returns false.
+/// A [`Processor`] which is safe for use on all valud UTF-8.
 pub struct UnicodeProcessor;
 
 impl Processor for UnicodeProcessor {
     /// Do things properly and use [`UnicodeWidthStr`](unicode_width::UnicodeWidthStr).
     #[inline]
     fn width(input: &str) -> usize {
-        debug_assert!(is_unicode_safe(input));
         unicode_width::UnicodeWidthStr::width(input)
     }
 
@@ -75,7 +61,6 @@ impl Processor for UnicodeProcessor {
     /// [`UnicodeSegmentation`](unicode_segmentation::UnicodeSegmentation).
     #[inline]
     fn grapheme_index_widths(input: &str) -> impl Iterator<Item = (usize, usize)> {
-        debug_assert!(is_unicode_safe(input));
         unicode_segmentation::UnicodeSegmentation::grapheme_indices(input, true)
             .map(|(offset, grapheme)| (offset, unicode_width::UnicodeWidthStr::width(grapheme)))
     }
@@ -85,7 +70,6 @@ impl Processor for UnicodeProcessor {
     /// [`UnicodeWidthStr`](unicode_width::UnicodeWidthStr).
     #[inline]
     fn last_grapheme_width(input: &str) -> usize {
-        debug_assert!(is_unicode_safe(input));
         unicode_segmentation::UnicodeSegmentation::graphemes(input, true)
             .next_back()
             .map_or(0, unicode_width::UnicodeWidthStr::width)
@@ -333,11 +317,77 @@ mod tests {
     use super::*;
 
     #[test]
+    fn crlf_match_indices_produce_the_correct_spans() {
+        use nucleo::{
+            Config, Matcher, Utf32Str, Utf32String,
+            pattern::{CaseMatching, Normalization, Pattern},
+        };
+
+        let pattern = Pattern::parse("ab", CaseMatching::Respect, Normalization::Never);
+        let mut matcher = Matcher::new(Config::DEFAULT);
+        for (rendered, last_index, line_count) in [
+            ("a\r\nb", 2, 2),
+            ("a\r\n\r\nb", 3, 3),
+            ("a\n\r\nb", 3, 3),
+            ("a\r\nb\r\n", 2, 3),
+            ("a\r\n界b", 3, 2),
+            ("a\r\nu\u{0308}b", 3, 2),
+        ] {
+            let column = Utf32String::from(rendered);
+            assert!(matches!(column.slice(..), Utf32Str::Unicode(_)));
+            let mut indices = Vec::new();
+            assert!(
+                pattern
+                    .indices(column.slice(..), &mut matcher, &mut indices)
+                    .is_some()
+            );
+            assert_eq!(indices, [0, last_index]);
+
+            let mut spans = Vec::new();
+            let mut lines = Vec::new();
+            spans_from_indices::<UnicodeProcessor>(&indices, rendered, &mut spans, &mut lines);
+            let matched: Vec<_> = spans
+                .iter()
+                .filter(|span| span.is_match)
+                .map(|span| span.range.clone())
+                .collect();
+            let last_byte = rendered.find('b').unwrap();
+            assert_eq!(matched, [0..1, last_byte..last_byte + 1]);
+            assert_eq!(lines.len(), line_count);
+            assert!(
+                spans
+                    .iter()
+                    .all(|span| !rendered[span.range.clone()].contains(['\r', '\n']))
+            );
+        }
+    }
+
+    #[test]
+    fn ascii_processor_eligibility_matches_the_backend() {
+        for rendered in [
+            "",
+            "ab",
+            "a\nb",
+            "a\rb",
+            "\n\r",
+            "a\r\nb",
+            "\r\n",
+            "界",
+            "u\u{0308}",
+        ] {
+            let column = nucleo::Utf32String::from(rendered);
+            assert_eq!(
+                is_ascii_safe(rendered),
+                column.slice(..).is_ascii(),
+                "{rendered:?}"
+            );
+        }
+    }
+
+    #[test]
     fn test_consume_offset() {
         fn assert_consume(input: &str, w: usize, expected: (usize, usize)) {
-            if is_unicode_safe(input) {
-                assert_eq!(consume::<UnicodeProcessor>(input, w), expected);
-            }
+            assert_eq!(consume::<UnicodeProcessor>(input, w), expected);
 
             if is_ascii_safe(input) {
                 assert_eq!(consume::<AsciiProcessor>(input, w), expected);
@@ -371,11 +421,9 @@ mod tests {
             let mut spans = Vec::new();
             let mut lines = Vec::new();
 
-            if is_unicode_safe(input) {
-                spans_from_indices::<UnicodeProcessor>(&indices, input, &mut spans, &mut lines);
-                assert_eq!(spans, expected_spans);
-                assert_eq!(lines, expected_lines);
-            }
+            spans_from_indices::<UnicodeProcessor>(&indices, input, &mut spans, &mut lines);
+            assert_eq!(spans, expected_spans);
+            assert_eq!(lines, expected_lines);
 
             if is_ascii_safe(input) {
                 spans_from_indices::<AsciiProcessor>(&indices, input, &mut spans, &mut lines);
@@ -546,9 +594,7 @@ mod tests {
     #[test]
     fn test_truncate_width() {
         fn assert_truncate(input: &str, w: u16, expected: Result<u16, (&str, usize)>) {
-            if is_unicode_safe(input) {
-                assert_eq!(truncate::<UnicodeProcessor>(input, w), expected);
-            }
+            assert_eq!(truncate::<UnicodeProcessor>(input, w), expected);
             if is_ascii_safe(input) {
                 assert_eq!(truncate::<AsciiProcessor>(input, w), expected);
             }

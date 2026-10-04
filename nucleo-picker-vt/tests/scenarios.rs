@@ -44,6 +44,9 @@ mod multi_select;
 mod multiline;
 #[path = "scenarios/picker_options.rs"]
 mod picker_options;
+#[cfg(feature = "preview")]
+#[path = "scenarios/preview.rs"]
+mod preview;
 #[path = "scenarios/unicode.rs"]
 mod unicode;
 

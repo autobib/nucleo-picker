@@ -4,6 +4,9 @@ name = "nucleo-picker-vt"
 publish = false
 version = "0.0.0"
 
+[features]
+preview = ["nucleo-picker/preview"]
+
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
 crossterm = "0.29.0"

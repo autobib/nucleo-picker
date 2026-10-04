@@ -1,4 +1,4 @@
-use super::{Cached, State};
+use super::cache::{Cached, RequestState};
 
 /// Events which target the preview pane.
 #[derive(Debug, PartialEq, Eq)]
@@ -19,7 +19,7 @@ impl Cached {
         if height == 0 {
             return false;
         }
-        let Some(State::Ready(buffer)) = &self.state else {
+        let Some(RequestState::Ready(buffer)) = &self.state else {
             return false;
         };
         let height = usize::from(height);
@@ -42,7 +42,7 @@ impl Cached {
         if height == 0 {
             return;
         }
-        if let Some(State::Ready(buffer)) = &self.state {
+        if let Some(RequestState::Ready(buffer)) = &self.state {
             self.scroll_position = self
                 .scroll_position
                 .min(buffer.lines().len().saturating_sub(usize::from(height)));
@@ -61,7 +61,7 @@ mod tests {
             buffer.newline();
         }
         Cached {
-            state: Some(State::Ready(buffer)),
+            state: Some(RequestState::Ready(buffer)),
             scroll_position: 0,
         }
     }
@@ -148,7 +148,7 @@ mod tests {
         }
         .defer();
         let mut cached = Cached {
-            state: Some(State::Pending(pending)),
+            state: Some(RequestState::Pending(pending)),
             scroll_position: 0,
         };
         assert!(!cached.scroll(PreviewEvent::Down(1), 8));
@@ -159,6 +159,6 @@ mod tests {
         assert!(!cached.scroll(PreviewEvent::PageUp(1), 8));
         cached.resize(8);
         assert_eq!(cached.scroll_position, 0);
-        assert!(matches!(cached.state, Some(State::Pending(_))));
+        assert!(matches!(cached.state, Some(RequestState::Pending(_))));
     }
 }

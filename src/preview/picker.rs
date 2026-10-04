@@ -1,26 +1,13 @@
-#[cfg(test)]
-mod tests;
-
-use std::{
-    io::{self, BufWriter, IsTerminal},
-    time::{Duration, Instant},
-};
+use std::io::{self, BufWriter, IsTerminal};
 
 use crossterm::event::KeyEvent;
-use lru::LruCache;
 
-use super::{
-    BufferNotReady, Cached, Preview, PreviewBuffer, PreviewConfig, PreviewEvent, PreviewRequest,
-    PreviewResponse, State,
-};
-#[cfg(feature = "unstable-backend")]
-use crate::Terminal;
+use super::{Preview, pane::PreviewPane};
 use crate::{
-    Picker, Render, Selection,
-    component::PreviewComponent,
+    Picker, Render, Selection, Terminal,
     error::PickError,
     event::{Event, EventSource, StdinReader, keybind_default, keybind_no_multi},
-    match_list::{MatchList, SelectedIndices},
+    match_list::SelectedIndices,
     terminal::CrosstermTerminal,
 };
 
@@ -152,7 +139,7 @@ impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<'_, T,
         self.picker.pick_impl::<_, _, (), _>(
             event_source,
             &mut CrosstermTerminal::new(writer),
-            PreviewSession::new(&self.picker.preview_config, &mut self.previewer),
+            PreviewPane::new(&self.picker.preview_config, &mut self.previewer),
         )
     }
 
@@ -173,7 +160,7 @@ impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<'_, T,
         self.picker.pick_impl::<_, _, SelectedIndices, _>(
             event_source,
             &mut CrosstermTerminal::new(writer),
-            PreviewSession::new(&self.picker.preview_config, &mut self.previewer),
+            PreviewPane::new(&self.picker.preview_config, &mut self.previewer),
         )
     }
 }
@@ -197,7 +184,7 @@ impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<'_, T,
         self.picker.pick_impl::<_, _, (), _>(
             event_source,
             terminal,
-            PreviewSession::new(&self.picker.preview_config, &mut self.previewer),
+            PreviewPane::new(&self.picker.preview_config, &mut self.previewer),
         )
     }
 
@@ -219,160 +206,7 @@ impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<'_, T,
         self.picker.pick_impl::<_, _, SelectedIndices, _>(
             event_source,
             terminal,
-            PreviewSession::new(&self.picker.preview_config, &mut self.previewer),
+            PreviewPane::new(&self.picker.preview_config, &mut self.previewer),
         )
     }
-}
-
-pub(crate) struct PreviewSession<P> {
-    // fields drop in declaration order: cancel requests *before* dropping the
-    // previewer so that it may join its workers if desired
-    cache: LruCache<u32, Cached>,
-    previewer: P,
-    last_item: Option<u32>,
-    // state to preserve scroll and restart invalidation and return redraw sate with
-    // `update`
-    pending_redraw: bool,
-    // the epoch is advanced when the item changes and is reset on restart. the epoch is passed to
-    // each preview request and then returned by the previewer. it is used to prevent repeated
-    // resubmission when there are no changes.
-    epoch: u64,
-}
-
-impl<P> PreviewSession<P> {
-    pub(crate) fn new(config: &PreviewConfig, previewer: P) -> Self {
-        Self {
-            cache: LruCache::new(config.cache_size),
-            previewer,
-            last_item: None,
-            pending_redraw: false,
-            epoch: 0,
-        }
-    }
-
-    /// Update the current preview by polling and resubmitting requests and keeping track if a
-    /// redraw is required.
-    fn update_current<T: Send + Sync + 'static, R>(
-        &mut self,
-        matches: &MatchList<T, R>,
-        deadline: Instant,
-    ) -> Result<(), P::AbortErr>
-    where
-        P: Preview<T>,
-    {
-        let selected = matches.selected_item();
-        let idx = selected.map(|(idx, _)| idx);
-        if self.last_item != idx {
-            self.last_item = idx;
-            self.epoch = self.epoch.wrapping_add(1);
-            self.pending_redraw = true;
-        }
-        let Some((idx, item)) = selected else {
-            return Ok(());
-        };
-
-        let Some(cached) = self.cache.get_mut(&idx) else {
-            let evicted = self.cache.push(
-                idx,
-                Cached {
-                    scroll_position: 0,
-                    state: None,
-                },
-            );
-            let buffer = evicted
-                .and_then(|(_, mut cached)| cached.state.take())
-                .map_or_else(PreviewBuffer::new, State::into_buffer);
-            let state = submit(&mut self.previewer, item, buffer, self.epoch, deadline)?;
-            self.pending_redraw |= matches!(state, State::Ready(_));
-            self.cache.peek_mut(&idx).unwrap().state = Some(state);
-            return Ok(());
-        };
-        if matches!(cached.state, Some(State::Ready(_))) {
-            return Ok(());
-        }
-
-        // check the state:
-        //
-        // - if ready, we're done
-        // - if pending, check if the epoch is different. if so, reprioritize it by
-        //   cancelling and resubmitting
-        // - if the epoch is the same, or a worker is currently handing the request,
-        //   wait
-        // - if dropped, recover the buffer and resubmit
-        let state = match cached.state.take() {
-            Some(state) => match state.try_into_buffer() {
-                Ok(buffer) => Ok(State::Ready(buffer)),
-                Err(BufferNotReady::Queued(State::Pending(pending)))
-                    if pending.epoch != self.epoch =>
-                {
-                    pending.reprioritize()
-                }
-                Err(BufferNotReady::Queued(state) | BufferNotReady::Active(state)) => Ok(state),
-                Err(BufferNotReady::Dropped(buffer)) => Err(buffer),
-            },
-            None => Err(PreviewBuffer::new()),
-        };
-        let state = match state {
-            Ok(state) => state,
-            Err(buffer) => submit(&mut self.previewer, item, buffer, self.epoch, deadline)?,
-        };
-        self.pending_redraw |= matches!(state, State::Ready(_));
-        cached.state = Some(state);
-        Ok(())
-    }
-}
-
-impl<T: Send + Sync + 'static, R, P: Preview<T>> PreviewComponent<T, R, P::AbortErr>
-    for PreviewSession<P>
-{
-    fn update(
-        &mut self,
-        matches: &MatchList<T, R>,
-        deadline: Instant,
-    ) -> Result<bool, P::AbortErr> {
-        self.update_current(matches, deadline)?;
-        Ok(std::mem::take(&mut self.pending_redraw))
-    }
-
-    fn restart(&mut self) {
-        self.pending_redraw |= self.last_item.take().is_some();
-        self.cache.clear();
-        self.epoch = 0;
-    }
-
-    fn scroll(&mut self, idx: Option<u32>, event: PreviewEvent, height: u16) {
-        self.pending_redraw |= idx
-            .and_then(|idx| self.cache.get_mut(&idx))
-            .is_some_and(|cached| cached.scroll(event, height));
-    }
-
-    fn resize(&mut self, height: u16) {
-        for (_, cached) in self.cache.iter_mut() {
-            cached.resize(height);
-        }
-    }
-
-    fn cached(&self) -> Option<&Cached> {
-        self.last_item.and_then(|idx| self.cache.peek(&idx))
-    }
-}
-
-fn submit<T, P: Preview<T>>(
-    previewer: &mut P,
-    item: &T,
-    mut buffer: PreviewBuffer,
-    epoch: u64,
-    deadline: Instant,
-) -> Result<State, P::AbortErr> {
-    buffer.clear();
-    let request = PreviewRequest { buffer, epoch };
-    let timeout = deadline
-        .saturating_duration_since(Instant::now())
-        .max(Duration::from_millis(2));
-    previewer
-        .preview(item, request, timeout)
-        .map(|response| match response {
-            PreviewResponse::Ready(buffer) => State::Ready(buffer),
-            PreviewResponse::Pending(pending) => State::Pending(pending),
-        })
 }

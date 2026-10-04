@@ -1,109 +1,161 @@
-use super::*;
+use super::{state::normalize_prompt_string, *};
+use crate::PickerChars;
+use crate::rect::{Area, ClearState, CrosstermRect};
 
-fn init_prompt(width: u16, padding: u16) -> Prompt {
+fn init_prompt(width: u16, padding: u16) -> PromptState {
     let cfg = PromptConfig { padding };
-    let mut prompt = Prompt::new(cfg);
+    let mut prompt = PromptState::new(cfg);
     prompt.resize(width);
     prompt
 }
 
 #[test]
 fn draw_does_not_exceed_the_available_width() {
-    let mut prompt = Prompt::new(PromptConfig::new());
+    let prompt = PromptState::new(PromptConfig::new());
     let mut output = Vec::new();
 
     prompt
+        .view
         .draw(
-            1,
-            1,
-            crate::frame::ClearMode::All,
-            &mut output,
+            &prompt.data,
+            &mut CrosstermRect::new(
+                &mut output,
+                Area {
+                    width: 1,
+                    height: 1,
+                    ..Area::default()
+                },
+                ClearState::Precleared,
+            )
+            .unwrap(),
             &crate::PickerChars::new(),
         )
         .unwrap();
 
-    assert_eq!(output, b">");
+    assert_eq!(output, b"\x1b[1G>");
 }
 
 #[test]
 fn exact_draw_fills_the_owned_width() {
-    let mut prompt = Prompt::new(PromptConfig::new());
+    let mut prompt = PromptState::new(PromptConfig::new());
     prompt.handle(PromptEvent::Insert('a'));
+    prompt.resize(4);
     let mut output = Vec::new();
 
     prompt
+        .view
         .draw(
-            6,
-            1,
-            crate::frame::ClearMode::Exact,
-            &mut output,
+            &prompt.data,
+            &mut CrosstermRect::new(
+                &mut output,
+                Area {
+                    width: 6,
+                    height: 1,
+                    ..Area::default()
+                },
+                ClearState::WithinRect,
+            )
+            .unwrap(),
             &crate::PickerChars::new(),
         )
         .unwrap();
 
-    assert_eq!(output, b"> a   ");
+    assert_eq!(output, b"\x1b[1G      \x1b[1G> a");
+}
+
+#[test]
+fn wide_grapheme_alignment_obeys_the_rectangle_clear_policy() {
+    let mut prompt = init_prompt(6, 1);
+    prompt.handle(PromptEvent::Paste("ＡＡＡＡＡ".to_owned()));
+    assert_eq!(prompt.view(), ("ＡＡ", 1));
+
+    for (clear, expected) in [
+        (ClearState::Precleared, "\x1b[1G>  ＡＡ"),
+        (ClearState::ToEndOfLine, "\x1b[1G\x1b[K>  ＡＡ"),
+        (ClearState::WithinRect, "\x1b[1G        \x1b[1G>  ＡＡ"),
+    ] {
+        let mut output = Vec::new();
+        prompt
+            .view
+            .draw(
+                &prompt.data,
+                &mut CrosstermRect::new(
+                    &mut output,
+                    Area {
+                        width: 8,
+                        height: 1,
+                        ..Area::default()
+                    },
+                    clear,
+                )
+                .unwrap(),
+                &PickerChars::new(),
+            )
+            .unwrap();
+        assert_eq!(output, expected.as_bytes());
+    }
 }
 
 #[test]
 fn layout() {
     let mut editable = init_prompt(6, 2);
     editable.handle(PromptEvent::Insert('a'));
-    assert_eq!(editable.screen_offset, 1);
+    assert_eq!(editable.view.screen_offset(), 1);
     editable.handle(PromptEvent::Insert('Ａ'));
-    assert_eq!(editable.screen_offset, 3);
+    assert_eq!(editable.view.screen_offset(), 3);
     editable.handle(PromptEvent::Insert('B'));
-    assert_eq!(editable.screen_offset, 4);
+    assert_eq!(editable.view.screen_offset(), 4);
 
     let mut editable = init_prompt(6, 2);
     editable.handle(PromptEvent::Paste("ＡaＡ".to_owned()));
-    assert_eq!(editable.screen_offset, 4);
+    assert_eq!(editable.view.screen_offset(), 4);
 
     let mut editable = init_prompt(6, 2);
     editable.handle(PromptEvent::Paste("abc".to_owned()));
-    assert_eq!(editable.screen_offset, 3);
+    assert_eq!(editable.view.screen_offset(), 3);
     editable.handle(PromptEvent::Paste("ab".to_owned()));
-    assert_eq!(editable.screen_offset, 4);
+    assert_eq!(editable.view.screen_offset(), 4);
     editable.handle(PromptEvent::Left(1));
-    assert_eq!(editable.screen_offset, 3);
+    assert_eq!(editable.view.screen_offset(), 3);
     editable.handle(PromptEvent::Left(1));
-    assert_eq!(editable.screen_offset, 2);
+    assert_eq!(editable.view.screen_offset(), 2);
     editable.handle(PromptEvent::Left(1));
-    assert_eq!(editable.screen_offset, 2);
+    assert_eq!(editable.view.screen_offset(), 2);
     editable.handle(PromptEvent::Left(1));
-    assert_eq!(editable.screen_offset, 1);
+    assert_eq!(editable.view.screen_offset(), 1);
     editable.handle(PromptEvent::Left(1));
-    assert_eq!(editable.screen_offset, 0);
+    assert_eq!(editable.view.screen_offset(), 0);
 
     let mut editable = init_prompt(7, 2);
     editable.handle(PromptEvent::Paste("ＡＡＡＡＡ".to_owned()));
     editable.handle(PromptEvent::ToStart);
-    assert_eq!(editable.screen_offset, 0);
+    assert_eq!(editable.view.screen_offset(), 0);
     editable.handle(PromptEvent::Right(1));
-    assert_eq!(editable.screen_offset, 2);
+    assert_eq!(editable.view.screen_offset(), 2);
     editable.handle(PromptEvent::Right(1));
-    assert_eq!(editable.screen_offset, 4);
+    assert_eq!(editable.view.screen_offset(), 4);
     editable.handle(PromptEvent::Right(1));
-    assert_eq!(editable.screen_offset, 5);
+    assert_eq!(editable.view.screen_offset(), 5);
     editable.handle(PromptEvent::Right(1));
-    assert_eq!(editable.screen_offset, 5);
+    assert_eq!(editable.view.screen_offset(), 5);
     editable.handle(PromptEvent::Left(1));
-    assert_eq!(editable.screen_offset, 3);
+    assert_eq!(editable.view.screen_offset(), 3);
     editable.handle(PromptEvent::Left(1));
-    assert_eq!(editable.screen_offset, 2);
+    assert_eq!(editable.view.screen_offset(), 2);
     editable.handle(PromptEvent::Left(1));
-    assert_eq!(editable.screen_offset, 2);
+    assert_eq!(editable.view.screen_offset(), 2);
     editable.handle(PromptEvent::Left(1));
-    assert_eq!(editable.screen_offset, 0);
+    assert_eq!(editable.view.screen_offset(), 0);
 
     let mut editable = init_prompt(7, 2);
     editable.handle(PromptEvent::Paste("abc".to_owned()));
     editable.handle(PromptEvent::ToStart);
     editable.handle(PromptEvent::ToEnd);
-    assert_eq!(editable.screen_offset, 3);
+    assert_eq!(editable.view.screen_offset(), 3);
     editable.handle(PromptEvent::Paste("defghi".to_owned()));
     editable.handle(PromptEvent::ToStart);
     editable.handle(PromptEvent::ToEnd);
-    assert_eq!(editable.screen_offset, 5);
+    assert_eq!(editable.view.screen_offset(), 5);
 }
 
 #[test]
@@ -159,21 +211,21 @@ fn view() {
 fn resize_restores_cursor_after_zero_width() {
     let mut editable = init_prompt(6, 2);
     editable.handle(PromptEvent::Paste("abcdef".to_owned()));
-    assert_eq!(editable.screen_offset, 4);
+    assert_eq!(editable.view.screen_offset(), 4);
 
     editable.resize(0);
-    assert_eq!(editable.screen_offset, 0);
+    assert_eq!(editable.view.screen_offset(), 0);
     assert_eq!(editable.view(), ("", 0));
 
     editable.resize(6);
-    assert_eq!(editable.screen_offset, 4);
+    assert_eq!(editable.view.screen_offset(), 4);
     assert_eq!(editable.view(), ("cdef", 0));
 
     editable.handle(PromptEvent::ToStart);
     editable.handle(PromptEvent::Right(2));
     editable.resize(0);
     editable.resize(6);
-    assert_eq!(editable.screen_offset, 2);
+    assert_eq!(editable.view.screen_offset(), 2);
     assert_eq!(editable.view(), ("abcdef", 0));
 }
 
@@ -181,15 +233,15 @@ fn resize_restores_cursor_after_zero_width() {
 fn resize_reveals_newly_available_context() {
     let mut editable = init_prompt(6, 2);
     editable.handle(PromptEvent::Paste("abcdefghijkl".to_owned()));
-    assert_eq!(editable.screen_offset, 4);
+    assert_eq!(editable.view.screen_offset(), 4);
     assert_eq!(editable.view(), ("ijkl", 0));
 
     editable.resize(10);
-    assert_eq!(editable.screen_offset, 8);
+    assert_eq!(editable.view.screen_offset(), 8);
     assert_eq!(editable.view(), ("efghijkl", 0));
 
     editable.resize(6);
-    assert_eq!(editable.screen_offset, 4);
+    assert_eq!(editable.view.screen_offset(), 4);
     assert_eq!(editable.view(), ("ijkl", 0));
 }
 
@@ -198,14 +250,14 @@ fn resize_preserves_valid_offset_with_context_on_both_sides() {
     let mut editable = init_prompt(10, 2);
     editable.handle(PromptEvent::Paste("abcdefghijklmnop".to_owned()));
     editable.handle(PromptEvent::Left(10));
-    assert_eq!(editable.screen_offset, 2);
+    assert_eq!(editable.view.screen_offset(), 2);
 
     editable.resize(14);
-    assert_eq!(editable.screen_offset, 2);
+    assert_eq!(editable.view.screen_offset(), 2);
     assert_eq!(editable.view(), ("efghijklmnop", 0));
 
     editable.resize(8);
-    assert_eq!(editable.screen_offset, 2);
+    assert_eq!(editable.view.screen_offset(), 2);
     assert_eq!(editable.view(), ("efghijkl", 0));
 }
 
@@ -215,13 +267,13 @@ fn test_word_movement() {
     editable.handle(PromptEvent::Paste("one two".to_owned()));
     editable.handle(PromptEvent::WordLeft(1));
     editable.handle(PromptEvent::WordLeft(1));
-    assert_eq!(editable.screen_offset, 0);
+    assert_eq!(editable.view.screen_offset(), 0);
     editable.handle(PromptEvent::WordRight(1));
-    assert_eq!(editable.screen_offset, 4);
+    assert_eq!(editable.view.screen_offset(), 4);
     editable.handle(PromptEvent::WordRight(1));
-    assert_eq!(editable.screen_offset, 7);
+    assert_eq!(editable.view.screen_offset(), 7);
     editable.handle(PromptEvent::WordRight(1));
-    assert_eq!(editable.screen_offset, 7);
+    assert_eq!(editable.view.screen_offset(), 7);
 }
 
 #[test]
@@ -232,11 +284,11 @@ fn test_clear() {
     editable.handle(PromptEvent::Right(1));
     editable.handle(PromptEvent::Right(1));
     editable.handle(PromptEvent::ClearAfter);
-    assert_eq!(editable.contents, "Ａb");
+    assert_eq!(editable.data.contents(), "Ａb");
     editable.handle(PromptEvent::Insert('c'));
     editable.handle(PromptEvent::Left(1));
     editable.handle(PromptEvent::ClearBefore);
-    assert_eq!(editable.contents, "c");
+    assert_eq!(editable.data.contents(), "c");
 }
 
 #[test]
@@ -244,11 +296,11 @@ fn test_delete() {
     let mut editable = init_prompt(7, 2);
     editable.handle(PromptEvent::Paste("Ａb".to_owned()));
     editable.handle(PromptEvent::Backspace(1));
-    assert_eq!(editable.contents, "Ａ");
-    assert_eq!(editable.screen_offset, 2);
+    assert_eq!(editable.data.contents(), "Ａ");
+    assert_eq!(editable.view.screen_offset(), 2);
     editable.handle(PromptEvent::Backspace(1));
-    assert_eq!(editable.contents, "");
-    assert_eq!(editable.screen_offset, 0);
+    assert_eq!(editable.data.contents(), "");
+    assert_eq!(editable.view.screen_offset(), 0);
 }
 
 #[test]
@@ -284,7 +336,7 @@ fn test_editable() {
     ] {
         editable.handle(e);
     }
-    assert_eq!(editable.contents, "debac");
+    assert_eq!(editable.data.contents(), "debac");
 
     let mut editable = init_prompt(3, 1);
     for e in [
@@ -307,7 +359,7 @@ fn test_editable() {
         editable.handle(e);
     }
 
-    assert_eq!(editable.contents, "4abc12");
+    assert_eq!(editable.data.contents(), "4abc12");
 }
 
 #[test]
@@ -322,7 +374,7 @@ fn test_editable_unicode() {
     ] {
         editable.handle(e);
     }
-    assert_eq!(editable.contents, "aदेＡ");
+    assert_eq!(editable.data.contents(), "aदेＡ");
 
     for e in [
         PromptEvent::ToStart,
@@ -334,7 +386,7 @@ fn test_editable_unicode() {
         editable.handle(e);
     }
 
-    assert_eq!(editable.contents, "aＡ");
+    assert_eq!(editable.data.contents(), "aＡ");
 }
 
 #[test]
@@ -344,13 +396,13 @@ fn sequential_emoji_insertion() {
         editable.handle(PromptEvent::Insert(ch));
     }
 
-    assert_eq!(editable.contents, "👩🏽‍💻");
-    assert_eq!(editable.screen_offset, 2);
+    assert_eq!(editable.data.contents(), "👩🏽‍💻");
+    assert_eq!(editable.view.screen_offset(), 2);
 
     let mut pasted = init_prompt(20, 2);
     pasted.handle(PromptEvent::Paste("👩🏽‍💻".to_owned()));
-    assert_eq!(editable.contents, pasted.contents);
-    assert_eq!(editable.screen_offset, pasted.screen_offset);
+    assert_eq!(editable.data.contents(), pasted.data.contents());
+    assert_eq!(editable.view.screen_offset(), pasted.view.screen_offset());
     assert_eq!(editable.view(), pasted.view());
 
     let mut editable = init_prompt(20, 2);
@@ -358,8 +410,8 @@ fn sequential_emoji_insertion() {
         editable.handle(PromptEvent::Paste(part.to_owned()));
     }
 
-    assert_eq!(editable.contents, "👩🏽‍💻");
-    assert_eq!(editable.screen_offset, 2);
+    assert_eq!(editable.data.contents(), "👩🏽‍💻");
+    assert_eq!(editable.view.screen_offset(), 2);
 
     let mut editable = init_prompt(6, 2);
     editable.handle(PromptEvent::Paste("abc".to_owned()));
@@ -369,7 +421,7 @@ fn sequential_emoji_insertion() {
 
     let mut pasted = init_prompt(6, 2);
     pasted.handle(PromptEvent::Paste("abc👩🏽‍💻".to_owned()));
-    assert_eq!(editable.screen_offset, 4);
-    assert_eq!(editable.screen_offset, pasted.screen_offset);
+    assert_eq!(editable.view.screen_offset(), 4);
+    assert_eq!(editable.view.screen_offset(), pasted.view.screen_offset());
     assert_eq!(editable.view(), pasted.view());
 }

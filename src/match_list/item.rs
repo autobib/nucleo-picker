@@ -1,8 +1,85 @@
 use memchr::memchr_iter;
 use nucleo::{Item, Snapshot, Utf32Str};
 
-use super::{ItemList, ItemSize};
-use crate::Render;
+use crate::{Render, incremental::Incremental};
+
+/// A trait to describe items with a certain size.
+pub(super) trait ItemSize {
+    /// The size of the item on the screen.
+    fn size(&self) -> usize;
+}
+
+/// A list of items with variable sizes.
+pub(super) trait ItemList {
+    /// The item type of list.
+    type Item<'a>: ItemSize
+    where
+        Self: 'a;
+
+    /// The total number items in the list.
+    fn total(&self) -> u32;
+
+    /// An iterator over items below the cursor, iterating downwards.
+    fn lower(&self, cursor: u32) -> impl DoubleEndedIterator<Item = Self::Item<'_>>;
+
+    /// An iterator over items below and including the cursor, iterating downwards.
+    fn lower_inclusive(&self, cursor: u32) -> impl DoubleEndedIterator<Item = Self::Item<'_>>;
+
+    /// An iterator over items above cursor, iterating upwards.
+    fn higher(&self, cursor: u32) -> impl DoubleEndedIterator<Item = Self::Item<'_>>;
+
+    /// An iterator over items above and including the cursor, iterating upwards.
+    fn higher_inclusive(&self, selection: u32) -> impl DoubleEndedIterator<Item = Self::Item<'_>>;
+}
+
+/// An automatic extension trait for an [`ItemList`].
+pub(super) trait ItemListExt: ItemList {
+    /// Wrap the item sizes returned by [`lower`](ItemList::lower)
+    /// into a [`Incremental`].
+    fn sizes_lower<'a>(
+        &self,
+        cursor: u32,
+        vec: &'a mut Vec<usize>,
+    ) -> Incremental<&'a mut Vec<usize>, impl Iterator<Item = usize>> {
+        vec.clear();
+        Incremental::new(vec, self.lower(cursor).map(|item| item.size()))
+    }
+
+    /// Wrap the item sizes returned by [`lower_inclusive`](ItemList::lower_inclusive)
+    /// into a [`Incremental`].
+    fn sizes_lower_inclusive<'a>(
+        &self,
+        cursor: u32,
+        vec: &'a mut Vec<usize>,
+    ) -> Incremental<&'a mut Vec<usize>, impl Iterator<Item = usize>> {
+        vec.clear();
+        Incremental::new(vec, self.lower_inclusive(cursor).map(|item| item.size()))
+    }
+
+    /// Wrap the item sizes returned by [`higher`](ItemList::higher)
+    /// into an [`Incremental`].
+    fn sizes_higher<'a>(
+        &self,
+        cursor: u32,
+        vec: &'a mut Vec<usize>,
+    ) -> Incremental<&'a mut Vec<usize>, impl Iterator<Item = usize>> {
+        vec.clear();
+        Incremental::new(vec, self.higher(cursor).map(|item| item.size()))
+    }
+
+    /// Wrap the item sizes returned by [`higher_inclusive`](ItemList::higher)
+    /// into an [`Incremental`].
+    fn sizes_higher_inclusive<'a>(
+        &self,
+        cursor: u32,
+        vec: &'a mut Vec<usize>,
+    ) -> Incremental<&'a mut Vec<usize>, impl Iterator<Item = usize>> {
+        vec.clear();
+        Incremental::new(vec, self.higher_inclusive(cursor).map(|item| item.size()))
+    }
+}
+
+impl<B: ItemList> ItemListExt for B {}
 
 impl<T> ItemSize for Item<'_, T> {
     fn size(&self) -> usize {

@@ -101,3 +101,26 @@ fn redraw_queries_terminal_size() {
 
     assert_eq!(terminal.size_calls, 2);
 }
+
+#[test]
+fn background_frames_follow_the_configured_frequency() {
+    let events = ScriptedEvents::new(
+        (0..7)
+            .map(|_| Step::Timeout)
+            .chain(std::iter::once(Step::Event(Event::Quit))),
+    );
+    let mut terminal = CountingTerminal {
+        output: Vec::new(),
+        size: (20, 8),
+        size_calls: 0,
+    };
+    let mut picker: Picker<String, _> = crate::PickerOptions::new()
+        .frame_interval(Duration::from_millis(1))
+        .background_frame_interval(Duration::from_millis(3))
+        .picker(StrRenderer);
+    let _injector = picker.injector();
+
+    picker.pick_with_terminal_io(events, &mut terminal).unwrap();
+
+    assert_eq!(terminal.size_calls, 3);
+}

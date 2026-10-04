@@ -1,9 +1,9 @@
-use super::MatchListState;
+use super::LayoutState;
 use crate::incremental::ExtendIncremental;
 
 #[inline]
 pub fn items(
-    previous: MatchListState,
+    previous: LayoutState,
     padding_top: u16,
     mut sizes_below_incl: impl ExtendIncremental,
     mut sizes_above: impl ExtendIncremental,
@@ -28,7 +28,7 @@ pub fn items(
 
 #[inline]
 pub fn items_rev(
-    previous: MatchListState,
+    previous: LayoutState,
     padding_top: u16,
     mut sizes_below_incl: impl ExtendIncremental,
     mut sizes_above: impl ExtendIncremental,

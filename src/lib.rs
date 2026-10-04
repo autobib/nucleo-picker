@@ -35,14 +35,17 @@ pub mod event;
 mod frame;
 mod incremental;
 mod injector;
-mod lazy;
+mod match_engine;
 mod match_list;
 mod observer;
 #[cfg(feature = "preview")]
 #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
 pub mod preview;
 mod prompt;
+mod rect;
 pub mod render;
+mod session;
+mod status_line;
 mod terminal;
 mod util;
 
@@ -51,7 +54,7 @@ use std::{
     io::{self, BufWriter, IsTerminal},
     iter::Extend,
     num::NonZero,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use crossterm::event::KeyEvent;
@@ -64,16 +67,13 @@ use observer::{Notifier, Observer};
 use preview::PreviewConfig;
 
 use crate::{
-    component::{ComponentStatus, PreviewComponent},
+    component::NoPreview,
     error::PickError,
-    event::{
-        Event, EventSource, PickerStatus, RecvError, StdinReader, keybind_default, keybind_no_multi,
-    },
-    frame::{FrameState, Redraw},
-    lazy::{LazyMatchList, LazyPrompt},
-    match_list::{MatchList, MatchListConfig, Queued, SelectedIndices},
-    prompt::{Prompt, PromptConfig},
-    terminal::{CrosstermTerminal, TerminalSession},
+    event::{Event, EventSource, PickerStatus, StdinReader, keybind_default, keybind_no_multi},
+    match_engine::MatchEngine,
+    match_list::{MatchListConfig, MatchListState, SelectedIndices},
+    prompt::{PromptConfig, PromptState},
+    terminal::CrosstermTerminal,
 };
 
 pub use crate::injector::Injector;
@@ -392,6 +392,8 @@ pub struct PickerOptions {
     background_frame_interval: Duration,
     chars: PickerChars,
     match_list_config: MatchListConfig,
+    case_matching: NucleoCaseMatching,
+    normalization: NucleoNormalization,
     prompt_config: PromptConfig,
     #[cfg(feature = "preview")]
     preview_config: PreviewConfig,
@@ -421,6 +423,8 @@ impl PickerOptions {
             background_frame_interval: Duration::from_millis(60),
             chars: PickerChars::new(),
             match_list_config: MatchListConfig::new(),
+            case_matching: NucleoCaseMatching::Smart,
+            normalization: NucleoNormalization::Smart,
             prompt_config: PromptConfig::new(),
             #[cfg(feature = "preview")]
             preview_config: PreviewConfig::new(),
@@ -449,8 +453,8 @@ impl PickerOptions {
 
         let reversed = self.match_list_config.reversed;
 
-        let mut match_list = MatchList::new(
-            self.match_list_config,
+        let list_state = MatchListState::new(self.match_list_config, self.config.clone());
+        let mut engine = MatchEngine::new(
             self.config,
             nc::MatchListConfig {
                 sort_results: self.sort_results,
@@ -458,16 +462,19 @@ impl PickerOptions {
             },
             self.threads,
             render.into(),
+            self.case_matching,
+            self.normalization,
         );
 
-        let mut prompt = Prompt::new(self.prompt_config);
+        let mut prompt = PromptState::new(self.prompt_config);
 
         // set the prompt
-        match_list.reparse(&self.query);
+        engine.reparse(&self.query);
         prompt.set_query(self.query);
 
         Picker {
-            match_list,
+            engine,
+            list_state,
             prompt,
             #[cfg(feature = "preview")]
             preview_config: self.preview_config,
@@ -577,7 +584,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn normalization(mut self, normalization: Normalization) -> Self {
-        self.match_list_config.normalization = normalization.convert();
+        self.normalization = normalization.convert();
         self
     }
 
@@ -585,7 +592,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn case_matching(mut self, case_matching: CaseMatching) -> Self {
-        self.match_list_config.case_matching = case_matching.convert();
+        self.case_matching = case_matching.convert();
         self
     }
 
@@ -869,10 +876,11 @@ impl PickerOptions {
 #[doc = include_str!("../examples/custom_io.rs")]
 /// ```
 pub struct Picker<T, R> {
-    match_list: MatchList<T, R>,
+    engine: MatchEngine<T, R>,
+    list_state: MatchListState,
     chars: PickerChars,
     max_selection_count: Option<NonZero<u32>>,
-    prompt: Prompt,
+    prompt: PromptState,
     #[cfg(feature = "preview")]
     preview_config: PreviewConfig,
     interval: Duration,
@@ -920,7 +928,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     #[inline]
     pub fn update_query<Q: Into<String>>(&mut self, query: Q) {
         self.prompt.set_query(query);
-        self.match_list.reparse(self.prompt.contents());
+        self.engine.reparse(self.prompt.contents());
     }
 
     /// Returns the contents of the query string internal to the picker.
@@ -975,7 +983,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// Update the internal nucleo configuration.
     #[inline]
     pub fn update_config(&mut self, config: nc::Config) {
-        self.match_list.update_nucleo_config(config);
+        self.engine.update_nucleo_config(config);
     }
 
     /// Restart the match engine, disconnecting all active injectors and clearing the existing
@@ -990,7 +998,10 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// the [`Event`] documentation or the [restart
     /// example](https://github.com/autobib/nucleo-picker/blob/master/examples/restart.rs).
     pub fn restart(&mut self) {
-        self.match_list.restart();
+        self.engine.restart();
+        self.list_state
+            .layout
+            .restart(self.engine.snapshot(), &self.list_state.config);
         self.update_query("");
     }
 
@@ -1002,13 +1013,16 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     ///
     /// See [`Picker::restart`] for more detail. Note that method *does not* clear the query.
     pub fn reset_renderer(&mut self, render: R) {
-        self.match_list.reset_renderer(render);
+        self.engine.reset_renderer(render);
+        self.list_state
+            .layout
+            .restart(self.engine.snapshot(), &self.list_state.config);
     }
 
     /// Get an [`Injector`] to send items to the picker.
     #[must_use]
     pub fn injector(&self) -> Injector<T, R> {
-        self.match_list.injector()
+        self.engine.injector()
     }
 
     /// A convenience method to add a batch of items directly to the picker.
@@ -1051,7 +1065,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     where
         R: Render<T>,
     {
-        self.match_list.render(item)
+        self.engine.render(item)
     }
 
     /// Open the interactive picker prompt and return the picked item, if any.
@@ -1170,7 +1184,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// Whether or not this fails with another [`PickError`] variant depends on the [`EventSource`]
     /// implementation:
     ///
-    /// 1. If [`EventSource::recv_timeout`] fails with a [`RecvError::Disconnected`], the error
+    /// 1. If [`EventSource::recv_timeout`] fails with a [`RecvError::Disconnected`](event::RecvError::Disconnected), the error
     ///    returned will be [`PickError::Disconnected`].
     /// 2. The error will be [`PickError::UserInterrupted`] if the [`Picker`] receives an
     ///    [`Event::UserInterrupt`].
@@ -1189,7 +1203,11 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         E: EventSource,
         W: io::Write,
     {
-        self.pick_impl::<_, _, (), _>(event_source, &mut CrosstermTerminal::new(writer), ())
+        self.pick_impl::<_, _, (), _>(
+            event_source,
+            &mut CrosstermTerminal::new(writer),
+            NoPreview::new(),
+        )
     }
 
     /// Run the picker interactively with a custom event source and writer, allowing the user to
@@ -1210,219 +1228,8 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         self.pick_impl::<_, _, SelectedIndices, _>(
             event_source,
             &mut CrosstermTerminal::new(writer),
-            (),
+            NoPreview::new(),
         )
-    }
-
-    fn pick_impl<E, W, Q: Queued, P>(
-        &mut self,
-        mut event_source: E,
-        writer: &mut W,
-        mut preview: P,
-    ) -> Result<Q::Output<'_, T>, PickError<<E as EventSource>::AbortErr>>
-    where
-        R: Render<T>,
-        E: EventSource,
-        W: Terminal,
-        P: PreviewComponent<T, R, E::AbortErr>,
-    {
-        let mut queued_items = Q::init(self.max_selection_count);
-        let mut terminal = TerminalSession::new(writer);
-
-        terminal.init()?;
-
-        let mut frame_start = Instant::now();
-
-        // render the first frame
-        let update_status = self.match_list.update(5);
-        let size = terminal.size()?;
-        let mut frame_state = FrameState::new(size);
-        frame_state.observe(&update_status);
-        self.match_list.resize(frame_state.match_list_height());
-        preview.resize(frame_state.preview_height());
-        preview
-            .update(&self.match_list, frame_start + self.interval)
-            .map_err(PickError::Aborted)?;
-        frame_state.render_frame(
-            self,
-            &mut terminal,
-            Redraw::all(),
-            &queued_items,
-            #[cfg(feature = "preview")]
-            preview.cached(),
-        )?;
-
-        let mut redraw = Redraw::default();
-        let mut handle_status = None;
-
-        let selection = 'selection: loop {
-            let mut lazy_match_list = LazyMatchList::new(&mut self.match_list, &mut queued_items);
-            let mut lazy_prompt = LazyPrompt::new(&mut self.prompt);
-
-            // process new events, but do not exceed the frame interval
-            'event: loop {
-                match event_source.recv_timeout(frame_start + self.interval - Instant::now()) {
-                    Ok(event) => match event {
-                        Event::Prompt(prompt_event) => {
-                            lazy_prompt.handle(prompt_event);
-                        }
-                        Event::MatchList(match_list_event) => {
-                            lazy_match_list.handle(match_list_event);
-                        }
-                        #[cfg(feature = "preview")]
-                        Event::Preview(event) => {
-                            if frame_state.dimensions().0 != 0 {
-                                preview.scroll(
-                                    lazy_match_list.selected_item_id(),
-                                    event,
-                                    frame_state.preview_height(),
-                                );
-                            }
-                        }
-                        Event::Redraw => {
-                            redraw.set_all();
-                        }
-                        Event::Quit => {
-                            break 'selection Ok(self.match_list.select_none(queued_items));
-                        }
-                        Event::QuitPromptEmpty => {
-                            // watch out for buffered prompt events!
-                            lazy_prompt.flush();
-                            if lazy_prompt.is_empty() {
-                                self.prompt.set_query("");
-                                break 'selection Ok(self.match_list.select_none(queued_items));
-                            }
-                        }
-                        Event::Select => {
-                            if lazy_match_list.has_queued_items() {
-                                break 'selection Ok(self.match_list.select_queued(queued_items));
-                            }
-
-                            if let Some(n) = lazy_match_list.selection() {
-                                break 'selection Ok(self.match_list.select_one(queued_items, n));
-                            }
-                        }
-                        Event::Status { id } => {
-                            handle_status = Some(id);
-                        }
-                        Event::Restart => match self.restart_notifier {
-                            Some(ref notifier) => {
-                                preview.restart();
-                                if notifier.push(lazy_match_list.restart()).is_err() {
-                                    break 'selection Err(PickError::Disconnected);
-                                }
-                                redraw.match_list = true;
-                                redraw.match_status = true;
-                            }
-                            None => break 'selection Err(PickError::Disconnected),
-                        },
-                        Event::UserInterrupt => {
-                            break 'selection Err(PickError::UserInterrupted);
-                        }
-                        Event::Abort(err) => {
-                            break 'selection Err(PickError::Aborted(err));
-                        }
-                    },
-                    Err(RecvError::Timeout) => break 'event,
-                    Err(RecvError::Disconnected) => {
-                        break 'selection Err(PickError::Disconnected);
-                    }
-                    Err(RecvError::IO(io_err)) => break 'selection Err(PickError::IO(io_err)),
-                }
-            }
-
-            // we have to set 'frame_start' immediately after processing events, so that the
-            // render time is also included
-            frame_start = Instant::now();
-
-            // clear out any buffered events
-            let prompt_status = lazy_prompt.finish();
-            let match_list_status = lazy_match_list.finish();
-
-            // update draw status
-            redraw.prompt |= prompt_status.needs_redraw();
-            redraw.match_list |=
-                match_list_status.selection_changed || match_list_status.queued_changed;
-            redraw.match_status |= match_list_status.queued_changed;
-
-            // check if the prompt changed: if so, reparse the match list
-            if prompt_status.contents_changed {
-                self.match_list.reparse(self.prompt.contents());
-                redraw.match_list = true;
-                redraw.match_status = true;
-            }
-
-            // update the item list
-            let background_frame = frame_state.advance(self.background_frame_frequency);
-            let update_status = self
-                .match_list
-                .update(2 * self.interval.as_millis() as u64 / 3);
-            frame_state.observe(&update_status);
-            redraw.match_list |= update_status.items_changed;
-            redraw.match_status |= update_status.items_changed;
-            if background_frame {
-                redraw.match_status |= frame_state
-                    .update_marker(self.chars.spinner_chars, self.chars.matching_indicator);
-            }
-
-            // update the preview pane
-            redraw.preview |= preview
-                .update(&self.match_list, frame_start + self.interval)
-                .map_err(PickError::Aborted)?;
-
-            // process size changes and redraw the frame
-            let changed = redraw.any_required();
-            if changed {
-                // note: we re-poll the size as late as possible instead of depending
-                // on explicit 'Resize' events because a resize event might be up to
-                // 1 frame late. however, we do make sure *not* to poll size on every
-                // frame, in case it is a bit slow
-                let size_change = frame_state.update_size(terminal.size()?);
-                if size_change.is_changed() {
-                    redraw.set_all();
-                }
-                if size_change.height_changed() {
-                    self.match_list.resize(frame_state.match_list_height());
-                    preview.resize(frame_state.preview_height());
-                }
-                frame_state.render_frame(
-                    self,
-                    &mut terminal,
-                    redraw,
-                    &queued_items,
-                    #[cfg(feature = "preview")]
-                    preview.cached(),
-                )?;
-            }
-            terminal.end_frame(changed)?;
-
-            // handle status request
-            if let Some(id) = handle_status.take()
-                && let Some(ref notifier) = self.status_notifier
-            {
-                let (width, height) = frame_state.dimensions();
-                let status = PickerStatus {
-                    id,
-                    query: self.query().to_owned(),
-                    changed,
-                    selection: self.match_list.selection(),
-                    item_count: self.match_list.item_count(),
-                    selected_item_count: queued_items.len(),
-                    matched_item_count: self.match_list.matched_item_count(),
-                    width,
-                    height,
-                    matching: update_status.matching,
-                    injecting: update_status.injecting,
-                };
-                let _ = notifier.push(status);
-            }
-
-            // reset the redraw markers
-            redraw.reset();
-        };
-
-        terminal.finish()?;
-        selection
     }
 }
 
@@ -1443,7 +1250,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         E: EventSource,
         W: Terminal,
     {
-        self.pick_impl::<_, _, (), _>(event_source, terminal, ())
+        self.pick_impl::<_, _, (), _>(event_source, terminal, NoPreview::new())
     }
 
     /// Run the picker interactively with a custom event source and terminal backend, allowing the
@@ -1461,6 +1268,6 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         E: EventSource,
         W: Terminal,
     {
-        self.pick_impl::<_, _, SelectedIndices, _>(event_source, terminal, ())
+        self.pick_impl::<_, _, SelectedIndices, _>(event_source, terminal, NoPreview::new())
     }
 }
