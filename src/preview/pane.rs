@@ -1,5 +1,6 @@
 use super::{
-    Preview, PreviewBuffer, PreviewConfig, PreviewEvent, PreviewRequest, PreviewResponse,
+    BoundaryChars, Preview, PreviewBuffer, PreviewConfig, PreviewEvent, PreviewRequest,
+    PreviewResponse,
     cache::{BufferNotReady, Cached, RequestState},
 };
 use crate::{
@@ -27,7 +28,7 @@ pub(crate) struct PreviewPane<P> {
     // resubmission when there are no changes.
     epoch: u64,
     area: Area,
-    boundary_box_chars: [char; 6],
+    boundary_chars: BoundaryChars,
     ellipsis: char,
     line_numbers: bool,
 }
@@ -41,7 +42,7 @@ impl<P> PreviewPane<P> {
             pending_redraw: false,
             epoch: 0,
             area: Area::default(),
-            boundary_box_chars: config.boundary_box_chars,
+            boundary_chars: config.boundary_chars,
             ellipsis: chars.ellipsis,
             line_numbers: config.line_numbers,
         }
@@ -166,7 +167,7 @@ impl<E, P> Component<E> for PreviewPane<P> {
         super::draw::draw(
             rect,
             preview,
-            self.boundary_box_chars,
+            self.boundary_chars,
             self.ellipsis,
             self.line_numbers,
         )

@@ -4,7 +4,9 @@ use crossterm::style::{ContentStyle, Stylize};
 use nucleo_picker::{
     PickerOptions,
     event::{Event, MatchListEvent, PromptEvent},
-    preview::{Preview, PreviewBuffer, PreviewEvent, PreviewRequest, PreviewResponse},
+    preview::{
+        BoundaryChars, Preview, PreviewBuffer, PreviewEvent, PreviewRequest, PreviewResponse,
+    },
 };
 use nucleo_picker_vt::{Driver, PaneSnapshot};
 use unicode_width::UnicodeWidthStr;
@@ -283,9 +285,79 @@ fn style_resets_and_custom_elision() -> Result<(), Box<dyn Error>> {
     );
     sr.set_dimensions(10, 5)?;
     sr.wait_for_match_complete(1, 1)?;
-    assert_pane(&sr.checkpoint("ascii marker")?, false, &["ab."]);
+    let snapshot = sr.checkpoint("ascii marker")?;
+    assert!(snapshot.text.iter().all(|line| line.is_ascii()));
+    for (line, expected) in snapshot
+        .text
+        .iter()
+        .zip(["+---+", "|ab.|", "|   |", "|   |", "+---+"])
+    {
+        assert!(line.ends_with(expected), "unexpected row: {line:?}");
+    }
     sr.send(Event::Quit)?;
     assert!(sr.finish()?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn boundary_chars() -> Result<(), Box<dyn Error>> {
+    const CUSTOM: BoundaryChars = BoundaryChars {
+        top_left: '1',
+        top_right: '2',
+        bottom_left: '3',
+        bottom_right: '4',
+        vertical: '!',
+        horizontal: '=',
+    };
+    const CUSTOM_OPTIONS: PickerOptions = PickerOptions::new().preview_boundary_chars(CUSTOM);
+    let unicode = ["╭───╮", "│ab…│", "│   │", "│   │", "╰───╯"];
+    for (options, expected) in [
+        (
+            CUSTOM_OPTIONS,
+            ["1===2", "!ab…!", "!   !", "!   !", "3===4"],
+        ),
+        (
+            PickerOptions::new()
+                .ascii_compatible(true)
+                .preview_boundary_chars(CUSTOM),
+            ["1===2", "!ab.!", "!   !", "!   !", "3===4"],
+        ),
+        (
+            CUSTOM_OPTIONS.ascii_compatible(true),
+            ["+---+", "|ab.|", "|   |", "|   |", "+---+"],
+        ),
+        (CUSTOM_OPTIONS.ascii_compatible(false), unicode),
+        (
+            PickerOptions::new()
+                .ascii_compatible(true)
+                .ascii_compatible(false),
+            unicode,
+        ),
+        (
+            PickerOptions::new()
+                .ascii_compatible(true)
+                .preview_boundary_chars(BoundaryChars::default()),
+            ["╭───╮", "│ab.│", "│   │", "│   │", "╰───╯"],
+        ),
+        (
+            PickerOptions::new().preview_boundary_chars(BoundaryChars::ascii()),
+            ["+---+", "|ab…|", "|   |", "|   |", "+---+"],
+        ),
+    ] {
+        let mut sr = start_with("boundary_chars", vec!["abcdef"], options, ItemPreview);
+        sr.set_dimensions(10, 5)?;
+        sr.wait_for_match_complete(1, 1)?;
+        let snapshot = sr.checkpoint("boundary")?;
+        assert_eq!(snapshot.text.len(), expected.len());
+        for (line, expected) in snapshot.text.iter().zip(expected) {
+            let prefix = line
+                .strip_suffix(expected)
+                .unwrap_or_else(|| panic!("unexpected row: {line:?}"));
+            assert_eq!(prefix.width(), 5);
+        }
+        sr.send(Event::Quit)?;
+        assert!(sr.finish()?.is_empty());
+    }
     Ok(())
 }
 
