@@ -3,8 +3,10 @@ use std::io::{self, BufWriter, IsTerminal};
 use crossterm::event::KeyEvent;
 
 use super::{Preview, pane::PreviewPane};
+#[cfg(feature = "unstable-backend")]
+use crate::Terminal;
 use crate::{
-    Picker, Render, Selection, Terminal,
+    Picker, Render, Selection,
     error::PickError,
     event::{Event, EventSource, StdinReader, keybind_default, keybind_no_multi},
     match_list::SelectedIndices,
@@ -139,7 +141,11 @@ impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<'_, T,
         self.picker.pick_impl::<_, _, (), _>(
             event_source,
             &mut CrosstermTerminal::new(writer),
-            PreviewPane::new(&self.picker.preview_config, &mut self.previewer),
+            PreviewPane::new(
+                &self.picker.preview_config,
+                &self.picker.chars,
+                &mut self.previewer,
+            ),
         )
     }
 
@@ -160,7 +166,11 @@ impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<'_, T,
         self.picker.pick_impl::<_, _, SelectedIndices, _>(
             event_source,
             &mut CrosstermTerminal::new(writer),
-            PreviewPane::new(&self.picker.preview_config, &mut self.previewer),
+            PreviewPane::new(
+                &self.picker.preview_config,
+                &self.picker.chars,
+                &mut self.previewer,
+            ),
         )
     }
 }
@@ -184,7 +194,11 @@ impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<'_, T,
         self.picker.pick_impl::<_, _, (), _>(
             event_source,
             terminal,
-            PreviewPane::new(&self.picker.preview_config, &mut self.previewer),
+            PreviewPane::new(
+                &self.picker.preview_config,
+                &self.picker.chars,
+                &mut self.previewer,
+            ),
         )
     }
 
@@ -206,7 +220,11 @@ impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<'_, T,
         self.picker.pick_impl::<_, _, SelectedIndices, _>(
             event_source,
             terminal,
-            PreviewPane::new(&self.picker.preview_config, &mut self.previewer),
+            PreviewPane::new(
+                &self.picker.preview_config,
+                &self.picker.chars,
+                &mut self.previewer,
+            ),
         )
     }
 }

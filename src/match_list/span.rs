@@ -5,7 +5,8 @@ use std::{io, iter::once, marker::PhantomData, ops::Range, slice::Iter};
 
 use crossterm::style::{Attribute, Color, Stylize};
 
-use super::unicode::{Processor, Span, consume, spans_from_indices, truncate};
+use super::unicode::{Span, spans_from_indices};
+use crate::util::unicode::{Processor, consume, truncate};
 use crate::{PickerChars, rect::Rect};
 
 /// An iterator over lines, as span slices.

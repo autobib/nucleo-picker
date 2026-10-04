@@ -786,6 +786,19 @@ impl PickerOptions {
 
 #[cfg(feature = "preview")]
 impl PickerOptions {
+    /// Enable preview line numbers.
+    ///
+    /// This prints line numbers in a column on the left side of the preview with an extra column of
+    /// space. The line numbers will be hidden if it would cover the entire preview pane. The default
+    /// value is `false`.
+    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
+    #[must_use]
+    #[inline]
+    pub const fn preview_line_numbers(mut self, enabled: bool) -> Self {
+        self.preview_config.line_numbers = enabled;
+        self
+    }
+
     /// Set the capacity of the preview cache.
     ///
     /// The preview cache is used to reduce preview requests when scrolling onto an item and to

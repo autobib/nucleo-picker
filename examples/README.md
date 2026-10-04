@@ -25,4 +25,5 @@ File                                       | Description
 [restart_ext.rs](restart_ext.rs)           | An extended version of the `restart` example.
 [timeout.rs](timeout.rs)                   | A version of the `find` example with an inactivity timeout.
 [serde.rs](serde.rs)                       | Use `serde` to deserialize picker items from input.
+[preview.rs](preview.rs)                   | A basic synchronous preview example with no styling.
 [low_framerate.rs](low_framerate.rs)       | An example with a framerate of 0.5 FPS to demonstrate keypress input batching.

@@ -112,7 +112,11 @@ fn update(
 #[test]
 fn cache_tracks_item_identity_and_preserves_scroll_state() {
     let mut picker = picker(["alpha", "beta"]);
-    let mut session = PreviewPane::new(&PreviewConfig::default(), TestPreviewer::default());
+    let mut session = PreviewPane::new(
+        &PreviewConfig::default(),
+        &crate::PickerChars::new(),
+        TestPreviewer::default(),
+    );
     update(&mut session, &mut picker).unwrap();
     let alpha = selected_item(&picker).unwrap().0;
     session.cache.get_mut(&alpha).unwrap().scroll_position = 7;
@@ -149,7 +153,11 @@ fn cache_evicts_the_least_recently_visited_item() {
         cache_size: std::num::NonZero::new(3).unwrap(),
         ..PreviewConfig::default()
     };
-    let mut session = PreviewPane::new(&config, TestPreviewer::default());
+    let mut session = PreviewPane::new(
+        &config,
+        &crate::PickerChars::new(),
+        TestPreviewer::default(),
+    );
     let capacity = session.cache.cap().get();
     assert_eq!(capacity, 3);
     let mut picker = picker(std::iter::repeat_n("item", capacity + 1));
@@ -193,7 +201,11 @@ fn evicted_ready_buffers_are_reused_and_scroll_is_reset() {
         cache_size: std::num::NonZero::new(1).unwrap(),
         ..PreviewConfig::default()
     };
-    let mut session = PreviewPane::new(&config, TestPreviewer::default());
+    let mut session = PreviewPane::new(
+        &config,
+        &crate::PickerChars::new(),
+        TestPreviewer::default(),
+    );
     let mut picker = picker(["alpha", "beta"]);
     update(&mut session, &mut picker).unwrap();
     let cached = session.cache.get_mut(&0).unwrap();
@@ -233,7 +245,11 @@ fn eviction_cancels_queued_and_active_requests_and_reuses_their_buffers() {
             cache_size: std::num::NonZero::new(1).unwrap(),
             ..PreviewConfig::default()
         };
-        let mut session = PreviewPane::new(&config, TestPreviewer::default());
+        let mut session = PreviewPane::new(
+            &config,
+            &crate::PickerChars::new(),
+            TestPreviewer::default(),
+        );
         let mut picker = picker(["alpha", "beta", "gamma"]);
         update(&mut session, &mut picker).unwrap();
         let Some(RequestState::Ready(buffer)) = &session.cache.peek(&0).unwrap().state else {
@@ -290,6 +306,7 @@ fn eviction_reuses_a_published_buffer_before_it_is_polled() {
     };
     let mut session = PreviewPane::new(
         &config,
+        &crate::PickerChars::new(),
         TestPreviewer {
             defer: true,
             ..TestPreviewer::default()
@@ -332,7 +349,11 @@ fn eviction_reuses_buffers_from_dropped_workers() {
             cache_size: std::num::NonZero::new(1).unwrap(),
             ..PreviewConfig::default()
         };
-        let mut session = PreviewPane::new(&config, TestPreviewer::default());
+        let mut session = PreviewPane::new(
+            &config,
+            &crate::PickerChars::new(),
+            TestPreviewer::default(),
+        );
         let mut picker = picker(["alpha", "beta", "gamma"]);
         update(&mut session, &mut picker).unwrap();
         let Some(RequestState::Ready(buffer)) = &session.cache.peek(&0).unwrap().state else {
@@ -376,6 +397,7 @@ fn eviction_cancels_the_old_request_even_if_submission_fails() {
     };
     let mut session = PreviewPane::new(
         &config,
+        &crate::PickerChars::new(),
         TestPreviewer {
             defer: true,
             fail_after: Some(1),
@@ -398,6 +420,7 @@ fn queued_previews_are_promoted_once_per_revisit() {
     let mut picker = picker(["alpha", "beta"]);
     let mut session = PreviewPane::new(
         &PreviewConfig::default(),
+        &crate::PickerChars::new(),
         TestPreviewer {
             defer: true,
             ..TestPreviewer::default()
@@ -424,7 +447,11 @@ fn queued_previews_are_promoted_once_per_revisit() {
 #[test]
 fn ready_previews_only_report_changes_on_selection() {
     let mut picker = picker(["alpha", "beta"]);
-    let mut session = PreviewPane::new(&PreviewConfig::default(), TestPreviewer::default());
+    let mut session = PreviewPane::new(
+        &PreviewConfig::default(),
+        &crate::PickerChars::new(),
+        TestPreviewer::default(),
+    );
     for (selection, changed) in [(0, true), (0, false), (1, true), (0, true), (0, false)] {
         picker.list_state.layout.set_selection(
             picker.engine.snapshot(),
@@ -441,6 +468,7 @@ fn active_previews_survive_revisits_and_complete_once() {
     let mut picker = picker(["alpha", "beta"]);
     let mut session = PreviewPane::new(
         &PreviewConfig::default(),
+        &crate::PickerChars::new(),
         TestPreviewer {
             defer: true,
             ..TestPreviewer::default()
@@ -479,6 +507,7 @@ fn completed_previews_are_collected_on_revisit_without_resubmission() {
     let mut picker = picker(["alpha", "beta"]);
     let mut session = PreviewPane::new(
         &PreviewConfig::default(),
+        &crate::PickerChars::new(),
         TestPreviewer {
             defer: true,
             ..TestPreviewer::default()
@@ -516,6 +545,7 @@ fn filtering_and_empty_selections_reprioritize_by_item_identity() {
     let mut picker = picker(["alpha", "beta"]);
     let mut session = PreviewPane::new(
         &PreviewConfig::default(),
+        &crate::PickerChars::new(),
         TestPreviewer {
             defer: true,
             ..TestPreviewer::default()
@@ -550,6 +580,7 @@ fn dropped_queued_and_active_requests_are_retried() {
         let mut picker = picker(["alpha"]);
         let mut session = PreviewPane::new(
             &PreviewConfig::default(),
+            &crate::PickerChars::new(),
             TestPreviewer {
                 defer: true,
                 ..TestPreviewer::default()
@@ -579,6 +610,7 @@ fn immediately_dropped_requests_are_submitted_at_most_once_per_update() {
     let mut picker = picker(["alpha"]);
     let mut session = PreviewPane::new(
         &PreviewConfig::default(),
+        &crate::PickerChars::new(),
         TestPreviewer {
             defer: true,
             drop_requests: true,
@@ -599,7 +631,11 @@ fn immediately_dropped_requests_are_submitted_at_most_once_per_update() {
 fn promotion_and_retry_clear_and_reuse_buffers_without_resetting_scroll() {
     for dropped in [false, true] {
         let mut picker = picker(["alpha"]);
-        let mut session = PreviewPane::new(&PreviewConfig::default(), TestPreviewer::default());
+        let mut session = PreviewPane::new(
+            &PreviewConfig::default(),
+            &crate::PickerChars::new(),
+            TestPreviewer::default(),
+        );
         let mut buffer = PreviewBuffer::new();
         buffer.push_str("previous contents");
         buffer.newline();
@@ -688,6 +724,7 @@ fn restart_preserves_invalidation_until_the_next_update() {
             let mut picker = picker(["alpha"]);
             let mut session = PreviewPane::new(
                 &PreviewConfig::default(),
+                &crate::PickerChars::new(),
                 TestPreviewer {
                     defer,
                     ..TestPreviewer::default()
@@ -723,7 +760,11 @@ fn restart_preserves_invalidation_until_the_next_update() {
 #[test]
 fn restart_with_a_reused_item_id_and_pending_preview_reports_one_change() {
     let mut picker = picker(["alpha"]);
-    let mut session = PreviewPane::new(&PreviewConfig::default(), TestPreviewer::default());
+    let mut session = PreviewPane::new(
+        &PreviewConfig::default(),
+        &crate::PickerChars::new(),
+        TestPreviewer::default(),
+    );
     update(&mut session, &mut picker).unwrap();
     let old_idx = selected_item(&picker).unwrap().0;
 
@@ -745,6 +786,7 @@ fn scrolling_accumulates_changes_without_advancing_request_priority() {
     let mut picker = picker(["alpha", "beta"]);
     let mut session = PreviewPane::new(
         &PreviewConfig::default(),
+        &crate::PickerChars::new(),
         TestPreviewer {
             lines: 30,
             ..TestPreviewer::default()
@@ -783,7 +825,11 @@ fn scrolling_accumulates_changes_without_advancing_request_priority() {
 #[test]
 fn restart_resets_selection_and_priority_bookkeeping() {
     let mut picker = picker(["alpha"]);
-    let mut session = PreviewPane::new(&PreviewConfig::default(), TestPreviewer::default());
+    let mut session = PreviewPane::new(
+        &PreviewConfig::default(),
+        &crate::PickerChars::new(),
+        TestPreviewer::default(),
+    );
     update(&mut session, &mut picker).unwrap();
     session.restart_cache();
     assert_eq!(session.last_item, None);
@@ -799,6 +845,7 @@ fn restart_and_session_drop_cancel_all_pending_requests() {
         let mut picker = picker(["alpha", "beta"]);
         let mut session = PreviewPane::new(
             &PreviewConfig::default(),
+            &crate::PickerChars::new(),
             TestPreviewer {
                 defer: true,
                 ..TestPreviewer::default()
@@ -855,6 +902,7 @@ fn session_cancels_requests_before_dropping_its_previewer() {
     .defer();
     let mut session = PreviewPane::new(
         &PreviewConfig::default(),
+        &crate::PickerChars::new(),
         PreviewerDrop {
             queued,
             cancelled: &cancelled,
@@ -875,7 +923,11 @@ fn session_cancels_requests_before_dropping_its_previewer() {
 #[test]
 fn an_empty_match_list_does_not_request_previews() {
     let mut picker = picker([]);
-    let mut session = PreviewPane::new(&PreviewConfig::default(), TestPreviewer::default());
+    let mut session = PreviewPane::new(
+        &PreviewConfig::default(),
+        &crate::PickerChars::new(),
+        TestPreviewer::default(),
+    );
     update(&mut session, &mut picker).unwrap();
     assert!(session.previewer.requested.is_empty());
     assert!(session.cache.is_empty());
@@ -886,6 +938,7 @@ fn current_entry_exposes_pending_and_ready_states_without_polling() {
     let mut picker = picker(["alpha"]);
     let mut session = PreviewPane::new(
         &PreviewConfig::default(),
+        &crate::PickerChars::new(),
         TestPreviewer {
             defer: true,
             ..TestPreviewer::default()
@@ -1025,6 +1078,7 @@ mod picker_loop {
                 .resize(picker.engine.snapshot(), 8, &picker.list_state.config);
             let mut session = PreviewPane::new(
                 &PreviewConfig::default(),
+                &crate::PickerChars::new(),
                 TestPreviewer {
                     lines: 30,
                     ..TestPreviewer::default()
@@ -1073,6 +1127,7 @@ mod picker_loop {
         settle(&mut picker);
         let mut session = PreviewPane::new(
             &PreviewConfig::default(),
+            &crate::PickerChars::new(),
             TestPreviewer {
                 lines: 30,
                 ..TestPreviewer::default()
@@ -1095,6 +1150,7 @@ mod picker_loop {
         let mut picker = picker(["alpha", "beta"]);
         let mut session = PreviewPane::new(
             &PreviewConfig::default(),
+            &crate::PickerChars::new(),
             TestPreviewer {
                 lines: 30,
                 ..TestPreviewer::default()
@@ -1120,6 +1176,7 @@ mod picker_loop {
         let mut picker = picker(["alpha"]);
         let mut session = PreviewPane::new(
             &PreviewConfig::default(),
+            &crate::PickerChars::new(),
             TestPreviewer {
                 defer: true,
                 ..TestPreviewer::default()
@@ -1144,6 +1201,7 @@ mod picker_loop {
         let mut picker = picker(["alpha"]);
         let mut session = PreviewPane::new(
             &PreviewConfig::default(),
+            &crate::PickerChars::new(),
             TestPreviewer {
                 defer: true,
                 ..TestPreviewer::default()
@@ -1187,6 +1245,7 @@ mod picker_loop {
         let mut picker = picker(["alpha", "beta"]);
         let mut session = PreviewPane::new(
             &PreviewConfig::default(),
+            &crate::PickerChars::new(),
             TestPreviewer {
                 defer: true,
                 ..TestPreviewer::default()
@@ -1247,6 +1306,7 @@ mod picker_loop {
         let mut picker = picker(["alpha"]);
         let mut session = PreviewPane::new(
             &PreviewConfig::default(),
+            &crate::PickerChars::new(),
             TestPreviewer {
                 lines: 30,
                 ..TestPreviewer::default()
@@ -1265,7 +1325,8 @@ mod picker_loop {
         assert_eq!(terminal.changed, [true]);
 
         let output = String::from_utf8(terminal.output).unwrap();
-        assert_eq!(output.matches("alpha").count(), 1);
+        assert_eq!(output.matches("alpha").count(), 17);
+        assert_eq!(output.matches('▌').count(), 1);
         assert_eq!(output.matches('>').count(), 1);
         assert_eq!(output.matches('╭').count(), 2);
     }
@@ -1275,6 +1336,7 @@ mod picker_loop {
         let mut picker = picker(["alpha"]);
         let mut session = PreviewPane::new(
             &PreviewConfig::default(),
+            &crate::PickerChars::new(),
             TestPreviewer {
                 lines: 30,
                 ..TestPreviewer::default()
@@ -1302,6 +1364,7 @@ mod picker_loop {
         let mut picker = picker(["alpha"]);
         let mut session = PreviewPane::new(
             &PreviewConfig::default(),
+            &crate::PickerChars::new(),
             TestPreviewer {
                 lines: 30,
                 ..TestPreviewer::default()
@@ -1330,6 +1393,7 @@ mod picker_loop {
         let mut picker = picker(["alpha"]);
         let mut session = PreviewPane::new(
             &PreviewConfig::default(),
+            &crate::PickerChars::new(),
             TestPreviewer {
                 lines: 30,
                 ..TestPreviewer::default()
@@ -1358,6 +1422,7 @@ mod picker_loop {
         let mut picker = picker(["alpha", "beta"]);
         let mut session = PreviewPane::new(
             &PreviewConfig::default(),
+            &crate::PickerChars::new(),
             TestPreviewer {
                 lines: 30,
                 ..TestPreviewer::default()
@@ -1397,6 +1462,7 @@ mod picker_loop {
         let mut picker = picker(["alpha"]);
         let mut session = PreviewPane::new(
             &PreviewConfig::default(),
+            &crate::PickerChars::new(),
             TestPreviewer {
                 lines: 30,
                 ..TestPreviewer::default()
@@ -1422,6 +1488,7 @@ mod picker_loop {
             let mut picker = picker(["alpha"]);
             let mut session = PreviewPane::new(
                 &PreviewConfig::default(),
+                &crate::PickerChars::new(),
                 TestPreviewer {
                     lines: 30,
                     ..TestPreviewer::default()

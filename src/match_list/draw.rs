@@ -6,8 +6,9 @@ use super::{
     MatchListConfig, MatchListState,
     item::RenderedItem,
     span::{Head, KeepLines, Spanned, Tail},
-    unicode::{AsciiProcessor, Span, UnicodeProcessor},
+    unicode::Span,
 };
+use crate::util::unicode::{AsciiProcessor, UnicodeProcessor};
 use crate::{PickerChars, Render, match_engine::MatchEngine, rect::Rect, util::as_u16};
 
 /// Reusable strach space for match list rendering.

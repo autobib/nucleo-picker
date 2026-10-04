@@ -3,6 +3,7 @@ use super::{
     cache::{BufferNotReady, Cached, RequestState},
 };
 use crate::{
+    PickerChars,
     component::{Component, PreviewComponent},
     rect::{Area, Rect},
 };
@@ -27,10 +28,12 @@ pub(crate) struct PreviewPane<P> {
     epoch: u64,
     area: Area,
     boundary_box_chars: [char; 6],
+    ellipsis: char,
+    line_numbers: bool,
 }
 
 impl<P> PreviewPane<P> {
-    pub(crate) fn new(config: &PreviewConfig, previewer: P) -> Self {
+    pub(crate) fn new(config: &PreviewConfig, chars: &PickerChars, previewer: P) -> Self {
         Self {
             cache: LruCache::new(config.cache_size),
             previewer,
@@ -39,6 +42,8 @@ impl<P> PreviewPane<P> {
             epoch: 0,
             area: Area::default(),
             boundary_box_chars: config.boundary_box_chars,
+            ellipsis: chars.ellipsis,
+            line_numbers: config.line_numbers,
         }
     }
 
@@ -144,38 +149,6 @@ impl<P> PreviewPane<P> {
         self.cache.clear();
         self.epoch = 0;
     }
-    fn draw_border<D: Rect>(&self, rect: &mut D, chars: [char; 6]) -> io::Result<()> {
-        let width = rect.width().get();
-        let height = rect.height().get();
-        let [
-            top_left,
-            top_right,
-            bottom_right,
-            bottom_left,
-            vertical,
-            horizontal,
-        ] = chars;
-        for (row, left, right) in [
-            (0, top_left, top_right),
-            (height - 1, bottom_left, bottom_right),
-        ] {
-            rect.move_to(0, row)?;
-            rect.clear_line()?;
-            rect.print(left)?;
-            for _ in 0..width - 2 {
-                rect.print(horizontal)?;
-            }
-            rect.print(right)?;
-        }
-        for row in 1..height - 1 {
-            rect.move_to(0, row)?;
-            rect.clear_line()?;
-            rect.print(vertical)?;
-            rect.spaces(width - 2)?;
-            rect.print(vertical)?;
-        }
-        Ok(())
-    }
 }
 
 impl<E, P> Component<E> for PreviewPane<P> {
@@ -183,7 +156,20 @@ impl<E, P> Component<E> for PreviewPane<P> {
         self.resize_area(area);
     }
     fn draw<D: Rect>(&mut self, _engine: &E, rect: &mut D) -> io::Result<()> {
-        self.draw_border(rect, self.boundary_box_chars)
+        let preview = self
+            .last_item
+            .and_then(|idx| self.cache.peek(&idx))
+            .and_then(|cached| match &cached.state {
+                Some(RequestState::Ready(buffer)) => Some((buffer, cached.scroll_position)),
+                _ => None,
+            });
+        super::draw::draw(
+            rect,
+            preview,
+            self.boundary_box_chars,
+            self.ellipsis,
+            self.line_numbers,
+        )
     }
 }
 
