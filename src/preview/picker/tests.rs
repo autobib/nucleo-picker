@@ -4,6 +4,7 @@ use crate::{PickerOptions, preview::QueuedPreviewRequest, render::StrRenderer};
 #[derive(Default)]
 struct TestPreviewer {
     requested: Vec<&'static str>,
+    buffer_allocations: Vec<*const u8>,
     queued: Vec<QueuedPreviewRequest>,
     defer: bool,
     drop_requests: bool,
@@ -23,6 +24,11 @@ impl Preview<&'static str> for TestPreviewer {
     ) -> Result<PreviewResponse, Self::AbortErr> {
         assert!(timeout >= Duration::from_millis(2));
         self.requested.push(item);
+        assert_eq!(request.buffer.lines().len(), 1);
+        assert_eq!(request.buffer.line(0).unwrap().as_str(), "");
+        assert!(!request.buffer.is_err());
+        self.buffer_allocations
+            .push(request.buffer.line(0).unwrap().as_str().as_ptr());
         if self.fail
             || self
                 .fail_after
@@ -97,8 +103,12 @@ fn cache_tracks_item_identity_and_preserves_scroll_state() {
 
 #[test]
 fn cache_evicts_the_least_recently_visited_item() {
-    let mut session = PreviewSession::new(&PreviewConfig::default(), TestPreviewer::default());
+    let config = PreviewConfig {
+        cache_size: std::num::NonZero::new(3).unwrap(),
+    };
+    let mut session = PreviewSession::new(&config, TestPreviewer::default());
     let capacity = session.cache.cap().get();
+    assert_eq!(capacity, 3);
     let mut picker = picker(std::iter::repeat_n("item", capacity + 1));
     for selection in 0..capacity as u32 {
         picker.match_list.set_selection(selection);
@@ -118,6 +128,184 @@ fn cache_evicts_the_least_recently_visited_item() {
     session.update(&picker.match_list, Instant::now()).unwrap();
     assert_eq!(session.previewer.requested.len(), capacity + 2);
     assert_eq!(session.cache.peek(&1).unwrap().scroll_position, 0);
+}
+
+#[test]
+fn evicted_ready_buffers_are_reused_and_scroll_is_reset() {
+    let config = PreviewConfig {
+        cache_size: std::num::NonZero::new(1).unwrap(),
+    };
+    let mut session = PreviewSession::new(&config, TestPreviewer::default());
+    let mut picker = picker(["alpha", "beta"]);
+    session.update(&picker.match_list, Instant::now()).unwrap();
+    let cached = session.cache.get_mut(&0).unwrap();
+    cached.scroll_position = 7;
+    let Some(State::Ready(buffer)) = &mut cached.state else {
+        panic!("expected ready preview");
+    };
+    buffer.push_text("\nprevious contents\n");
+    buffer.set_err(true);
+    let allocation = buffer.line(0).unwrap().as_str().as_ptr();
+
+    for selection in [1, 0, 1] {
+        picker.match_list.set_selection(selection);
+        assert!(session.update(&picker.match_list, Instant::now()).unwrap());
+        assert_eq!(
+            session.previewer.buffer_allocations.last(),
+            Some(&allocation)
+        );
+        assert_eq!(session.cache.len(), 1);
+        assert_eq!(session.cache.peek(&selection).unwrap().scroll_position, 0);
+        assert!(!session.update(&picker.match_list, Instant::now()).unwrap());
+    }
+    assert_eq!(
+        session.previewer.requested,
+        ["alpha", "beta", "alpha", "beta"]
+    );
+}
+
+#[test]
+fn eviction_cancels_queued_and_active_requests_and_reuses_their_buffers() {
+    for start in [false, true] {
+        let config = PreviewConfig {
+            cache_size: std::num::NonZero::new(1).unwrap(),
+        };
+        let mut session = PreviewSession::new(&config, TestPreviewer::default());
+        let mut picker = picker(["alpha", "beta", "gamma"]);
+        session.update(&picker.match_list, Instant::now()).unwrap();
+        let Some(State::Ready(buffer)) = &session.cache.peek(&0).unwrap().state else {
+            panic!("expected ready preview");
+        };
+        let allocation = buffer.line(0).unwrap().as_str().as_ptr();
+
+        session.previewer.defer = true;
+        picker.match_list.set_selection(1);
+        session.update(&picker.match_list, Instant::now()).unwrap();
+        let queued = session.previewer.queued.pop().unwrap();
+        let (queued, active) = if start {
+            (None, Some(queued.start().unwrap()))
+        } else {
+            (Some(queued), None)
+        };
+
+        session.previewer.defer = false;
+        picker.match_list.set_selection(2);
+        session.update(&picker.match_list, Instant::now()).unwrap();
+        assert_eq!(session.previewer.requested, ["alpha", "beta", "gamma"]);
+        assert_eq!(
+            session.previewer.buffer_allocations[1..],
+            [allocation, allocation]
+        );
+        assert!(!session.cache.contains(&1));
+        if let Some(queued) = queued {
+            assert!(queued.is_cancelled());
+            assert!(queued.start().is_none());
+        }
+        if let Some(active) = active {
+            assert!(active.is_cancelled());
+            let mut buffer = PreviewBuffer::new();
+            buffer.push_str("unused result");
+            assert!(!active.publish(&mut buffer));
+            assert_eq!(buffer.line(0).unwrap().as_str(), "unused result");
+        }
+    }
+}
+
+#[test]
+fn eviction_reuses_a_published_buffer_before_it_is_polled() {
+    let config = PreviewConfig {
+        cache_size: std::num::NonZero::new(1).unwrap(),
+    };
+    let mut session = PreviewSession::new(
+        &config,
+        TestPreviewer {
+            defer: true,
+            ..TestPreviewer::default()
+        },
+    );
+    let mut picker = picker(["alpha", "beta"]);
+    session.update(&picker.match_list, Instant::now()).unwrap();
+    let mut buffer = PreviewBuffer::new();
+    buffer.push_text("completed alpha\n");
+    buffer.set_err(true);
+    let allocation = buffer.line(0).unwrap().as_str().as_ptr();
+    assert!(
+        session
+            .previewer
+            .queued
+            .pop()
+            .unwrap()
+            .start()
+            .unwrap()
+            .publish(&mut buffer)
+    );
+
+    session.previewer.defer = false;
+    picker.match_list.set_selection(1);
+    session.update(&picker.match_list, Instant::now()).unwrap();
+    assert_eq!(
+        session.previewer.buffer_allocations.last(),
+        Some(&allocation)
+    );
+    assert_eq!(session.previewer.requested, ["alpha", "beta"]);
+}
+
+#[test]
+fn eviction_reuses_buffers_from_dropped_workers() {
+    for start in [false, true] {
+        let config = PreviewConfig {
+            cache_size: std::num::NonZero::new(1).unwrap(),
+        };
+        let mut session = PreviewSession::new(&config, TestPreviewer::default());
+        let mut picker = picker(["alpha", "beta", "gamma"]);
+        session.update(&picker.match_list, Instant::now()).unwrap();
+        let Some(State::Ready(buffer)) = &session.cache.peek(&0).unwrap().state else {
+            panic!("expected ready preview");
+        };
+        let allocation = buffer.line(0).unwrap().as_str().as_ptr();
+
+        session.previewer.defer = true;
+        picker.match_list.set_selection(1);
+        session.update(&picker.match_list, Instant::now()).unwrap();
+        let queued = session.previewer.queued.pop().unwrap();
+        if start {
+            drop(queued.start().unwrap());
+        } else {
+            drop(queued);
+        }
+        session.previewer.defer = false;
+        picker.match_list.set_selection(2);
+        session.update(&picker.match_list, Instant::now()).unwrap();
+        assert_eq!(
+            session.previewer.buffer_allocations[1..],
+            [allocation, allocation]
+        );
+        assert_eq!(session.previewer.requested, ["alpha", "beta", "gamma"]);
+    }
+}
+
+#[test]
+fn eviction_cancels_the_old_request_even_if_submission_fails() {
+    let config = PreviewConfig {
+        cache_size: std::num::NonZero::new(1).unwrap(),
+    };
+    let mut session = PreviewSession::new(
+        &config,
+        TestPreviewer {
+            defer: true,
+            fail_after: Some(1),
+            ..TestPreviewer::default()
+        },
+    );
+    let mut picker = picker(["alpha", "beta"]);
+    session.update(&picker.match_list, Instant::now()).unwrap();
+    picker.match_list.set_selection(1);
+    assert_eq!(
+        session.update(&picker.match_list, Instant::now()),
+        Err("preview failed")
+    );
+    assert!(session.previewer.queued[0].is_cancelled());
+    assert!(!session.cache.contains(&0));
 }
 
 #[test]

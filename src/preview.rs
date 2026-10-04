@@ -200,6 +200,13 @@ pub(crate) enum BufferNotReady {
 }
 
 impl State {
+    pub fn into_buffer(self) -> PreviewBuffer {
+        match self {
+            Self::Ready(buffer) => buffer,
+            Self::Pending(pending) => pending.reader.cancel_any(),
+        }
+    }
+
     /// Obtain the preview buffer if it is ready, without blocking.
     ///
     /// If the preview is queued or active, the corresponding state is returned in the `Err` variant.
