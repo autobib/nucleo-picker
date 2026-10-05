@@ -36,7 +36,9 @@ pub(crate) struct PreviewPane<P> {
 impl<P> PreviewPane<P> {
     pub(crate) fn new(config: &PreviewConfig, chars: &PickerChars, previewer: P) -> Self {
         Self {
-            cache: LruCache::new(config.cache_size),
+            cache: config
+                .cache_size
+                .map_or_else(LruCache::unbounded, LruCache::new),
             previewer,
             last_item: None,
             pending_redraw: false,

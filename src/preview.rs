@@ -98,7 +98,7 @@ impl Default for BoundaryChars {
 /// Internal preview configuration.
 #[derive(Debug, Clone)]
 pub(crate) struct PreviewConfig {
-    pub cache_size: NonZero<usize>,
+    pub cache_size: Option<NonZero<usize>>,
     pub boundary_chars: BoundaryChars,
     pub line_numbers: bool,
 }
@@ -106,7 +106,7 @@ pub(crate) struct PreviewConfig {
 impl PreviewConfig {
     pub const fn new() -> Self {
         Self {
-            cache_size: NonZero::new(128).unwrap(),
+            cache_size: NonZero::new(128),
             boundary_chars: BoundaryChars::new(),
             line_numbers: false,
         }

@@ -822,14 +822,24 @@ impl PickerOptions {
         self
     }
 
-    /// Set the capacity of the preview cache.
+    /// Set the capacity of the preview cache, or `None` for an unbounded cache.
     ///
     /// The preview cache is used to reduce preview requests when scrolling onto an item and to
     /// cache the scroll state of the preview pane. The default value is 128.
+    ///
+    /// Use `None` with caution: this will result in new buffers being allocated for *every
+    /// preview pane*. This option is mainly intended for exceptionally slow previews with a fixed
+    /// bound on the number of items.
+    ///
+    /// # Cache size 1
+    ///
+    /// For fast (synchronous-only) previewers, setting a cache size of 1 can be useful to reduce
+    /// allocations. Note however that the cache is also used to store scroll state, so a cache size
+    /// of 1 will lose the scroll position every time the selection changes.
     #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     #[must_use]
     #[inline]
-    pub const fn preview_cache_size(mut self, size: NonZero<usize>) -> Self {
+    pub const fn preview_cache_size(mut self, size: Option<NonZero<usize>>) -> Self {
         self.preview_config.cache_size = size;
         self
     }

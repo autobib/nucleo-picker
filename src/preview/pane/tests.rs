@@ -150,7 +150,7 @@ fn cache_tracks_item_identity_and_preserves_scroll_state() {
 #[test]
 fn cache_evicts_the_least_recently_visited_item() {
     let config = PreviewConfig {
-        cache_size: std::num::NonZero::new(3).unwrap(),
+        cache_size: std::num::NonZero::new(3),
         ..PreviewConfig::default()
     };
     let mut session = PreviewPane::new(
@@ -196,9 +196,35 @@ fn cache_evicts_the_least_recently_visited_item() {
 }
 
 #[test]
+fn unbounded_cache_retains_previews_and_scroll_state() {
+    let options = PickerOptions::new().preview_cache_size(None);
+    let mut session = PreviewPane::new(
+        &options.preview_config,
+        &crate::PickerChars::new(),
+        TestPreviewer::default(),
+    );
+    let item_count = PreviewConfig::default().cache_size.unwrap().get() + 1;
+    for idx in 0..item_count as u32 {
+        session
+            .update(Some((idx, &"item")), Instant::now())
+            .unwrap();
+        session.cache.get_mut(&idx).unwrap().scroll_position = idx as usize + 1;
+    }
+    assert_eq!(session.cache.len(), item_count);
+
+    for idx in 0..item_count as u32 {
+        session
+            .update(Some((idx, &"item")), Instant::now())
+            .unwrap();
+        assert_eq!(session.cached().unwrap().scroll_position, idx as usize + 1);
+    }
+    assert_eq!(session.previewer.requested.len(), item_count);
+}
+
+#[test]
 fn evicted_ready_buffers_are_reused_and_scroll_is_reset() {
     let config = PreviewConfig {
-        cache_size: std::num::NonZero::new(1).unwrap(),
+        cache_size: std::num::NonZero::new(1),
         ..PreviewConfig::default()
     };
     let mut session = PreviewPane::new(
@@ -242,7 +268,7 @@ fn evicted_ready_buffers_are_reused_and_scroll_is_reset() {
 fn eviction_cancels_queued_and_active_requests_and_reuses_their_buffers() {
     for start in [false, true] {
         let config = PreviewConfig {
-            cache_size: std::num::NonZero::new(1).unwrap(),
+            cache_size: std::num::NonZero::new(1),
             ..PreviewConfig::default()
         };
         let mut session = PreviewPane::new(
@@ -301,7 +327,7 @@ fn eviction_cancels_queued_and_active_requests_and_reuses_their_buffers() {
 #[test]
 fn eviction_reuses_a_published_buffer_before_it_is_polled() {
     let config = PreviewConfig {
-        cache_size: std::num::NonZero::new(1).unwrap(),
+        cache_size: std::num::NonZero::new(1),
         ..PreviewConfig::default()
     };
     let mut session = PreviewPane::new(
@@ -346,7 +372,7 @@ fn eviction_reuses_a_published_buffer_before_it_is_polled() {
 fn eviction_reuses_buffers_from_dropped_workers() {
     for start in [false, true] {
         let config = PreviewConfig {
-            cache_size: std::num::NonZero::new(1).unwrap(),
+            cache_size: std::num::NonZero::new(1),
             ..PreviewConfig::default()
         };
         let mut session = PreviewPane::new(
@@ -392,7 +418,7 @@ fn eviction_reuses_buffers_from_dropped_workers() {
 #[test]
 fn eviction_cancels_the_old_request_even_if_submission_fails() {
     let config = PreviewConfig {
-        cache_size: std::num::NonZero::new(1).unwrap(),
+        cache_size: std::num::NonZero::new(1),
         ..PreviewConfig::default()
     };
     let mut session = PreviewPane::new(
