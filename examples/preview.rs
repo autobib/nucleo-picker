@@ -5,11 +5,11 @@
 //! ```bash
 //! cargo run --release --example preview --features serde,preview
 //! ```
-use std::{convert::Infallible, io, thread::spawn, time::Duration};
+use std::{io, thread::spawn};
 
 use nucleo_picker::{
     PickerOptions, Render,
-    preview::{Preview, PreviewRequest, PreviewResponse},
+    preview::{PreviewBuffer, SyncPreview},
 };
 use serde::{Deserialize, de::DeserializeSeed};
 use serde_json::Deserializer;
@@ -31,31 +31,6 @@ impl Render<Poem> for PoemRenderer {
     }
 }
 
-struct PoemPreviewer;
-
-impl Preview<Poem> for PoemPreviewer {
-    type AbortErr = Infallible;
-
-    fn preview(
-        &mut self,
-        poem: &Poem,
-        request: PreviewRequest,
-        _timeout: Duration,
-    ) -> Result<PreviewResponse, Self::AbortErr> {
-        let mut buffer = request.ready();
-        for (index, line) in poem.lines.iter().enumerate() {
-            // don't write a trailing newline
-            if index != 0 {
-                buffer.newline();
-            }
-            // this is not necessary strictly, but `push_text` here also handles
-            // control characters which is convenient for untrusted input
-            buffer.push_text(line);
-        }
-        Ok(PreviewResponse::Ready(buffer))
-    }
-}
-
 fn main() -> io::Result<()> {
     let mut picker = PickerOptions::new()
         .highlight_line(true)
@@ -69,7 +44,19 @@ fn main() -> io::Result<()> {
             .unwrap();
     });
 
-    match picker.with_preview(PoemPreviewer).pick()? {
+    let previewer = SyncPreview(|poem: &Poem, buffer: &mut PreviewBuffer| {
+        for (index, line) in poem.lines.iter().enumerate() {
+            // don't write a trailing newline
+            if index != 0 {
+                buffer.newline();
+            }
+            // this is not necessary strictly, but `push_text` here also handles
+            // control characters which is convenient for untrusted input
+            buffer.push_text(line);
+        }
+    });
+
+    match picker.with_preview(previewer).pick()? {
         Some(poem) => println!("{}", poem.author),
         None => println!("Nothing selected!"),
     }
