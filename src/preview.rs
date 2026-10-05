@@ -1,10 +1,11 @@
 //! # Render item previews in the picker
 //!
 //! This module contains the core [`Preview`] trait and associated types. A *previewer* is a type
-//! which knows how to generate previews for the item `T` in the picker. A preview is a special
-//! window rendered beside the active matches and shows some extra information about the match which
+//! which knows how to generate previews for the item `T` in the picker. The preview is rendered
+//! in the *preview pane*, which is a special window rendered beside the active matches .
 //! is currently highlighted.
 //!
+//! TODO: add docs refs for [`SyncPreviewer`] and [`PoolPreviewer`].
 //! ## Implementing [`Preview`]
 //!
 //! The [`Preview`] trait is designed around two core use-cases:
@@ -29,7 +30,7 @@ pub(crate) mod pane;
 mod picker;
 mod scroll;
 
-use std::{num::NonZero, time::Duration};
+use std::{convert::Infallible, num::NonZero, time::Duration};
 
 pub use buffer::{PreviewBuffer, PreviewLine};
 use lock::{ActiveWriter, QueuedWriter, Reader, request};
@@ -175,6 +176,35 @@ impl<T, P: Preview<T>> Preview<T> for &mut P {
         timeout: Duration,
     ) -> Result<PreviewResponse, Self::AbortErr> {
         (*self).preview(item, request, timeout)
+    }
+}
+
+/// An infallible synchronous previewer.
+///
+/// This struct wraps a closure which fills a cleared preview buffer. It is expected that the
+/// function `F` will return *without delaying the frame* and *without any errors*. This is a
+/// convenience struct for creating previews for types `T` which already contain all of the data
+/// required for the preview.
+pub struct SyncPreview<F>(
+    /// The closure which populates the preview buffer.
+    pub F,
+);
+
+impl<T, F> Preview<T> for SyncPreview<F>
+where
+    F: FnMut(&T, &mut PreviewBuffer),
+{
+    type AbortErr = Infallible;
+
+    fn preview(
+        &mut self,
+        item: &T,
+        request: PreviewRequest,
+        _timeout: Duration,
+    ) -> Result<PreviewResponse, Self::AbortErr> {
+        let mut buffer = request.ready();
+        (self.0)(item, &mut buffer);
+        Ok(PreviewResponse::Ready(buffer))
     }
 }
 
