@@ -54,7 +54,9 @@ impl<'a> Prompt<'a> {
             | (PromptEvent::WordRight(n1), PromptEvent::WordRight(n2))
             | (PromptEvent::Backspace(n1), PromptEvent::Backspace(n2))
             | (PromptEvent::Delete(n1), PromptEvent::Delete(n2))
-            | (PromptEvent::BackspaceWord(n1), PromptEvent::BackspaceWord(n2)) => *n1 += n2,
+            | (PromptEvent::BackspaceWord(n1), PromptEvent::BackspaceWord(n2)) => {
+                *n1 = n1.saturating_add(n2);
+            }
             (b, PromptEvent::ToStart) if b.is_cursor_movement() => {
                 *b = PromptEvent::ToStart;
             }
