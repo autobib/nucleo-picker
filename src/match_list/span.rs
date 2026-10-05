@@ -1,12 +1,12 @@
 #[cfg(test)]
 mod tests;
 
-use std::{io, iter::once, marker::PhantomData, ops::Range, slice::Iter};
+use std::{io, marker::PhantomData, ops::Range, slice::Iter};
 
-use crossterm::style::{Attribute, Color, Stylize};
+use crossterm::style::{Attribute, Color, ContentStyle, Stylize};
 
 use super::unicode::{Span, spans_from_indices};
-use crate::util::unicode::{Processor, consume, truncate};
+use crate::util::{line::print_line, unicode::Processor};
 use crate::{PickerChars, rect::Rect};
 
 /// An iterator over lines, as span slices.
@@ -115,61 +115,40 @@ impl<'a, P: Processor> Spanned<'a, P> {
         max_line_bytes
     }
 
-    /// Returns the width (possibly 0) required to render all of the spans which require highlighting.
-    #[inline]
-    fn required_width(&self) -> usize {
-        let mut required_width = 0;
-
-        for line in self.lines() {
-            // find the 'rightmost' highlighted span
-            if let Some(span) = line.iter().rev().find(|span| span.is_match) {
-                required_width = required_width.max(
-                    // spans[0] must exist since `find` returned something
-                    P::width(&self.rendered[line[0].range.start..span.range.end]),
-                );
-            }
-        }
-        required_width
-    }
-
-    /// Returns the optiomal offset (in terminal columns) for printing the given line.
-    /// The offset automatically reserves an extra space for a single indicator symbol (such as an
-    /// ellipsis), if required. The ellipsis should be printed whenever the returned value is not
-    /// `0`.
+    /// Return the viewport origin in source columns, accounting for highlight padding
+    /// and keeping the first highlight beyond the leading ellipsis when scrolled.
     #[inline]
     fn required_offset(&self, max_width: u16, highlight_padding: u16) -> usize {
-        match (self.required_width() + highlight_padding as usize).checked_sub(max_width as usize) {
-            None | Some(0) => 0,
-            Some(mut offset) => {
-                // ideally, we would like to offset by `offset`; but we prefer highlighting
-                // matches which are earlier in the string. Therefore, reduce `offset` so that it
-                // lies before the first highlighted character in each line.
-
-                let mut is_sharp = false; // if the offset cannot be increased because of a
-                // highlighted char early in the match
-
-                for line in self.lines() {
-                    // find the 'leftmost' highlighted span.
-                    if let Some(span) = line.iter().find(|span| span.is_match) {
-                        let no_highlight_width =
-                            P::width(&self.rendered[line[0].range.start..span.range.start]);
-                        if no_highlight_width <= offset {
-                            offset = no_highlight_width;
-                            is_sharp = true;
-                        }
-                    }
-                }
-
-                // if the offset is not sharp, reserve an extra space for the ellipsis symbol
-                if !is_sharp {
-                    offset += 1;
-                }
-
-                // if the offset is exactly 1, set it to 0 since we can just print the first
-                // character instead of the ellipsis
-                if offset == 1 { 0 } else { offset }
-            }
+        if max_width == 0 {
+            return 0;
         }
+        let mut required_width = 0;
+        let mut first_column = usize::MAX;
+        for line in self.lines() {
+            let Some(first) = line.iter().find(|span| span.is_match) else {
+                continue;
+            };
+            let last = line.iter().rfind(|span| span.is_match).unwrap();
+            let before = P::width(&self.rendered[line[0].range.start..first.range.start]);
+            first_column = first_column.min(before);
+            if first_column <= 1 {
+                return 0;
+            }
+
+            let limit = first_column
+                .saturating_sub(1)
+                .saturating_add(usize::from(max_width))
+                .saturating_sub(usize::from(highlight_padding));
+            let matched = P::width_up_to(
+                &self.rendered[first.range.start..last.range.end],
+                limit.saturating_sub(before),
+            );
+            required_width = required_width.max(before + matched);
+        }
+        let desired = required_width
+            .saturating_add(usize::from(highlight_padding))
+            .saturating_sub(usize::from(max_width));
+        desired.min(first_column.saturating_sub(1))
     }
 
     /// Print the header for each line, which is either two spaces or styled indicator. This also
@@ -299,7 +278,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
                 }
                 Self::start_line(rect, selected, queued, prefix_width, highlight_line, chars)?;
                 let remaining_capacity =
-                    self.queue_print_line(rect, line, offset, prefix_width, max_width, chars)?;
+                    self.queue_print_line(rect, line, offset, max_width, chars)?;
                 Self::finish_line(rect, || remaining_capacity, selected, fill_highlight)?;
             }
         }
@@ -314,76 +293,22 @@ impl<'a, P: Processor> Spanned<'a, P> {
         rect: &mut D,
         line: &[Span],
         offset: usize,
-        prefix_width: u16,
         capacity: u16,
         chars: &PickerChars,
     ) -> io::Result<u16> {
-        let mut remaining_capacity = capacity;
-
-        // do not print ellipsis if line is empty or the screen is extremely narrow
-        if line.is_empty() || remaining_capacity == 0 {
-            return Ok(remaining_capacity);
-        }
-
-        if offset > 0 {
-            // we just checked that `capacity != 0`
-            remaining_capacity -= 1;
-            rect.print(chars.ellipsis)?;
-        }
-
-        // consume as much of the first span as required to overtake the offset. since the width of
-        // the offset is bounded above by the width of the first span, this is guaranteed to occur
-        // within the first span
-        let first_span = &line[0];
-        let (init, alignment) = consume::<P>(self.index_in(first_span), offset);
-        let new_first_span = Span {
-            range: first_span.range.start + init..first_span.range.end,
-            is_match: first_span.is_match,
+        let text = match (line.first(), line.last()) {
+            (Some(first), Some(last)) => &self.rendered[first.range.start..last.range.end],
+            _ => "",
         };
-
-        // print the extra alignment characters
-        match (remaining_capacity as usize).checked_sub(alignment) {
-            Some(new) => {
-                remaining_capacity = new as u16;
-                for _ in 0..alignment {
-                    rect.print(chars.ellipsis)?;
-                }
-            }
-            None => return Ok(remaining_capacity),
-        }
-
-        // print as many spans as possible
-        for span in once(&new_first_span).chain(line[1..].iter()) {
-            let substr = self.index_in(span);
-            match truncate::<P>(substr, remaining_capacity) {
-                Ok(new) => {
-                    remaining_capacity = new;
-                    Self::print_span(rect, substr, span.is_match)?;
-                }
-                Err((prefix, alignment)) => {
-                    Self::print_span(rect, prefix, span.is_match)?;
-                    if alignment > 0 {
-                        // there is already extra space; fill it
-                        for _ in 0..alignment {
-                            rect.print(chars.ellipsis)?;
-                        }
-                    } else {
-                        // overwrite the previous grapheme
-                        let undo_width = P::last_grapheme_width(
-                            &self.rendered[..span.range.start + prefix.len()],
-                        );
-
-                        rect.move_to_column(prefix_width + capacity - undo_width as u16)?;
-                        for _ in 0..undo_width {
-                            rect.print(chars.ellipsis)?;
-                        }
-                    }
-                    return Ok(0);
-                }
-            }
-        }
-
-        Ok(remaining_capacity)
+        let spans = line.iter().map(|span| {
+            let style = if span.is_match {
+                ContentStyle::new().cyan()
+            } else {
+                ContentStyle::new()
+            };
+            style.apply(self.index_in(span))
+        });
+        print_line::<P, _>(rect, text, spans, offset, capacity, chars.ellipsis)
     }
 
     /// Compute the string slice corresponding to the given [`Span`].

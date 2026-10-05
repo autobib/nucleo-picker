@@ -1,3 +1,4 @@
+pub(crate) mod line;
 pub(crate) mod unicode;
 
 /// Convert a type into a [`usize`], falling back to [`usize::MAX`] if it fails. This is mainly

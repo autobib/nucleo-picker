@@ -1,14 +1,17 @@
-use std::io;
+use std::{io, iter::once};
 
 use crossterm::style::{Color, ContentStyle};
 
 use super::{
-    BoundaryChars, PreviewLine,
+    BoundaryChars,
     cache::{Cached, RequestState},
 };
 use crate::{
     rect::Rect,
-    util::unicode::{AsciiProcessor, Processor, UnicodeProcessor, is_ascii_safe, truncate},
+    util::{
+        line::print_line,
+        unicode::{AsciiProcessor, UnicodeProcessor},
+    },
 };
 
 pub(super) fn draw<D: Rect>(
@@ -93,23 +96,26 @@ pub(super) fn draw<D: Rect>(
                 rect.spaces(1)?;
             }
             let capacity = width - 2 - number_width;
-            if is_ascii_safe(line.as_str()) {
-                draw_line::<AsciiProcessor, _>(rect, line, capacity, ellipsis)?
-            } else {
-                draw_line::<UnicodeProcessor, _>(rect, line, capacity, ellipsis)?
-            }
+            print_line::<UnicodeProcessor, _>(
+                rect,
+                line.as_str(),
+                line.spans(),
+                0,
+                capacity,
+                ellipsis,
+            )?
         } else if pending && row == 1 {
             let message = "Loading...";
             let capacity = width - 2;
             rect.set_foreground(Color::DarkGrey)?;
-            let remaining = if usize::from(capacity) < message.len() {
-                rect.print(&message[..usize::from(capacity - 1)])?;
-                rect.print(ellipsis)?;
-                0
-            } else {
-                rect.print(message)?;
-                capacity - message.len() as u16
-            };
+            let remaining = print_line::<AsciiProcessor, _>(
+                rect,
+                message,
+                once(ContentStyle::new().apply(message)),
+                0,
+                capacity,
+                ellipsis,
+            )?;
             rect.reset_style()?;
             remaining
         } else {
@@ -119,40 +125,4 @@ pub(super) fn draw<D: Rect>(
         rect.print_styled(border_style.apply(vertical))?;
     }
     Ok(())
-}
-
-fn draw_line<P: Processor, D: Rect>(
-    rect: &mut D,
-    line: PreviewLine<'_>,
-    capacity: u16,
-    ellipsis: char,
-) -> io::Result<u16> {
-    let text = line.as_str();
-    // Clip the complete line so style boundaries cannot split a grapheme for width calculations.
-    let (prefix, remaining, markers) = match truncate::<P>(text, capacity) {
-        Ok(remaining) => (text, remaining, 0),
-        Err((prefix, 0)) => match truncate::<P>(prefix, capacity - 1) {
-            Err((prefix, alignment)) => (prefix, 0, alignment + 1),
-            Ok(remaining) => (prefix, 0, usize::from(remaining) + 1),
-        },
-        Err((prefix, alignment)) => (prefix, 0, alignment),
-    };
-    let mut bytes = prefix.len();
-    for span in line.spans() {
-        if bytes == 0 {
-            break;
-        }
-        let content = span.content();
-        let len = content.len().min(bytes);
-        rect.print_styled(span.style().apply(&content[..len]))?;
-        // Crossterm resets foreground, but not underline colour, for attribute-free spans.
-        if span.style().underline_color.is_some() && span.style().attributes.is_empty() {
-            rect.reset_style()?;
-        }
-        bytes -= len;
-    }
-    for _ in 0..markers {
-        rect.print(ellipsis)?;
-    }
-    Ok(remaining)
 }
