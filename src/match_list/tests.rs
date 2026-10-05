@@ -176,6 +176,55 @@ fn size_and_item_edge_cases() {
 }
 
 #[test]
+fn zero_height_navigation() {
+    check_zero_height_navigation(false);
+}
+
+#[test]
+fn zero_height_navigation_reversed() {
+    check_zero_height_navigation(true);
+}
+
+fn check_zero_height_navigation(reversed: bool) {
+    for initial_size in [0, 3] {
+        let mut lt = MatchListTester::init_inner(initial_size, 2, reversed);
+        lt.update(Update(&["a", "b", "c"]));
+        assert_layout!(lt, Resize(0), &[], &[]);
+
+        for (requested, expected, changed) in [
+            (1, 1, true),
+            (2, 2, true),
+            (1, 1, true),
+            (1, 1, false),
+            (u32::MAX, 2, true),
+            (u32::MAX, 2, false),
+            (0, 0, true),
+            (0, 0, false),
+            (1, 1, true),
+        ] {
+            assert_eq!(
+                lt.layout
+                    .set_selection(lt.engine.snapshot(), requested, &lt.config),
+                changed
+            );
+            assert_eq!(lt.layout.selection(lt.engine.snapshot()), Some(expected));
+            assert_eq!(
+                lt.view(),
+                LayoutView {
+                    below: &[],
+                    above: &[],
+                }
+            );
+        }
+
+        assert_layout!(lt, Resize(1), &[1], &[]);
+        assert_eq!(lt.layout.selection(lt.engine.snapshot()), Some(1));
+        assert_layout!(lt, Resize(3), &[1, 1], &[1]);
+        assert_eq!(lt.layout.selection(lt.engine.snapshot()), Some(1));
+    }
+}
+
+#[test]
 fn small() {
     let mut lt = MatchListTester::init(5, 1);
     assert_layout!(lt, Update(&["12", "a\nb"]), &[1], &[2]);
