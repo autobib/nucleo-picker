@@ -28,6 +28,10 @@ impl ScriptedEvents {
 impl EventSource for ScriptedEvents {
     type AbortErr = Infallible;
 
+    fn try_recv(&mut self) -> Result<Event, RecvError> {
+        Err(RecvError::Timeout)
+    }
+
     fn recv_timeout(&mut self, _: Duration) -> Result<Event, RecvError> {
         match self.steps.pop_front().expect("event script exhausted") {
             Step::Event(event) => Ok(event),

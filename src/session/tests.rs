@@ -1,13 +1,24 @@
-use std::{io, sync::mpsc, thread, time::Duration};
+use std::{
+    convert::Infallible,
+    io,
+    sync::mpsc,
+    thread,
+    time::{Duration, Instant},
+};
 
 use crate::{
     Picker, PickerOptions, Terminal,
     component::NoPreview,
-    event::{Event, PromptEvent},
+    event::{Event, EventSource, PromptEvent, RecvError},
     render::StrRenderer,
 };
 
-struct TestTerminal;
+#[derive(Default)]
+struct TestTerminal {
+    initial_render_delay: Duration,
+    initial_render_end: Option<Instant>,
+    first_frame: Option<Instant>,
+}
 
 impl io::Write for TestTerminal {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
@@ -31,6 +42,30 @@ impl Terminal for TestTerminal {
     fn size(&mut self) -> io::Result<(u16, u16)> {
         Ok((20, 8))
     }
+
+    fn end_render(&mut self) -> io::Result<()> {
+        let delay = std::mem::take(&mut self.initial_render_delay);
+        if !delay.is_zero() {
+            thread::sleep(delay);
+        }
+        self.initial_render_end.get_or_insert_with(Instant::now);
+        Ok(())
+    }
+
+    fn end_frame(&mut self, _changed: bool) -> io::Result<()> {
+        self.first_frame.get_or_insert_with(Instant::now);
+        Ok(())
+    }
+}
+
+struct TestEvents<F>(F);
+
+impl<F: FnMut(Duration) -> Result<Event, RecvError>> EventSource for TestEvents<F> {
+    type AbortErr = Infallible;
+
+    fn recv_timeout(&mut self, duration: Duration) -> Result<Event, RecvError> {
+        (self.0)(duration)
+    }
 }
 
 fn pick(
@@ -43,7 +78,7 @@ fn pick(
     }
     drop(sender);
     picker
-        .pick_impl::<_, _, (), _>(receiver, &mut TestTerminal, NoPreview::new())
+        .pick_impl::<_, _, (), _>(receiver, &mut TestTerminal::default(), NoPreview::new())
         .unwrap()
         .copied()
 }
@@ -131,11 +166,143 @@ fn reused_picker_matches_the_query_saved_on_exit() {
         sender.send(Event::Select).unwrap();
     });
     let selected = picker
-        .pick_impl::<_, _, (), _>(receiver, &mut TestTerminal, NoPreview::new())
+        .pick_impl::<_, _, (), _>(receiver, &mut TestTerminal::default(), NoPreview::new())
         .unwrap()
         .copied();
     input.join().unwrap();
 
     assert_eq!(selected, Some("beta"));
     assert_eq!(picker.query(), "beta");
+}
+
+#[test]
+fn busy_events_do_not_starve_frames_or_status() {
+    for interval in [
+        Duration::ZERO,
+        Duration::from_micros(100),
+        Duration::from_millis(15),
+    ] {
+        let mut picker: Picker<&str, _> = PickerOptions::new()
+            .frame_interval(interval)
+            .picker(StrRenderer);
+        let status = picker.status_observer();
+        let mut received = 0;
+        let events = TestEvents(|_| {
+            received += 1;
+            Ok(match received {
+                1 => Event::Prompt(PromptEvent::Insert('x')),
+                2 => Event::Status { id: 7 },
+                3..=10 => {
+                    thread::sleep(Duration::from_millis(5));
+                    Event::Redraw
+                }
+                _ => Event::Quit,
+            })
+        });
+        let mut terminal = TestTerminal::default();
+
+        picker
+            .pick_impl::<_, _, (), _>(events, &mut terminal, NoPreview::new())
+            .unwrap();
+
+        assert!(terminal.first_frame.is_some());
+        let response = status.try_recv().unwrap();
+        assert_eq!(response.id, 7);
+        assert_eq!(response.query, "x");
+        assert!(response.changed);
+    }
+}
+
+#[test]
+fn slow_render_leaves_time_to_drain() {
+    let mut picker: Picker<&str, _> = PickerOptions::new()
+        .frame_interval(Duration::from_millis(1))
+        .picker(StrRenderer);
+    let mut received = 0;
+    let events = TestEvents(|_| {
+        received += 1;
+        Ok(match received {
+            1 => Event::Redraw,
+            2..=4 => {
+                thread::sleep(Duration::from_millis(2));
+                Event::Redraw
+            }
+            _ => Event::Quit,
+        })
+    });
+    let mut terminal = TestTerminal {
+        initial_render_delay: Duration::from_millis(5),
+        ..TestTerminal::default()
+    };
+
+    picker
+        .pick_impl::<_, _, (), _>(events, &mut terminal, NoPreview::new())
+        .unwrap();
+
+    assert!(
+        terminal.first_frame.unwrap()
+            >= terminal.initial_render_end.unwrap() + Duration::from_millis(1)
+    );
+}
+
+#[test]
+fn drain_reserve_does_not_wait_for_more_events() {
+    let mut picker: Picker<&str, _> = PickerOptions::new()
+        .frame_interval(Duration::ZERO)
+        .picker(StrRenderer);
+    let status = picker.status_observer();
+    let mut received = 0;
+    let events = TestEvents(|duration: Duration| {
+        assert!(duration.is_zero());
+        received += 1;
+        match received {
+            1 => Ok(Event::Status { id: 9 }),
+            2 => Err(RecvError::Timeout),
+            _ => Ok(Event::Quit),
+        }
+    });
+
+    picker
+        .pick_impl::<_, _, (), _>(events, &mut TestTerminal::default(), NoPreview::new())
+        .unwrap();
+
+    assert_eq!(status.try_recv().unwrap().id, 9);
+}
+
+#[test]
+fn channel_try_recv_preserves_events_before_disconnection() {
+    let (sender, mut receiver) = mpsc::channel::<Event>();
+    assert!(matches!(
+        EventSource::try_recv(&mut receiver),
+        Err(RecvError::Timeout)
+    ));
+
+    sender.send(Event::Status { id: 3 }).unwrap();
+    sender.send(Event::Quit).unwrap();
+    drop(sender);
+
+    assert!(matches!(
+        EventSource::try_recv(&mut receiver),
+        Ok(Event::Status { id: 3 })
+    ));
+    assert!(matches!(
+        EventSource::try_recv(&mut receiver),
+        Ok(Event::Quit)
+    ));
+    assert!(matches!(
+        EventSource::try_recv(&mut receiver),
+        Err(RecvError::Disconnected)
+    ));
+}
+
+#[test]
+fn default_try_recv_preserves_io_errors() {
+    let mut source = TestEvents(|duration: Duration| {
+        assert!(duration.is_zero());
+        Err(RecvError::IO(io::ErrorKind::BrokenPipe.into()))
+    });
+
+    assert!(
+        matches!(source.try_recv(), Err(RecvError::IO(err)) if err.kind() == io::ErrorKind::BrokenPipe)
+    );
 }

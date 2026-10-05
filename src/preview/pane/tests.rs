@@ -997,6 +997,10 @@ mod picker_loop {
     impl EventSource for Events {
         type AbortErr = &'static str;
 
+        fn try_recv(&mut self) -> Result<Event<Self::AbortErr>, RecvError> {
+            Err(RecvError::Timeout)
+        }
+
         fn recv_timeout(&mut self, _: Duration) -> Result<Event<Self::AbortErr>, RecvError> {
             self.0.pop_front().expect("event script exhausted")
         }
@@ -1006,6 +1010,10 @@ mod picker_loop {
 
     impl<F: FnMut() -> Result<Event<&'static str>, RecvError>> EventSource for CallbackEvents<F> {
         type AbortErr = &'static str;
+
+        fn try_recv(&mut self) -> Result<Event<Self::AbortErr>, RecvError> {
+            Err(RecvError::Timeout)
+        }
 
         fn recv_timeout(&mut self, _: Duration) -> Result<Event<Self::AbortErr>, RecvError> {
             (self.0)()
@@ -1705,6 +1713,10 @@ mod picker_loop {
 
         impl EventSource for RestartEvents {
             type AbortErr = &'static str;
+
+            fn try_recv(&mut self) -> Result<Event<Self::AbortErr>, RecvError> {
+                Err(RecvError::Timeout)
+            }
 
             fn recv_timeout(&mut self, _: Duration) -> Result<Event<Self::AbortErr>, RecvError> {
                 assert!(self.started.elapsed() < Duration::from_secs(5));

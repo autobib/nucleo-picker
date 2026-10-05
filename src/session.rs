@@ -3,7 +3,7 @@
 #[cfg(test)]
 mod tests;
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::{
     Picker, Render, Terminal,
@@ -88,56 +88,79 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         let mut handle_status = None;
         let selection = 'selection: loop {
             let mut force_redraw = false;
+            let frame_deadline = frame_start + self.interval;
+            // this is a deadline with a 1ms bonus so that we always have a bit of time to
+            // process extra events even if there is almost no time left
+            let drain_deadline = frame_deadline.max(Instant::now()) + Duration::from_millis(1);
             loop {
-                match event_source.recv_timeout(frame_start + self.interval - Instant::now()) {
-                    Ok(event) => match event {
-                        Event::Prompt(event) => prompt.handle(event),
-                        Event::MatchList(event) => list.handle(event, engine),
-                        #[cfg(feature = "preview")]
-                        Event::Preview(event) => {
-                            if P::ENABLED {
-                                preview.handle(
-                                    event,
-                                    list.event_selection(engine)
-                                        .map(|n| engine.idx_from_match(n)),
-                                );
-                            }
+                // for ordinary receives, we timeout with the usual frame_deadline grace period
+                // but if we get an event immediately, we make sure to process events for at least
+                // 1ms extra in order to drain some events from a very overactive event queue
+                let event = match event_source.try_recv() {
+                    Err(RecvError::Timeout) => {
+                        let now = Instant::now();
+                        if now >= frame_deadline {
+                            break;
                         }
-                        Event::Redraw => force_redraw = true,
-                        Event::Quit => break 'selection Ok(SelectionTarget::None),
-                        Event::QuitPromptEmpty => {
-                            prompt.flush();
-                            if prompt.contents().is_empty() {
-                                break 'selection Ok(SelectionTarget::None);
-                            }
-                        }
-                        Event::Select => {
-                            if !list.queued().is_empty() {
-                                break 'selection Ok(SelectionTarget::Queued);
-                            }
-                            if let Some(n) = list.event_selection(engine) {
-                                break 'selection Ok(SelectionTarget::Current(n));
-                            }
-                        }
-                        Event::Status { id } => handle_status = Some(id),
-                        Event::Restart => match self.restart_notifier {
-                            Some(ref notifier) => {
-                                preview.restart();
-                                engine.restart();
-                                list.restart(engine);
-                                let injector = engine.injector();
-                                if notifier.push(injector).is_err() {
-                                    break 'selection Err(PickError::Disconnected);
-                                }
-                            }
-                            None => break 'selection Err(PickError::Disconnected),
-                        },
-                        Event::UserInterrupt => break 'selection Err(PickError::UserInterrupted),
-                        Event::Abort(err) => break 'selection Err(PickError::Aborted(err)),
-                    },
+                        event_source.recv_timeout(frame_deadline - now)
+                    }
+                    event => event,
+                };
+
+                let event = match event {
+                    Ok(event) => event,
                     Err(RecvError::Timeout) => break,
                     Err(RecvError::Disconnected) => break 'selection Err(PickError::Disconnected),
                     Err(RecvError::IO(err)) => break 'selection Err(PickError::IO(err)),
+                };
+
+                match event {
+                    Event::Prompt(event) => prompt.handle(event),
+                    Event::MatchList(event) => list.handle(event, engine),
+                    #[cfg(feature = "preview")]
+                    Event::Preview(event) => {
+                        if P::ENABLED {
+                            preview.handle(
+                                event,
+                                list.event_selection(engine)
+                                    .map(|n| engine.idx_from_match(n)),
+                            );
+                        }
+                    }
+                    Event::Redraw => force_redraw = true,
+                    Event::Quit => break 'selection Ok(SelectionTarget::None),
+                    Event::QuitPromptEmpty => {
+                        prompt.flush();
+                        if prompt.contents().is_empty() {
+                            break 'selection Ok(SelectionTarget::None);
+                        }
+                    }
+                    Event::Select => {
+                        if !list.queued().is_empty() {
+                            break 'selection Ok(SelectionTarget::Queued);
+                        }
+                        if let Some(n) = list.event_selection(engine) {
+                            break 'selection Ok(SelectionTarget::Current(n));
+                        }
+                    }
+                    Event::Status { id } => handle_status = Some(id),
+                    Event::Restart => match self.restart_notifier {
+                        Some(ref notifier) => {
+                            preview.restart();
+                            engine.restart();
+                            list.restart(engine);
+                            let injector = engine.injector();
+                            if notifier.push(injector).is_err() {
+                                break 'selection Err(PickError::Disconnected);
+                            }
+                        }
+                        None => break 'selection Err(PickError::Disconnected),
+                    },
+                    Event::UserInterrupt => break 'selection Err(PickError::UserInterrupted),
+                    Event::Abort(err) => break 'selection Err(PickError::Aborted(err)),
+                }
+                if Instant::now() >= drain_deadline {
+                    break;
                 }
             }
             frame_start = Instant::now();
