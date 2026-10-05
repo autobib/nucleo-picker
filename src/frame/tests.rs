@@ -224,7 +224,9 @@ fn size_changes_reassign_outer_rectangles() {
 mod preview {
     use super::*;
     use crate::preview::{
-        Preview, PreviewConfig, PreviewRequest, PreviewResponse, pane::PreviewPane,
+        Preview, PreviewConfig,
+        pane::PreviewPane,
+        request::{PreviewRequest, PreviewResponse},
     };
     struct EmptyPreview;
     impl Preview<String> for EmptyPreview {

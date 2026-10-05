@@ -35,7 +35,8 @@ use ignore::{DirEntry, WalkBuilder, WalkState};
 use nucleo_picker::{
     PickerOptions, Render,
     preview::{
-        PoolPreviewer, Preview, PreviewBuffer, PreviewRequest, PreviewResponse, PreviewWorker,
+        PoolPreviewer, Preview, PreviewBuffer, PreviewWorker,
+        request::{PreviewRequest, PreviewResponse},
     },
 };
 

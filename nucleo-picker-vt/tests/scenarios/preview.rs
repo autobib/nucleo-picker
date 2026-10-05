@@ -5,7 +5,8 @@ use nucleo_picker::{
     PickerOptions,
     event::{Event, MatchListEvent, PromptEvent},
     preview::{
-        BoundaryChars, Preview, PreviewBuffer, PreviewEvent, PreviewRequest, PreviewResponse,
+        BoundaryChars, Preview, PreviewBuffer, PreviewEvent,
+        request::{PreviewRequest, PreviewResponse, QueuedPreviewRequest},
     },
 };
 use nucleo_picker_vt::{Driver, PaneSnapshot};
@@ -569,9 +570,7 @@ fn numbered_scrolling_and_blank_rows() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-struct DeferredPreview(
-    std::sync::mpsc::Sender<nucleo_picker::preview::QueuedPreviewRequest<String>>,
-);
+struct DeferredPreview(std::sync::mpsc::Sender<QueuedPreviewRequest<String>>);
 impl Preview<String> for DeferredPreview {
     type AbortErr = Infallible;
 

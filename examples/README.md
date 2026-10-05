@@ -14,6 +14,7 @@ Some of the examples may require arguments or feature flags to run properly; see
 File                                         | Description
 ---------------------------------------------|-------------
 [blocking.rs](blocking.rs)                   | A basic blocking example with a very small number of matches.
+[preview.rs](preview.rs)                     | A minimal blocking example with a preview pane.
 [custom_io.rs](custom_io.rs)                 | Customize IO with keybindings and alternative writer.
 [find.rs](find.rs)                           | A basic [find](https://en.wikipedia.org/wiki/Find_(Unix)) implementation with fuzzy matching on resulting items.
 [find-preview.rs](find-preview.rs)           | A find impementation with asynchronous file previews.
@@ -27,5 +28,5 @@ File                                         | Description
 [restart_ext.rs](restart_ext.rs)             | An extended version of the `restart` example.
 [timeout.rs](timeout.rs)                     | A version of the `find` example with an inactivity timeout.
 [serde.rs](serde.rs)                         | Use `serde` to deserialize picker items from input.
-[preview.rs](preview.rs)                     | A basic synchronous preview example with no styling.
+[preview-serde.rs](preview-serde.rs)         | A blocking example with a preview pane, using `serde`.
 [low_framerate.rs](low_framerate.rs)         | An example with a framerate of 0.5 FPS to demonstrate keypress input batching.

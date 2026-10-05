@@ -35,8 +35,8 @@ use ignore::{DirEntry, WalkBuilder, WalkState};
 use nucleo_picker::{
     PickerOptions, Render,
     preview::{
-        ActivePreviewRequest, Preview, PreviewBuffer, PreviewRequest, PreviewResponse,
-        QueuedPreviewRequest,
+        Preview, PreviewBuffer,
+        request::{ActivePreviewRequest, PreviewRequest, PreviewResponse, QueuedPreviewRequest},
     },
 };
 use parking_lot::{Condvar, Mutex};

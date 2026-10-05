@@ -8,9 +8,11 @@ use memchr::memchr;
 
 /// A buffer holding the contents of a single preview pane.
 ///
-/// This is an append-only buffer. The buffer consists of a vector of completed lines as well as a
-/// final active line. An empty buffer consists only of an empty active line.
-/// There are two main input modes:
+/// This is an append-only buffer: to edit an existing buffer, one must [clear](Self::clear) the
+/// entire buffer and start again.
+///
+/// The buffer consists of a vector of completed lines as well as a final active line. An
+/// empty buffer consists only of an empty active line. There are two main input modes:
 ///
 /// - Segment-based input: [`push_str`](Self::push_str) and
 ///   [`push_styled_str`](Self::push_styled_str). These methods append text to the current active
@@ -146,6 +148,8 @@ impl PreviewBuffer {
     }
 
     /// Clear this buffer, retaining the underlying allocations.
+    ///
+    /// This removes all lines and styles, leaving a single empty line, and resets the error flag.
     pub fn clear(&mut self) {
         self.text.clear();
         self.lines.clear();

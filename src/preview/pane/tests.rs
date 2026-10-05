@@ -3,7 +3,7 @@ use crate::{
     Picker, PickerOptions,
     error::PickError,
     event::{Event, EventSource},
-    preview::QueuedPreviewRequest,
+    preview::request::{PendingPreview, QueuedPreviewRequest},
     render::StrRenderer,
 };
 
@@ -707,10 +707,7 @@ fn promotion_and_retry_clear_and_reuse_buffers_without_resetting_scroll() {
     }
 }
 
-fn polled_queued_request() -> (
-    crate::preview::PendingPreview,
-    QueuedPreviewRequest<&'static str>,
-) {
+fn polled_queued_request() -> (PendingPreview, QueuedPreviewRequest<&'static str>) {
     let picker = picker(["alpha"]);
     let (pending, queued) = PreviewRequest {
         buffer: PreviewBuffer::new(),

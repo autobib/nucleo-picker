@@ -1,7 +1,7 @@
 use super::{
-    BoundaryChars, Preview, PreviewBuffer, PreviewConfig, PreviewEvent, PreviewRequest,
-    PreviewResponse,
+    BoundaryChars, Preview, PreviewBuffer, PreviewConfig, PreviewEvent,
     cache::{BufferNotReady, Cached, RequestState},
+    request::{PreviewRequest, PreviewResponse},
 };
 use crate::{
     PickerChars,

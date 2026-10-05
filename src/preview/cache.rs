@@ -1,4 +1,4 @@
-use super::{PendingPreview, PreviewBuffer, lock};
+use super::{PreviewBuffer, lock, request::PendingPreview};
 
 /// A single entry in the preview cache.
 pub(crate) struct Cached {

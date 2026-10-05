@@ -11,7 +11,10 @@ use std::{
 
 use parking_lot::{Condvar, Mutex};
 
-use super::{Preview, PreviewBuffer, PreviewRequest, PreviewResponse, QueuedPreviewRequest};
+use super::{
+    Preview, PreviewBuffer,
+    request::{PreviewRequest, PreviewResponse, QueuedPreviewRequest},
+};
 
 const MIN_PRUNE_AT: usize = 32;
 
