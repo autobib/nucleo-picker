@@ -28,7 +28,7 @@ use std::{
     convert::Infallible,
     io,
     marker::PhantomData,
-    sync::mpsc::{Receiver, RecvTimeoutError, Sender},
+    sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError},
     time::Duration,
 };
 
@@ -345,6 +345,14 @@ pub trait EventSource {
     /// If the receiver cannot receive any more events, the implementation should return a
     /// [`RecvError::Disconnected`]. Otherwise, return one of the other variants.
     fn recv_timeout(&mut self, duration: Duration) -> Result<Event<Self::AbortErr>, RecvError>;
+
+    /// Receive a new event without blocking, timing out immediately if no event is available.
+    ///
+    /// The default implementation calls [`recv_timeout`](Self::recv_timeout) with a duration of
+    /// zero.
+    fn try_recv(&mut self) -> Result<Event<Self::AbortErr>, RecvError> {
+        self.recv_timeout(Duration::ZERO)
+    }
 }
 
 impl<A> EventSource for Receiver<Event<A>> {
@@ -352,6 +360,13 @@ impl<A> EventSource for Receiver<Event<A>> {
 
     fn recv_timeout(&mut self, duration: Duration) -> Result<Event<A>, RecvError> {
         Self::recv_timeout(self, duration).map_err(From::from)
+    }
+
+    fn try_recv(&mut self) -> Result<Event<A>, RecvError> {
+        Self::try_recv(self).map_err(|err| match err {
+            TryRecvError::Empty => RecvError::Timeout,
+            TryRecvError::Disconnected => RecvError::Disconnected,
+        })
     }
 }
 
