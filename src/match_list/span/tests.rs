@@ -6,35 +6,6 @@ use crate::{
 };
 
 #[test]
-fn required_width() {
-    fn assert_correct_width(indices: Vec<u32>, rendered: &str, expected_width: usize) {
-        let mut spans = Vec::new();
-        let mut lines = Vec::new();
-        let spanned: Spanned<'_, UnicodeProcessor> =
-            Spanned::new(&indices, rendered, &mut spans, &mut lines, All);
-
-        assert_eq!(spanned.required_width(), expected_width);
-
-        if is_ascii_safe(rendered) {
-            let spanned: Spanned<'_, AsciiProcessor> =
-                Spanned::new(&indices, rendered, &mut spans, &mut lines, All);
-            assert_eq!(spanned.required_width(), expected_width);
-        }
-    }
-
-    assert_correct_width(vec![], "a", 0);
-    assert_correct_width(vec![0], "a", 1);
-    assert_correct_width(vec![1], "ab", 2);
-    assert_correct_width(vec![0], "Ｈb", 2);
-    assert_correct_width(vec![1], "Ｈb", 3);
-
-    assert_correct_width(vec![0, 4], "ab\ncd", 2);
-    assert_correct_width(vec![0, 4], "ab\nＨd", 3);
-    assert_correct_width(vec![0, 5], "ab\n\nＨＨ", 4);
-    assert_correct_width(vec![1, 5], "ＨＨb\n\nab", 4);
-}
-
-#[test]
 fn required_offset() {
     fn assert_correct_offset(
         indices: Vec<u32>,
@@ -56,31 +27,54 @@ fn required_offset() {
         }
     }
 
+    assert_correct_offset(vec![5], "abcdef", 4, 2);
+    assert_correct_offset(vec![5], "abcdef", 5, 1);
     assert_correct_offset(vec![], "a", 1, 0);
     assert_correct_offset(vec![], "abc", 1, 0);
-    assert_correct_offset(vec![2], "abc", 1, 2);
-    assert_correct_offset(vec![2], "abc", 2, 2);
+    assert_correct_offset(vec![2], "abc", 1, 1);
+    assert_correct_offset(vec![2], "abc", 2, 1);
     assert_correct_offset(vec![2], "abc", 3, 0);
-    assert_correct_offset(vec![2], "abc\nab", 2, 2);
-    assert_correct_offset(vec![7], "abc\nabcd", 2, 3);
+    assert_correct_offset(vec![2], "abc\nab", 2, 1);
+    assert_correct_offset(vec![7], "abc\nabcd", 2, 2);
 
-    assert_correct_offset(vec![7], "abc\nabcd", 2, 3);
+    assert_correct_offset(vec![7], "abc\nabcd", 2, 2);
 
     assert_correct_offset(vec![0, 7], "abc\nabcd", 2, 0);
     assert_correct_offset(vec![1, 7], "abc\nabcd", 2, 0);
-    assert_correct_offset(vec![2, 7], "abc\nabcd", 2, 2);
+    assert_correct_offset(vec![2, 7], "abc\nabcd", 2, 1);
 
     assert_correct_offset(vec![0, 6], "abc\naＨd", 2, 0);
     assert_correct_offset(vec![1, 6], "abc\naＨd", 2, 0);
-    assert_correct_offset(vec![2, 6], "abc\naＨd", 2, 2);
-    assert_correct_offset(vec![2, 6], "abc\naＨd", 3, 2);
+    assert_correct_offset(vec![2, 6], "abc\naＨd", 2, 1);
+    assert_correct_offset(vec![2, 6], "abc\naＨd", 3, 1);
 
     assert_correct_offset(vec![2, 4, 8], "abc\na\r\naＨd", 1, 0);
     assert_correct_offset(vec![2, 4, 8], "abc\na\r\naＨd", 2, 0);
-    assert_correct_offset(vec![2, 8], "abc\na\r\naＨd", 2, 2);
+    assert_correct_offset(vec![2, 8], "abc\na\r\naＨd", 2, 1);
     assert_correct_offset(vec![2, 4, 8], "abc\na\r\naＨd", 3, 0);
-    assert_correct_offset(vec![2, 8], "abc\na\r\naＨd", 3, 2);
+    assert_correct_offset(vec![2, 8], "abc\na\r\naＨd", 3, 1);
     assert_correct_offset(vec![2, 8], "abc\na\r\naＨd", 4, 0);
+}
+
+#[test]
+fn alignment_stops_measuring_once_the_first_highlight_limits_scrolling() {
+    use crate::util::unicode::tests::{CountingProcessor, MEASURED_BYTES};
+
+    let text = "界".repeat(100_000);
+    for (first, expected) in [(0, 0), (2, 3)] {
+        let mut spans = Vec::new();
+        let mut lines = Vec::new();
+        let spanned =
+            Spanned::<CountingProcessor>::new(&[first, 99_999], &text, &mut spans, &mut lines, All);
+        for padding in [0, 3, u16::MAX] {
+            MEASURED_BYTES.set(0);
+            assert_eq!(spanned.required_offset(0, padding), 0);
+            assert_eq!(MEASURED_BYTES.get(), 0);
+            MEASURED_BYTES.set(0);
+            assert_eq!(spanned.required_offset(20, padding), expected);
+            assert!(MEASURED_BYTES.get() <= 64, "{}", MEASURED_BYTES.get());
+        }
+    }
 }
 
 #[test]
@@ -224,8 +218,55 @@ fn multiline_truncation_and_padding_use_the_rectangle_origin() {
 
     assert_eq!(
         String::from_utf8(output).unwrap(),
-        "\x1b[4;6H\x1b[6G       \x1b[6G  abcde\x1b[12G…\x1b[5;6H\x1b[6G       \x1b[6G  界a",
+        "\x1b[4;6H\x1b[6G       \x1b[6G  abcd…\x1b[5;6H\x1b[6G       \x1b[6G  界a",
     );
+}
+
+#[test]
+fn truncation_preserves_the_content_origin() {
+    for (rendered, indices, offset, capacity, expected) in [
+        ("界a", &[1][..], 1, 1, "\x1b[8G…"),
+        ("a界b", &[2][..], 1, 2, "\x1b[8G……"),
+        ("界ab", &[1][..], 1, 2, "\x1b[8G……"),
+        ("界a", &[][..], 0, 2, "\x1b[8G……"),
+        ("界a", &[0][..], 0, 2, "\x1b[8G……"),
+        ("界a", &[1][..], 0, 2, "\x1b[8G……"),
+        ("abc", &[1][..], 0, 2, "\x1b[8Ga…"),
+    ] {
+        let mut spans = Vec::new();
+        let mut lines = Vec::new();
+        let spanned: Spanned<'_, UnicodeProcessor> =
+            Spanned::new(indices, rendered, &mut spans, &mut lines, All);
+        let mut output = Vec::new();
+        let mut rect = CrosstermRect::new(
+            &mut output,
+            Area {
+                column: 5,
+                width: capacity + 2,
+                height: 1,
+                ..Area::default()
+            },
+            ClearState::Precleared,
+        )
+        .unwrap();
+        rect.move_to_column(2).unwrap();
+
+        let remaining = spanned
+            .queue_print_line(
+                &mut rect,
+                spanned.lines().next().unwrap(),
+                offset,
+                capacity,
+                &PickerChars::new(),
+            )
+            .unwrap();
+        assert_eq!(remaining, 0);
+        let output = String::from_utf8(output).unwrap();
+        assert_eq!(
+            output, expected,
+            "{rendered:?}, {indices:?}, {offset}, {capacity}: {output:?}"
+        );
+    }
 }
 
 #[test]
@@ -250,7 +291,6 @@ fn queue_print_line_returns_remaining_columns() {
                 )
                 .unwrap(),
                 line,
-                0,
                 0,
                 capacity,
                 &PickerChars::new(),
@@ -280,7 +320,6 @@ fn queue_print_line_returns_remaining_columns() {
                 )
                 .unwrap(),
                 line,
-                0,
                 0,
                 6,
                 &PickerChars::new()

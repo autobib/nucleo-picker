@@ -2,10 +2,31 @@ use std::error::Error;
 
 use nucleo_picker::{
     PickerOptions,
-    event::{Event, PromptEvent},
+    event::{Event, MatchListEvent, PromptEvent},
 };
 
 use super::{ScenarioRunner, unicode_lines};
+
+#[test]
+fn unicode_truncation_preserves_the_match_prefix() -> Result<(), Box<dyn Error>> {
+    let mut sr = ScenarioRunner::start_multi_with_options(
+        "unicode_truncation_preserves_the_match_prefix",
+        vec!["界a"],
+        PickerOptions::new(),
+    );
+    sr.set_dimensions(3, 3)?;
+    sr.type_text("a")?;
+    let selected = sr.checkpoint("selected")?;
+    assert_eq!(selected.text[0], "▌ …");
+
+    sr.send(Event::MatchList(MatchListEvent::ToggleUp(1)))?;
+    let queued = sr.checkpoint("queued")?;
+    assert_eq!(queued.text[0], "▌┃…");
+
+    sr.send(Event::Select)?;
+    assert_eq!(sr.finish()?, ["界a"]);
+    Ok(())
+}
 
 #[test]
 fn basic_unicode() -> Result<(), Box<dyn Error>> {

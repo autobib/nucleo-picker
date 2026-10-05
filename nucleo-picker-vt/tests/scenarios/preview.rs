@@ -283,6 +283,41 @@ fn unicode_clipping_and_styles() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+fn preview_and_matches_use_the_same_grapheme_widths() -> Result<(), Box<dyn Error>> {
+    let mut sr = start_with(
+        "preview_and_matches_use_the_same_grapheme_widths",
+        vec!["لاX"],
+        PickerOptions::new().highlight_line(true),
+        TextPreview(|_, buffer| {
+            buffer.push_line("لا");
+            buffer.push_line("لاX");
+        }),
+    );
+    sr.type_text("لا")?;
+    sr.wait_for_match_complete(1, 1)?;
+    for (width, first, second, selected) in [
+        (12, "│لا  │", "│لاX │", "▌ لاX "),
+        (10, "│لا │", "│لاX│", "▌ لاX"),
+        (8, "│لا│", "│ل…│", "▌ ل…"),
+        (6, "│…│", "│…│", "▌ …"),
+    ] {
+        sr.set_dimensions(width, 5)?;
+        let snapshot = sr.checkpoint(format!("width-{width}"))?;
+        assert!(snapshot.text[1].ends_with(first), "{:?}", snapshot.text);
+        assert!(snapshot.text[2].ends_with(second), "{:?}", snapshot.text);
+        assert!(
+            snapshot.text[2].starts_with(selected),
+            "{:?}",
+            snapshot.text
+        );
+        assert!(snapshot.row_flags.iter().all(|row| !row.wrapped));
+    }
+    sr.send(Event::Quit)?;
+    assert!(sr.finish()?.is_empty());
+    Ok(())
+}
+
+#[test]
 fn style_resets_and_custom_elision() -> Result<(), Box<dyn Error>> {
     let mut sr = start_with(
         "style_resets_and_custom_elision",

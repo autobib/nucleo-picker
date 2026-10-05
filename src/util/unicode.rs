@@ -21,14 +21,23 @@ pub trait Processor: private::Sealed {
     /// returns. If this is not the case, the returned value is undefined.
     fn width(input: &str) -> usize;
 
+    /// Returns min(width, limit), stopping once the limit is reached.
+    fn width_up_to(input: &str, limit: usize) -> usize {
+        if limit == 0 {
+            return 0;
+        }
+        let mut total = 0;
+        for (_, width) in Self::grapheme_index_widths(input) {
+            if width >= limit - total {
+                return limit;
+            }
+            total += width;
+        }
+        total
+    }
+
     /// Return an iterator over pairs `(offset, grapheme_width)` for the graphemes in `input`.
     fn grapheme_index_widths(input: &str) -> impl Iterator<Item = (usize, usize)>;
-
-    /// Compute the width (in terms of visible columns) of the last grapheme.
-    ///
-    /// This method assumes that `input` is non-empty and does not contain a trailing newline. If
-    /// this is not the case, the returned value is undefined.
-    fn last_grapheme_width(input: &str) -> usize;
 }
 
 mod private {
@@ -47,10 +56,12 @@ pub(crate) fn is_ascii_safe(input: &str) -> bool {
 pub struct UnicodeProcessor;
 
 impl Processor for UnicodeProcessor {
-    /// Do things properly and use [`UnicodeWidthStr`](unicode_width::UnicodeWidthStr).
     #[inline]
     fn width(input: &str) -> usize {
-        unicode_width::UnicodeWidthStr::width(input)
+        // Sum individual graphemes for consistency with clipping and horizontal alignment.
+        Self::grapheme_index_widths(input)
+            .map(|(_, width)| width)
+            .sum()
     }
 
     /// Do things properly and use
@@ -59,16 +70,6 @@ impl Processor for UnicodeProcessor {
     fn grapheme_index_widths(input: &str) -> impl Iterator<Item = (usize, usize)> {
         unicode_segmentation::UnicodeSegmentation::grapheme_indices(input, true)
             .map(|(offset, grapheme)| (offset, unicode_width::UnicodeWidthStr::width(grapheme)))
-    }
-
-    /// Do things properly and use
-    /// [`UnicodeSegmentation`](unicode_segmentation::UnicodeSegmentation) as well as
-    /// [`UnicodeWidthStr`](unicode_width::UnicodeWidthStr).
-    #[inline]
-    fn last_grapheme_width(input: &str) -> usize {
-        unicode_segmentation::UnicodeSegmentation::graphemes(input, true)
-            .next_back()
-            .map_or(0, unicode_width::UnicodeWidthStr::width)
     }
 }
 
@@ -84,122 +85,64 @@ impl Processor for AsciiProcessor {
     }
 
     #[inline]
+    fn width_up_to(input: &str, limit: usize) -> usize {
+        input.len().min(limit)
+    }
+
+    #[inline]
     fn grapheme_index_widths(input: &str) -> impl Iterator<Item = (usize, usize)> {
         debug_assert!(is_ascii_safe(input));
         std::iter::repeat_n(1, input.len()).enumerate()
     }
-
-    #[inline]
-    fn last_grapheme_width(input: &str) -> usize {
-        debug_assert!(is_ascii_safe(input));
-        1
-    }
-}
-
-/// Attempt to fit `input` into `capacity` columns.
-///
-/// - The `Ok` variant indicates that the input fit into the desired capacity and contains the
-///   remaining capicity.
-/// - The `Err` variant indicates that there was not enough space, and contais a pair `(prefix,
-///   alignment`). Here, `prefix` is the maximal prefix of `input` composed of full graphemes
-///   which fits inside the provided capacity, and `alignment` is the remaining capacity which
-///   could not be written into because the next grapheme was too long.
-///
-/// Note that this call is meaningful even when `capacity == 0`, since the width of the input is in
-/// terms of unicode width as computed by [`UnicodeWidthStr`], and therefore may be 0 even for
-/// non-empty string slices such as `\u{200b}`.
-#[inline]
-pub fn truncate<P: Processor>(input: &str, capacity: u16) -> Result<u16, (&str, usize)> {
-    if let Some(remaining) = (capacity as usize).checked_sub(P::width(input)) {
-        Ok(remaining as u16)
-    } else {
-        let mut current_length = 0;
-        for (offset, grapheme_width) in P::grapheme_index_widths(input) {
-            let next_length = current_length + grapheme_width;
-            if next_length > capacity as usize {
-                return Err((&input[..offset], capacity as usize - current_length));
-            }
-            current_length = next_length;
-        }
-
-        Ok(capacity - current_length as u16)
-    }
-}
-
-/// Consume a prefix consisting of entire graphemes from `input` until the total length of the
-/// consumed graphemes exceeds `offset`. Returns a pair `(idx, alignment)` where `idx` is the
-/// byte index of the first valid grapheme, and `alignment` is the number of extra columns
-/// resulting from rounding to the nearest grapheme.
-///
-/// Usually `alignment == 0`, but in the presence of (for instance) double-width characters such as
-/// `Ｈ` it could be larger.
-#[inline]
-pub fn consume<P: Processor>(input: &str, offset: usize) -> (usize, usize) {
-    let mut initial_width: usize = 0;
-    for (idx, grapheme_width) in P::grapheme_index_widths(input) {
-        match initial_width.checked_sub(offset) {
-            Some(diff) => return (idx, diff),
-            None => initial_width += grapheme_width,
-        }
-    }
-    (input.len(), initial_width.saturating_sub(offset))
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    use std::cell::Cell;
+
     use super::*;
 
-    #[test]
-    fn test_consume_offset() {
-        fn assert_consume(input: &str, w: usize, expected: (usize, usize)) {
-            assert_eq!(consume::<UnicodeProcessor>(input, w), expected);
+    thread_local! {
+        pub(crate) static MEASURED_BYTES: Cell<usize> = const { Cell::new(0) };
+    }
 
-            if is_ascii_safe(input) {
-                assert_eq!(consume::<AsciiProcessor>(input, w), expected);
-            }
+    pub(crate) struct CountingProcessor;
+
+    impl private::Sealed for CountingProcessor {}
+
+    impl Processor for CountingProcessor {
+        fn width(input: &str) -> usize {
+            MEASURED_BYTES.update(|count| count + input.len());
+            UnicodeProcessor::width(input)
         }
-        assert_consume("ab", 3, (2, 0));
-        assert_consume("ab", 2, (2, 0));
-        assert_consume("ab", 1, (1, 0));
-        assert_consume("ab", 0, (0, 0));
-        assert_consume("", 0, (0, 0));
-        assert_consume("", 1, (0, 0));
 
-        assert_consume("Ｈ", 0, (0, 0));
-        assert_consume("Ｈ", 1, (3, 1));
-        assert_consume("Ｈ", 2, (3, 0));
-
-        assert_consume("aＨ", 0, (0, 0));
-        assert_consume("aＨ", 1, (1, 0));
-        assert_consume("aＨ", 2, (4, 1));
-        assert_consume("aＨ", 3, (4, 0));
+        fn grapheme_index_widths(input: &str) -> impl Iterator<Item = (usize, usize)> {
+            unicode_segmentation::UnicodeSegmentation::grapheme_indices(input, true).map(
+                |(offset, grapheme)| {
+                    MEASURED_BYTES.update(|count| count + grapheme.len());
+                    (offset, UnicodeProcessor::width(grapheme))
+                },
+            )
+        }
     }
 
     #[test]
-    fn test_truncate_width() {
-        fn assert_truncate(input: &str, w: u16, expected: Result<u16, (&str, usize)>) {
-            assert_eq!(truncate::<UnicodeProcessor>(input, w), expected);
-            if is_ascii_safe(input) {
-                assert_eq!(truncate::<AsciiProcessor>(input, w), expected);
-            }
-        }
+    fn bounded_width_stops_at_the_limit() {
+        let text = "界".repeat(1_000_000);
+        MEASURED_BYTES.set(0);
+        assert_eq!(CountingProcessor::width_up_to(&text, 21), 21);
+        assert!(MEASURED_BYTES.get() <= 33);
+        MEASURED_BYTES.set(0);
+        assert_eq!(CountingProcessor::width_up_to(&text, 0), 0);
+        assert_eq!(MEASURED_BYTES.get(), 0);
+        assert_eq!(UnicodeProcessor::width_up_to("界a", 10), 3);
+        assert_eq!(UnicodeProcessor::width_up_to("", 10), 0);
+        assert_eq!(AsciiProcessor::width_up_to("abc", 2), 2);
+    }
 
-        assert_truncate("", 0, Ok(0));
-
-        assert_truncate("ab", 0, Err(("", 0)));
-        assert_truncate("ab", 1, Err(("a", 0)));
-        assert_truncate("ab", 2, Ok(0));
-
-        assert_truncate("Ｈｅ", 0, Err(("", 0)));
-        assert_truncate("Ｈｅ", 1, Err(("", 1)));
-        assert_truncate("Ｈｅ", 2, Err(("Ｈ", 0)));
-        assert_truncate("Ｈｅ", 3, Err(("Ｈ", 1)));
-        assert_truncate("Ｈｅ", 4, Ok(0));
-        assert_truncate("Ｈｅ", 5, Ok(1));
-
-        assert_truncate("aＨ", 1, Err(("a", 0)));
-        assert_truncate("aＨ", 2, Err(("a", 1)));
-        assert_truncate("aＨ", 3, Ok(0));
-        assert_truncate("aＨ", 4, Ok(1));
+    #[test]
+    fn width_uses_grapheme_advances() {
+        assert_eq!(UnicodeProcessor::width("لا"), 2);
+        assert_eq!(UnicodeProcessor::width("e\u{301}👩🏽‍💻"), 3);
     }
 }
