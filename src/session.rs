@@ -67,10 +67,11 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         preview
             .update(
                 if P::ENABLED {
-                    list.selection(engine).and_then(|n| engine.get_match(n))
+                    list.selection(engine).map(|n| engine.idx_from_match(n))
                 } else {
                     None
                 },
+                engine.snapshot(),
                 frame_start + self.interval,
             )
             .map_err(PickError::Aborted)?;
@@ -192,10 +193,11 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                 preview: preview
                     .update(
                         if P::ENABLED {
-                            list.selection(engine).and_then(|n| engine.get_match(n))
+                            list.selection(engine).map(|n| engine.idx_from_match(n))
                         } else {
                             None
                         },
+                        engine.snapshot(),
                         frame_start + self.interval,
                     )
                     .map_err(PickError::Aborted)?,

@@ -232,7 +232,7 @@ mod preview {
         fn preview(
             &mut self,
             _: &String,
-            request: PreviewRequest,
+            request: PreviewRequest<'_, String>,
             _: std::time::Duration,
         ) -> Result<PreviewResponse, Self::AbortErr> {
             Ok(PreviewResponse::Ready(request.ready()))

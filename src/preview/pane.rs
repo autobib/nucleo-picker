@@ -57,21 +57,21 @@ impl<P> PreviewPane<P> {
 
     /// Update the current preview by polling and resubmitting requests and keeping track if a
     /// redraw is required.
-    fn update_current<T>(
+    fn update_current<T: Send + Sync + 'static>(
         &mut self,
-        selected: Option<(u32, &T)>,
+        selected: Option<u32>,
+        snapshot: &nucleo::Snapshot<T>,
         deadline: Instant,
     ) -> Result<(), P::AbortErr>
     where
         P: Preview<T>,
     {
-        let idx = selected.map(|(idx, _)| idx);
-        if self.last_item != idx {
-            self.last_item = idx;
+        if self.last_item != selected {
+            self.last_item = selected;
             self.epoch = self.epoch.wrapping_add(1);
             self.pending_redraw = true;
         }
-        let Some((idx, item)) = selected else {
+        let Some(idx) = selected else {
             return Ok(());
         };
 
@@ -86,7 +86,14 @@ impl<P> PreviewPane<P> {
             let buffer = evicted
                 .and_then(|(_, mut cached)| cached.state.take())
                 .map_or_else(PreviewBuffer::new, RequestState::into_buffer);
-            let state = submit(&mut self.previewer, item, buffer, self.epoch, deadline)?;
+            let state = submit(
+                &mut self.previewer,
+                snapshot,
+                idx,
+                buffer,
+                self.epoch,
+                deadline,
+            )?;
             self.pending_redraw |= matches!(state, RequestState::Ready(_));
             self.cache.peek_mut(&idx).unwrap().state = Some(state);
             return Ok(());
@@ -118,7 +125,14 @@ impl<P> PreviewPane<P> {
         };
         let state = match state {
             Ok(state) => state,
-            Err(buffer) => submit(&mut self.previewer, item, buffer, self.epoch, deadline)?,
+            Err(buffer) => submit(
+                &mut self.previewer,
+                snapshot,
+                idx,
+                buffer,
+                self.epoch,
+                deadline,
+            )?,
         };
         self.pending_redraw |= matches!(state, RequestState::Ready(_));
         cached.state = Some(state);
@@ -170,7 +184,7 @@ impl<E, P> Component<E> for PreviewPane<P> {
     }
 }
 
-impl<T, P: Preview<T>> PreviewComponent<T> for PreviewPane<P> {
+impl<T: Send + Sync + 'static, P: Preview<T>> PreviewComponent<T> for PreviewPane<P> {
     type Error = P::AbortErr;
     const ENABLED: bool = true;
     fn handle(&mut self, event: PreviewEvent, selected_id: Option<u32>) {
@@ -178,10 +192,11 @@ impl<T, P: Preview<T>> PreviewComponent<T> for PreviewPane<P> {
     }
     fn update(
         &mut self,
-        selected: Option<(u32, &T)>,
+        selected: Option<u32>,
+        snapshot: &nucleo::Snapshot<T>,
         deadline: Instant,
     ) -> Result<bool, P::AbortErr> {
-        self.update_current(selected, deadline)?;
+        self.update_current(selected, snapshot, deadline)?;
         Ok(std::mem::take(&mut self.pending_redraw))
     }
     fn restart(&mut self) {
@@ -189,20 +204,26 @@ impl<T, P: Preview<T>> PreviewComponent<T> for PreviewPane<P> {
     }
 }
 
-fn submit<T, P: Preview<T>>(
+fn submit<T: Send + Sync + 'static, P: Preview<T>>(
     previewer: &mut P,
-    item: &T,
+    snapshot: &nucleo::Snapshot<T>,
+    idx: u32,
     mut buffer: PreviewBuffer,
     epoch: u64,
     deadline: Instant,
 ) -> Result<RequestState, P::AbortErr> {
     buffer.clear();
-    let request = PreviewRequest { buffer, epoch };
+    let request = PreviewRequest {
+        buffer,
+        epoch,
+        snapshot,
+        idx,
+    };
     let timeout = deadline
         .saturating_duration_since(Instant::now())
         .max(Duration::from_millis(2));
     previewer
-        .preview(item, request, timeout)
+        .preview(request.item(), request, timeout)
         .map(|response| match response {
             PreviewResponse::Ready(buffer) => RequestState::Ready(buffer),
             PreviewResponse::Pending(pending) => RequestState::Pending(pending),

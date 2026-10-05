@@ -21,7 +21,7 @@ impl Preview<String> for ItemPreview {
     fn preview(
         &mut self,
         item: &String,
-        request: PreviewRequest,
+        request: PreviewRequest<'_, String>,
         _timeout: Duration,
     ) -> Result<PreviewResponse, Infallible> {
         let mut buffer = request.ready();
@@ -216,7 +216,7 @@ impl Preview<String> for TextPreview {
     fn preview(
         &mut self,
         item: &String,
-        request: PreviewRequest,
+        request: PreviewRequest<'_, String>,
         _timeout: Duration,
     ) -> Result<PreviewResponse, Infallible> {
         let mut buffer = request.ready();
@@ -569,14 +569,16 @@ fn numbered_scrolling_and_blank_rows() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-struct DeferredPreview(std::sync::mpsc::Sender<nucleo_picker::preview::QueuedPreviewRequest>);
+struct DeferredPreview(
+    std::sync::mpsc::Sender<nucleo_picker::preview::QueuedPreviewRequest<String>>,
+);
 impl Preview<String> for DeferredPreview {
     type AbortErr = Infallible;
 
     fn preview(
         &mut self,
         item: &String,
-        request: PreviewRequest,
+        request: PreviewRequest<'_, String>,
         _timeout: Duration,
     ) -> Result<PreviewResponse, Infallible> {
         if item == "ready" {

@@ -99,7 +99,8 @@ impl Queued for () {
         snapshot: &nucleo::Snapshot<T>,
         idx: u32,
     ) -> Self::Output<'_, T> {
-        Some(snapshot.get_item(idx).unwrap().data)
+        // SAFETY: the session obtains idx from this snapshot's selected match without updating it.
+        Some(unsafe { snapshot.get_item_unchecked(idx).data })
     }
 
     #[inline]

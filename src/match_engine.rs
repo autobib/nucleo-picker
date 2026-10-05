@@ -89,11 +89,6 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
         &self.render
     }
 
-    pub fn get_match(&self, rank: u32) -> Option<(u32, &T)> {
-        let idx = self.snapshot().matches().get(rank as usize)?.idx;
-        Some((idx, self.snapshot().get_item(idx).unwrap().data))
-    }
-
     /// A convenience function to render a given item using the internal [`Render`] implementation.
     pub fn render<'a>(&self, item: &'a T) -> <R as Render<T>>::Str<'a>
     where
@@ -150,12 +145,15 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
     }
 
     pub fn idx_from_match(&self, n: u32) -> u32 {
-        self.nucleo
-            .snapshot()
-            .matches()
-            .get(n as usize)
-            .unwrap()
-            .idx
+        // SAFETY: callers use a selection clamped to this nonempty snapshot, with no intervening tick
+        // or restart that could invalidate the rank.
+        unsafe {
+            self.nucleo
+                .snapshot()
+                .matches()
+                .get_unchecked(n as usize)
+                .idx
+        }
     }
 
     /// Check if the internal match workers have returned any new updates for matched items.
