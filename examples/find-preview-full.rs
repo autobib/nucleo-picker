@@ -3,7 +3,7 @@
 //! Run with:
 //!
 //! ```bash
-//! cargo run --release --features preview --example find-preview -- [directory]
+//! cargo run --release --features preview --example find-preview-full -- [directory]
 //! ```
 //!
 //! This implementation generates previews for files which are valid UTF-8, and prints read errors
