@@ -1,6 +1,7 @@
 use super::{state::normalize_prompt_string, *};
 use crate::rect::{Area, ClearState, CrosstermRect};
 use crate::{PickerChars, component::Component};
+use unicode_width::UnicodeWidthStr;
 
 fn init_prompt(width: u16, padding: u16) -> PromptState {
     let cfg = PromptConfig { padding };
@@ -173,6 +174,45 @@ fn view() {
 }
 
 #[test]
+fn view_at_column_zero_fits_without_leading_padding() {
+    for (width, padding, query, steps, expected) in [
+        (1, 2, "abc", 1, "c"),
+        (3, 0, "abcdef", 3, "def"),
+        (2, 0, "ＡＡＡ", 1, "Ａ"),
+        (1, 2, "Ａb", 1, "b"),
+        (1, 2, "aＡ", 1, ""),
+    ] {
+        let mut prompt = init_prompt(width, padding);
+        prompt.set_query(query);
+        prompt.apply(PromptEvent::Left(steps));
+        assert_eq!(prompt.cursor_column(), 0);
+
+        let (contents, shift) = prompt.view();
+        assert!(contents.width() + usize::from(shift) <= usize::from(width));
+        assert_eq!((contents, shift), (expected, 0));
+    }
+}
+
+#[test]
+fn view_aligns_after_a_partially_hidden_grapheme() {
+    for (width, expected) in [
+        (3, ("abc", 0)),
+        (4, ("abc", 1)),
+        (5, ("abc", 2)),
+        (6, ("\u{17d8}abc", 0)),
+    ] {
+        let mut prompt = init_prompt(width, 0);
+        prompt.set_query("\u{17d8}abc");
+        prompt.apply(PromptEvent::Left(3));
+        assert_eq!(prompt.cursor_column(), width - 3);
+        assert_eq!(prompt.view(), expected);
+
+        let (contents, shift) = prompt.view();
+        assert!(contents.width() + usize::from(shift) <= usize::from(width));
+    }
+}
+
+#[test]
 fn resize_restores_cursor_after_zero_width() {
     let mut editable = init_prompt(6, 2);
     editable.apply(PromptEvent::Paste("abcdef".to_owned()));
@@ -239,6 +279,70 @@ fn test_word_movement() {
     assert_eq!(editable.cursor_column(), 7);
     editable.apply(PromptEvent::WordRight(1));
     assert_eq!(editable.cursor_column(), 7);
+}
+
+fn assert_zero_back_is_noop(event: fn(usize) -> PromptEvent) {
+    for width in [3, 20] {
+        for (query, steps, after_insertion) in [
+            ("", 0, "X"),
+            ("abc", 0, "Xabc"),
+            ("abc", 1, "aXbc"),
+            ("abc", 3, "abcX"),
+            ("Ａe\u{301}界", 0, "XＡe\u{301}界"),
+            ("Ａe\u{301}界", 2, "Ａe\u{301}X界"),
+            ("Ａe\u{301}界", 3, "Ａe\u{301}界X"),
+            ("   ", 2, "  X "),
+            ("...", 3, "...X"),
+        ] {
+            let mut prompt = init_prompt(width, 1);
+            prompt.set_query(query);
+            prompt.apply(PromptEvent::ToStart);
+            prompt.apply(PromptEvent::Right(steps));
+            let column = prompt.cursor_column();
+            let (contents, shift) = prompt.view();
+            let view = (contents.to_owned(), shift);
+
+            let status = prompt.apply(event(0));
+
+            assert!(!status.needs_redraw);
+            assert!(!status.contents_changed);
+            assert_eq!(prompt.contents(), query);
+            assert_eq!(prompt.cursor_column(), column);
+            assert_eq!(prompt.view(), (view.0.as_str(), view.1));
+
+            prompt.apply(PromptEvent::Insert('X'));
+            assert_eq!(prompt.contents(), after_insertion);
+        }
+    }
+}
+
+#[test]
+fn zero_count_left_is_noop() {
+    assert_zero_back_is_noop(PromptEvent::Left);
+    assert_zero_back_is_noop(PromptEvent::WordLeft);
+    assert_zero_back_is_noop(PromptEvent::Backspace);
+    assert_zero_back_is_noop(PromptEvent::BackspaceWord);
+}
+
+#[test]
+fn backward_word_operations_preserve_boundaries() {
+    for (query, steps, after_insertion, after_deletion) in [
+        ("   ", 1, "X   ", ""),
+        ("...", 1, "X...", ""),
+        ("  one two", 1, "  one Xtwo", "  one "),
+        ("  one two", 2, "  Xone two", "  "),
+        ("  one two", usize::MAX, "  Xone two", "  "),
+    ] {
+        let mut prompt = init_prompt(20, 1);
+        prompt.set_query(query);
+        prompt.apply(PromptEvent::WordLeft(steps));
+        prompt.apply(PromptEvent::Insert('X'));
+        assert_eq!(prompt.contents(), after_insertion);
+
+        prompt.set_query(query);
+        prompt.apply(PromptEvent::BackspaceWord(steps));
+        assert_eq!(prompt.contents(), after_deletion);
+    }
 }
 
 #[test]

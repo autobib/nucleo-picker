@@ -160,30 +160,18 @@ impl PromptState {
             return ("", 0);
         }
 
-        let mut left_indices = self.contents[..self.cursor_byte]
+        let mut left_offset = self.cursor_byte;
+        let mut extra = usize::from(self.cursor_column);
+        for (offset, grapheme) in self.contents[..self.cursor_byte]
             .grapheme_indices(true)
-            .rev();
-        let mut total_left_width = 0;
-        let (left_offset, extra) = loop {
-            match left_indices.next() {
-                Some((offset, grapheme)) => {
-                    total_left_width += grapheme.width();
-                    if total_left_width >= self.cursor_column.into() {
-                        let extra = (total_left_width - self.cursor_column as usize) as u16;
-                        break (
-                            offset
-                                + if total_left_width == usize::from(self.cursor_column) {
-                                    0
-                                } else {
-                                    grapheme.len()
-                                },
-                            extra,
-                        );
-                    }
-                }
-                None => break (0, 0),
-            }
-        };
+            .rev()
+        {
+            let Some(remaining) = extra.checked_sub(grapheme.width()) else {
+                break;
+            };
+            left_offset = offset;
+            extra = remaining;
+        }
 
         let mut right_indices = self.contents[self.cursor_byte..].grapheme_indices(true);
         let mut total_right_width = 0;
@@ -200,7 +188,7 @@ impl PromptState {
             }
         };
 
-        (&self.contents[left_offset..right_offset], extra)
+        (&self.contents[left_offset..right_offset], extra as u16)
     }
 
     /// Resize the screen, adjusting the padding and the screen width.
@@ -304,17 +292,20 @@ impl PromptState {
             .grapheme_indices(true)
             .rev()
             .take(steps)
-            .last()
-            .map_or(0, |(offset, _)| offset)
+            .fold(self.cursor_byte, |_, (offset, _)| offset)
     }
 
     fn left_word_offset(&self, steps: usize) -> usize {
-        self.contents[..self.cursor_byte]
+        let mut words = self.contents[..self.cursor_byte]
             .unicode_word_indices()
-            .rev()
+            .rev();
+        // the old starts at the cursor, but we need to start a zero byte at the beginning in
+        // order to correctly handle the empty word iterator so that positively many
+        // steps will consume whitespace/punctuation-only prefixes as well
+        std::iter::once(words.next().unwrap_or((0, "")))
+            .chain(words)
             .take(steps)
-            .last()
-            .map_or(0, |(offset, _)| offset)
+            .fold(self.cursor_byte, |_, (offset, _)| offset)
     }
 
     fn right_offset(&self, steps: usize) -> usize {
