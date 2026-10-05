@@ -45,6 +45,45 @@
 //! preview to display indefinitely as loading: if the request was dropped because it cannot be
 //! satisfied, the previewer might consider instead completing the request by publishing an error.
 //!
+//! ### Basic example
+//!
+//! Here is a simple coordination example with a single preview worker at the other end of a MPSC
+//! channel.
+//!
+//! ```
+//! use std::sync::mpsc::{Receiver, SendError, Sender};
+//! use nucleo_picker::preview::{
+//!     PreviewBuffer,
+//!     request::{PreviewRequest, PreviewResponse, QueuedPreviewRequest},
+//! };
+//!
+//! // Queue a request for completion.
+//! fn enqueue(
+//!     request: PreviewRequest<'_, String>,
+//!     worker: &Sender<QueuedPreviewRequest<String>>,
+//! ) -> Result<PreviewResponse, SendError<QueuedPreviewRequest<String>>> {
+//!     let (pending, queued) = request.defer();
+//!     worker.send(queued)?;
+//!     Ok(PreviewResponse::Pending(pending))
+//! }
+//!
+//! // Complete the queued preview requests (in a separate thread).
+//! fn complete(receiver: Receiver<QueuedPreviewRequest<String>>) {
+//!     // reusable scratch space for all requests
+//!     let mut buffer = PreviewBuffer::new();
+//!
+//!     while let Ok(queued) = receiver.recv() {
+//!         let Some(request) = queued.start() else {
+//!             continue;
+//!         };
+//!         buffer.push_text(request.item());
+//!         if !request.publish(&mut buffer) {
+//!             buffer.clear();
+//!         }
+//!     }
+//! }
+//! ```
+//!
 //! ## Buffer reuse
 //!
 //! The [`PreviewRequest`] internally contains a pre-cleared buffer that may be recycled from a

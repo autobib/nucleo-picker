@@ -95,6 +95,37 @@ pub use crate::{match_list::MatchListEvent, observer::Observer, prompt::PromptEv
 /// increasing `u64` counter and to check that the received id is greater than or equal to the
 /// requested id.
 ///
+/// Here is an example highlighting status checks using the above conventions.
+/// ```no_run
+/// use std::{io, sync::mpsc, thread};
+/// use nucleo_picker::{Picker, event::{Event, PromptEvent}, render::StrRenderer};
+///
+/// # fn main() -> io::Result<()> {
+/// let mut picker = Picker::new(StrRenderer);
+/// picker.push_batch(["red", "green", "blue"]);
+/// let observer = picker.status_observer();
+/// let (sender, receiver) = mpsc::channel::<Event>();
+/// let driver = thread::spawn(move || {
+///     let id = 1;
+///     sender.send(Event::Prompt(PromptEvent::Reset("blue".into()))).ok()?;
+///     sender.send(Event::Status { id }).ok()?;
+///     while let Ok(status) = observer.recv() {
+///         if status.id >= id {
+///             let _ = sender.send(Event::Quit);
+///             return Some(status);
+///         }
+///     }
+///     None
+/// });
+///
+/// picker.pick_with_io(receiver, &mut io::stderr())?;
+/// drop(picker);
+/// if let Some(status) = driver.join().unwrap() {
+///     assert_eq!(status.query, "blue");
+/// }
+/// # Ok(())
+/// # }
+/// ```
 ///
 /// ## Restart
 /// An [`Event::Restart`] is used to restart the picker while it is still running. After a
@@ -113,8 +144,37 @@ pub use crate::{match_list::MatchListEvent, observer::Observer, prompt::PromptEv
 /// It is possible that no [`Injector`] will be sent if the picker exits or disconnects
 /// before the event is processed.
 ///
-/// For a detailed implementation example, see the [restart
+/// Below is a basic example. For a detailed implementation example, see the [restart
 /// example](https://github.com/autobib/nucleo-picker/blob/master/examples/restart.rs).
+///
+/// ```no_run
+/// use std::thread;
+/// use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+/// use nucleo_picker::{Picker, event::{Event, keybind_default}, render::StrRenderer};
+///
+/// # fn main() -> std::io::Result<()> {
+/// let mut picker = Picker::new(StrRenderer);
+/// let observer = picker.injector_observer(true);
+/// let producer = thread::spawn(move || {
+///     let mut batch = 0;
+///     while let Ok(injector) = observer.recv() {
+///         batch += 1;
+///         injector.push_batch((0..3).map(|i| format!("Batch {batch}: item {i}")));
+///     }
+/// });
+///
+/// let selected = picker.pick_with_keybind(|event| match event {
+///     KeyEvent { code: KeyCode::F(5), kind: KeyEventKind::Press, .. } => Some(Event::Restart),
+///     event => keybind_default(event),
+/// })?;
+/// if let Some(item) = selected {
+///     println!("{item}");
+/// }
+/// drop(picker);
+/// producer.join().unwrap();
+/// # Ok(())
+/// # }
+/// ```
 ///
 /// [`Injector`]: crate::Injector
 #[non_exhaustive]

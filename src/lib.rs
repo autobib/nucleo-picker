@@ -144,6 +144,26 @@ pub(crate) use terminal::Terminal;
 /// }
 /// ```
 ///
+/// Here is an example using a function directly as a renderer.
+///
+/// ```
+/// use std::borrow::Cow;
+/// use nucleo_picker::Picker;
+///
+/// struct Item {
+///     name: String,
+/// }
+///
+/// fn render(item: &Item) -> Cow<'_, str> {
+///     Cow::Borrowed(&item.name)
+/// }
+///
+/// let picker = Picker::new(render);
+/// let item = Item { name: "README.md".into() };
+/// assert_eq!(picker.render(&item), "README.md");
+/// picker.push_batch([item]);
+/// ```
+///
 /// ## Render considerations
 /// The picker is capable of correctly displaying most Unicode data. Internally, Unicode width
 /// calculations are performed to keep track of the amount of space that it takes on the screen to
@@ -875,6 +895,25 @@ impl PickerOptions {
 /// To reuse the picker with new items and cleared prompt use [`Picker::restart`]. If you want to
 /// retain the items and continue use of existing injectors, reset only the prompt by calling
 /// [`Picker::reset_query`].
+///
+/// ```no_run
+/// use nucleo_picker::{Picker, render::StrRenderer};
+///
+/// # fn main() -> std::io::Result<()> {
+/// let mut picker = Picker::new(StrRenderer);
+/// picker.injector().push_batch(["red", "blue"]);
+/// if let Some(color) = picker.pick()? {
+///     println!("{color}");
+/// }
+///
+/// picker.restart();
+/// picker.injector().push_batch(["small", "large"]);
+/// if let Some(size) = picker.pick()? {
+///     println!("{size}");
+/// }
+/// # Ok(())
+/// # }
+/// ```
 ///
 /// ## Picker variants
 ///

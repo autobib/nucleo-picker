@@ -234,14 +234,30 @@ impl PreviewBuffer {
 
     /// Append styled text and process newlines and control characters automatically.
     ///
-    /// Internally, this method calls [`push_styled_str`](Self::push_styled_str) and
-    /// [`newline`](Self::newline) as follows:
+    /// This is an opinionated convenience method implemented only using [`push_styled_str`](Self::push_styled_str)
+    /// and [`newline`](Self::newline) as follows:
     ///
     /// - Empty input does nothing.
     /// - Line endings are converted into calls to [`newline`](Self::newline).
     /// - Segments not containing control characters are written using [`push_styled_str`](Self::push_styled_str)
     /// - C0 control characters and DEL become Unicode control placeholders. C1 controls are
     ///   discarded.
+    ///
+    /// For more complex use-cases, perform string parsing yourself and directly call the
+    /// lower-level methods.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use crossterm::style::{ContentStyle, Stylize};
+    /// use nucleo_picker::preview::PreviewBuffer;
+    ///
+    /// let mut buffer = PreviewBuffer::new();
+    /// let style = ContentStyle::new().green();
+    /// buffer.push_styled_text("a\r\nb\tc\n", style);
+    /// assert!(buffer.lines().map(|line| line.as_str()).eq(["a", "b␉c", ""]));
+    /// assert!(buffer.line(1).unwrap().spans().eq([style.apply("b␉c")]));
+    /// ```
     pub fn push_styled_text(&mut self, text: &str, style: ContentStyle) {
         for chunk in text.split_inclusive('\n') {
             let (line, newline) = match chunk.strip_suffix('\n') {

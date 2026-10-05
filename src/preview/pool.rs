@@ -57,6 +57,49 @@ pub trait PreviewWorker<T> {
 ///
 /// In such cases, it is advised to implement [`Preview`] directly.
 ///
+/// ## Example
+///
+/// Here is a basic example implementing a file previewer.
+///
+/// ```no_run
+/// use std::{fs, num::NonZeroUsize, path::PathBuf};
+/// use nucleo_picker::{
+///     Picker,
+///     preview::{PoolPreviewer, PreviewBuffer, PreviewWorker},
+///     render::PathRenderer,
+/// };
+///
+/// #[derive(Clone)]
+/// struct FilePreview;
+///
+/// impl PreviewWorker<PathBuf> for FilePreview {
+///     fn preview(
+///         &mut self,
+///         path: &PathBuf,
+///         buffer: &mut PreviewBuffer,
+///         _is_cancelled: impl Fn() -> bool,
+///     ) {
+///         match fs::read_to_string(path) {
+///             Ok(text) => buffer.push_text(&text),
+///             Err(error) => {
+///                 buffer.set_err(true);
+///                 buffer.push_text(&error.to_string());
+///             }
+///         }
+///     }
+/// }
+///
+/// # fn main() -> std::io::Result<()> {
+/// let mut picker = Picker::new(PathRenderer);
+/// picker.push_batch([PathBuf::from("Cargo.toml"), PathBuf::from("README.md")]);
+/// let previewer = PoolPreviewer::new(FilePreview, NonZeroUsize::new(2).unwrap())?;
+/// if let Some(path) = picker.with_preview(previewer).pick()? {
+///     println!("{}", path.display());
+/// }
+/// # Ok(())
+/// # }
+/// ```
+///
 /// ## Worker panic
 ///
 /// If a worker panics, this thread-pool is shut down and the panic is stored internally to the
