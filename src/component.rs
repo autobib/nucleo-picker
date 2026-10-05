@@ -44,7 +44,8 @@ pub(crate) trait PreviewComponent<T> {
 
     fn update(
         &mut self,
-        selected: Option<(u32, &T)>,
+        selected: Option<u32>,
+        snapshot: &nucleo::Snapshot<T>,
         deadline: Instant,
     ) -> Result<bool, Self::Error>;
 
@@ -74,7 +75,12 @@ impl<T, A> PreviewComponent<T> for NoPreview<A> {
     const ENABLED: bool = false;
     #[cfg(feature = "preview")]
     fn handle(&mut self, _event: PreviewEvent, _selected_id: Option<u32>) {}
-    fn update(&mut self, _selected: Option<(u32, &T)>, _deadline: Instant) -> Result<bool, A> {
+    fn update(
+        &mut self,
+        _selected: Option<u32>,
+        _snapshot: &nucleo::Snapshot<T>,
+        _deadline: Instant,
+    ) -> Result<bool, A> {
         Ok(false)
     }
     fn restart(&mut self) {}
@@ -102,10 +108,11 @@ impl<T, C: PreviewComponent<T>> PreviewComponent<T> for &mut C {
     }
     fn update(
         &mut self,
-        selected: Option<(u32, &T)>,
+        selected: Option<u32>,
+        snapshot: &nucleo::Snapshot<T>,
         deadline: Instant,
     ) -> Result<bool, Self::Error> {
-        (**self).update(selected, deadline)
+        (**self).update(selected, snapshot, deadline)
     }
     fn restart(&mut self) {
         (**self).restart();

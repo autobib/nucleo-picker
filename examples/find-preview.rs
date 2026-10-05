@@ -15,7 +15,7 @@ use std::{
     env::args_os,
     fs::File,
     io::{self, Read},
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::ExitCode,
     sync::{
         Arc,
@@ -51,14 +51,9 @@ impl Render<DirEntry> for DirEntryRender {
     }
 }
 
-struct Job {
-    path: PathBuf,
-    request: QueuedPreviewRequest,
-}
-
 struct Shared {
     // This is a LIFO queue for preview jobs. If this is `None`, the thread is closed
-    jobs: Mutex<Option<Vec<Job>>>,
+    jobs: Mutex<Option<Vec<QueuedPreviewRequest<DirEntry>>>>,
     available: Condvar,
 }
 
@@ -94,7 +89,7 @@ impl Preview<DirEntry> for FilePreview {
     fn preview(
         &mut self,
         entry: &DirEntry,
-        request: PreviewRequest,
+        request: PreviewRequest<'_, DirEntry>,
         _timeout: Duration,
     ) -> Result<PreviewResponse, Self::AbortErr> {
         // entry metadata is already available in the dir entry so we can label non-files synchronously
@@ -112,16 +107,12 @@ impl Preview<DirEntry> for FilePreview {
         }
         // defer file IO to the worker pool to not delay the frame render
         let (pending, request) = request.defer();
-        let job = Job {
-            path: entry.path().to_owned(),
-            request,
-        };
         {
             let mut jobs = self.shared.jobs.lock();
             let jobs = jobs.as_mut().unwrap();
             // prune cancelled requests to avoid accumulation of stale jobs with rapid navigation
-            jobs.retain(|job| !job.request.is_cancelled());
-            jobs.push(job);
+            jobs.retain(|request| !request.is_cancelled());
+            jobs.push(request);
         }
         self.shared.available.notify_one();
         Ok(PreviewResponse::Pending(pending))
@@ -162,20 +153,23 @@ fn work(shared: &Shared) {
         // 'starting' means that a worker has picked up the job: this prevents the picker from
         // cancelling the job for reprioritization since we are already working on it. if this is
         // `None` it means that the job was already cancelled while it was queued
-        let Some(request) = job.request.start() else {
+        let Some(request) = job.start() else {
             continue;
         };
         buffer.clear();
         if request.is_cancelled() {
             continue;
         }
-        let result = read_preview(&job.path, &request, &mut bytes, &mut buffer);
+        let result = read_preview(&request, &mut bytes, &mut buffer);
         if let Err(err) = result {
             buffer.clear();
             buffer.set_err(true);
             // use `push_text` here for untrusted content and error text since it will handle
             // newlines, control chars, etc. without corrupting the picker screen
-            buffer.push_text(&format!("Cannot preview {}:\n{err}", job.path.display()));
+            buffer.push_text(&format!(
+                "Cannot preview {}:\n{err}",
+                request.item().path().display()
+            ));
         }
         // since publication can technically race with cancellation, we have to swap in our reusable
         // buffer, but we don't actually care if it succeeds or not. if it fails the picker will
@@ -185,12 +179,11 @@ fn work(shared: &Shared) {
 }
 
 fn read_preview(
-    path: &Path,
-    request: &ActivePreviewRequest,
+    request: &ActivePreviewRequest<DirEntry>,
     bytes: &mut Vec<u8>,
     buffer: &mut PreviewBuffer,
 ) -> io::Result<()> {
-    let mut file = File::open(path)?;
+    let mut file = File::open(request.item().path())?;
     if !file.metadata()?.is_file() {
         return Err(io::Error::other("Path is no longer a regular file"));
     }

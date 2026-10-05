@@ -11,7 +11,7 @@ use crate::{
 struct TestPreviewer {
     requested: Vec<&'static str>,
     buffer_allocations: Vec<*const u8>,
-    queued: Vec<QueuedPreviewRequest>,
+    queued: Vec<QueuedPreviewRequest<&'static str>>,
     defer: bool,
     drop_requests: bool,
     fail: bool,
@@ -25,10 +25,11 @@ impl Preview<&'static str> for TestPreviewer {
     fn preview(
         &mut self,
         item: &&'static str,
-        request: PreviewRequest,
+        request: PreviewRequest<'_, &'static str>,
         timeout: Duration,
     ) -> Result<PreviewResponse, Self::AbortErr> {
         assert!(timeout >= Duration::from_millis(2));
+        assert!(std::ptr::eq(item, request.item()));
         self.requested.push(item);
         assert_eq!(request.buffer.lines().len(), 1);
         assert_eq!(request.buffer.line(0).unwrap().as_str(), "");
@@ -92,21 +93,23 @@ fn picker(items: impl IntoIterator<Item = &'static str>) -> Picker<&'static str,
     picker
 }
 
-fn selected_item<'a>(
-    picker: &'a Picker<&'static str, StrRenderer>,
-) -> Option<(u32, &'a &'static str)> {
+fn selected_item(picker: &Picker<&'static str, StrRenderer>) -> Option<u32> {
     picker
         .list_state
         .layout
         .selection(picker.engine.snapshot())
-        .and_then(|n| picker.engine.get_match(n))
+        .map(|n| picker.engine.idx_from_match(n))
 }
 
 fn update(
     application: &mut PreviewPane<TestPreviewer>,
     picker: &mut Picker<&'static str, StrRenderer>,
 ) -> Result<bool, &'static str> {
-    application.update(selected_item(picker), Instant::now())
+    application.update(
+        selected_item(picker),
+        picker.engine.snapshot(),
+        Instant::now(),
+    )
 }
 
 #[test]
@@ -118,7 +121,7 @@ fn cache_tracks_item_identity_and_preserves_scroll_state() {
         TestPreviewer::default(),
     );
     update(&mut session, &mut picker).unwrap();
-    let alpha = selected_item(&picker).unwrap().0;
+    let alpha = selected_item(&picker).unwrap();
     session.cache.get_mut(&alpha).unwrap().scroll_position = 7;
 
     picker.update_query("beta");
@@ -128,7 +131,7 @@ fn cache_tracks_item_identity_and_preserves_scroll_state() {
         Some(0)
     );
     update(&mut session, &mut picker).unwrap();
-    let beta = selected_item(&picker).unwrap().0;
+    let beta = selected_item(&picker).unwrap();
     assert_ne!(alpha, beta);
 
     picker.update_query("");
@@ -204,9 +207,10 @@ fn unbounded_cache_retains_previews_and_scroll_state() {
         TestPreviewer::default(),
     );
     let item_count = PreviewConfig::default().cache_size.unwrap().get() + 1;
+    let picker = picker(std::iter::repeat_n("item", item_count));
     for idx in 0..item_count as u32 {
         session
-            .update(Some((idx, &"item")), Instant::now())
+            .update(Some(idx), picker.engine.snapshot(), Instant::now())
             .unwrap();
         session.cache.get_mut(&idx).unwrap().scroll_position = idx as usize + 1;
     }
@@ -214,7 +218,7 @@ fn unbounded_cache_retains_previews_and_scroll_state() {
 
     for idx in 0..item_count as u32 {
         session
-            .update(Some((idx, &"item")), Instant::now())
+            .update(Some(idx), picker.engine.snapshot(), Instant::now())
             .unwrap();
         assert_eq!(session.cached().unwrap().scroll_position, idx as usize + 1);
     }
@@ -667,7 +671,13 @@ fn promotion_and_retry_clear_and_reuse_buffers_without_resetting_scroll() {
         buffer.newline();
         buffer.set_err(true);
         let allocation = buffer.line(0).unwrap().as_str().as_ptr();
-        let (pending, queued) = PreviewRequest { buffer, epoch: 0 }.defer();
+        let (pending, queued) = PreviewRequest {
+            buffer,
+            epoch: 0,
+            snapshot: picker.engine.snapshot(),
+            idx: 0,
+        }
+        .defer();
         let queued = if dropped {
             drop(queued);
             None
@@ -697,10 +707,16 @@ fn promotion_and_retry_clear_and_reuse_buffers_without_resetting_scroll() {
     }
 }
 
-fn polled_queued_request() -> (crate::preview::PendingPreview, QueuedPreviewRequest) {
+fn polled_queued_request() -> (
+    crate::preview::PendingPreview,
+    QueuedPreviewRequest<&'static str>,
+) {
+    let picker = picker(["alpha"]);
     let (pending, queued) = PreviewRequest {
         buffer: PreviewBuffer::new(),
         epoch: 1,
+        snapshot: picker.engine.snapshot(),
+        idx: 0,
     }
     .defer();
     let Err(BufferNotReady::Queued(RequestState::Pending(pending))) =
@@ -792,13 +808,13 @@ fn restart_with_a_reused_item_id_and_pending_preview_reports_one_change() {
         TestPreviewer::default(),
     );
     update(&mut session, &mut picker).unwrap();
-    let old_idx = selected_item(&picker).unwrap().0;
+    let old_idx = selected_item(&picker).unwrap();
 
     session.restart_cache();
     picker.restart();
     picker.push_batch(["beta"]);
     settle(&mut picker);
-    assert_eq!(selected_item(&picker).unwrap().0, old_idx);
+    assert_eq!(selected_item(&picker).unwrap(), old_idx);
     session.previewer.defer = true;
 
     assert!(update(&mut session, &mut picker).unwrap());
@@ -910,7 +926,7 @@ fn restart_and_session_drop_cancel_all_pending_requests() {
 #[test]
 fn session_cancels_requests_before_dropping_its_previewer() {
     struct PreviewerDrop<'a> {
-        queued: QueuedPreviewRequest,
+        queued: QueuedPreviewRequest<&'static str>,
         cancelled: &'a std::cell::Cell<bool>,
     }
 
@@ -921,9 +937,12 @@ fn session_cancels_requests_before_dropping_its_previewer() {
     }
 
     let cancelled = std::cell::Cell::new(false);
+    let picker = picker(["alpha"]);
     let (pending, queued) = PreviewRequest {
         buffer: PreviewBuffer::new(),
         epoch: 0,
+        snapshot: picker.engine.snapshot(),
+        idx: 0,
     }
     .defer();
     let mut session = PreviewPane::new(

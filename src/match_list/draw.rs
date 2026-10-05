@@ -128,7 +128,9 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, D: Rect>(
     }
 
     // render the selection
-    let (item, queued) = item_iter.next().unwrap();
+    // SAFETY: both callers supply above.len() + below.len() matches, with the selected item in below.
+    // The loop above consumes only above.len() items.
+    let (item, queued) = unsafe { item_iter.next().unwrap_unchecked() };
     draw_single_match::<_, _, Head, _, true>(
         rect,
         buffer,

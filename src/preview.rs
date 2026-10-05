@@ -34,6 +34,7 @@ use std::{convert::Infallible, num::NonZero, time::Duration};
 
 pub use buffer::{PreviewBuffer, PreviewLine};
 use lock::{ActiveWriter, QueuedWriter, Reader, request};
+use nucleo::{DetachedItem, Snapshot};
 pub use picker::PreviewPicker;
 pub use scroll::PreviewEvent;
 
@@ -122,10 +123,12 @@ impl Default for PreviewConfig {
 
 /// Types which know how to generate previews of items.
 ///
+/// # Implementation caveats
+///
 /// There are a number of caveats to implementing this trait which are not required for correctness
 /// but are essential for good performance of the picker interface.
 ///
-/// # Do not block the picker
+/// ## Do not block the picker
 ///
 /// The picker will block while waiting for the [`preview`](Self::preview) method to return. The
 /// provided timeout is a hint to the previewer which indicates how much time remains before the
@@ -139,7 +142,7 @@ impl Default for PreviewConfig {
 /// then preview generation should be deferred using [`PreviewRequest::defer`]. For example, the previewer
 /// may choose to process the queued request in a separate thread.
 ///
-/// # Preview priority
+/// ## Preview priority
 ///
 /// The picker will only request previews for items which are either immediately required by the
 /// interface. In particular, requests should be handled in last-in first-out (LIFO) order. Since
@@ -147,7 +150,7 @@ impl Default for PreviewConfig {
 /// times and there is backlog), the picker will re-prioritize preview requests by cancelling
 /// old requests and calling this method again.
 ///
-/// # Handling errors
+/// ## Handling errors
 ///
 /// If the [`preview`](Self::preview) method returns an error, the picker will immediately terminate and propagate the
 /// resulting error to the caller. For non-fatal errors, for instance errors which occur while
@@ -161,7 +164,7 @@ pub trait Preview<T> {
     fn preview(
         &mut self,
         item: &T,
-        request: PreviewRequest,
+        request: PreviewRequest<'_, T>,
         timeout: Duration,
     ) -> Result<PreviewResponse, Self::AbortErr>;
 }
@@ -172,7 +175,7 @@ impl<T, P: Preview<T>> Preview<T> for &mut P {
     fn preview(
         &mut self,
         item: &T,
-        request: PreviewRequest,
+        request: PreviewRequest<'_, T>,
         timeout: Duration,
     ) -> Result<PreviewResponse, Self::AbortErr> {
         (*self).preview(item, request, timeout)
@@ -199,7 +202,7 @@ where
     fn preview(
         &mut self,
         item: &T,
-        request: PreviewRequest,
+        request: PreviewRequest<'_, T>,
         _timeout: Duration,
     ) -> Result<PreviewResponse, Self::AbortErr> {
         let mut buffer = request.ready();
@@ -244,30 +247,39 @@ pub enum PreviewResponse {
 /// When a queued request is very outdated, the picker will cancel the request regardless of its
 /// state. When the picker restarts or exits, all open requests will be cancelled before the previewer drops.
 ///
-/// # Non-blocking
+/// # Previewing item and lifetimes
 ///
-/// All of the operations associated with a [`QueuedPreviewRequest`] and [`ActivePreviewRequest`] are
-/// lock-free and wait-free. To enforce this contract, direct access to the preview buffer is not
-/// provided: instead, the previewer must prepare the preview separately, and publish it using
-/// [`ActivePreviewRequest::publish`]. On successful publication, a new buffer will be provided in order to
-/// minimize allocation.
-pub struct PreviewRequest {
+/// The item for which the preview as originally requested is always available using the associated
+/// [`item`](Self::item) method; see [`QueuedPreviewRequest::item`] and
+/// [`ActivePreviewRequest::item`]. This type has a lifetime `'a` attached to the picker, but once
+/// the request is [deferred](Self::defer) the lifetime is no longer held. Internally, the request
+/// uses atomic reference counting to hold on to the underlying item pool (shared with the picker)
+/// as long as any request is not dropped. This means that the items will remain in
+/// memory even if the picker shuts down, if there are any remaining requests which have not
+/// been dropped.
+pub struct PreviewRequest<'a, T> {
     buffer: PreviewBuffer,
     epoch: u64,
+    snapshot: &'a Snapshot<T>,
+    // the index for the current item, guaranteed to be valid in
+    // the provided snapshot
+    idx: u32,
 }
 
 /// A preview request waiting to be processed.
 ///
 /// See the [`PreviewRequest`] documentation for more detail.
-pub struct QueuedPreviewRequest {
+pub struct QueuedPreviewRequest<T> {
     writer: QueuedWriter<PreviewBuffer>,
+    item: DetachedItem<T>,
 }
 
 /// A preview request that is currently being processed.
 ///
 /// See the [`PreviewRequest`] documentation for more detail.
-pub struct ActivePreviewRequest {
+pub struct ActivePreviewRequest<T> {
     writer: ActiveWriter<PreviewBuffer>,
+    item: DetachedItem<T>,
 }
 
 /// A subscription to a pending preview.
@@ -276,7 +288,7 @@ pub struct PendingPreview {
     epoch: u64,
 }
 
-impl PreviewRequest {
+impl<T> PreviewRequest<'_, T> {
     /// Declare that the preview is complete and obtain an internal buffer to return to the picker.
     ///
     /// # Reducing allocations
@@ -288,23 +300,43 @@ impl PreviewRequest {
     pub fn ready(self) -> PreviewBuffer {
         self.buffer
     }
+}
+
+impl<'a, T: Send + Sync + 'static> PreviewRequest<'a, T> {
+    /// The item corresponding to the request.
+    pub fn item(&self) -> &'a T {
+        // SAFETY: the index is guaranteed to be valid for this snapshot
+        unsafe { self.snapshot.get_item_unchecked(self.idx).data }
+    }
 
     /// Defer handling of the preview request.
     ///
     /// The resulting [`PendingPreview`] will be notified when the preview request has been handled,
     /// and it must be returned to the picker. The corresponding [`QueuedPreviewRequest`] is used to
     /// complete the preview request when ready.
-    pub fn defer(self) -> (PendingPreview, QueuedPreviewRequest) {
-        let Self { buffer, epoch } = self;
+    pub fn defer(self) -> (PendingPreview, QueuedPreviewRequest<T>) {
+        let Self {
+            buffer,
+            epoch,
+            snapshot,
+            idx,
+        } = self;
+        // SAFETY: the request index is initialized in this snapshot, whose borrow prevents restart.
+        let item = unsafe { snapshot.get_detached_item_unchecked(idx) };
         let (reader, writer) = request(buffer);
         (
             PendingPreview { reader, epoch },
-            QueuedPreviewRequest { writer },
+            QueuedPreviewRequest { writer, item },
         )
     }
 }
 
-impl QueuedPreviewRequest {
+impl<T> QueuedPreviewRequest<T> {
+    /// The item corresponding to the request.
+    pub fn item(&self) -> &T {
+        self.item.item().data
+    }
+
     /// Declare that the previewer is ready to start generating the preview for this queued request.
     ///
     /// This method should be called when the request is actively being processed. Calling this
@@ -313,10 +345,11 @@ impl QueuedPreviewRequest {
     ///
     /// The picker may still cancel the request if the preview pane is no longer required, in which
     /// case this method will return [`None`].
-    pub fn start(self) -> Option<ActivePreviewRequest> {
-        self.writer
-            .start()
-            .map(|writer| ActivePreviewRequest { writer })
+    pub fn start(self) -> Option<ActivePreviewRequest<T>> {
+        self.writer.start().map(|writer| ActivePreviewRequest {
+            writer,
+            item: self.item,
+        })
     }
 
     /// Check if the request has been cancelled by the picker.
@@ -340,7 +373,12 @@ impl QueuedPreviewRequest {
     }
 }
 
-impl ActivePreviewRequest {
+impl<T> ActivePreviewRequest<T> {
+    /// The item corresponding to the request.
+    pub fn item(&self) -> &T {
+        self.item.item().data
+    }
+
     /// Publish the preview.
     ///
     /// Mutable access to the buffer internal to this request is not provided. Instead, the
@@ -353,7 +391,6 @@ impl ActivePreviewRequest {
     ///
     /// If this method returns `false`, it means that the request was cancelled, in which case the
     /// buffer is unmodified.
-    #[must_use = "publication will fail if the request was cancelled"]
     pub fn publish(self, buffer: &mut PreviewBuffer) -> bool {
         self.writer.publish(buffer)
     }

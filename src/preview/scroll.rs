@@ -53,7 +53,7 @@ impl Cached {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::preview::{PreviewBuffer, PreviewRequest};
+    use crate::preview::{PendingPreview, PreviewBuffer, lock};
 
     fn ready(lines: usize) -> Cached {
         let mut buffer = PreviewBuffer::new();
@@ -142,11 +142,8 @@ mod tests {
 
     #[test]
     fn pending_previews_ignore_scrolling_even_after_publication() {
-        let (pending, queued) = PreviewRequest {
-            buffer: PreviewBuffer::new(),
-            epoch: 0,
-        }
-        .defer();
+        let (reader, queued) = lock::request(PreviewBuffer::new());
+        let pending = PendingPreview { reader, epoch: 0 };
         let mut cached = Cached {
             state: Some(RequestState::Pending(pending)),
             scroll_position: 0,
