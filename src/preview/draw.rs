@@ -1,8 +1,11 @@
 use std::io;
 
-use crossterm::style::Color;
+use crossterm::style::{Color, ContentStyle};
 
-use super::{BoundaryChars, PreviewBuffer, PreviewLine};
+use super::{
+    BoundaryChars, PreviewLine,
+    cache::{Cached, RequestState},
+};
 use crate::{
     rect::Rect,
     util::unicode::{AsciiProcessor, Processor, UnicodeProcessor, is_ascii_safe, truncate},
@@ -10,11 +13,22 @@ use crate::{
 
 pub(super) fn draw<D: Rect>(
     rect: &mut D,
-    preview: Option<(&PreviewBuffer, usize)>,
+    preview: Option<&Cached>,
     chars: BoundaryChars,
     ellipsis: char,
     line_numbers: bool,
 ) -> io::Result<()> {
+    let pending =
+        preview.is_some_and(|cached| matches!(cached.state, Some(RequestState::Pending(_))));
+    let preview = preview.and_then(|cached| match &cached.state {
+        Some(RequestState::Ready(buffer)) => Some((buffer, cached.scroll_position)),
+        _ => None,
+    });
+    let is_err = preview.is_some_and(|(buffer, _)| buffer.is_err());
+    let border_style = ContentStyle {
+        foreground_color: is_err.then_some(Color::DarkRed),
+        ..ContentStyle::new()
+    };
     let width = rect.width().get();
     let height = rect.height().get();
     let BoundaryChars {
@@ -31,11 +45,27 @@ pub(super) fn draw<D: Rect>(
     ] {
         rect.move_to(0, row)?;
         rect.clear_line()?;
+        if is_err {
+            rect.set_foreground(Color::DarkRed)?;
+        }
         rect.print(left)?;
-        for _ in 0..width - 2 {
+        let mut remaining = width - 2;
+        if is_err && row == 0 && width >= 7 {
+            let label = if width < 9 { " Err " } else { " Error " };
+            if width >= 11 {
+                rect.print(horizontal)?;
+                remaining -= 1;
+            }
+            rect.print(label)?;
+            remaining -= label.len() as u16;
+        }
+        for _ in 0..remaining {
             rect.print(horizontal)?;
         }
         rect.print(right)?;
+        if is_err {
+            rect.reset_style()?;
+        }
     }
 
     let number_width = preview
@@ -49,17 +79,18 @@ pub(super) fn draw<D: Rect>(
     for row in 1..height - 1 {
         rect.move_to(0, row)?;
         rect.clear_line()?;
-        rect.print(vertical)?;
+        rect.print_styled(border_style.apply(vertical))?;
         let line = preview.and_then(|(buffer, start)| {
             let index = start + usize::from(row - 1);
             buffer.line(index).map(|line| (index + 1, line))
         });
         let remaining = if let Some((number, line)) = line {
             if number_width != 0 {
-                rect.set_background(Color::DarkGrey)?;
                 let digits = usize::from(number_width - 1);
-                rect.print(format_args!("{number:>digits$} "))?;
+                rect.set_background(Color::Black)?;
+                rect.print(format_args!("{number:>digits$}"))?;
                 rect.reset_style()?;
+                rect.spaces(1)?;
             }
             let capacity = width - 2 - number_width;
             if is_ascii_safe(line.as_str()) {
@@ -67,11 +98,25 @@ pub(super) fn draw<D: Rect>(
             } else {
                 draw_line::<UnicodeProcessor, _>(rect, line, capacity, ellipsis)?
             }
+        } else if pending && row == 1 {
+            let message = "Loading...";
+            let capacity = width - 2;
+            rect.set_foreground(Color::DarkGrey)?;
+            let remaining = if usize::from(capacity) < message.len() {
+                rect.print(&message[..usize::from(capacity - 1)])?;
+                rect.print(ellipsis)?;
+                0
+            } else {
+                rect.print(message)?;
+                capacity - message.len() as u16
+            };
+            rect.reset_style()?;
+            remaining
         } else {
             width - 2
         };
         rect.spaces(remaining)?;
-        rect.print(vertical)?;
+        rect.print_styled(border_style.apply(vertical))?;
     }
     Ok(())
 }

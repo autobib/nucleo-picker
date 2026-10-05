@@ -2,19 +2,19 @@
 source: nucleo-picker-vt/tests/scenarios/preview.rs
 expression: sr.checkpoint(resolved_name.to_owned())?
 info:
-  resolved_name: initial
-  name_expression: "\"initial\""
-  sequence: 1
+  resolved_name: width-13
+  name_expression: "format!(\"width-{width}\")"
+  sequence: 18
 ---
 version: 1
 size:
   cols: 26
-  rows: 6
+  rows: 3
 screen: alternate
 cursor:
   position:
     x: 2
-    y: 5
+    y: 2
   visible: true
   shape: block
   blinking: false
@@ -26,47 +26,44 @@ colors:
   background: "#000000"
   cursor: ~
 text:
-  - "             ╭───────────╮"
-  - "  empty      │  1 text   │"
-  - "  short      │  2 text   │"
-  - ▌ long       │  3 text   │
-  - "  3/3 ───────│  4 text   │"
+  - ▌ error      ╭─ Error ───╮
+  - "  1/1 ───────│           │"
   - ">            ╰───────────╯"
 styles:
-  - row: 1
-    start: 14
-    end: 17
-    background: "#1d1f21"
-  - row: 2
-    start: 14
-    end: 17
-    background: "#1d1f21"
-  - row: 3
+  - row: 0
     start: 0
     end: 1
     foreground: "#c397d8"
     background: "#666666"
     bold: true
-  - row: 3
+  - row: 0
     start: 1
-    end: 6
+    end: 7
     background: "#666666"
     bold: true
-  - row: 3
-    start: 14
-    end: 17
-    background: "#1d1f21"
-  - row: 4
+  - row: 0
+    start: 13
+    end: 26
+    foreground: "#cc6666"
+  - row: 1
     start: 0
     end: 5
     foreground: "#b9ca4a"
     italic: true
-  - row: 4
+  - row: 1
     start: 5
     end: 13
     foreground: "#c5c8c6"
     italic: true
-  - row: 4
-    start: 14
-    end: 17
-    background: "#1d1f21"
+  - row: 1
+    start: 13
+    end: 14
+    foreground: "#cc6666"
+  - row: 1
+    start: 25
+    end: 26
+    foreground: "#cc6666"
+  - row: 2
+    start: 13
+    end: 26
+    foreground: "#cc6666"

@@ -65,6 +65,10 @@ name = "fzf_err_handling"
 name = "find"
 
 [[example]]
+name = "find-preview"
+required-features = ["preview"]
+
+[[example]]
 name = "restart"
 
 [[example]]

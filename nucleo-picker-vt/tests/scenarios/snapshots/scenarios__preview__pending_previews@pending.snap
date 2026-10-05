@@ -2,13 +2,13 @@
 source: nucleo-picker-vt/tests/scenarios/preview.rs
 expression: sr.checkpoint(resolved_name.to_owned())?
 info:
-  resolved_name: initial
-  name_expression: "\"initial\""
-  sequence: 1
+  resolved_name: pending
+  name_expression: "\"pending\""
+  sequence: 5
 ---
 version: 1
 size:
-  cols: 26
+  cols: 30
   rows: 6
 screen: alternate
 cursor:
@@ -26,36 +26,28 @@ colors:
   background: "#000000"
   cursor: ~
 text:
-  - "             ╭───────────╮"
-  - "  empty      │  1 text   │"
-  - "  short      │  2 text   │"
-  - ▌ long       │  3 text   │
-  - "  3/3 ───────│  4 text   │"
-  - ">            ╰───────────╯"
+  - "               ╭─────────────╮"
+  - "               │Loading...   │"
+  - ▌ deferred     │             │
+  - "  ready        │             │"
+  - "  2/2 ─────────│             │"
+  - ">              ╰─────────────╯"
 styles:
   - row: 1
-    start: 14
-    end: 17
-    background: "#1d1f21"
+    start: 16
+    end: 26
+    foreground: "#666666"
   - row: 2
-    start: 14
-    end: 17
-    background: "#1d1f21"
-  - row: 3
     start: 0
     end: 1
     foreground: "#c397d8"
     background: "#666666"
     bold: true
-  - row: 3
+  - row: 2
     start: 1
-    end: 6
+    end: 10
     background: "#666666"
     bold: true
-  - row: 3
-    start: 14
-    end: 17
-    background: "#1d1f21"
   - row: 4
     start: 0
     end: 5
@@ -63,10 +55,6 @@ styles:
     italic: true
   - row: 4
     start: 5
-    end: 13
+    end: 15
     foreground: "#c5c8c6"
     italic: true
-  - row: 4
-    start: 14
-    end: 17
-    background: "#1d1f21"

@@ -157,13 +157,7 @@ impl<E, P> Component<E> for PreviewPane<P> {
         self.resize_area(area);
     }
     fn draw<D: Rect>(&mut self, _engine: &E, rect: &mut D) -> io::Result<()> {
-        let preview = self
-            .last_item
-            .and_then(|idx| self.cache.peek(&idx))
-            .and_then(|cached| match &cached.state {
-                Some(RequestState::Ready(buffer)) => Some((buffer, cached.scroll_position)),
-                _ => None,
-            });
+        let preview = self.last_item.and_then(|idx| self.cache.peek(&idx));
         super::draw::draw(
             rect,
             preview,

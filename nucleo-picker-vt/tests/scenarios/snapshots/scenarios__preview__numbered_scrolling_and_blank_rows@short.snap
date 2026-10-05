@@ -37,16 +37,16 @@ text:
 styles:
   - row: 1
     start: 14
-    end: 16
-    background: "#666666"
+    end: 15
+    background: "#1d1f21"
   - row: 2
     start: 14
-    end: 16
-    background: "#666666"
+    end: 15
+    background: "#1d1f21"
   - row: 3
     start: 14
-    end: 16
-    background: "#666666"
+    end: 15
+    background: "#1d1f21"
   - row: 4
     start: 0
     end: 1
