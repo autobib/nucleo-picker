@@ -1,7 +1,7 @@
 use std::{io, sync::mpsc, thread, time::Duration};
 
 use crate::{
-    Picker, Terminal,
+    Picker, PickerOptions, Terminal,
     component::NoPreview,
     event::{Event, PromptEvent},
     render::StrRenderer,
@@ -46,6 +46,30 @@ fn pick(
         .pick_impl::<_, _, (), _>(receiver, &mut TestTerminal, NoPreview::new())
         .unwrap()
         .copied()
+}
+
+#[test]
+fn initial_query_matches_the_normalized_prompt() {
+    let mut picker = PickerOptions::new().query("a\u{7}b").picker(StrRenderer);
+    picker.extend(["ab", "cd"]);
+    while picker.engine.update(5).matching {}
+
+    assert_eq!(picker.query(), "ab");
+    assert_eq!(picker.engine.snapshot().matched_item_count(), 1);
+    assert_eq!(pick(&mut picker, [Event::Select]), Some("ab"));
+
+    pick(
+        &mut picker,
+        [
+            Event::Prompt(PromptEvent::Reset("ab".to_owned())),
+            Event::Quit,
+        ],
+    );
+    while picker.engine.update(5).matching {}
+
+    assert_eq!(picker.query(), "ab");
+    assert_eq!(picker.engine.snapshot().matched_item_count(), 1);
+    assert_eq!(pick(&mut picker, [Event::Select]), Some("ab"));
 }
 
 #[test]

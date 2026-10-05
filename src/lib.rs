@@ -469,8 +469,8 @@ impl PickerOptions {
         let mut prompt = PromptState::new(self.prompt_config);
 
         // set the prompt
-        engine.reparse(&self.query);
         prompt.set_query(self.query);
+        engine.reparse(prompt.contents());
 
         Picker {
             engine,
