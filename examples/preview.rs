@@ -1,63 +1,67 @@
-//! # Basic preview example
-//!
-//! This is a basic synchronous preview example. Run with
+//! A minimal preview example.
 //!
 //! ```bash
-//! cargo run --release --example preview --features serde,preview
+//! cargo run --release --example preview --features preview
 //! ```
-use std::{io, thread::spawn};
+//!
+//! All data is from Wikipedia.
+use std::{borrow::Cow, io};
 
+use crossterm::style::{ContentStyle, Stylize};
 use nucleo_picker::{
-    PickerOptions, Render,
+    Picker,
     preview::{PreviewBuffer, SyncPreviewer},
 };
-use serde::{Deserialize, de::DeserializeSeed};
-use serde_json::Deserializer;
 
-#[derive(Deserialize)]
-struct Poem {
-    author: String,
-    title: String,
-    lines: Vec<String>,
+struct Artist {
+    name: &'static str,
+    born: &'static str,
+    birthplace: &'static str,
+    movement: &'static str,
 }
 
-struct PoemRenderer;
-
-impl Render<Poem> for PoemRenderer {
-    type Str<'a> = &'a str;
-
-    fn render<'a>(&self, poem: &'a Poem) -> Self::Str<'a> {
-        &poem.title
-    }
+fn render_artist(artist: &Artist) -> Cow<'_, str> {
+    artist.name.into()
 }
 
 fn main() -> io::Result<()> {
-    let mut picker = PickerOptions::new()
-        .highlight_line(true)
-        .preview_line_numbers(true)
-        .picker(PoemRenderer);
-    let injector = picker.injector();
+    let mut picker = Picker::new(render_artist);
+    picker.push_batch([
+        Artist {
+            name: "Rembrandt",
+            born: "15 July 1606",
+            birthplace: "Leiden",
+            movement: "Baroque",
+        },
+        Artist {
+            name: "Gustav Klimt",
+            born: "14 July 1862",
+            birthplace: "Baumgarten (near Vienna)",
+            movement: "Symbolism",
+        },
+        Artist {
+            name: "René Magritte",
+            born: "21 November 1898",
+            birthplace: "Lessines",
+            movement: "Surrealism",
+        },
+    ]);
 
-    spawn(move || {
-        injector
-            .deserialize(&mut Deserializer::from_str(include_str!("poems.json")))
-            .unwrap();
-    });
-
-    let previewer = SyncPreviewer(|poem: &Poem, buffer: &mut PreviewBuffer| {
-        for (index, line) in poem.lines.iter().enumerate() {
-            // don't write a trailing newline
-            if index != 0 {
-                buffer.newline();
-            }
-            // this is not necessary strictly, but `push_text` here also handles
-            // control characters which is convenient for untrusted input
-            buffer.push_text(line);
+    let previewer = SyncPreviewer(|artist: &Artist, buffer: &mut PreviewBuffer| {
+        buffer.push_styled_line(artist.name, ContentStyle::new().bold());
+        for (label, value) in [
+            ("Born:       ", artist.born),
+            ("Birthplace: ", artist.birthplace),
+            ("Movement:   ", artist.movement),
+        ] {
+            buffer.newline();
+            buffer.push_styled_str(label, ContentStyle::new().cyan().bold());
+            buffer.push_str(value);
         }
     });
 
     match picker.with_preview(previewer).pick()? {
-        Some(poem) => println!("{}", poem.author),
+        Some(artist) => println!("You selected: '{}'", artist.name),
         None => println!("Nothing selected!"),
     }
 

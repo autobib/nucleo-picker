@@ -53,7 +53,7 @@ impl Cached {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::preview::{PendingPreview, PreviewBuffer, lock};
+    use crate::preview::{PreviewBuffer, lock, request::PendingPreview};
 
     fn ready(lines: usize) -> Cached {
         let mut buffer = PreviewBuffer::new();

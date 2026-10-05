@@ -5,7 +5,7 @@ use crossbeam::channel::{Receiver, Sender, unbounded};
 use super::*;
 use crate::{
     Picker, PickerOptions,
-    preview::{PendingPreview, lock::Poll},
+    preview::{lock::Poll, request::PendingPreview},
     render::StrRenderer,
 };
 

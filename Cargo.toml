@@ -90,6 +90,10 @@ required-features = ["serde"]
 
 [[example]]
 name = "preview"
+required-features = ["preview"]
+
+[[example]]
+name = "preview-serde"
 required-features = ["serde", "preview"]
 
 [[example]]
