@@ -11,20 +11,21 @@ Some of the examples may require arguments or feature flags to run properly; see
 
 ## Directory
 
-File                                       | Description
--------------------------------------------|-------------
-[blocking.rs](blocking.rs)                 | A basic blocking example with a very small number of matches.
-[custom_io.rs](custom_io.rs)               | Customize IO with keybindings and alternative writer.
-[find.rs](find.rs)                         | A basic [find](https://en.wikipedia.org/wiki/Find_(Unix)) implementation with fuzzy matching on resulting items.
-[find-preview-full.rs](find-preview-full.rs) | A find impementation with asynchronous file previews.
-[fzf.rs](fzf.rs)                           | A [fzf](https://github.com/junegunn/fzf) clone which presents lines from STDIN for matching.
-[fzf_basic.rs](fzf_basic.rs)               | A simplified version of the `fzf` example.
-[fzf_err_handling.rs](fzf_err_handling.rs) | A simplified version of the `fzf` example using channels to propagate read errors.
-[multi.rs](multi.rs)                       | A basic example allowing multiple selections.
-[options.rs](options.rs)                   | Some customization examples of the picker.
-[restart.rs](restart.rs)                   | Demonstration of interactive restarting in response to user input.
-[restart_ext.rs](restart_ext.rs)           | An extended version of the `restart` example.
-[timeout.rs](timeout.rs)                   | A version of the `find` example with an inactivity timeout.
-[serde.rs](serde.rs)                       | Use `serde` to deserialize picker items from input.
-[preview.rs](preview.rs)                   | A basic synchronous preview example with no styling.
-[low_framerate.rs](low_framerate.rs)       | An example with a framerate of 0.5 FPS to demonstrate keypress input batching.
+File                                         | Description
+---------------------------------------------|-------------
+[blocking.rs](blocking.rs)                   | A basic blocking example with a very small number of matches.
+[custom_io.rs](custom_io.rs)                 | Customize IO with keybindings and alternative writer.
+[find.rs](find.rs)                           | A basic [find](https://en.wikipedia.org/wiki/Find_(Unix)) implementation with fuzzy matching on resulting items.
+[find-preview.rs](find-preview.rs)           | A find impementation with asynchronous file previews.
+[find-preview-full.rs](find-preview-full.rs) | A version of the `find-preview` example but with a detailed `Preview` implementation.
+[fzf.rs](fzf.rs)                             | A [fzf](https://github.com/junegunn/fzf) clone which presents lines from STDIN for matching.
+[fzf_basic.rs](fzf_basic.rs)                 | A simplified version of the `fzf` example.
+[fzf_err_handling.rs](fzf_err_handling.rs)   | A simplified version of the `fzf` example using channels to propagate read errors.
+[multi.rs](multi.rs)                         | A basic example allowing multiple selections.
+[options.rs](options.rs)                     | Some customization examples of the picker.
+[restart.rs](restart.rs)                     | Demonstration of interactive restarting in response to user input.
+[restart_ext.rs](restart_ext.rs)             | An extended version of the `restart` example.
+[timeout.rs](timeout.rs)                     | A version of the `find` example with an inactivity timeout.
+[serde.rs](serde.rs)                         | Use `serde` to deserialize picker items from input.
+[preview.rs](preview.rs)                     | A basic synchronous preview example with no styling.
+[low_framerate.rs](low_framerate.rs)         | An example with a framerate of 0.5 FPS to demonstrate keypress input batching.

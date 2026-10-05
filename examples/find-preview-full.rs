@@ -8,6 +8,11 @@
 //!
 //! This implementation generates previews for files which are valid UTF-8, and prints read errors
 //! directly into the preview buffer.
+//!
+//! This example could be simplified by using `PoolPreviewer`; see `find-preview` for the details. The
+//! implementation here is provided to give a somewhat simplified by complete reference for implementing `Preview`.
+//! Note that some details are omitted here, mainly around panic handling and job queue growth
+//! management.
 
 use std::{
     borrow::Cow,
@@ -110,7 +115,8 @@ impl Preview<DirEntry> for FilePreview {
         {
             let mut jobs = self.shared.jobs.lock();
             let jobs = jobs.as_mut().unwrap();
-            // prune cancelled requests to avoid accumulation of stale jobs with rapid navigation
+            // for large queues, it may be worthwhile to amortize this step; for example, this is
+            // done internally by the `PoolPreviewer`.
             jobs.retain(|request| !request.is_cancelled());
             jobs.push(request);
         }
@@ -156,12 +162,14 @@ fn work(shared: &Shared) {
         let Some(request) = job.start() else {
             continue;
         };
-        buffer.clear();
         if request.is_cancelled() {
             continue;
         }
+        // make sure to clear the buffer in case publication failed last time
+        buffer.clear();
         let result = read_preview(&request, &mut bytes, &mut buffer);
         if let Err(err) = result {
+            // the buffer might have been partially written by `read_preview`
             buffer.clear();
             buffer.set_err(true);
             // use `push_text` here for untrusted content and error text since it will handle
@@ -242,9 +250,11 @@ fn main() -> io::Result<ExitCode> {
         .match_paths()
         .preview_line_numbers(true)
         .picker(DirEntryRender);
+
     let previewer = FilePreview::new()?;
     let injector = picker.injector();
     let mut picker = picker.with_preview(previewer);
+
     let stop = Arc::new(AtomicBool::new(false));
     let walker_stop = Arc::clone(&stop);
     // remember to move the injector in so it drops when directory traversal is done!
