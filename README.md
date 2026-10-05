@@ -38,6 +38,7 @@ This library sits between a general-purpose fuzzy-finder (such as `fzf`) and a l
 - Fully featured preview
   - Immediate (synchronous) preview generation with no thread-pool or subprocess overhead.
   - Deferred (asynchronous) preview generation with managed caching and a preview re-prioritization API to easily implement responsive previews based on external data and IO.
+  - Support preview panes with styled content.
 - Ergonomic API:
   - Fully concurrent lock- and wait-free streaming of input items.
   - Generic [`Picker`](https://docs.rs/nucleo-picker/latest/nucleo_picker/struct.Picker.html) for any type `T` which is `Send + Sync + 'static`.

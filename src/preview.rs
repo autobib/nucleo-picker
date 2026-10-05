@@ -150,6 +150,35 @@ impl Default for PreviewConfig {
 /// resulting error to the caller. For non-fatal errors, for instance errors which occur while
 /// generating a preview for a specific item, the previewer should instead write an appropriate
 /// error message directly into the preview buffer.
+///
+/// ```
+/// use std::{convert::Infallible, time::Duration};
+/// use nucleo_picker::preview::{Preview, request::{PreviewRequest, PreviewResponse}};
+///
+/// type Item = Result<String, String>;
+/// struct ResultPreview;
+///
+/// impl Preview<Item> for ResultPreview {
+///     type AbortErr = Infallible;
+///
+///     fn preview(
+///         &mut self,
+///         item: &Item,
+///         request: PreviewRequest<'_, Item>,
+///         _timeout: Duration,
+///     ) -> Result<PreviewResponse, Infallible> {
+///         let mut buffer = request.ready();
+///         match item {
+///             Ok(text) => buffer.push_text(text),
+///             Err(message) => {
+///                 buffer.set_err(true);
+///                 buffer.push_text(message);
+///             }
+///         }
+///         Ok(PreviewResponse::Ready(buffer))
+///     }
+/// }
+/// ```
 pub trait Preview<T> {
     /// An unrecoverable error which may occur while generating a preview.
     type AbortErr;
@@ -182,6 +211,39 @@ impl<T, P: Preview<T>> Preview<T> for &mut P {
 /// function `F` will return *without delaying the frame* and *without any errors*. This can be
 /// convenient for previewing types `T` which already contain all of the data required
 /// for the preview.
+///
+/// Note that the buffer is already cleared when it is passed to the closure.
+///
+/// ## Example
+///
+/// ```no_run
+/// use std::borrow::Cow;
+/// use nucleo_picker::{Picker, preview::{PreviewBuffer, SyncPreviewer}};
+///
+/// struct Item {
+///     name: &'static str,
+///     description: &'static str,
+/// }
+///
+/// fn render(item: &Item) -> Cow<'_, str> {
+///     Cow::Borrowed(item.name)
+/// }
+///
+/// # fn main() -> std::io::Result<()> {
+/// let mut picker = Picker::new(render);
+/// picker.push_batch([
+///     Item { name: "red", description: "RGB: 255, 0, 0" },
+///     Item { name: "blue", description: "RGB: 0, 0, 255" },
+/// ]);
+/// let previewer = SyncPreviewer(|item: &Item, buffer: &mut PreviewBuffer| {
+///     buffer.push_text(item.description);
+/// });
+/// if let Some(item) = picker.with_preview(previewer).pick()? {
+///     println!("{}", item.name);
+/// }
+/// # Ok(())
+/// # }
+/// ```
 pub struct SyncPreviewer<F>(
     /// The closure which populates the preview buffer.
     pub F,
