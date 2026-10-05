@@ -9,7 +9,7 @@ use std::{io, thread::spawn};
 
 use nucleo_picker::{
     PickerOptions, Render,
-    preview::{PreviewBuffer, SyncPreview},
+    preview::{PreviewBuffer, SyncPreviewer},
 };
 use serde::{Deserialize, de::DeserializeSeed};
 use serde_json::Deserializer;
@@ -44,7 +44,7 @@ fn main() -> io::Result<()> {
             .unwrap();
     });
 
-    let previewer = SyncPreview(|poem: &Poem, buffer: &mut PreviewBuffer| {
+    let previewer = SyncPreviewer(|poem: &Poem, buffer: &mut PreviewBuffer| {
         for (index, line) in poem.lines.iter().enumerate() {
             // don't write a trailing newline
             if index != 0 {

@@ -6,11 +6,13 @@
 //! In short, initialize a [`Picker`] using [`PickerOptions`] and describe how the items
 //! should be represented by implementing [`Render`], or use a [built-in renderer](render).
 //!
+//! To include a preview pane in the picker, enable the `preview` feature and see the [`preview`]
+//! module.
 //! For more complex use-cases and integration with an existing application, see the
 //! [`event`] module.
 //!
 //! ## Usage examples
-//! For more usage examples, visit the [examples
+//! For many usage examples, visit the [examples
 //! folder](https://github.com/autobib/nucleo-picker/tree/master/examples) on GitHub.
 //!
 //! ### `fzf` example

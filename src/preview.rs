@@ -2,10 +2,15 @@
 //!
 //! This module contains the core [`Preview`] trait and associated types. A *previewer* is a type
 //! which knows how to generate previews for the item `T` in the picker. The preview is rendered
-//! in the *preview pane*, which is a special window rendered beside the active matches .
-//! is currently highlighted.
+//! in the *preview pane*, which is a special window rendered beside the active matches.
 //!
-//! TODO: add docs refs for [`SyncPreviewer`] and [`PoolPreviewer`].
+//! In many cases, you can avoid the full details of implementing a previewer:
+//!
+//! - For fast non-blocking previews, see [`SyncPreviewer`].
+//! - For slow previews that should be performed in a background threadpool, see [`PoolPreviewer`].
+//!
+//! If you are doing something more complicated, read on!
+//!
 //! ## Implementing [`Preview`]
 //!
 //! The [`Preview`] trait is designed around two core use-cases:
@@ -15,7 +20,7 @@
 //! ### Implementing fast (synchronous) previews
 //!
 //! If the preview can be generated directly from data stored in the item `T`, you most likely have
-//! a fast previewer. For example:
+//! a fast previewer.
 //! A fast preview typically looks something like
 //! TODO: write
 //!
@@ -28,6 +33,7 @@ mod draw;
 mod lock;
 pub(crate) mod pane;
 mod picker;
+mod pool;
 mod scroll;
 
 use std::{convert::Infallible, num::NonZero, time::Duration};
@@ -36,6 +42,7 @@ pub use buffer::{PreviewBuffer, PreviewLine};
 use lock::{ActiveWriter, QueuedWriter, Reader, request};
 use nucleo::{DetachedItem, Snapshot};
 pub use picker::PreviewPicker;
+pub use pool::{PoolPreviewer, PreviewWorker};
 pub use scroll::PreviewEvent;
 
 /// Preview boundary characters.
@@ -184,16 +191,16 @@ impl<T, P: Preview<T>> Preview<T> for &mut P {
 
 /// An infallible synchronous previewer.
 ///
-/// This struct wraps a closure which fills a cleared preview buffer. It is expected that the
-/// function `F` will return *without delaying the frame* and *without any errors*. This is a
-/// convenience struct for creating previews for types `T` which already contain all of the data
-/// required for the preview.
-pub struct SyncPreview<F>(
+/// This struct wraps a `FnMut(&T, &mut PreviewBuffer)` closure which fills a cleared preview buffer. It is expected that the
+/// function `F` will return *without delaying the frame* and *without any errors*. This can be
+/// convenient for previewing types `T` which already contain all of the data required
+/// for the preview.
+pub struct SyncPreviewer<F>(
     /// The closure which populates the preview buffer.
     pub F,
 );
 
-impl<T, F> Preview<T> for SyncPreview<F>
+impl<T, F> Preview<T> for SyncPreviewer<F>
 where
     F: FnMut(&T, &mut PreviewBuffer),
 {
