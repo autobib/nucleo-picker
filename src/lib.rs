@@ -945,10 +945,7 @@ pub struct Picker<T, R> {
 
 impl<T: Send + Sync + 'static, R: Render<T>> Extend<T> for Picker<T, R> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
-        let injector = self.injector();
-        for it in iter {
-            injector.push(it);
-        }
+        self.push_batch(iter);
     }
 }
 
