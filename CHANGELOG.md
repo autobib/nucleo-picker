@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Corretly preserve prompt state when the picker exits.
 - Fixed `update_config` not also updating the internal matcher config.
 - Fixed some more zero width/height layout bugs.
+- Normalize prompts containing control characters before processing first match.
 
 ### [0.12.2] - 2026-09-04
 
