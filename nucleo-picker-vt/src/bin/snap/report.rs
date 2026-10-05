@@ -111,7 +111,6 @@ fn load_diffs(directory: &Path) -> Result<Diffs, Error> {
             let baseline_scenario = scenario(&baseline, &baseline_path)?;
             if baseline_scenario != pending_scenario
                 || baseline.header.info.resolved_name != pending.header.info.resolved_name
-                || baseline.header.info.sequence != pending.header.info.sequence
             {
                 return Err(Error::PairMismatch {
                     baseline: baseline_path,
