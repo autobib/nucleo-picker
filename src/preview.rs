@@ -151,6 +151,10 @@ impl Default for PreviewConfig {
 /// generating a preview for a specific item, the previewer should instead write an appropriate
 /// error message directly into the preview buffer.
 ///
+/// Note that the item may be resubmitted again in the future. This will happen if the preview drops out of the
+/// preview cache, or at manual request via [`PreviewEvent::Refresh`]
+/// (available by default to the user with `ctrl + r`).
+///
 /// ```
 /// use std::{convert::Infallible, time::Duration};
 /// use nucleo_picker::preview::{Preview, request::{PreviewRequest, PreviewResponse}};

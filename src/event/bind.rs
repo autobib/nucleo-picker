@@ -93,6 +93,12 @@ fn keybind_preview_passthrough<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEv
     match key_event {
         KeyEvent {
             kind: KeyEventKind::Press,
+            modifiers: KeyModifiers::CONTROL,
+            code: KeyCode::Char('r'),
+            ..
+        } => Ok(Event::Preview(PreviewEvent::Refresh)),
+        KeyEvent {
+            kind: KeyEventKind::Press,
             modifiers: KeyModifiers::ALT,
             code: KeyCode::Char('n'),
             ..

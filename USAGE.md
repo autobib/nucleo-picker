@@ -78,7 +78,7 @@ alt + n                            | Toggle Preview Line Numbers
 alt + p                            | Toggle Preview
 alt + ,                            | Grow Preview 1 Column
 alt + .                            | Shrink Preview 1 Column
-
+ctrl + r                           | Refresh Preview
 
 
 ## Scroll and paste

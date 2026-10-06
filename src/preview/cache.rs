@@ -45,6 +45,7 @@ impl Drop for Cached {
 pub(crate) enum RequestState {
     Pending(PendingPreview),
     Ready(PreviewBuffer),
+    Retry(PreviewBuffer),
 }
 
 /// A preview buffer that is not ready yet.
@@ -53,14 +54,14 @@ pub(crate) enum BufferNotReady {
     Queued(RequestState),
     /// The preview request is currently being processed.
     Active(RequestState),
-    /// The request was dropped.
-    Dropped(PreviewBuffer),
+    /// The request did not complete and must be retried.
+    Retry(PreviewBuffer),
 }
 
 impl RequestState {
     pub fn into_buffer(self) -> PreviewBuffer {
         match self {
-            Self::Ready(buffer) => buffer,
+            Self::Ready(buffer) | Self::Retry(buffer) => buffer,
             Self::Pending(pending) => pending.reader.cancel_any(),
         }
     }
@@ -86,10 +87,11 @@ impl RequestState {
                             epoch,
                         })))
                     }
-                    lock::Poll::Dropped(buffer) => Err(BufferNotReady::Dropped(buffer)),
+                    lock::Poll::Dropped(buffer) => Err(BufferNotReady::Retry(buffer)),
                 }
             }
             Self::Ready(buffer) => Ok(buffer),
+            Self::Retry(buffer) => Err(BufferNotReady::Retry(buffer)),
         }
     }
 }

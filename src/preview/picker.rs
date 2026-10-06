@@ -31,7 +31,9 @@ use crate::{
 ///
 /// When the preview is hidden (for instance, with
 /// [`LayoutEvent::TogglePreview`](crate::event::LayoutEvent::TogglePreview)), the cache is preserved
-/// and pending requests continue to be handled, but no new preview requests will be made.
+/// and pending requests continue to be handled, but no new preview requests will be made
+/// automatically. Note that all preview-related events (such as pane movement and refresh) are
+/// ignored while hidden.
 pub struct PreviewPicker<'a, T, R, P> {
     picker: &'a mut Picker<T, R>,
     previewer: P,
