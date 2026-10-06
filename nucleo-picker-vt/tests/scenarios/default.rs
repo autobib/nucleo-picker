@@ -2,7 +2,7 @@ use std::error::Error;
 
 use nucleo_picker::{
     PickerOptions,
-    event::{Event, MatchListEvent, PromptEvent},
+    event::{Event, LayoutEvent, MatchListEvent, PromptEvent},
 };
 
 use super::{ScenarioRunner, lines};
@@ -30,6 +30,68 @@ fn basic() -> Result<(), Box<dyn Error>> {
     sr.wait_for_match_complete(1, 24)?;
     sr.send(Event::Select)?;
     assert_eq!(sr.finish()?, ["item-23 xray"]);
+    Ok(())
+}
+
+#[test]
+fn toggle_status() -> Result<(), Box<dyn Error>> {
+    for reversed in [false, true] {
+        let mut sr = ScenarioRunner::start_with_options(
+            if reversed {
+                "toggle_status_reversed"
+            } else {
+                "toggle_status"
+            },
+            lines(),
+            PickerOptions::new().reversed(reversed),
+        );
+        sr.set_dimensions(30, 5)?;
+        sr.wait_for_match_complete(24, 24)?;
+        let shown = sr.checkpoint("shown")?;
+        assert_eq!(
+            shown
+                .text
+                .iter()
+                .filter(|line| line.contains("item-"))
+                .count(),
+            3
+        );
+        checkpoint!(sr, "shown");
+
+        sr.send(Event::Layout(LayoutEvent::ToggleStatus))?;
+        let hidden = sr.checkpoint("hidden")?;
+        assert!(hidden.text.iter().all(|line| !line.contains("24/24")));
+        assert_eq!(
+            hidden
+                .text
+                .iter()
+                .filter(|line| line.contains("item-"))
+                .count(),
+            4
+        );
+        assert_eq!(hidden.cursor, shown.cursor);
+        checkpoint!(sr, "hidden");
+
+        sr.send(Event::Layout(LayoutEvent::ToggleStatus))?;
+        assert_eq!(sr.checkpoint("restored")?, shown);
+        checkpoint!(sr, "restored");
+
+        sr.send(Event::Layout(LayoutEvent::ToggleStatus))?;
+        sr.send(Event::Prompt(PromptEvent::Reset("item-23".to_owned())))?;
+        sr.wait_for_match_complete(1, 24)?;
+        sr.set_dimensions(30, 2)?;
+        let small = sr.checkpoint("hidden after filtering and resizing")?;
+        assert!(small.text.iter().any(|line| line.contains("item-23 xray")));
+        assert!(small.text.iter().all(|line| !line.contains("1/24")));
+
+        sr.set_dimensions(30, 5)?;
+        sr.checkpoint("grown while hidden")?;
+        sr.send(Event::Layout(LayoutEvent::ToggleStatus))?;
+        let current = sr.checkpoint("current counts")?;
+        assert!(current.text[if reversed { 1 } else { 3 }].contains("1/24"));
+        sr.send(Event::Select)?;
+        assert_eq!(sr.finish()?, ["item-23 xray"]);
+    }
     Ok(())
 }
 

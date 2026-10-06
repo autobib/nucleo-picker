@@ -166,6 +166,8 @@ fn keybind_core_passthrough<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEvent
             KeyCode::Char('f') => Ok(Event::Prompt(PromptEvent::WordRight(1))),
             KeyCode::Char('b') => Ok(Event::Prompt(PromptEvent::WordLeft(1))),
             #[cfg(feature = "preview")]
+            KeyCode::Char('p') => Ok(Event::Layout(LayoutEvent::TogglePreview)),
+            #[cfg(feature = "preview")]
             KeyCode::Char(',') => Ok(Event::Layout(LayoutEvent::MoveDividerLeft(1))),
             #[cfg(feature = "preview")]
             KeyCode::Char('.') => Ok(Event::Layout(LayoutEvent::MoveDividerRight(1))),

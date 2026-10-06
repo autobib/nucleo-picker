@@ -16,6 +16,8 @@ pub enum PreviewEvent {
     ToggleLineNumbers,
     /// Set visibility of line numbers in an active preview pane, or None to use the preview pane
     /// default.
+    ///
+    /// This event has no default keybind.
     SetLineNumbers(Option<bool>),
 }
 

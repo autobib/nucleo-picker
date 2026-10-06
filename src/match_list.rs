@@ -66,13 +66,19 @@ pub enum MatchListEvent {
     ToggleDown(usize),
     /// Add the current item and `usize` items above to the item queue, moving the cursor to the
     /// last selected item.
+    ///
+    /// This event has no default keybind.
     QueueAbove(usize),
     /// Add the current item and `usize` items below to the item queue, moving the cursor to the
     /// last selected item.
+    ///
+    /// This event has no default keybind.
     QueueBelow(usize),
     /// Add all matching items to the item queue, preferring items with higher score.
     QueueMatches,
     /// Remove the current item from the item queue.
+    ///
+    /// This event has no default keybind.
     Unqueue,
     /// Clear the item queue.
     UnqueueAll,

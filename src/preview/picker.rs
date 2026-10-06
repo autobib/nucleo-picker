@@ -28,6 +28,10 @@ use crate::{
 /// See the [`Preview`] docs for more detail.
 ///
 /// The buffers are reused within a given session and are dropped on exit or restart.
+///
+/// When the preview is hidden (for instance, with
+/// [`LayoutEvent::TogglePreview`](crate::event::LayoutEvent::TogglePreview)), the cache is preserved
+/// and pending requests continue to be handled, but no new preview requests will be made.
 pub struct PreviewPicker<'a, T, R, P> {
     picker: &'a mut Picker<T, R>,
     previewer: P,

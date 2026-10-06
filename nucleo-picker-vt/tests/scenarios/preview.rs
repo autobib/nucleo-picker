@@ -344,6 +344,181 @@ fn layout_adjustments_do_not_restart_pending_previews() -> Result<(), Box<dyn Er
 }
 
 #[test]
+fn toggle_preview_restores_layout_and_cached_state() -> Result<(), Box<dyn Error>> {
+    for reversed in [false, true] {
+        let items = vec!["a rather long item name"];
+        let options = || PickerOptions::new().preview_size(0.4).reversed(reversed);
+        let mut plain = ScenarioRunner::start_with_options("plain", items.clone(), options());
+        plain.set_dimensions(30, 5)?;
+        plain.wait_for_match_complete(1, 1)?;
+        let full_width = plain.checkpoint("full width")?;
+        plain.send(Event::Quit)?;
+        assert!(plain.finish()?.is_empty());
+
+        let mut sr = start_with(
+            "toggle_preview",
+            items,
+            options(),
+            TextPreview(|_, buffer| buffer.push_text("a\nb\nc\nd\ne\nf")),
+        );
+        let toggle =
+            || keybind_default(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::ALT)).unwrap();
+        sr.set_dimensions(30, 5)?;
+        sr.wait_for_match_complete(1, 1)?;
+        sr.send(Event::Layout(LayoutEvent::MoveDividerLeft(1)))?;
+        sr.send(Event::Preview(PreviewEvent::Down(2)))?;
+        sr.send(Event::Preview(PreviewEvent::ToggleLineNumbers))?;
+        let shown = sr.checkpoint("shown")?;
+        assert_pane_at_width(
+            &shown,
+            reversed,
+            &["3 c", "4 d", "5 e"],
+            BoundaryChars::new(),
+            None,
+            13,
+        );
+        if !reversed {
+            checkpoint!(sr, "shown");
+        }
+
+        sr.send(toggle())?;
+        sr.send(Event::Preview(PreviewEvent::Up(1)))?;
+        sr.send(Event::Preview(PreviewEvent::ToggleLineNumbers))?;
+        sr.send(Event::Layout(LayoutEvent::MoveDividerLeft(1)))?;
+        assert_eq!(sr.checkpoint("hidden")?, full_width);
+        if !reversed {
+            checkpoint!(sr, "hidden");
+        }
+        sr.send(toggle())?;
+        assert_eq!(sr.checkpoint("restored")?, shown);
+        if !reversed {
+            checkpoint!(sr, "restored");
+        }
+
+        sr.send(toggle())?;
+        sr.set_dimensions(60, 5)?;
+        assert!(
+            sr.checkpoint("resized hidden")?
+                .text
+                .iter()
+                .all(|line| !line.contains('╭'))
+        );
+        sr.send(toggle())?;
+        assert_pane_at_width(
+            &sr.checkpoint("resized restored")?,
+            reversed,
+            &["3 c", "4 d", "5 e"],
+            BoundaryChars::new(),
+            None,
+            26,
+        );
+
+        sr.send(Event::Prompt(PromptEvent::Reset("missing".to_owned())))?;
+        sr.wait_for_match_complete(0, 1)?;
+        let empty = sr.checkpoint("no matches")?;
+        sr.send(toggle())?;
+        assert!(
+            sr.checkpoint("hidden without matches")?
+                .text
+                .iter()
+                .all(|line| !line.contains('╭'))
+        );
+        sr.send(toggle())?;
+        assert_eq!(sr.checkpoint("restored without matches")?, empty);
+        sr.send(Event::Quit)?;
+        assert!(sr.finish()?.is_empty());
+    }
+    Ok(())
+}
+
+#[test]
+fn hidden_previews_pause_new_requests_and_preserve_outstanding_work() -> Result<(), Box<dyn Error>>
+{
+    for started in [false, true] {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let mut sr = start_with(
+            "hidden_requests",
+            vec!["alpha", "beta", "gamma"],
+            PickerOptions::new(),
+            DeferredPreview(sender),
+        );
+        sr.set_dimensions(30, 5)?;
+        sr.wait_for_match_complete(3, 3)?;
+        let mut queued = Some(receiver.recv_timeout(WAIT)?);
+        assert_eq!(queued.as_ref().unwrap().item(), "alpha");
+        let active = started.then(|| queued.take().unwrap().start().unwrap());
+
+        sr.send(Event::Layout(LayoutEvent::TogglePreview))?;
+        sr.checkpoint("hidden pending")?;
+        let active = active.unwrap_or_else(|| queued.take().unwrap().start().unwrap());
+        assert!(!active.is_cancelled());
+        for selection in [1, 2] {
+            sr.send(Event::MatchList(MatchListEvent::Up(1)))?;
+            sr.wait_for(|status| status.selection == Some(selection))?;
+            assert!(receiver.try_recv().is_err());
+        }
+        let mut buffer = PreviewBuffer::new();
+        buffer.push_str("completed alpha");
+        assert!(active.publish(&mut buffer));
+        sr.checkpoint("published while hidden")?;
+        assert!(receiver.try_recv().is_err());
+
+        sr.send(Event::Layout(LayoutEvent::TogglePreview))?;
+        assert_pane(&sr.checkpoint("current pending")?, false, &["Loading..."]);
+        let queued = receiver.recv_timeout(WAIT)?;
+        assert_eq!(queued.item(), "gamma");
+        let active = queued.start().unwrap();
+        buffer.clear();
+        buffer.push_str("gamma");
+        assert!(active.publish(&mut buffer));
+        assert_pane(&sr.checkpoint("current ready")?, false, &["gamma"]);
+
+        sr.send(Event::MatchList(MatchListEvent::Down(2)))?;
+        assert_pane(&sr.checkpoint("cached result")?, false, &["completed al…"]);
+        assert!(receiver.try_recv().is_err());
+        sr.send(Event::Quit)?;
+        assert!(sr.finish()?.is_empty());
+    }
+    Ok(())
+}
+
+#[test]
+fn status_toggle_preserves_the_preview_pane() -> Result<(), Box<dyn Error>> {
+    for reversed in [false, true] {
+        let mut sr = start_with(
+            "status_with_preview",
+            lines(),
+            PickerOptions::new().reversed(reversed),
+            TextPreview(|_, buffer| buffer.push_text("a\nb\nc\nd\ne\nf")),
+        );
+        sr.set_dimensions(40, 5)?;
+        sr.wait_for_match_complete(24, 24)?;
+        sr.send(Event::Preview(PreviewEvent::Down(2)))?;
+        let shown = sr.checkpoint("shown")?;
+        assert_pane(&shown, reversed, &["c", "d", "e"]);
+
+        sr.send(Event::Layout(LayoutEvent::ToggleStatus))?;
+        let hidden = sr.checkpoint("hidden")?;
+        assert_pane(&hidden, reversed, &["c", "d", "e"]);
+        assert!(hidden.text.iter().all(|line| !line.contains("24/24")));
+        assert_eq!(
+            hidden
+                .text
+                .iter()
+                .filter(|line| line.contains("item-"))
+                .count(),
+            4
+        );
+        assert_eq!(hidden.cursor, shown.cursor);
+        sr.send(Event::Layout(LayoutEvent::ToggleStatus))?;
+        assert_eq!(sr.checkpoint("restored")?, shown);
+        sr.send(Event::Quit)?;
+        assert!(sr.finish()?.is_empty());
+    }
+    Ok(())
+}
+
+#[test]
 fn layout_configuration_and_events_are_ignored_without_a_preview() -> Result<(), Box<dyn Error>> {
     let mut sr = ScenarioRunner::start_with_options(
         "layout_without_preview",
@@ -352,6 +527,7 @@ fn layout_configuration_and_events_are_ignored_without_a_preview() -> Result<(),
     );
     sr.wait_for_match_complete(1, 1)?;
     let before = sr.checkpoint("initial")?;
+    sr.send(Event::Layout(LayoutEvent::TogglePreview))?;
     sr.send(Event::Layout(LayoutEvent::MoveDividerLeft(1)))?;
     sr.send(Event::Layout(LayoutEvent::MoveDividerRight(1)))?;
     let after = sr.checkpoint("adjusted")?;
