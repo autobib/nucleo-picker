@@ -104,7 +104,10 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                 let event = match event_source.try_recv() {
                     Err(RecvError::Timeout) => {
                         let now = Instant::now();
-                        if now >= frame_deadline {
+                        // on a force redraw don't wait for more events: immediately handle the
+                        // redraw. this can reduce rendering flashes (where the terminal repaints
+                        // before the layout is updated)
+                        if force_redraw || now >= frame_deadline {
                             break;
                         }
                         event_source.recv_timeout(frame_deadline - now)
