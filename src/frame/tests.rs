@@ -67,7 +67,7 @@ where
     let mut prompt = Prompt::new(&mut picker.prompt, &picker.chars);
     let mut list = MatchList::new(&mut picker.list_state, &picker.chars, ());
     let mut status_line = StatusLine::new(&picker.chars);
-    let frame = Frame::new(size, false, V::ENABLED);
+    let mut frame = Frame::new(size, false, V::ENABLED.then_some(0.5));
     frame.resize(
         &picker.engine,
         &mut prompt,
@@ -206,8 +206,89 @@ fn empty_areas_skip_component_drawing() {
 }
 
 #[test]
+fn render_applies_terminal_resize_to_all_components_before_drawing() {
+    use crate::rect::{Area, Rect};
+
+    #[derive(Default)]
+    struct Tracked {
+        area: Area,
+        resizes: usize,
+        draws: usize,
+    }
+    impl Component<()> for Tracked {
+        fn resize(&mut self, area: Area, _engine: &()) {
+            self.area = area;
+            self.resizes += 1;
+        }
+
+        fn draw<D: Rect>(&mut self, _engine: &(), rect: &mut D) -> io::Result<()> {
+            assert_eq!(self.area.width, rect.width().get());
+            assert_eq!(self.area.height, rect.height().get());
+            self.draws += 1;
+            Ok(())
+        }
+    }
+
+    for size in [(30, 8), (0, 8), (30, 0)] {
+        let mut frame = Frame::new((20, 4), false, Some(0.5));
+        let [mut prompt, mut list, mut status, mut preview] =
+            std::array::from_fn(|_| Tracked::default());
+        let mut terminal = TestTerminal {
+            size,
+            ..TestTerminal::default()
+        };
+        assert!(
+            frame
+                .render(
+                    &(),
+                    &mut prompt,
+                    &mut list,
+                    &mut status,
+                    &mut preview,
+                    &mut terminal,
+                    Redraw {
+                        prompt: true,
+                        ..Redraw::default()
+                    },
+                )
+                .unwrap()
+        );
+        let visible = size.0 != 0 && size.1 != 0;
+        assert_eq!(terminal.output.is_empty(), !visible);
+        if visible {
+            assert!(terminal.output.windows(4).any(|bytes| bytes == b"\x1b[2J"));
+        }
+        terminal.output.clear();
+        assert!(
+            !frame
+                .render(
+                    &(),
+                    &mut prompt,
+                    &mut list,
+                    &mut status,
+                    &mut preview,
+                    &mut terminal,
+                    Redraw::default(),
+                )
+                .unwrap()
+        );
+        assert!(terminal.output.is_empty());
+        for (component, area) in [
+            (prompt, frame.prompt),
+            (list, frame.list),
+            (status, frame.status),
+            (preview, frame.preview),
+        ] {
+            assert_eq!(component.area, area);
+            assert_eq!(component.resizes, 1);
+            assert_eq!(component.draws, usize::from(!area.is_empty()));
+        }
+    }
+}
+
+#[test]
 fn size_changes_reassign_outer_rectangles() {
-    let mut frame = Frame::new((20, 4), false, true);
+    let mut frame = Frame::new((20, 4), false, Some(0.5));
     assert_eq!(frame.list.width, 10);
     assert!(frame.update_size((30, 4)));
     assert_eq!(frame.list.width, 15);
@@ -220,14 +301,157 @@ fn size_changes_reassign_outer_rectangles() {
     assert!(frame.preview.is_empty());
 }
 
+#[test]
+fn preview_ratios_round_and_reserve_space_for_both_panes() {
+    for (width, ratio, expected) in [
+        (101, 0.5, 51),
+        (101, 0.4, 40),
+        (101, 0.0, 3),
+        (101, 1.0, 98),
+        (6, 0.0, 3),
+        (6, 1.0, 3),
+        (u16::MAX, 0.5, 32768),
+        (u16::MAX, 1.0, u16::MAX - 3),
+    ] {
+        for reversed in [false, true] {
+            let frame = Frame::new((width, 5), reversed, Some(ratio));
+            assert_eq!(frame.preview.width, expected);
+            assert_eq!(frame.preview.column, width - expected);
+            assert_eq!(frame.prompt.width, width - expected);
+            assert_eq!(frame.status.width, width - expected);
+            assert_eq!(frame.list.width, width - expected);
+        }
+    }
+}
+
+#[test]
+fn resizing_preserves_the_ratio_through_rounding_clamping_and_hiding() {
+    for ratio in [0.0, 0.1, 0.5, 0.9, 1.0] {
+        let mut frame = Frame::new((101, 5), false, Some(ratio));
+        let width = frame.preview.width;
+        for size in [(20, 5), (6, 3), (5, 5), (101, 2), (0, 0), (101, 5)] {
+            frame.update_size(size);
+            assert_eq!(frame.preview_ratio, Some(ratio));
+            if size.0 < 6 || size.1 < 3 {
+                assert!(frame.preview.is_empty());
+                assert_eq!(frame.list.width, size.0);
+            }
+        }
+        assert_eq!(frame.preview.width, width);
+    }
+}
+
 #[cfg(feature = "preview")]
 mod preview {
     use super::*;
+    use crate::event::LayoutEvent;
     use crate::preview::{
         Preview, PreviewConfig,
         pane::PreviewPane,
         request::{PreviewRequest, PreviewResponse},
     };
+
+    fn render_pending(frame: &mut Frame) -> bool {
+        let mut terminal = TestTerminal {
+            size: frame.dimensions(),
+            ..TestTerminal::default()
+        };
+        frame
+            .render(
+                &(),
+                &mut NoPreview::<std::convert::Infallible>::new(),
+                &mut NoPreview::<std::convert::Infallible>::new(),
+                &mut NoPreview::<std::convert::Infallible>::new(),
+                &mut NoPreview::<std::convert::Infallible>::new(),
+                &mut terminal,
+                Redraw::default(),
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn adjustments_move_exactly_one_column_in_either_direction() {
+        for width in [7, 13, 20, 101, u16::MAX] {
+            let mut frame = Frame::new((width, 5), false, Some(0.5));
+            let initial = frame.preview.width;
+            assert!(!render_pending(&mut frame));
+            for _ in 0..20 {
+                frame.handle(LayoutEvent::MoveDividerRight(1));
+                assert!(render_pending(&mut frame));
+                assert_eq!(frame.preview.width, initial - 1);
+                frame.handle(LayoutEvent::MoveDividerLeft(1));
+                assert!(render_pending(&mut frame));
+                assert_eq!(frame.preview.width, initial);
+            }
+            let ratio = frame.preview_ratio;
+            frame.handle(LayoutEvent::MoveDividerLeft(0));
+            assert!(!render_pending(&mut frame));
+            assert_eq!(frame.preview_ratio, ratio);
+        }
+    }
+
+    #[test]
+    fn adjustments_start_from_the_clamped_width() {
+        for (ratio, event, expected) in [
+            (0.0, LayoutEvent::MoveDividerLeft(1), 4),
+            (1.0, LayoutEvent::MoveDividerRight(1), 16),
+        ] {
+            let mut frame = Frame::new((20, 5), false, Some(ratio));
+            frame.handle(event);
+            assert!(render_pending(&mut frame));
+            assert_eq!(frame.preview.width, expected);
+            frame.update_size((100, 5));
+            assert_eq!(frame.preview.width, expected * 5);
+        }
+    }
+
+    #[test]
+    fn adjustments_saturate_and_reverse_in_order_at_the_limits() {
+        let mut frame = Frame::new((101, 5), false, Some(0.5));
+        frame.handle(LayoutEvent::MoveDividerLeft(u16::MAX));
+        frame.handle(LayoutEvent::MoveDividerLeft(1));
+        assert_eq!(frame.preview.width, 98);
+        assert!(render_pending(&mut frame));
+        assert!(!render_pending(&mut frame));
+
+        frame.handle(LayoutEvent::MoveDividerRight(u16::MAX));
+        frame.handle(LayoutEvent::MoveDividerLeft(1));
+        frame.handle(LayoutEvent::MoveDividerRight(0));
+        assert_eq!(frame.preview.width, 4);
+        assert!(render_pending(&mut frame));
+        assert!(!render_pending(&mut frame));
+
+        frame.handle(LayoutEvent::MoveDividerLeft(u16::MAX));
+        frame.handle(LayoutEvent::MoveDividerRight(1));
+        assert_eq!(frame.preview.width, 97);
+        assert!(render_pending(&mut frame));
+        assert!(!render_pending(&mut frame));
+    }
+
+    #[test]
+    fn ineffective_adjustments_preserve_the_exact_ratio() {
+        for (size, ratio, shift) in [
+            ((101, 5), Some(0.5), 0),
+            ((20, 5), Some(0.01), -1),
+            ((20, 5), Some(0.99), 1),
+            ((6, 3), Some(0.4), -1),
+            ((6, 3), Some(0.4), 1),
+            ((5, 5), Some(0.4), 1),
+            ((101, 2), Some(0.4), -1),
+            ((0, 0), Some(0.4), 1),
+            ((101, 5), None, 1),
+        ] {
+            let mut frame = Frame::new(size, false, ratio);
+            frame.handle(if shift >= 0 {
+                LayoutEvent::MoveDividerLeft(shift as u16)
+            } else {
+                LayoutEvent::MoveDividerRight((-shift) as u16)
+            });
+            assert!(!render_pending(&mut frame));
+            assert_eq!(frame.preview_ratio, ratio);
+        }
+    }
+
     struct EmptyPreview;
     impl Preview<String> for EmptyPreview {
         type AbortErr = std::convert::Infallible;
@@ -320,7 +544,7 @@ mod preview {
     fn preview_falls_back_to_full_width_when_its_interior_cannot_fit() {
         for size in [(0, 4), (1, 1), (5, 4), (20, 2), (20, 0)] {
             assert_eq!(
-                Frame::new(size, false, true)
+                Frame::new(size, false, Some(0.5))
                     .preview
                     .height
                     .saturating_sub(2),
@@ -332,7 +556,7 @@ mod preview {
             );
         }
         assert_eq!(
-            Frame::new((6, 3), false, true)
+            Frame::new((6, 3), false, Some(0.5))
                 .preview
                 .height
                 .saturating_sub(2),

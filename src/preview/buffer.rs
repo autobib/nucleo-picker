@@ -172,16 +172,20 @@ impl PreviewBuffer {
         self.is_err
     }
 
-    /// Set the line-number display default.
+    /// Enable or disable preview pane line-numbers.
     ///
     /// The default is `false` (do not display line numbers). Line numbers are displayed in a column
-    /// on the left side of the preview pane and are always hidden if they would cover the entire
-    /// preview pane.
+    /// on the left side of the preview pane and are automatically hidden if the preview pane has less
+    /// than two columns for content.
+    ///
+    /// Note that this is only a default value and the line numbers for individual panes will still
+    /// be toggled while the previewer is running with
+    /// [`PreviewEvent::ToggleLineNumbers`](super::PreviewEvent::ToggleLineNumbers).
     pub fn set_line_numbers(&mut self, enabled: bool) {
         self.line_numbers = enabled;
     }
 
-    /// Returns the line-number display default of this buffer.
+    /// Returns the line-number display setting for this buffer.
     pub fn line_numbers(&self) -> bool {
         self.line_numbers
     }

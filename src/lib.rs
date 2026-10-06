@@ -819,6 +819,24 @@ impl PickerOptions {
 
 #[cfg(feature = "preview")]
 impl PickerOptions {
+    /// Set the preview size as a fraction of the total terminal width.
+    ///
+    /// This value must be finite and in the range `0..=1`.
+    ///
+    /// # Panics
+    ///
+    /// Values outside the range `0..=1` will cause a panic in debug builds, but in release builds
+    /// the value will simply be set to `0.5`
+    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
+    #[must_use]
+    #[inline]
+    pub const fn preview_size(mut self, ratio: f64) -> Self {
+        let valid = ratio >= 0.0 && ratio <= 1.0;
+        debug_assert!(valid, "preview ratio must be in 0..=1");
+        self.preview_config.ratio = if valid { ratio } else { 0.5 };
+        self
+    }
+
     /// Set the preview boundary characters.
     ///
     /// This defaults to the value returned by [`BoundaryChars::new`]. Note that each character must

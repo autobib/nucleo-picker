@@ -74,7 +74,7 @@ pub(super) fn draw<D: Rect>(
     let number_width = preview
         .filter(|_| line_numbers)
         .map_or(0, |(buffer, _)| buffer.lines().len().ilog10() as u16 + 2);
-    let number_width = if number_width < width - 2 {
+    let number_width = if number_width < width - 3 {
         number_width
     } else {
         0
