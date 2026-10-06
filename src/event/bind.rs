@@ -105,6 +105,10 @@ fn keybind_preview_passthrough<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEv
         } => match code {
             KeyCode::Up => Ok(Event::Preview(PreviewEvent::Up(1))),
             KeyCode::Down => Ok(Event::Preview(PreviewEvent::Down(1))),
+            KeyCode::Left => Ok(Event::Preview(PreviewEvent::Left(1))),
+            KeyCode::Right => Ok(Event::Preview(PreviewEvent::Right(1))),
+            KeyCode::Home => Ok(Event::Preview(PreviewEvent::AlignLeft)),
+            KeyCode::End => Ok(Event::Preview(PreviewEvent::AlignRight)),
             KeyCode::PageUp => Ok(Event::Preview(PreviewEvent::PageUp(1))),
             KeyCode::PageDown => Ok(Event::Preview(PreviewEvent::PageDown(1))),
             _ => Err(key_event),

@@ -16,11 +16,14 @@ use crate::{
 
 pub(super) fn draw<D: Rect>(
     rect: &mut D,
+    // None if there is no preview to draw (e.g., no matches);
+    // this is different than 'pending' which is internal to `Cached`
     preview: Option<&Cached>,
     chars: BoundaryChars,
     ellipsis: char,
-    line_numbers: bool,
 ) -> io::Result<()> {
+    let number_width = preview.map_or(0, |cached| cached.number_width(rect.width().get() - 2));
+    let horizontal_position = preview.map_or(0, |cached| cached.horizontal_position);
     let pending =
         preview.is_some_and(|cached| matches!(cached.state, Some(RequestState::Pending(_))));
     let preview = preview.and_then(|cached| match &cached.state {
@@ -71,14 +74,6 @@ pub(super) fn draw<D: Rect>(
         }
     }
 
-    let number_width = preview
-        .filter(|_| line_numbers)
-        .map_or(0, |(buffer, _)| buffer.lines().len().ilog10() as u16 + 2);
-    let number_width = if number_width < width - 3 {
-        number_width
-    } else {
-        0
-    };
     for row in 1..height - 1 {
         rect.move_to(0, row)?;
         rect.clear_line()?;
@@ -100,7 +95,7 @@ pub(super) fn draw<D: Rect>(
                 rect,
                 line.as_str(),
                 line.spans(),
-                0,
+                horizontal_position,
                 capacity,
                 ellipsis,
             )?

@@ -126,6 +126,7 @@ fn cache_tracks_item_identity_and_preserves_scroll_state() {
     update(&mut session, &mut picker).unwrap();
     let alpha = selected_item(&picker).unwrap();
     session.cache.get_mut(&alpha).unwrap().scroll_position = 7;
+    session.cache.get_mut(&alpha).unwrap().horizontal_position = 12;
 
     picker.update_query("beta");
     settle(&mut picker);
@@ -147,6 +148,7 @@ fn cache_tracks_item_identity_and_preserves_scroll_state() {
     assert_eq!(session.previewer.requested, ["alpha", "beta"]);
     let cached = session.cache.peek(&alpha).unwrap();
     assert_eq!(cached.scroll_position, 7);
+    assert_eq!(cached.horizontal_position, 12);
     let Some(RequestState::Ready(buffer)) = &cached.state else {
         panic!("expected cached ready preview");
     };
@@ -243,6 +245,7 @@ fn evicted_ready_buffers_are_reused_and_scroll_is_reset() {
     update(&mut session, &mut picker).unwrap();
     let cached = session.cache.get_mut(&0).unwrap();
     cached.scroll_position = 7;
+    cached.horizontal_position = 12;
     cached.line_numbers_override = Some(true);
     let Some(RequestState::Ready(buffer)) = &mut cached.state else {
         panic!("expected ready preview");
@@ -265,6 +268,10 @@ fn evicted_ready_buffers_are_reused_and_scroll_is_reset() {
         );
         assert_eq!(session.cache.len(), 1);
         assert_eq!(session.cache.peek(&selection).unwrap().scroll_position, 0);
+        assert_eq!(
+            session.cache.peek(&selection).unwrap().horizontal_position,
+            0
+        );
         assert_eq!(
             session
                 .cache
@@ -702,6 +709,7 @@ fn promotion_and_retry_clear_and_reuse_buffers_without_resetting_scroll() {
             0,
             Cached {
                 scroll_position: 3,
+                horizontal_position: 0,
                 line_numbers_override: Some(true),
                 state: Some(RequestState::Pending(pending)),
             },
@@ -971,6 +979,7 @@ fn session_cancels_requests_before_dropping_its_previewer() {
         0,
         Cached {
             scroll_position: 0,
+            horizontal_position: 0,
             line_numbers_override: None,
             state: Some(RequestState::Pending(pending)),
         },
@@ -1073,6 +1082,54 @@ fn line_number_events_resolve_preferences_and_only_redraw_on_changes() {
         assert_eq!(session.cached().unwrap().line_numbers_override, None);
         assert_eq!(session.previewer.requested, ["alpha"]);
     }
+}
+
+#[test]
+fn horizontal_events_follow_layout_and_only_redraw_when_the_offset_changes() {
+    let mut picker = picker(["abcdefghijklmnop"]);
+    let mut session = PreviewPane::new(
+        &PreviewConfig::default(),
+        &crate::PickerChars::new(),
+        TestPreviewer::default(),
+    );
+    assert!(update(&mut session, &mut picker).unwrap());
+    session.resize_area(Area {
+        width: 12,
+        height: 4,
+        ..Area::default()
+    });
+    for (event, expected, changed) in [
+        (PreviewEvent::Right(usize::MAX), 6, true),
+        (PreviewEvent::Right(1), 6, false),
+        (PreviewEvent::ToggleLineNumbers, 6, true),
+        (PreviewEvent::Right(usize::MAX), 8, true),
+        (PreviewEvent::SetLineNumbers(Some(false)), 8, true),
+        (PreviewEvent::Right(1), 8, false),
+        (PreviewEvent::Left(1), 7, true),
+    ] {
+        session.handle(event, Some(0));
+        assert_eq!(session.cached().unwrap().horizontal_position, expected);
+        assert_eq!(update(&mut session, &mut picker).unwrap(), changed);
+        assert!(!update(&mut session, &mut picker).unwrap());
+    }
+    for width in [30, 0, 12] {
+        session.resize_area(Area {
+            width,
+            height: 4,
+            ..Area::default()
+        });
+        session.handle(PreviewEvent::Right(1), Some(0));
+        assert_eq!(session.cached().unwrap().horizontal_position, 7);
+        assert!(!update(&mut session, &mut picker).unwrap());
+    }
+    session.handle(PreviewEvent::Right(1), Some(1));
+    session.handle(PreviewEvent::Left(1), None);
+    assert!(!update(&mut session, &mut picker).unwrap());
+    assert_eq!(session.cache.len(), 1);
+    assert_eq!(session.previewer.requested, ["abcdefghijklmnop"]);
+    session.restart();
+    assert!(update(&mut session, &mut picker).unwrap());
+    assert_eq!(session.cached().unwrap().horizontal_position, 0);
 }
 
 #[test]
@@ -1539,7 +1596,7 @@ mod picker_loop {
             .cache
             .get_mut(&0)
             .unwrap()
-            .scroll(PreviewEvent::Down(usize::MAX), 4);
+            .scroll(PreviewEvent::Down(usize::MAX), (20, 4));
         assert_eq!(session.cache.peek(&0).unwrap().scroll_position, 26);
 
         picker
@@ -1568,7 +1625,7 @@ mod picker_loop {
             .cache
             .get_mut(&0)
             .unwrap()
-            .scroll(PreviewEvent::Down(usize::MAX), 8);
+            .scroll(PreviewEvent::Down(usize::MAX), (20, 8));
         picker.list_state.layout.set_selection(
             picker.engine.snapshot(),
             1,
