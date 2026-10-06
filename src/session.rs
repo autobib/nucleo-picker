@@ -125,7 +125,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                     Event::Layout(event) => frame.handle(event),
                     #[cfg(feature = "preview")]
                     Event::Preview(event) => {
-                        if P::ENABLED {
+                        if P::ENABLED && frame.preview_enabled() {
                             preview.handle(
                                 event,
                                 list.event_selection(engine)
@@ -194,18 +194,16 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                     status,
                     list.queued().count(self.max_selection_count),
                     background_frame,
-                ),
-                preview: preview
-                    .update(
-                        if P::ENABLED {
-                            list.selection(engine).map(|n| engine.idx_from_match(n))
-                        } else {
-                            None
-                        },
-                        engine.snapshot(),
-                        frame_start + self.interval,
-                    )
-                    .map_err(PickError::Aborted)?,
+                ) && frame.status_enabled(),
+                preview: P::ENABLED
+                    && frame.preview_enabled()
+                    && preview
+                        .update(
+                            list.selection(engine).map(|n| engine.idx_from_match(n)),
+                            engine.snapshot(),
+                            frame_start + self.interval,
+                        )
+                        .map_err(PickError::Aborted)?,
             };
 
             // a redraw was externally requested

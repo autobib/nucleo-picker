@@ -1,4 +1,4 @@
-use super::{Frame, Redraw};
+use super::{Frame, LayoutEvent, Redraw};
 use crate::{
     Picker, Terminal,
     component::{Component, NoPreview, PreviewComponent},
@@ -302,6 +302,59 @@ fn size_changes_reassign_outer_rectangles() {
 }
 
 #[test]
+fn toggle_status_restores_layout_across_small_sizes_and_resizes() {
+    for reversed in [false, true] {
+        for ratio in [None, Some(0.4)] {
+            for size in [(0, 0), (0, 5), (20, 1), (20, 2), (20, 5)] {
+                let mut frame = Frame::new(size, reversed, ratio);
+                let initial = [frame.prompt, frame.list, frame.status, frame.preview];
+                frame.handle(LayoutEvent::ToggleStatus);
+                assert!(!frame.status_enabled());
+                assert!(frame.status.is_empty());
+                assert_eq!(frame.prompt, initial[0]);
+                assert_eq!(frame.preview, initial[3]);
+                assert_eq!(frame.list.width, initial[1].width);
+                assert_eq!(frame.list.height, size.1.saturating_sub(1));
+                assert_eq!(frame.list.row, if reversed { size.1.min(1) } else { 0 });
+                assert!(render_pending(&mut frame));
+                assert!(!render_pending(&mut frame));
+
+                frame.update_size((30, 8));
+                assert!(frame.status.is_empty());
+                assert_eq!(frame.list.height, 7);
+                frame.update_size(size);
+                frame.handle(LayoutEvent::ToggleStatus);
+                assert!(frame.status_enabled());
+                assert_eq!(
+                    [frame.prompt, frame.list, frame.status, frame.preview],
+                    initial,
+                );
+                assert!(render_pending(&mut frame));
+                assert!(!render_pending(&mut frame));
+            }
+        }
+    }
+}
+
+fn render_pending(frame: &mut Frame) -> bool {
+    let mut terminal = TestTerminal {
+        size: frame.dimensions(),
+        ..TestTerminal::default()
+    };
+    frame
+        .render(
+            &(),
+            &mut NoPreview::<std::convert::Infallible>::new(),
+            &mut NoPreview::<std::convert::Infallible>::new(),
+            &mut NoPreview::<std::convert::Infallible>::new(),
+            &mut NoPreview::<std::convert::Infallible>::new(),
+            &mut terminal,
+            Redraw::default(),
+        )
+        .unwrap()
+}
+
+#[test]
 fn preview_ratios_round_and_reserve_space_for_both_panes() {
     for (width, ratio, expected) in [
         (101, 0.5, 51),
@@ -344,29 +397,65 @@ fn resizing_preserves_the_ratio_through_rounding_clamping_and_hiding() {
 #[cfg(feature = "preview")]
 mod preview {
     use super::*;
-    use crate::event::LayoutEvent;
     use crate::preview::{
         Preview, PreviewConfig,
         pane::PreviewPane,
         request::{PreviewRequest, PreviewResponse},
     };
 
-    fn render_pending(frame: &mut Frame) -> bool {
-        let mut terminal = TestTerminal {
-            size: frame.dimensions(),
-            ..TestTerminal::default()
-        };
-        frame
-            .render(
-                &(),
-                &mut NoPreview::<std::convert::Infallible>::new(),
-                &mut NoPreview::<std::convert::Infallible>::new(),
-                &mut NoPreview::<std::convert::Infallible>::new(),
-                &mut NoPreview::<std::convert::Infallible>::new(),
-                &mut terminal,
-                Redraw::default(),
-            )
-            .unwrap()
+    #[test]
+    fn toggle_preview_restores_the_adjusted_ratio_after_resizing() {
+        for reversed in [false, true] {
+            let mut frame = Frame::new((25, 5), reversed, Some(0.4));
+            frame.handle(LayoutEvent::MoveDividerLeft(1));
+            assert!(render_pending(&mut frame));
+            let ratio = frame.preview_ratio;
+            assert_eq!(frame.preview.width, 11);
+
+            frame.handle(LayoutEvent::TogglePreview);
+            assert!(!frame.preview_enabled());
+            assert!(frame.preview.is_empty());
+            assert_eq!(frame.list.width, 25);
+            assert_eq!(frame.prompt.width, 25);
+            assert_eq!(frame.status.width, 25);
+            assert!(render_pending(&mut frame));
+            assert!(!render_pending(&mut frame));
+
+            frame.handle(LayoutEvent::MoveDividerLeft(1));
+            frame.handle(LayoutEvent::MoveDividerRight(1));
+            assert!(!render_pending(&mut frame));
+            assert_eq!(frame.preview_ratio, ratio);
+            assert!(frame.update_size((50, 5)));
+            assert!(frame.preview.is_empty());
+            assert_eq!(frame.list.width, 50);
+
+            frame.handle(LayoutEvent::TogglePreview);
+            assert!(frame.preview_enabled());
+            assert_eq!(frame.preview_ratio, ratio);
+            assert_eq!(frame.preview.width, 22);
+            assert!(render_pending(&mut frame));
+            assert!(!render_pending(&mut frame));
+        }
+    }
+
+    #[test]
+    fn toggle_preview_remembers_visibility_when_the_terminal_is_too_small() {
+        for size in [(0, 0), (5, 5), (25, 2)] {
+            let mut frame = Frame::new(size, false, Some(0.4));
+            assert!(frame.preview_enabled());
+            assert!(frame.preview.is_empty());
+            frame.handle(LayoutEvent::TogglePreview);
+            assert!(!frame.preview_enabled());
+            frame.update_size((25, 5));
+            assert!(frame.preview.is_empty());
+
+            frame.update_size(size);
+            frame.handle(LayoutEvent::TogglePreview);
+            assert!(frame.preview_enabled());
+            assert!(frame.preview.is_empty());
+            frame.update_size((25, 5));
+            assert_eq!(frame.preview.width, 10);
+        }
     }
 
     #[test]

@@ -18,6 +18,17 @@ use std::io;
 #[derive(Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum LayoutEvent {
+    /// Toggle visibility of the status line.
+    ///
+    /// This event has no default keybind.
+    ToggleStatus,
+    /// Toggle visibility of the preview pane.
+    ///
+    /// When the preview is hidden, the preview cache is preserved but events which target
+    /// the preview have no effect.
+    #[cfg(feature = "preview")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
+    TogglePreview,
     /// Move the divider between the match list and the previewer to the left.
     #[cfg(feature = "preview")]
     #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
@@ -56,7 +67,9 @@ impl Redraw {
 pub(crate) struct Frame {
     size: (u16, u16),
     reversed: bool,
+    status_hidden: bool,
     preview_ratio: Option<f64>,
+    preview_hidden: bool,
     pending_resize: bool,
     prompt: Area,
     list: Area,
@@ -72,7 +85,9 @@ impl Frame {
         let mut frame = Self {
             size,
             reversed,
+            status_hidden: false,
             preview_ratio,
+            preview_hidden: false,
             pending_resize: false,
             prompt: Area::default(),
             list: Area::default(),
@@ -88,8 +103,30 @@ impl Frame {
         self.size
     }
 
+    pub fn preview_enabled(&self) -> bool {
+        self.preview_ratio.is_some() && !self.preview_hidden
+    }
+
+    pub fn status_enabled(&self) -> bool {
+        !self.status_hidden
+    }
+
     pub fn handle(&mut self, event: LayoutEvent) {
         match event {
+            LayoutEvent::ToggleStatus => {
+                self.status_hidden = !self.status_hidden;
+                self.layout();
+                // TODO: maybe limit redraws only to match list / status line instead
+                self.pending_resize = true;
+            }
+            #[cfg(feature = "preview")]
+            LayoutEvent::TogglePreview => {
+                if self.preview_ratio.is_some() {
+                    self.preview_hidden = !self.preview_hidden;
+                    self.layout();
+                    self.pending_resize = true;
+                }
+            }
             #[cfg(feature = "preview")]
             LayoutEvent::MoveDividerLeft(columns) => {
                 self.pending_resize |= self.shift_preview(i32::from(columns));
@@ -145,6 +182,7 @@ impl Frame {
         //    ratio.
         let (mut width, height) = self.size;
         self.preview = if let Some(ratio) = self.preview_ratio
+            && !self.preview_hidden
             && width >= 6
             && height >= 3
         {
@@ -169,11 +207,16 @@ impl Frame {
             width,
             height: height.min(1),
         };
+        let reserved_height = 1 + u16::from(!self.status_hidden);
         self.list = Area {
             column: 0,
-            row: if self.reversed { height.min(2) } else { 0 },
+            row: if self.reversed {
+                height.min(reserved_height)
+            } else {
+                0
+            },
             width,
-            height: height.saturating_sub(2),
+            height: height.saturating_sub(reserved_height),
         };
         self.status = Area {
             column: 0,
@@ -183,7 +226,7 @@ impl Frame {
                 height.saturating_sub(2)
             },
             width,
-            height: u16::from(height >= 2),
+            height: u16::from(!self.status_hidden && height >= 2),
         };
     }
 

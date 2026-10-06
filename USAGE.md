@@ -33,6 +33,9 @@ For example:
 Generally speaking, we attempt to follow the bash-like or vim-like keyboard shortcut conventions.
 Most of these bindings are relatively standard, with some exceptions like `ctrl + o`.
 
+Note on macOS the alt keybindings may not work by default, depending on your keyboard configuration.
+Some terminals have a specific feature to forward `⌥` as alt.
+
 Key bindings(s)                    | Action
 -----------------------------------|--------------------
 ctrl + c                           | Abort
@@ -72,6 +75,7 @@ shift + ↓                          | Preview Down 1 Line
 shift + ⇞                          | Preview Up 1 Page
 shift + ⇟                          | Preview Down 1 Page
 alt + n                            | Toggle Preview Line Numbers
+alt + p                            | Toggle Preview
 alt + ,                            | Grow Preview 1 Column
 alt + .                            | Shrink Preview 1 Column
 

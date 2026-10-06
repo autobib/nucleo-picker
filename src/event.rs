@@ -51,7 +51,10 @@ pub use crate::{
 ///
 /// Most events are explained directly in the enum variant documentation. A few special cases
 /// require a bit more detail: [redraw](#redraw),
-/// [application-defined abort](#application-defined-abort), and [restart](#restart)
+/// [application-defined abort](#application-defined-abort), and [restart](#restart).
+///
+/// Default keybindings for events can be found in the [picker usage
+/// documentation](https://github.com/autobib/nucleo-picker/blob/master/USAGE.md).
 ///
 /// ## Redraw
 /// In most cases, it is not necessary to manually send an [`Event::Redraw`] since the default
