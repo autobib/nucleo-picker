@@ -1,8 +1,8 @@
 use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-#[cfg(feature = "preview")]
-use super::PreviewEvent;
 use super::{Event, MatchListEvent, PromptEvent};
+#[cfg(feature = "preview")]
+use super::{LayoutEvent, PreviewEvent};
 
 /// The default keybindings.
 ///
@@ -93,8 +93,8 @@ fn keybind_preview_passthrough<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEv
     match key_event {
         KeyEvent {
             kind: KeyEventKind::Press,
-            modifiers: KeyModifiers::CONTROL,
-            code: KeyCode::Char('l'),
+            modifiers: KeyModifiers::ALT,
+            code: KeyCode::Char('n'),
             ..
         } => Ok(Event::Preview(PreviewEvent::ToggleLineNumbers)),
         KeyEvent {
@@ -165,6 +165,10 @@ fn keybind_core_passthrough<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEvent
         } => match code {
             KeyCode::Char('f') => Ok(Event::Prompt(PromptEvent::WordRight(1))),
             KeyCode::Char('b') => Ok(Event::Prompt(PromptEvent::WordLeft(1))),
+            #[cfg(feature = "preview")]
+            KeyCode::Char(',') => Ok(Event::Layout(LayoutEvent::MoveDividerLeft(1))),
+            #[cfg(feature = "preview")]
+            KeyCode::Char('.') => Ok(Event::Layout(LayoutEvent::MoveDividerRight(1))),
             _ => Err(key_event),
         },
         KeyEvent {

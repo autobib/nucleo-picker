@@ -6,7 +6,7 @@ use crossterm::{
 };
 use nucleo_picker::{
     PickerOptions,
-    event::{Event, MatchListEvent, PromptEvent, keybind_default},
+    event::{Event, LayoutEvent, MatchListEvent, PromptEvent, keybind_default},
     preview::{
         BoundaryChars, Preview, PreviewBuffer, PreviewEvent,
         request::{PreviewRequest, PreviewResponse, QueuedPreviewRequest},
@@ -67,7 +67,25 @@ fn assert_pane_with_border(
     chars: BoundaryChars,
     error_top: Option<&str>,
 ) {
-    let width = usize::from(snapshot.size.cols / 2);
+    assert_pane_at_width(
+        snapshot,
+        reversed,
+        contents,
+        chars,
+        error_top,
+        snapshot.size.cols.div_ceil(2),
+    );
+}
+
+fn assert_pane_at_width(
+    snapshot: &PaneSnapshot,
+    reversed: bool,
+    contents: &[&str],
+    chars: BoundaryChars,
+    error_top: Option<&str>,
+    width: u16,
+) {
+    let width = usize::from(width);
     let column = usize::from(snapshot.size.cols) - width;
     let height = usize::from(snapshot.size.rows);
     for (row, line) in snapshot.text.iter().enumerate() {
@@ -165,7 +183,7 @@ fn pane_survives_updates_and_resizes() -> Result<(), Box<dyn Error>> {
         let mut sr = start(PickerOptions::new().reversed(reversed).highlight_line(true));
         sr.set_dimensions(23, 7)?;
         sr.wait_for_match_complete(24, 24)?;
-        assert_pane(&sr.checkpoint("initial")?, reversed, &["item-00 …"]);
+        assert_pane(&sr.checkpoint("initial")?, reversed, &["item-00 a…"]);
 
         sr.send(Event::Prompt(PromptEvent::Reset(
             "a long query containing 東京".to_owned(),
@@ -184,7 +202,7 @@ fn pane_survives_updates_and_resizes() -> Result<(), Box<dyn Error>> {
         } else {
             MatchListEvent::Up(1)
         }))?;
-        assert_pane(&sr.checkpoint("selection")?, reversed, &["item-01 …"]);
+        assert_pane(&sr.checkpoint("selection")?, reversed, &["item-01 b…"]);
 
         for (width, height) in [(5, 7), (23, 2), (1, 1)] {
             sr.set_dimensions(width, height)?;
@@ -213,6 +231,136 @@ fn pane_survives_updates_and_resizes() -> Result<(), Box<dyn Error>> {
 }
 
 struct TextPreview(fn(&str, &mut PreviewBuffer));
+
+#[test]
+fn pane_layout_adjustments_and_resizes() -> Result<(), Box<dyn Error>> {
+    for reversed in [false, true] {
+        let mut sr = start_with(
+            "pane_layout",
+            vec!["item"],
+            PickerOptions::new().preview_size(0.4).reversed(reversed),
+            TextPreview(|_, buffer| buffer.push_text("a\nb\nc\nd\ne\nf")),
+        );
+        let check =
+            |sr: &mut ScenarioRunner, width, contents: &[&str]| -> Result<(), Box<dyn Error>> {
+                assert_pane_at_width(
+                    &sr.checkpoint("layout")?,
+                    reversed,
+                    contents,
+                    BoundaryChars::new(),
+                    None,
+                    width,
+                );
+                Ok(())
+            };
+        let adjust =
+            |ch| keybind_default(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::ALT)).unwrap();
+        sr.set_dimensions(25, 5)?;
+        sr.wait_for_match_complete(1, 1)?;
+        check(&mut sr, 10, &["a", "b", "c"])?;
+        sr.send(Event::Preview(PreviewEvent::Down(2)))?;
+        check(&mut sr, 10, &["c", "d", "e"])?;
+
+        sr.send(adjust(','))?;
+        check(&mut sr, 11, &["c", "d", "e"])?;
+        sr.send(adjust('.'))?;
+        check(&mut sr, 10, &["c", "d", "e"])?;
+        sr.set_dimensions(50, 5)?;
+        check(&mut sr, 20, &["c", "d", "e"])?;
+
+        for size in [(5, 5), (25, 2)] {
+            sr.set_dimensions(size.0, size.1)?;
+            sr.checkpoint("hidden")?;
+            sr.send(adjust(','))?;
+            let hidden = sr.checkpoint("adjust while hidden")?;
+            assert!(hidden.text.iter().all(|line| !line.contains('╭')));
+        }
+        sr.set_dimensions(25, 5)?;
+        check(&mut sr, 10, &["c", "d", "e"])?;
+
+        sr.set_dimensions(7, 5)?;
+        check(&mut sr, 3, &["c", "d", "e"])?;
+        sr.send(adjust(','))?;
+        check(&mut sr, 4, &["c", "d", "e"])?;
+        sr.set_dimensions(14, 5)?;
+        check(&mut sr, 8, &["c", "d", "e"])?;
+
+        sr.send(Event::Prompt(PromptEvent::Reset("no matches".to_owned())))?;
+        sr.wait_for_match_complete(0, 1)?;
+        check(&mut sr, 8, &[])?;
+        sr.send(adjust('.'))?;
+        check(&mut sr, 7, &[])?;
+
+        sr.send(Event::Layout(LayoutEvent::MoveDividerLeft(u16::MAX)))?;
+        sr.send(Event::Layout(LayoutEvent::MoveDividerRight(1)))?;
+        check(&mut sr, 10, &[])?;
+        sr.send(Event::Layout(LayoutEvent::MoveDividerRight(u16::MAX)))?;
+        sr.send(Event::Layout(LayoutEvent::MoveDividerLeft(1)))?;
+        check(&mut sr, 4, &[])?;
+
+        sr.send(Event::Quit)?;
+        assert!(sr.finish()?.is_empty());
+    }
+    Ok(())
+}
+
+#[test]
+fn layout_adjustments_do_not_restart_pending_previews() -> Result<(), Box<dyn Error>> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let mut sr = start_with(
+        "pending_layout",
+        vec!["item"],
+        PickerOptions::new(),
+        DeferredPreview(sender),
+    );
+    sr.set_dimensions(30, 5)?;
+    sr.wait_for_match_complete(1, 1)?;
+    let active = receiver.recv_timeout(WAIT)?.start().unwrap();
+    sr.send(Event::Layout(LayoutEvent::MoveDividerLeft(1)))?;
+    assert_pane_at_width(
+        &sr.checkpoint("resized pending")?,
+        false,
+        &["Loading..."],
+        BoundaryChars::new(),
+        None,
+        16,
+    );
+    let mut buffer = PreviewBuffer::new();
+    buffer.push_str("ready");
+    assert!(active.publish(&mut buffer));
+    sr.wait_for(|status| status.changed)?;
+    assert_pane_at_width(
+        &sr.checkpoint("published after resize")?,
+        false,
+        &["ready"],
+        BoundaryChars::new(),
+        None,
+        16,
+    );
+    assert!(receiver.try_recv().is_err());
+    sr.send(Event::Quit)?;
+    assert!(sr.finish()?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn layout_configuration_and_events_are_ignored_without_a_preview() -> Result<(), Box<dyn Error>> {
+    let mut sr = ScenarioRunner::start_with_options(
+        "layout_without_preview",
+        vec!["item"],
+        PickerOptions::new().preview_size(1.0),
+    );
+    sr.wait_for_match_complete(1, 1)?;
+    let before = sr.checkpoint("initial")?;
+    sr.send(Event::Layout(LayoutEvent::MoveDividerLeft(1)))?;
+    sr.send(Event::Layout(LayoutEvent::MoveDividerRight(1)))?;
+    let after = sr.checkpoint("adjusted")?;
+    assert_eq!(before, after);
+    assert!(after.text.iter().all(|line| !line.contains('╭')));
+    sr.send(Event::Quit)?;
+    assert!(sr.finish()?.is_empty());
+    Ok(())
+}
 
 impl Preview<String> for TextPreview {
     type AbortErr = Infallible;
@@ -518,8 +666,7 @@ fn toggle_line_numbers() -> Result<(), Box<dyn Error>> {
             );
         }),
     );
-    let toggle =
-        || keybind_default(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)).unwrap();
+    let toggle = || keybind_default(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
     sr.set_dimensions(32, 5)?;
     sr.wait_for_match_complete(1, 1)?;
     assert_pane(
@@ -647,7 +794,7 @@ fn numbered_scrolling_and_blank_rows() -> Result<(), Box<dyn Error>> {
     assert_pane(
         &sr.checkpoint("one content column")?,
         false,
-        &[" 97 …", " 98 …", " 99 …", "100 …"],
+        &["text", "text", "text", "text"],
     );
     sr.set_dimensions(26, 8)?;
     assert_pane(

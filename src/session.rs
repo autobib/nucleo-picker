@@ -56,7 +56,11 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
             list.queued().count(self.max_selection_count),
             false,
         );
-        let mut frame = Frame::new(terminal.size()?, self.reversed, P::ENABLED);
+        #[cfg(feature = "preview")]
+        let preview_ratio = P::ENABLED.then_some(self.preview_config.ratio);
+        #[cfg(not(feature = "preview"))]
+        let preview_ratio = None;
+        let mut frame = Frame::new(terminal.size()?, self.reversed, preview_ratio);
         frame.resize(
             engine,
             &mut prompt,
@@ -118,6 +122,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                 match event {
                     Event::Prompt(event) => prompt.handle(event),
                     Event::MatchList(event) => list.handle(event, engine),
+                    Event::Layout(event) => frame.handle(event),
                     #[cfg(feature = "preview")]
                     Event::Preview(event) => {
                         if P::ENABLED {
@@ -202,35 +207,22 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                     )
                     .map_err(PickError::Aborted)?,
             };
+
+            // a redraw was externally requested
             if force_redraw {
                 redraw = Redraw::full();
             }
-            let changed = redraw.any();
-            if changed {
-                // update the frame as late as possible so that the draw
-                // reflects the current frame size
-                if frame.update_size(terminal.size()?) {
-                    frame.resize(
-                        engine,
-                        &mut prompt,
-                        &mut list,
-                        &mut status_line,
-                        &mut preview,
-                    );
-                    redraw = Redraw::full();
-                }
 
-                // draw the frame
-                frame.draw(
-                    engine,
-                    &mut prompt,
-                    &mut list,
-                    &mut status_line,
-                    &mut preview,
-                    &mut terminal,
-                    redraw,
-                )?;
-            }
+            // render the frame
+            let changed = frame.render(
+                engine,
+                &mut prompt,
+                &mut list,
+                &mut status_line,
+                &mut preview,
+                &mut terminal,
+                redraw,
+            )?;
             terminal.end_frame(changed)?;
 
             // handle the status event but do not fail if the status notifier
