@@ -1,9 +1,12 @@
 use std::{convert::Infallible, error::Error, time::Duration};
 
-use crossterm::style::{ContentStyle, Stylize};
+use crossterm::{
+    event::{KeyCode, KeyEvent, KeyModifiers},
+    style::{ContentStyle, Stylize},
+};
 use nucleo_picker::{
     PickerOptions,
-    event::{Event, MatchListEvent, PromptEvent},
+    event::{Event, MatchListEvent, PromptEvent, keybind_default},
     preview::{
         BoundaryChars, Preview, PreviewBuffer, PreviewEvent,
         request::{PreviewRequest, PreviewResponse, QueuedPreviewRequest},
@@ -449,6 +452,112 @@ fn boundary_chars() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+fn line_number_preferences_and_overrides() -> Result<(), Box<dyn Error>> {
+    let check = |sr: &mut ScenarioRunner, enabled: bool| -> Result<(), Box<dyn Error>> {
+        let contents = if enabled {
+            ["1 ab", "2 cd"]
+        } else {
+            ["ab", "cd"]
+        };
+        assert_pane(&sr.checkpoint("line numbers")?, false, &contents);
+        Ok(())
+    };
+    let mut sr = start_with(
+        "line_number_preferences_and_overrides",
+        vec!["off", "on"],
+        PickerOptions::new(),
+        TextPreview(|item, buffer| {
+            buffer.set_line_numbers(item == "on");
+            buffer.push_text("ab\ncd");
+        }),
+    );
+    sr.set_dimensions(24, 4)?;
+    sr.wait_for_match_complete(2, 2)?;
+    for (index, base) in [false, true].into_iter().enumerate() {
+        if index != 0 {
+            sr.send(Event::MatchList(MatchListEvent::Up(1)))?;
+        }
+        check(&mut sr, base)?;
+        sr.send(Event::Preview(PreviewEvent::ToggleLineNumbers))?;
+        check(&mut sr, !base)?;
+        sr.send(Event::Preview(PreviewEvent::SetLineNumbers(None)))?;
+        check(&mut sr, base)?;
+        sr.send(Event::Preview(PreviewEvent::SetLineNumbers(Some(!base))))?;
+        check(&mut sr, !base)?;
+    }
+    sr.send(Event::MatchList(MatchListEvent::Down(1)))?;
+    check(&mut sr, true)?;
+    sr.set_dimensions(8, 4)?;
+    check(&mut sr, false)?;
+    sr.send(Event::Preview(PreviewEvent::ToggleLineNumbers))?;
+    check(&mut sr, false)?;
+    sr.set_dimensions(24, 4)?;
+    check(&mut sr, false)?;
+    sr.set_dimensions(1, 4)?;
+    sr.checkpoint("hidden preview")?;
+    sr.send(Event::Preview(PreviewEvent::ToggleLineNumbers))?;
+    sr.checkpoint("toggle hidden preview")?;
+    sr.set_dimensions(24, 4)?;
+    check(&mut sr, true)?;
+    sr.send(Event::Quit)?;
+    assert!(sr.finish()?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn toggle_line_numbers() -> Result<(), Box<dyn Error>> {
+    let mut sr = start_with(
+        "toggle_line_numbers",
+        vec!["item"],
+        PickerOptions::new(),
+        TextPreview(|_, buffer| {
+            buffer.set_line_numbers(true);
+            buffer.push_styled_text(
+                "alpha\nbeta\ngamma\ndelta\nepsilon",
+                ContentStyle::new().green(),
+            );
+        }),
+    );
+    let toggle =
+        || keybind_default(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)).unwrap();
+    sr.set_dimensions(32, 5)?;
+    sr.wait_for_match_complete(1, 1)?;
+    assert_pane(
+        &sr.checkpoint("initial")?,
+        false,
+        &["1 alpha", "2 beta", "3 gamma"],
+    );
+    checkpoint!(sr, "initial");
+
+    sr.send(toggle())?;
+    assert_pane(
+        &sr.checkpoint("hidden")?,
+        false,
+        &["alpha", "beta", "gamma"],
+    );
+    checkpoint!(sr, "hidden");
+
+    sr.send(Event::Preview(PreviewEvent::Down(2)))?;
+    assert_pane(
+        &sr.checkpoint("scrolled")?,
+        false,
+        &["gamma", "delta", "epsilon"],
+    );
+    checkpoint!(sr, "scrolled");
+
+    sr.send(toggle())?;
+    assert_pane(
+        &sr.checkpoint("restored")?,
+        false,
+        &["3 gamma", "4 delta", "5 epsilon"],
+    );
+    checkpoint!(sr, "restored");
+    sr.send(Event::Quit)?;
+    assert!(sr.finish()?.is_empty());
+    Ok(())
+}
+
+#[test]
 fn numbered_scrolling_and_blank_rows() -> Result<(), Box<dyn Error>> {
     let assert_numbers = |snapshot: &PaneSnapshot, expected: &[(u16, u16, u16)]| {
         let column = snapshot.size.cols - snapshot.size.cols / 2;
@@ -472,16 +581,19 @@ fn numbered_scrolling_and_blank_rows() -> Result<(), Box<dyn Error>> {
     let mut sr = start_with(
         "numbered_scrolling_and_blank_rows",
         vec!["long", "short", "empty"],
-        PickerOptions::new().preview_line_numbers(true),
-        TextPreview(|item, buffer| match item {
-            "long" => {
-                for _ in 1..100 {
-                    buffer.push_line("text");
+        PickerOptions::new(),
+        TextPreview(|item, buffer| {
+            buffer.set_line_numbers(true);
+            match item {
+                "long" => {
+                    for _ in 1..100 {
+                        buffer.push_line("text");
+                    }
+                    buffer.push_str("text");
                 }
-                buffer.push_str("text");
+                "short" => buffer.push_text("short\n\nlast"),
+                _ => {}
             }
-            "short" => buffer.push_text("short\n\nlast"),
-            _ => {}
         }),
     );
     sr.set_dimensions(26, 6)?;
@@ -582,6 +694,7 @@ impl Preview<String> for DeferredPreview {
     ) -> Result<PreviewResponse, Infallible> {
         if item == "ready" {
             let mut buffer = request.ready();
+            buffer.set_line_numbers(true);
             buffer.push_styled_text("first\nsecond\nthird", ContentStyle::new().on_blue());
             Ok(PreviewResponse::Ready(buffer))
         } else {
@@ -598,7 +711,7 @@ fn pending_previews_clear_stale_content_and_render_on_publication() -> Result<()
     let mut sr = start_with(
         "pending_previews",
         vec!["ready", "deferred"],
-        PickerOptions::new().preview_line_numbers(true),
+        PickerOptions::new(),
         DeferredPreview(sender),
     );
     sr.set_dimensions(30, 6)?;
@@ -630,6 +743,7 @@ fn pending_previews_clear_stale_content_and_render_on_publication() -> Result<()
     let mut buffer = PreviewBuffer::new();
     buffer.push_styled_str("failed", ContentStyle::new().red());
     buffer.set_err(true);
+    buffer.set_line_numbers(true);
     assert!(active.publish(&mut buffer));
     sr.wait_for(|status| status.changed)?;
     assert_pane_with_border(
@@ -733,8 +847,9 @@ fn error_previews_preserve_contents_and_scrolling() -> Result<(), Box<dyn Error>
     let mut sr = start_with(
         "error_contents",
         vec!["error", "ready"],
-        PickerOptions::new().preview_line_numbers(true),
+        PickerOptions::new(),
         TextPreview(|item, buffer| {
+            buffer.set_line_numbers(true);
             buffer.set_err(item == "error");
             buffer.push_styled_str("AB", ContentStyle::new().green().on_blue().bold());
             buffer.push_line("C");

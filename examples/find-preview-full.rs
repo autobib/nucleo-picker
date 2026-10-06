@@ -228,6 +228,7 @@ fn read_preview(
         Err(_) => None,
     };
     if let Some(text) = text.filter(|_| !prefix.contains(&0)) {
+        buffer.set_line_numbers(true);
         buffer.push_text(text);
         if truncated {
             buffer.newline();
@@ -246,10 +247,7 @@ fn main() -> io::Result<ExitCode> {
     let root = args_os()
         .nth(1)
         .map_or_else(|| PathBuf::from("."), PathBuf::from);
-    let mut picker = PickerOptions::new()
-        .match_paths()
-        .preview_line_numbers(true)
-        .picker(DirEntryRender);
+    let mut picker = PickerOptions::new().match_paths().picker(DirEntryRender);
 
     let previewer = FilePreview::new()?;
     let injector = picker.injector();

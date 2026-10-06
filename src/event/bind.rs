@@ -93,6 +93,12 @@ fn keybind_preview_passthrough<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEv
     match key_event {
         KeyEvent {
             kind: KeyEventKind::Press,
+            modifiers: KeyModifiers::CONTROL,
+            code: KeyCode::Char('l'),
+            ..
+        } => Ok(Event::Preview(PreviewEvent::ToggleLineNumbers)),
+        KeyEvent {
+            kind: KeyEventKind::Press,
             modifiers: KeyModifiers::SHIFT,
             code,
             ..

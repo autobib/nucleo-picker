@@ -3,7 +3,18 @@ use super::{PreviewBuffer, lock, request::PendingPreview};
 /// A single entry in the preview cache.
 pub(crate) struct Cached {
     pub scroll_position: usize,
+    pub line_numbers_override: Option<bool>,
     pub state: Option<RequestState>,
+}
+
+impl Cached {
+    pub fn line_numbers(&self) -> bool {
+        self.line_numbers_override
+            .unwrap_or_else(|| match &self.state {
+                Some(RequestState::Ready(buffer)) => buffer.line_numbers(),
+                _ => false,
+            })
+    }
 }
 
 impl Drop for Cached {

@@ -30,7 +30,6 @@ pub(crate) struct PreviewPane<P> {
     area: Area,
     boundary_chars: BoundaryChars,
     ellipsis: char,
-    line_numbers: bool,
 }
 
 impl<P> PreviewPane<P> {
@@ -46,7 +45,6 @@ impl<P> PreviewPane<P> {
             area: Area::default(),
             boundary_chars: config.boundary_chars,
             ellipsis: chars.ellipsis,
-            line_numbers: config.line_numbers,
         }
     }
 
@@ -80,6 +78,7 @@ impl<P> PreviewPane<P> {
                 idx,
                 Cached {
                     scroll_position: 0,
+                    line_numbers_override: None,
                     state: None,
                 },
             );
@@ -141,14 +140,28 @@ impl<P> PreviewPane<P> {
 }
 
 impl<P> PreviewPane<P> {
-    fn scroll(&mut self, idx: Option<u32>, event: PreviewEvent) {
-        let height = self.area.height.saturating_sub(2);
-        if self.area.is_empty() || height == 0 {
+    fn handle_event(&mut self, idx: Option<u32>, event: PreviewEvent) {
+        let Some(cached) = idx.and_then(|idx| self.cache.get_mut(&idx)) else {
+            return;
+        };
+        if !matches!(cached.state, Some(RequestState::Ready(_))) {
             return;
         }
-        self.pending_redraw |= idx
-            .and_then(|idx| self.cache.get_mut(&idx))
-            .is_some_and(|cached| cached.scroll(event, height));
+        self.pending_redraw |= match event {
+            PreviewEvent::ToggleLineNumbers => {
+                cached.line_numbers_override = Some(!cached.line_numbers());
+                true
+            }
+            PreviewEvent::SetLineNumbers(enabled) => {
+                let previous = cached.line_numbers();
+                cached.line_numbers_override = enabled;
+                previous != cached.line_numbers()
+            }
+            event if !self.area.is_empty() => {
+                cached.scroll(event, self.area.height.saturating_sub(2))
+            }
+            _ => false,
+        };
     }
     fn resize_area(&mut self, area: Area) {
         self.area = area;
@@ -174,12 +187,13 @@ impl<E, P> Component<E> for PreviewPane<P> {
     }
     fn draw<D: Rect>(&mut self, _engine: &E, rect: &mut D) -> io::Result<()> {
         let preview = self.last_item.and_then(|idx| self.cache.peek(&idx));
+        let line_numbers = preview.is_some_and(Cached::line_numbers);
         super::draw::draw(
             rect,
             preview,
             self.boundary_chars,
             self.ellipsis,
-            self.line_numbers,
+            line_numbers,
         )
     }
 }
@@ -188,7 +202,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewComponent<T> for PreviewPan
     type Error = P::AbortErr;
     const ENABLED: bool = true;
     fn handle(&mut self, event: PreviewEvent, selected_id: Option<u32>) {
-        self.scroll(selected_id, event);
+        self.handle_event(selected_id, event);
     }
     fn update(
         &mut self,
