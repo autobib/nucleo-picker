@@ -14,6 +14,8 @@
 //! [examples folder](https://github.com/autobib/nucleo-picker/tree/master/examples)
 //! on GitHub.
 
+#[cfg(feature = "preview-ansi")]
+mod ansi;
 mod buffer;
 mod cache;
 mod draw;
@@ -26,6 +28,8 @@ mod scroll;
 
 use std::{convert::Infallible, num::NonZero, time::Duration};
 
+#[cfg(feature = "preview-ansi")]
+pub use ansi::AnsiWriter;
 pub use buffer::{PreviewBuffer, PreviewLine};
 pub use picker::PreviewPicker;
 pub use pool::{PoolPreviewer, PreviewWorker};
