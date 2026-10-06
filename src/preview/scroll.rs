@@ -12,6 +12,11 @@ pub enum PreviewEvent {
     PageUp(usize),
     /// Scroll towards the end of the buffer by 1 page.
     PageDown(usize),
+    /// Toggle the presence of line numbers in an active preview pane.
+    ToggleLineNumbers,
+    /// Set visibility of line numbers in an active preview pane, or None to use the preview pane
+    /// default.
+    SetLineNumbers(Option<bool>),
 }
 
 impl Cached {
@@ -32,6 +37,7 @@ impl Cached {
             PreviewEvent::PageDown(pages) => position
                 .saturating_add(pages.saturating_mul(height))
                 .min(maximum),
+            PreviewEvent::ToggleLineNumbers | PreviewEvent::SetLineNumbers(_) => return false,
         };
         let changed = self.scroll_position != new_position;
         self.scroll_position = new_position;
@@ -63,6 +69,7 @@ mod tests {
         Cached {
             state: Some(RequestState::Ready(buffer)),
             scroll_position: 0,
+            line_numbers_override: None,
         }
     }
 
@@ -147,6 +154,7 @@ mod tests {
         let mut cached = Cached {
             state: Some(RequestState::Pending(pending)),
             scroll_position: 0,
+            line_numbers_override: None,
         };
         assert!(!cached.scroll(PreviewEvent::Down(1), 8));
         let active = queued.start().unwrap();

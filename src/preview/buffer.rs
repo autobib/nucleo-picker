@@ -103,6 +103,7 @@ pub struct PreviewBuffer {
     lines: Vec<LineIndex>,
     styles: Vec<StyleSpan>,
     is_err: bool,
+    line_numbers: bool,
 }
 
 #[derive(Debug)]
@@ -137,6 +138,7 @@ impl Default for PreviewBuffer {
             }],
             styles: Vec::new(),
             is_err: false,
+            line_numbers: false,
         }
     }
 }
@@ -149,13 +151,15 @@ impl PreviewBuffer {
 
     /// Clear this buffer, retaining the underlying allocations.
     ///
-    /// This removes all lines and styles, leaving a single empty line, and resets the error flag.
+    /// This removes all lines and styles (leaving a single empty line) resets the error flag, and
+    /// sets the line-number preference to `false`.
     pub fn clear(&mut self) {
         self.text.clear();
         self.lines.clear();
         self.styles.clear();
         self.push_empty_line();
         self.is_err = false;
+        self.line_numbers = false;
     }
 
     /// Set the failure status of the buffer.
@@ -166,6 +170,20 @@ impl PreviewBuffer {
     /// Get the failure status of the buffer.
     pub fn is_err(&self) -> bool {
         self.is_err
+    }
+
+    /// Set the line-number display default.
+    ///
+    /// The default is `false` (do not display line numbers). Line numbers are displayed in a column
+    /// on the left side of the preview pane and are always hidden if they would cover the entire
+    /// preview pane.
+    pub fn set_line_numbers(&mut self, enabled: bool) {
+        self.line_numbers = enabled;
+    }
+
+    /// Returns the line-number display default of this buffer.
+    pub fn line_numbers(&self) -> bool {
+        self.line_numbers
     }
 
     /// Append an unstyled segment to the current line in the buffer.

@@ -13,6 +13,7 @@ fn empty_buffers_always_have_a_current_line() {
             assert_eq!(buffer.line(0).unwrap().as_str(), "");
             assert_eq!(buffer.line(0).unwrap().spans().count(), 0);
             assert!(buffer.line(1).is_none());
+            assert!(!buffer.line_numbers());
 
             buffer.push_str("");
             buffer.push_styled_str("", style);
@@ -477,6 +478,7 @@ fn clear_reuses_all_allocations() {
     buffer.newline();
     buffer.push_styled_str("third", style);
     buffer.is_err = true;
+    buffer.set_line_numbers(true);
     let capacities = (
         buffer.text.capacity(),
         buffer.lines.capacity(),
@@ -495,6 +497,7 @@ fn clear_reuses_all_allocations() {
     assert_eq!(buffer.line(0).unwrap().spans().count(), 0);
     assert!(buffer.styles.is_empty());
     assert!(!buffer.is_err);
+    assert!(!buffer.line_numbers());
     assert_eq!(
         capacities,
         (

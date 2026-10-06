@@ -34,7 +34,6 @@ impl Render<Poem> for PoemRenderer {
 fn main() -> io::Result<()> {
     let mut picker = PickerOptions::new()
         .highlight_line(true)
-        .preview_line_numbers(true)
         .picker(PoemRenderer);
     let injector = picker.injector();
 
@@ -45,6 +44,7 @@ fn main() -> io::Result<()> {
     });
 
     let previewer = SyncPreviewer(|poem: &Poem, buffer: &mut PreviewBuffer| {
+        buffer.set_line_numbers(true);
         for (index, line) in poem.lines.iter().enumerate() {
             // don't write a trailing newline
             if index != 0 {

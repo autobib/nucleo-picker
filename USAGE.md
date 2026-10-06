@@ -71,6 +71,7 @@ shift + ↑                          | Preview Up 1 Line
 shift + ↓                          | Preview Down 1 Line
 shift + ⇞                          | Preview Up 1 Page
 shift + ⇟                          | Preview Down 1 Page
+ctrl + l                           | Toggle Preview Line Numbers
 
 
 
