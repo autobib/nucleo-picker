@@ -3,15 +3,16 @@
 //! Run with:
 //!
 //! ```bash
-//! cargo run --release --features preview --example find-preview -- [directory]
+//! cargo run --release --features preview --example find_preview_full -- [directory]
 //! ```
 //!
 //! This implementation generates previews for files which are valid UTF-8, and prints read errors
 //! directly into the preview buffer.
 //!
-//! This example uses `PoolPreviewer` to perform the preview worker management. See the
-//! `find-preview-full` example for the equivalent manual worker pool, which may be useful for
-//! reference for more complex `Preview` implementations.
+//! This example could be simplified by using `PoolPreviewer`; see `find_preview` for the details. The
+//! implementation here is provided to give a somewhat simplified by complete reference for implementing `Preview`.
+//! Note that some details are omitted here, mainly around panic handling and job queue growth
+//! management.
 
 use std::{
     borrow::Cow,
@@ -19,14 +20,13 @@ use std::{
     env::args_os,
     fs::File,
     io::{self, Read},
-    num::NonZeroUsize,
     path::PathBuf,
     process::ExitCode,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    thread,
+    thread::{self, JoinHandle},
     time::Duration,
 };
 
@@ -35,11 +35,14 @@ use ignore::{DirEntry, WalkBuilder, WalkState};
 use nucleo_picker::{
     PickerOptions, Render,
     preview::{
-        PoolPreviewer, Preview, PreviewBuffer, PreviewWorker,
-        request::{PreviewRequest, PreviewResponse},
+        Preview, PreviewBuffer,
+        request::{ActivePreviewRequest, PreviewRequest, PreviewResponse, QueuedPreviewRequest},
     },
 };
+use parking_lot::{Condvar, Mutex};
 
+// the number of preview workers
+const WORKERS: usize = 4;
 // maximum size of a preview
 const PREVIEW_BYTES: usize = 256 * 1024;
 
@@ -53,17 +56,33 @@ impl Render<DirEntry> for DirEntryRender {
     }
 }
 
-// The internal `PoolPreviewer` does most of the work, but we use this wrapper type since we can
-// handle certain file types directly without IO and immediately return.
+struct Shared {
+    // This is a LIFO queue for preview jobs. If this is `None`, the thread is closed
+    jobs: Mutex<Option<Vec<QueuedPreviewRequest<DirEntry>>>>,
+    available: Condvar,
+}
+
 struct FilePreview {
-    pool: PoolPreviewer<DirEntry>,
+    shared: Arc<Shared>,
+    workers: Vec<JoinHandle<()>>,
 }
 
 impl FilePreview {
     fn new() -> io::Result<Self> {
-        Ok(Self {
-            pool: PoolPreviewer::new(FileWorker::default(), NonZeroUsize::new(4).unwrap())?,
-        })
+        let mut pool = Self {
+            shared: Arc::new(Shared {
+                jobs: Mutex::new(Some(Vec::new())),
+                available: Condvar::new(),
+            }),
+            workers: Vec::with_capacity(WORKERS),
+        };
+        // construct the pool before spawning so Drop joins existing workers if a later spawn fails.
+        for _ in 0..WORKERS {
+            let shared = Arc::clone(&pool.shared);
+            pool.workers
+                .push(thread::Builder::new().spawn(move || work(&shared))?);
+        }
+        Ok(pool)
     }
 }
 
@@ -76,7 +95,7 @@ impl Preview<DirEntry> for FilePreview {
         &mut self,
         entry: &DirEntry,
         request: PreviewRequest<'_, DirEntry>,
-        timeout: Duration,
+        _timeout: Duration,
     ) -> Result<PreviewResponse, Self::AbortErr> {
         // entry metadata is already available in the dir entry so we can label non-files synchronously
         let label = match entry.file_type() {
@@ -91,43 +110,88 @@ impl Preview<DirEntry> for FilePreview {
             buffer.push_styled_str(label, ContentStyle::new().dim().italic());
             return Ok(PreviewResponse::Ready(buffer));
         }
-
-        // let the preview pool handle everything else
-        self.pool.preview(entry, request, timeout)
+        // defer file IO to the worker pool to not delay the frame render
+        let (pending, request) = request.defer();
+        {
+            let mut jobs = self.shared.jobs.lock();
+            let jobs = jobs.as_mut().unwrap();
+            // for large queues, it may be worthwhile to amortize this step; for example, this is
+            // done internally by the `PoolPreviewer`.
+            jobs.retain(|request| !request.is_cancelled());
+            jobs.push(request);
+        }
+        self.shared.available.notify_one();
+        Ok(PreviewResponse::Pending(pending))
     }
 }
 
-/// A single preview worker. It holds scratch space for reading from the file.
-#[derive(Clone, Default)]
-struct FileWorker {
-    bytes: Vec<u8>,
-}
-
-impl PreviewWorker<DirEntry> for FileWorker {
-    fn preview(
-        &mut self,
-        entry: &DirEntry,
-        buffer: &mut PreviewBuffer,
-        is_cancelled: impl Fn() -> bool,
-    ) {
-        if let Err(err) = read_preview(entry, &mut self.bytes, buffer, is_cancelled) {
-            buffer.clear();
-            buffer.set_err(true);
-            buffer.push_text(&format!(
-                "Cannot preview {}:\n{err}",
-                entry.path().display()
-            ));
+impl Drop for FilePreview {
+    fn drop(&mut self) {
+        // the picker cancels outstanding requests before dropping the previewer, so active workers will observe cancellation
+        let queued = self.shared.jobs.lock().take();
+        self.shared.available.notify_all();
+        drop(queued);
+        // join after releasing the lock so workers can finish
+        for worker in self.workers.drain(..) {
+            let _ = worker.join();
         }
     }
 }
 
+fn work(shared: &Shared) {
+    let mut bytes = Vec::new();
+    let mut buffer = PreviewBuffer::new();
+    loop {
+        let job = {
+            let mut jobs = shared.jobs.lock();
+            loop {
+                let Some(queue) = jobs.as_mut() else {
+                    return;
+                };
+                // remember this is a LIFO queue: the newest request is the highest priority so we
+                // process that first
+                if let Some(job) = queue.pop() {
+                    break job;
+                }
+                shared.available.wait(&mut jobs);
+            }
+        };
+        // 'starting' means that a worker has picked up the job: this prevents the picker from
+        // cancelling the job for reprioritization since we are already working on it. if this is
+        // `None` it means that the job was already cancelled while it was queued
+        let Some(request) = job.start() else {
+            continue;
+        };
+        if request.is_cancelled() {
+            continue;
+        }
+        // make sure to clear the buffer in case publication failed last time
+        buffer.clear();
+        let result = read_preview(&request, &mut bytes, &mut buffer);
+        if let Err(err) = result {
+            // the buffer might have been partially written by `read_preview`
+            buffer.clear();
+            buffer.set_err(true);
+            // use `push_text` here for untrusted content and error text since it will handle
+            // newlines, control chars, etc. without corrupting the picker screen
+            buffer.push_text(&format!(
+                "Cannot preview {}:\n{err}",
+                request.item().path().display()
+            ));
+        }
+        // since publication can technically race with cancellation, we have to swap in our reusable
+        // buffer, but we don't actually care if it succeeds or not. if it fails the picker will
+        // manage retries automatically for us
+        let _ = request.publish(&mut buffer);
+    }
+}
+
 fn read_preview(
-    entry: &DirEntry,
+    request: &ActivePreviewRequest<DirEntry>,
     bytes: &mut Vec<u8>,
     buffer: &mut PreviewBuffer,
-    is_cancelled: impl Fn() -> bool,
 ) -> io::Result<()> {
-    let mut file = File::open(entry.path())?;
+    let mut file = File::open(request.item().path())?;
     if !file.metadata()?.is_file() {
         return Err(io::Error::other("Path is no longer a regular file"));
     }
@@ -136,7 +200,7 @@ fn read_preview(
     // we periodically check `is_cancelled` cooperatively to avoid doing too much extra work if
     // we can avoid it
     while bytes.len() <= PREVIEW_BYTES {
-        if is_cancelled() {
+        if request.is_cancelled() {
             return Ok(());
         }
         // read one extra byte to distinguish a perfectly full preview from a truncated file
@@ -149,7 +213,7 @@ fn read_preview(
         };
         bytes.extend_from_slice(&chunk[..count]);
     }
-    if is_cancelled() {
+    if request.is_cancelled() {
         return Ok(());
     }
     let truncated = bytes.len() > PREVIEW_BYTES;
@@ -183,7 +247,6 @@ fn main() -> io::Result<ExitCode> {
     let root = args_os()
         .nth(1)
         .map_or_else(|| PathBuf::from("."), PathBuf::from);
-
     let mut picker = PickerOptions::new().match_paths().picker(DirEntryRender);
 
     let previewer = FilePreview::new()?;

@@ -3,7 +3,7 @@
 //! This is a basic synchronous preview example using serde. Run with
 //!
 //! ```bash
-//! cargo run --release --example preview-serde --features serde,preview
+//! cargo run --release --example preview_serde --features serde,preview
 //! ```
 use std::{io, thread::spawn};
 

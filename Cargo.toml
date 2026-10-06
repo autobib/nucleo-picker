@@ -37,7 +37,6 @@ unicode-segmentation = "1.12.0"
 unicode-width = { version = "0.2.2", default-features = false }
 
 [dev-dependencies]
-clap = { version = "4.5", features = ["derive"] }
 crossbeam = "0.8.4"
 rand = "0.10.2"
 ignore = "0.4"
@@ -55,9 +54,6 @@ use_self = "warn"
 name = "custom_io"
 
 [[example]]
-name = "fzf"
-
-[[example]]
 name = "fzf_basic"
 
 [[example]]
@@ -67,11 +63,11 @@ name = "fzf_err_handling"
 name = "find"
 
 [[example]]
-name = "find-preview"
+name = "find_preview"
 required-features = ["preview"]
 
 [[example]]
-name = "find-preview-full"
+name = "find_preview_full"
 required-features = ["preview"]
 
 [[example]]
@@ -95,7 +91,7 @@ name = "preview"
 required-features = ["preview"]
 
 [[example]]
-name = "preview-serde"
+name = "preview_serde"
 required-features = ["serde", "preview"]
 
 [[example]]

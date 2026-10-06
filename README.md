@@ -90,13 +90,9 @@ More examples can be found in the [examples directory](examples).
 
 ## Feature parity with `fzf`
 
-There is an [extended `fzf` example](examples/fzf.rs) demonstrating the current configuration options using the same syntax as `fzf` command-line tool.
-Try it out:
-```sh
-cargo build --example fzf --release
-./target/release/examples/fzf --help
-```
+There is an [extended `fzf` example](https://github.com/alexrutar/nucleo-picker-fzf) demonstrating this library, using the same syntax as `fzf` command-line tool.
 The supported features are tracked below.
+
 The checked examples are implemented and the unchecked examples are features I would like to support in the future.
 If there are particular `fzf`-specific features that you would like to see supported that are not on this list, please submit an issue.
 

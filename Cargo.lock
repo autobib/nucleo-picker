@@ -542,7 +542,6 @@ name = "nucleo-picker"
 version = "0.12.2"
 dependencies = [
  "anstyle-parse",
- "clap",
  "crossbeam",
  "crossterm",
  "ignore",

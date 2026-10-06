@@ -3,7 +3,7 @@
 //! Read lines from `stdin` in a streaming fashion and populate the picker, imitating the basic
 //! functionality of [fzf](https://github.com/junegunn/fzf).
 //!
-//! Unlike the `fzf` example, this example forwards IO errors to the picker thread and tells it to
+//! Unlike the `fzf_basic` example, this example forwards IO errors to the picker thread and tells it to
 //! disconnect.
 
 use std::{
