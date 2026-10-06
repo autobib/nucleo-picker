@@ -78,6 +78,7 @@ impl<P> PreviewPane<P> {
                 idx,
                 Cached {
                     scroll_position: 0,
+                    horizontal_position: 0,
                     line_numbers_override: None,
                     state: None,
                 },
@@ -157,9 +158,13 @@ impl<P> PreviewPane<P> {
                 cached.line_numbers_override = enabled;
                 previous != cached.line_numbers()
             }
-            event if !self.area.is_empty() => {
-                cached.scroll(event, self.area.height.saturating_sub(2))
-            }
+            event if !self.area.is_empty() => cached.scroll(
+                event,
+                (
+                    self.area.width.saturating_sub(2),
+                    self.area.height.saturating_sub(2),
+                ),
+            ),
             _ => false,
         };
     }
@@ -187,14 +192,7 @@ impl<E, P> Component<E> for PreviewPane<P> {
     }
     fn draw<D: Rect>(&mut self, _engine: &E, rect: &mut D) -> io::Result<()> {
         let preview = self.last_item.and_then(|idx| self.cache.peek(&idx));
-        let line_numbers = preview.is_some_and(Cached::line_numbers);
-        super::draw::draw(
-            rect,
-            preview,
-            self.boundary_chars,
-            self.ellipsis,
-            line_numbers,
-        )
+        super::draw::draw(rect, preview, self.boundary_chars, self.ellipsis)
     }
 }
 

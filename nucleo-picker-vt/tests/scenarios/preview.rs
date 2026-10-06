@@ -881,6 +881,175 @@ fn toggle_line_numbers() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+fn horizontal_scroll_preserves_columns_across_navigation_and_layout() -> Result<(), Box<dyn Error>>
+{
+    let mut sr = start_with(
+        "horizontal_scroll",
+        vec!["long", "short"],
+        PickerOptions::new()
+            .reverse_items(false)
+            .sort_results(false),
+        TextPreview(|item, buffer| {
+            buffer.set_line_numbers(true);
+            buffer.push_text(if item == "long" {
+                "abcdefghijklmnop\nxy\n\nuv\n\nabcdefghijklmnop"
+            } else {
+                "short"
+            });
+        }),
+    );
+    sr.set_dimensions(24, 5)?;
+    sr.wait_for_match_complete(2, 2)?;
+    let shifted = &["1 …jklmnop", "2 …", "3 "];
+    sr.send(Event::Preview(PreviewEvent::Right(usize::MAX)))?;
+    assert_pane(&sr.checkpoint("right edge")?, false, shifted);
+    sr.send(Event::Preview(PreviewEvent::Down(2)))?;
+    sr.send(Event::Preview(PreviewEvent::Right(usize::MAX)))?;
+    assert_pane(&sr.checkpoint("short rows")?, false, &["3 ", "4 …", "5 "]);
+    sr.send(Event::Preview(PreviewEvent::Up(2)))?;
+    assert_pane(&sr.checkpoint("back to long rows")?, false, shifted);
+
+    sr.send(Event::Prompt(PromptEvent::Reset("short".to_owned())))?;
+    sr.wait_for_match_complete(1, 2)?;
+    assert_pane(&sr.checkpoint("other preview")?, false, &["1 short"]);
+    sr.send(Event::Prompt(PromptEvent::Reset("long".to_owned())))?;
+    sr.wait_for_match_complete(1, 2)?;
+    assert_pane(&sr.checkpoint("cached offset")?, false, shifted);
+
+    sr.set_dimensions(32, 5)?;
+    sr.send(Event::Preview(PreviewEvent::Right(1)))?;
+    assert_pane(&sr.checkpoint("wider pane")?, false, shifted);
+    sr.send(Event::Preview(PreviewEvent::ToggleLineNumbers))?;
+    sr.send(Event::Preview(PreviewEvent::Right(1)))?;
+    assert_pane(
+        &sr.checkpoint("without gutter")?,
+        false,
+        &["…jklmnop", "…", ""],
+    );
+    sr.send(Event::Preview(PreviewEvent::ToggleLineNumbers))?;
+    sr.set_dimensions(24, 5)?;
+
+    sr.send(Event::Layout(LayoutEvent::MoveDividerLeft(2)))?;
+    sr.send(Event::Preview(PreviewEvent::Right(1)))?;
+    assert_pane_at_width(
+        &sr.checkpoint("moved divider")?,
+        false,
+        shifted,
+        BoundaryChars::new(),
+        None,
+        14,
+    );
+    sr.send(Event::Layout(LayoutEvent::MoveDividerRight(2)))?;
+    sr.send(Event::Layout(LayoutEvent::TogglePreview))?;
+    for event in [
+        PreviewEvent::AlignLeft,
+        PreviewEvent::AlignRight,
+        PreviewEvent::AlignBottom,
+        PreviewEvent::AlignTop,
+    ] {
+        sr.send(Event::Preview(event))?;
+    }
+    sr.send(Event::Preview(PreviewEvent::Right(1)))?;
+    assert!(
+        sr.checkpoint("hidden pane")?
+            .text
+            .iter()
+            .all(|line| !line.contains('╭'))
+    );
+    sr.send(Event::Layout(LayoutEvent::TogglePreview))?;
+    assert_pane(&sr.checkpoint("shown pane")?, false, shifted);
+
+    let key = |code| keybind_default(KeyEvent::new(code, KeyModifiers::SHIFT)).unwrap();
+    sr.send(key(KeyCode::Left))?;
+    assert_pane(
+        &sr.checkpoint("left one column")?,
+        false,
+        &["1 …ijklmn…", "2 …", "3 "],
+    );
+    sr.send(key(KeyCode::Home))?;
+    assert_pane(
+        &sr.checkpoint("left edge")?,
+        false,
+        &["1 abcdefg…", "2 xy", "3 "],
+    );
+    sr.send(Event::Preview(PreviewEvent::Right(usize::MAX)))?;
+    assert_pane(&sr.checkpoint("restored")?, false, shifted);
+    checkpoint!(sr, "restored");
+    sr.send(Event::Preview(PreviewEvent::AlignBottom))?;
+    assert_pane(
+        &sr.checkpoint("aligned bottom")?,
+        false,
+        &["4 …", "5 ", "6 …jklmnop"],
+    );
+    sr.send(Event::Preview(PreviewEvent::AlignTop))?;
+    assert_pane(&sr.checkpoint("aligned top")?, false, shifted);
+    sr.send(Event::Preview(PreviewEvent::Down(2)))?;
+    sr.send(key(KeyCode::End))?;
+    assert_pane(
+        &sr.checkpoint("aligned short rows")?,
+        false,
+        &["3 ", "4 uv", "5 "],
+    );
+    sr.send(Event::Preview(PreviewEvent::AlignTop))?;
+    assert_pane(
+        &sr.checkpoint("top preserves new column")?,
+        false,
+        &["1 abcdefg…", "2 xy", "3 "],
+    );
+    sr.send(Event::Quit)?;
+    assert!(sr.finish()?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn horizontal_scroll_clips_styled_graphemes() -> Result<(), Box<dyn Error>> {
+    let mut sr = start_with(
+        "horizontal_unicode",
+        vec!["item"],
+        PickerOptions::new().truncation_ellipsis('~'),
+        TextPreview(|_, buffer| {
+            buffer.set_line_numbers(true);
+            buffer.push_styled_line("ab界cdefgh", ContentStyle::new().green().bold());
+            buffer.push_str("a👩");
+            buffer.push_styled_str("🏽‍💻", ContentStyle::new().blue());
+            buffer.push_styled_line("bcdefgh", ContentStyle::new().red().underlined());
+            buffer.push_str("e");
+            buffer.push_styled_str("\u{301}", ContentStyle::new().blue());
+            buffer.push_line("abcdefgh");
+            buffer.push_str("ab");
+        }),
+    );
+    sr.set_dimensions(18, 6)?;
+    sr.wait_for_match_complete(1, 1)?;
+    let key = |code| keybind_default(KeyEvent::new(code, KeyModifiers::SHIFT)).unwrap();
+    sr.send(key(KeyCode::Right))?;
+    let clipped = &["1 ~界c~", "2 ~~bc~", "3 ~bcd~", "4 ~"];
+    assert_pane(&sr.checkpoint("inside graphemes")?, false, clipped);
+    sr.send(key(KeyCode::End))?;
+    assert_pane(
+        &sr.checkpoint("right edge")?,
+        false,
+        &["1 ~efgh", "2 ~efgh", "3 ~fgh", "4 ~"],
+    );
+    sr.send(key(KeyCode::Home))?;
+    sr.send(key(KeyCode::Left))?;
+    sr.send(key(KeyCode::Right))?;
+    assert_pane(&sr.checkpoint("restored clipping")?, false, clipped);
+    sr.set_dimensions(6, 6)?;
+    assert_pane(
+        &sr.checkpoint("one content column")?,
+        false,
+        &["~", "~", "~", "~"],
+    );
+    sr.set_dimensions(18, 6)?;
+    assert_pane(&sr.checkpoint("restored width")?, false, clipped);
+    checkpoint!(sr, "styled");
+    sr.send(Event::Quit)?;
+    assert!(sr.finish()?.is_empty());
+    Ok(())
+}
+
+#[test]
 fn numbered_scrolling_and_blank_rows() -> Result<(), Box<dyn Error>> {
     let assert_numbers = |snapshot: &PaneSnapshot, expected: &[(u16, u16, u16)]| {
         let column = snapshot.size.cols - snapshot.size.cols / 2;
