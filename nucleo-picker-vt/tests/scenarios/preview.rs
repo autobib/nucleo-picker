@@ -1198,6 +1198,55 @@ impl Preview<String> for DeferredPreview {
 }
 
 #[test]
+fn invalidating_the_current_preview_redraws_loading_and_new_contents() -> Result<(), Box<dyn Error>>
+{
+    for ch in ['r', 'R'] {
+        assert!(
+            keybind_default::<Infallible>(KeyEvent::new(
+                KeyCode::Char(ch),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+            ))
+            .is_none()
+        );
+    }
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let mut sr = start_with(
+        "refresh_preview",
+        vec!["alpha"],
+        PickerOptions::new(),
+        DeferredPreview(sender),
+    );
+    sr.set_dimensions(30, 5)?;
+    sr.wait_for_match_complete(1, 1)?;
+    let mut buffer = PreviewBuffer::new();
+    buffer.push_text("a\nb\nc\nd\ne\nf");
+    assert!(
+        receiver
+            .recv_timeout(WAIT)?
+            .start()
+            .unwrap()
+            .publish(&mut buffer)
+    );
+    assert_pane(&sr.checkpoint("original")?, false, &["a", "b", "c"]);
+    sr.send(Event::Preview(PreviewEvent::Down(3)))?;
+    sr.send(Event::Preview(PreviewEvent::ToggleLineNumbers))?;
+    assert_pane(&sr.checkpoint("scrolled")?, false, &["4 d", "5 e", "6 f"]);
+
+    sr.send(keybind_default(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL)).unwrap())?;
+    assert_pane(&sr.checkpoint("refresh pending")?, false, &["Loading..."]);
+    let queued = receiver.recv_timeout(WAIT)?;
+    assert_eq!(queued.item(), "alpha");
+    buffer.clear();
+    buffer.push_text("new\ntext");
+    assert!(queued.start().unwrap().publish(&mut buffer));
+    assert_pane(&sr.checkpoint("refreshed")?, false, &["new", "text"]);
+    assert!(receiver.try_recv().is_err());
+    sr.send(Event::Quit)?;
+    assert!(sr.finish()?.is_empty());
+    Ok(())
+}
+
+#[test]
 fn pending_previews_clear_stale_content_and_render_on_publication() -> Result<(), Box<dyn Error>> {
     let (sender, receiver) = std::sync::mpsc::channel();
     let mut sr = start_with(

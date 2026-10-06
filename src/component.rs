@@ -39,6 +39,7 @@ pub(crate) trait PreviewComponent<T> {
     // we don't want any runtime cost
     const ENABLED: bool;
 
+    /// Handle a preview event
     #[cfg(feature = "preview")]
     fn handle(&mut self, event: PreviewEvent, selected_id: Option<u32>);
 

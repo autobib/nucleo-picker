@@ -24,8 +24,12 @@ pub(super) fn draw<D: Rect>(
 ) -> io::Result<()> {
     let number_width = preview.map_or(0, |cached| cached.number_width(rect.width().get() - 2));
     let horizontal_position = preview.map_or(0, |cached| cached.horizontal_position);
-    let pending =
-        preview.is_some_and(|cached| matches!(cached.state, Some(RequestState::Pending(_))));
+    let pending = preview.is_some_and(|cached| {
+        matches!(
+            cached.state,
+            Some(RequestState::Pending(_) | RequestState::Retry(_))
+        )
+    });
     let preview = preview.and_then(|cached| match &cached.state {
         Some(RequestState::Ready(buffer)) => Some((buffer, cached.scroll_position)),
         _ => None,

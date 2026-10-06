@@ -2,6 +2,7 @@ use super::{
     BoundaryChars, Preview, PreviewBuffer, PreviewConfig, PreviewEvent,
     cache::{BufferNotReady, Cached, RequestState},
     request::{PreviewRequest, PreviewResponse},
+    scroll::PreviewMovement,
 };
 use crate::{
     PickerChars,
@@ -25,7 +26,7 @@ pub(crate) struct PreviewPane<P> {
     pending_redraw: bool,
     // the epoch is advanced when the item changes and is reset on restart. the epoch is passed to
     // each preview request and then returned by the previewer. it is used to prevent repeated
-    // resubmission when there are no changes.
+    // resubmission when the cursor has not moved
     epoch: u64,
     area: Area,
     boundary_chars: BoundaryChars,
@@ -119,7 +120,7 @@ impl<P> PreviewPane<P> {
                     pending.reprioritize()
                 }
                 Err(BufferNotReady::Queued(state) | BufferNotReady::Active(state)) => Ok(state),
-                Err(BufferNotReady::Dropped(buffer)) => Err(buffer),
+                Err(BufferNotReady::Retry(buffer)) => Err(buffer),
             },
             None => Err(PreviewBuffer::new()),
         };
@@ -145,29 +146,62 @@ impl<P> PreviewPane<P> {
         let Some(cached) = idx.and_then(|idx| self.cache.get_mut(&idx)) else {
             return;
         };
+
+        // handle refresh first since we will refresh / cancel
+        // even if the preview is not ready yet
+        if matches!(event, PreviewEvent::Refresh) {
+            self.pending_redraw |= self.last_item == idx;
+            cached.scroll_position = 0;
+            cached.horizontal_position = 0;
+            cached.line_numbers_override = None;
+            cached.state = cached
+                .state
+                .take()
+                .map(|state| RequestState::Retry(state.into_buffer()));
+            return;
+        }
+
+        // then check: is the preview ready? if not, nothing to do
         if !matches!(cached.state, Some(RequestState::Ready(_))) {
             return;
         }
-        self.pending_redraw |= match event {
+
+        // handle other movement events
+        let movement = match event {
             PreviewEvent::ToggleLineNumbers => {
                 cached.line_numbers_override = Some(!cached.line_numbers());
-                true
+                self.pending_redraw = true;
+                return;
             }
             PreviewEvent::SetLineNumbers(enabled) => {
                 let previous = cached.line_numbers();
                 cached.line_numbers_override = enabled;
-                previous != cached.line_numbers()
+                self.pending_redraw |= previous != cached.line_numbers();
+                return;
             }
-            event if !self.area.is_empty() => cached.scroll(
-                event,
+            PreviewEvent::Left(columns) => PreviewMovement::Left(columns),
+            PreviewEvent::Right(columns) => PreviewMovement::Right(columns),
+            PreviewEvent::AlignLeft => PreviewMovement::AlignLeft,
+            PreviewEvent::AlignRight => PreviewMovement::AlignRight,
+            PreviewEvent::Up(lines) => PreviewMovement::Up(lines),
+            PreviewEvent::Down(lines) => PreviewMovement::Down(lines),
+            PreviewEvent::PageUp(pages) => PreviewMovement::PageUp(pages),
+            PreviewEvent::PageDown(pages) => PreviewMovement::PageDown(pages),
+            PreviewEvent::AlignTop => PreviewMovement::AlignTop,
+            PreviewEvent::AlignBottom => PreviewMovement::AlignBottom,
+            PreviewEvent::Refresh => return,
+        };
+        if !self.area.is_empty() {
+            self.pending_redraw |= cached.scroll(
+                movement,
                 (
                     self.area.width.saturating_sub(2),
                     self.area.height.saturating_sub(2),
                 ),
-            ),
-            _ => false,
-        };
+            );
+        }
     }
+
     fn resize_area(&mut self, area: Area) {
         self.area = area;
         let height = if area.is_empty() {
@@ -179,6 +213,7 @@ impl<P> PreviewPane<P> {
             cached.resize(height);
         }
     }
+
     fn restart_cache(&mut self) {
         self.pending_redraw |= self.last_item.take().is_some();
         self.cache.clear();
@@ -198,10 +233,13 @@ impl<E, P> Component<E> for PreviewPane<P> {
 
 impl<T: Send + Sync + 'static, P: Preview<T>> PreviewComponent<T> for PreviewPane<P> {
     type Error = P::AbortErr;
+
     const ENABLED: bool = true;
+
     fn handle(&mut self, event: PreviewEvent, selected_id: Option<u32>) {
         self.handle_event(selected_id, event);
     }
+
     fn update(
         &mut self,
         selected: Option<u32>,
@@ -211,6 +249,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewComponent<T> for PreviewPan
         self.update_current(selected, snapshot, deadline)?;
         Ok(std::mem::take(&mut self.pending_redraw))
     }
+
     fn restart(&mut self) {
         self.restart_cache();
     }

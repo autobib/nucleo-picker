@@ -10,6 +10,8 @@ use crate::util::unicode::{Processor, UnicodeProcessor};
 #[derive(Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PreviewEvent {
+    /// Refresh the selected preview.
+    Refresh,
     /// Scroll to the left by `n` columns.
     Left(usize),
     /// Scroll to the right by `n` columns.
@@ -48,8 +50,25 @@ pub enum PreviewEvent {
     SetLineNumbers(Option<bool>),
 }
 
+pub(super) enum PreviewMovement {
+    Left(usize),
+    Right(usize),
+    AlignLeft,
+    AlignRight,
+    Up(usize),
+    Down(usize),
+    PageUp(usize),
+    PageDown(usize),
+    AlignTop,
+    AlignBottom,
+}
+
 impl Cached {
-    pub fn scroll(&mut self, event: PreviewEvent, (width, height): (u16, u16)) -> bool {
+    pub(super) fn scroll(
+        &mut self,
+        movement: PreviewMovement,
+        (width, height): (u16, u16),
+    ) -> bool {
         if width == 0 || height == 0 {
             return false;
         }
@@ -60,9 +79,9 @@ impl Cached {
         let maximum = buffer.lines().len().saturating_sub(height);
         let position = self.scroll_position.min(maximum);
         let horizontal = self.horizontal_position;
-        let (offset, new_position) = match event {
-            PreviewEvent::AlignLeft => (&mut self.horizontal_position, 0),
-            PreviewEvent::AlignRight => {
+        let (offset, new_position) = match movement {
+            PreviewMovement::AlignLeft => (&mut self.horizontal_position, 0),
+            PreviewMovement::AlignRight => {
                 let rows = position..position.saturating_add(height).min(buffer.lines().len());
                 let limit = horizontal_limit::<UnicodeProcessor>(
                     buffer,
@@ -72,13 +91,13 @@ impl Cached {
                 );
                 (&mut self.horizontal_position, limit)
             }
-            PreviewEvent::AlignTop => (&mut self.scroll_position, 0),
-            PreviewEvent::AlignBottom => (&mut self.scroll_position, maximum),
-            PreviewEvent::Left(columns) => (
+            PreviewMovement::AlignTop => (&mut self.scroll_position, 0),
+            PreviewMovement::AlignBottom => (&mut self.scroll_position, maximum),
+            PreviewMovement::Left(columns) => (
                 &mut self.horizontal_position,
                 horizontal.saturating_sub(columns),
             ),
-            PreviewEvent::Right(columns) => {
+            PreviewMovement::Right(columns) => {
                 let target = horizontal.saturating_add(columns);
                 if target == horizontal {
                     return false;
@@ -93,22 +112,23 @@ impl Cached {
                 // Vertical scrolling and layout changes can leave the offset past the local limit.
                 (&mut self.horizontal_position, horizontal.max(limit))
             }
-            PreviewEvent::Up(lines) => (&mut self.scroll_position, position.saturating_sub(lines)),
-            PreviewEvent::Down(lines) => (
+            PreviewMovement::Up(lines) => {
+                (&mut self.scroll_position, position.saturating_sub(lines))
+            }
+            PreviewMovement::Down(lines) => (
                 &mut self.scroll_position,
                 position.saturating_add(lines).min(maximum),
             ),
-            PreviewEvent::PageUp(pages) => (
+            PreviewMovement::PageUp(pages) => (
                 &mut self.scroll_position,
                 position.saturating_sub(pages.saturating_mul(height)),
             ),
-            PreviewEvent::PageDown(pages) => (
+            PreviewMovement::PageDown(pages) => (
                 &mut self.scroll_position,
                 position
                     .saturating_add(pages.saturating_mul(height))
                     .min(maximum),
             ),
-            PreviewEvent::ToggleLineNumbers | PreviewEvent::SetLineNumbers(_) => return false,
         };
         let changed = *offset != new_position;
         *offset = new_position;
@@ -168,35 +188,35 @@ mod tests {
     #[test]
     fn lines_and_pages_clamp_without_overflow() {
         let mut cached = ready(23);
-        assert!(!cached.scroll(PreviewEvent::Up(1), (20, 8)));
-        assert!(cached.scroll(PreviewEvent::Down(2), (20, 8)));
+        assert!(!cached.scroll(PreviewMovement::Up(1), (20, 8)));
+        assert!(cached.scroll(PreviewMovement::Down(2), (20, 8)));
         assert_eq!(cached.scroll_position, 2);
-        assert!(cached.scroll(PreviewEvent::PageDown(1), (20, 8)));
+        assert!(cached.scroll(PreviewMovement::PageDown(1), (20, 8)));
         assert_eq!(cached.scroll_position, 10);
-        assert!(cached.scroll(PreviewEvent::PageDown(usize::MAX), (20, 8)));
+        assert!(cached.scroll(PreviewMovement::PageDown(usize::MAX), (20, 8)));
         assert_eq!(cached.scroll_position, 15);
-        assert!(!cached.scroll(PreviewEvent::Down(usize::MAX), (20, 8)));
-        assert!(cached.scroll(PreviewEvent::PageUp(1), (20, 8)));
+        assert!(!cached.scroll(PreviewMovement::Down(usize::MAX), (20, 8)));
+        assert!(cached.scroll(PreviewMovement::PageUp(1), (20, 8)));
         assert_eq!(cached.scroll_position, 7);
-        assert!(cached.scroll(PreviewEvent::Up(usize::MAX), (20, 8)));
+        assert!(cached.scroll(PreviewMovement::Up(usize::MAX), (20, 8)));
         assert_eq!(cached.scroll_position, 0);
-        assert!(cached.scroll(PreviewEvent::Down(usize::MAX), (20, 8)));
+        assert!(cached.scroll(PreviewMovement::Down(usize::MAX), (20, 8)));
         assert_eq!(cached.scroll_position, 15);
-        assert!(cached.scroll(PreviewEvent::PageUp(usize::MAX), (20, 8)));
+        assert!(cached.scroll(PreviewMovement::PageUp(usize::MAX), (20, 8)));
         assert_eq!(cached.scroll_position, 0);
-        assert!(!cached.scroll(PreviewEvent::Down(0), (20, 8)));
-        assert!(!cached.scroll(PreviewEvent::PageDown(0), (20, 8)));
+        assert!(!cached.scroll(PreviewMovement::Down(0), (20, 8)));
+        assert!(!cached.scroll(PreviewMovement::PageDown(0), (20, 8)));
     }
 
     #[test]
     fn opposite_scroll_events_are_applied_in_order_at_boundaries() {
         let mut cached = ready(23);
-        cached.scroll(PreviewEvent::Up(5), (20, 8));
-        cached.scroll(PreviewEvent::Down(5), (20, 8));
+        cached.scroll(PreviewMovement::Up(5), (20, 8));
+        cached.scroll(PreviewMovement::Down(5), (20, 8));
         assert_eq!(cached.scroll_position, 5);
-        cached.scroll(PreviewEvent::Down(usize::MAX), (20, 8));
-        cached.scroll(PreviewEvent::Down(5), (20, 8));
-        cached.scroll(PreviewEvent::Up(5), (20, 8));
+        cached.scroll(PreviewMovement::Down(usize::MAX), (20, 8));
+        cached.scroll(PreviewMovement::Down(5), (20, 8));
+        cached.scroll(PreviewMovement::Up(5), (20, 8));
         assert_eq!(cached.scroll_position, 10);
     }
 
@@ -204,10 +224,10 @@ mod tests {
     fn short_and_empty_buffers_do_not_scroll() {
         for lines in [1, 3, 8] {
             let mut cached = ready(lines);
-            assert!(!cached.scroll(PreviewEvent::Down(1), (20, 8)));
-            assert!(!cached.scroll(PreviewEvent::PageDown(usize::MAX), (20, 8)));
-            assert!(!cached.scroll(PreviewEvent::AlignTop, (20, 8)));
-            assert!(!cached.scroll(PreviewEvent::AlignBottom, (20, 8)));
+            assert!(!cached.scroll(PreviewMovement::Down(1), (20, 8)));
+            assert!(!cached.scroll(PreviewMovement::PageDown(usize::MAX), (20, 8)));
+            assert!(!cached.scroll(PreviewMovement::AlignTop, (20, 8)));
+            assert!(!cached.scroll(PreviewMovement::AlignBottom, (20, 8)));
             assert_eq!(cached.scroll_position, 0);
         }
     }
@@ -217,10 +237,10 @@ mod tests {
         let mut cached = ready(23);
         cached.scroll_position = 9;
         for event in [
-            PreviewEvent::Up(1),
-            PreviewEvent::Down(1),
-            PreviewEvent::PageUp(1),
-            PreviewEvent::PageDown(1),
+            PreviewMovement::Up(1),
+            PreviewMovement::Down(1),
+            PreviewMovement::PageUp(1),
+            PreviewMovement::PageDown(1),
         ] {
             assert!(!cached.scroll(event, (20, 0)));
             assert_eq!(cached.scroll_position, 9);
@@ -232,7 +252,7 @@ mod tests {
     #[test]
     fn resizing_clamps_the_offset_to_avoid_unused_space() {
         let mut cached = ready(23);
-        cached.scroll(PreviewEvent::Down(usize::MAX), (20, 8));
+        cached.scroll(PreviewMovement::Down(usize::MAX), (20, 8));
         cached.resize(12);
         assert_eq!(cached.scroll_position, 11);
         cached.resize(4);
@@ -251,21 +271,21 @@ mod tests {
             horizontal_position: 0,
             line_numbers_override: None,
         };
-        assert!(!cached.scroll(PreviewEvent::Down(1), (20, 8)));
-        assert!(!cached.scroll(PreviewEvent::Right(1), (20, 8)));
+        assert!(!cached.scroll(PreviewMovement::Down(1), (20, 8)));
+        assert!(!cached.scroll(PreviewMovement::Right(1), (20, 8)));
         let active = queued.start().unwrap();
-        assert!(!cached.scroll(PreviewEvent::PageDown(1), (20, 8)));
+        assert!(!cached.scroll(PreviewMovement::PageDown(1), (20, 8)));
         let mut buffer = PreviewBuffer::new();
         assert!(active.publish(&mut buffer));
-        assert!(!cached.scroll(PreviewEvent::Right(usize::MAX), (20, 8)));
-        assert!(!cached.scroll(PreviewEvent::PageUp(1), (20, 8)));
+        assert!(!cached.scroll(PreviewMovement::Right(usize::MAX), (20, 8)));
+        assert!(!cached.scroll(PreviewMovement::PageUp(1), (20, 8)));
         cached.scroll_position = 3;
         cached.horizontal_position = 9;
         for event in [
-            PreviewEvent::AlignLeft,
-            PreviewEvent::AlignRight,
-            PreviewEvent::AlignTop,
-            PreviewEvent::AlignBottom,
+            PreviewMovement::AlignLeft,
+            PreviewMovement::AlignRight,
+            PreviewMovement::AlignTop,
+            PreviewMovement::AlignBottom,
         ] {
             assert!(!cached.scroll(event, (20, 8)));
         }
@@ -291,16 +311,16 @@ mod tests {
             cached.scroll_position = 3;
             cached.horizontal_position = 9;
             let bottom = 23_usize.saturating_sub(usize::from(height));
-            assert!(cached.scroll(PreviewEvent::AlignBottom, (20, height)));
+            assert!(cached.scroll(PreviewMovement::AlignBottom, (20, height)));
             assert_eq!(cached.scroll_position, bottom);
-            assert!(!cached.scroll(PreviewEvent::AlignBottom, (20, height)));
+            assert!(!cached.scroll(PreviewMovement::AlignBottom, (20, height)));
             assert_eq!(cached.horizontal_position, 9);
             assert_eq!(
-                cached.scroll(PreviewEvent::AlignTop, (20, height)),
+                cached.scroll(PreviewMovement::AlignTop, (20, height)),
                 bottom != 0
             );
             assert_eq!(cached.scroll_position, 0);
-            assert!(!cached.scroll(PreviewEvent::AlignTop, (20, height)));
+            assert!(!cached.scroll(PreviewMovement::AlignTop, (20, height)));
             assert_eq!(cached.horizontal_position, 9);
         }
     }
@@ -312,25 +332,25 @@ mod tests {
         );
         cached.scroll_position = 1;
         cached.horizontal_position = usize::MAX;
-        assert!(cached.scroll(PreviewEvent::AlignRight, (5, 2)));
+        assert!(cached.scroll(PreviewMovement::AlignRight, (5, 2)));
         assert_eq!((cached.horizontal_position, cached.scroll_position), (3, 1));
-        assert!(!cached.scroll(PreviewEvent::AlignRight, (5, 2)));
-        assert!(cached.scroll(PreviewEvent::AlignLeft, (5, 2)));
+        assert!(!cached.scroll(PreviewMovement::AlignRight, (5, 2)));
+        assert!(cached.scroll(PreviewMovement::AlignLeft, (5, 2)));
         assert_eq!((cached.horizontal_position, cached.scroll_position), (0, 1));
-        assert!(!cached.scroll(PreviewEvent::AlignLeft, (5, 2)));
+        assert!(!cached.scroll(PreviewMovement::AlignLeft, (5, 2)));
 
         cached.line_numbers_override = Some(true);
-        assert!(cached.scroll(PreviewEvent::AlignRight, (5, 2)));
+        assert!(cached.scroll(PreviewMovement::AlignRight, (5, 2)));
         assert_eq!(cached.horizontal_position, 5);
         cached.line_numbers_override = Some(false);
-        assert!(cached.scroll(PreviewEvent::AlignRight, (5, 2)));
+        assert!(cached.scroll(PreviewMovement::AlignRight, (5, 2)));
         assert_eq!(cached.horizontal_position, 3);
-        assert!(cached.scroll(PreviewEvent::AlignRight, (12, 2)));
+        assert!(cached.scroll(PreviewMovement::AlignRight, (12, 2)));
         assert_eq!(cached.horizontal_position, 0);
-        assert!(cached.scroll(PreviewEvent::AlignRight, (5, 2)));
-        assert!(cached.scroll(PreviewEvent::Down(1), (5, 1)));
+        assert!(cached.scroll(PreviewMovement::AlignRight, (5, 2)));
+        assert!(cached.scroll(PreviewMovement::Down(1), (5, 1)));
         assert_eq!(cached.horizontal_position, 3);
-        assert!(cached.scroll(PreviewEvent::AlignRight, (5, 1)));
+        assert!(cached.scroll(PreviewMovement::AlignRight, (5, 1)));
         assert_eq!((cached.horizontal_position, cached.scroll_position), (0, 2));
     }
 
@@ -341,10 +361,10 @@ mod tests {
         cached.horizontal_position = 7;
         for dimensions in [(0, 1), (1, 0), (0, 0)] {
             for event in [
-                PreviewEvent::AlignLeft,
-                PreviewEvent::AlignRight,
-                PreviewEvent::AlignTop,
-                PreviewEvent::AlignBottom,
+                PreviewMovement::AlignLeft,
+                PreviewMovement::AlignRight,
+                PreviewMovement::AlignTop,
+                PreviewMovement::AlignBottom,
             ] {
                 assert!(!cached.scroll(event, dimensions));
                 assert_eq!((cached.horizontal_position, cached.scroll_position), (7, 2));
@@ -352,10 +372,10 @@ mod tests {
         }
         cached.state = None;
         for event in [
-            PreviewEvent::AlignLeft,
-            PreviewEvent::AlignRight,
-            PreviewEvent::AlignTop,
-            PreviewEvent::AlignBottom,
+            PreviewMovement::AlignLeft,
+            PreviewMovement::AlignRight,
+            PreviewMovement::AlignTop,
+            PreviewMovement::AlignBottom,
         ] {
             assert!(!cached.scroll(event, (5, 1)));
             assert_eq!((cached.horizontal_position, cached.scroll_position), (7, 2));
@@ -368,47 +388,47 @@ mod tests {
             "offscreen and much longer\ne\u{301}界👩🏽‍💻abc\n\nabcdef\noffscreen and much longer",
         );
         cached.scroll_position = 1;
-        assert!(!cached.scroll(PreviewEvent::Left(1), (5, 3)));
-        assert!(cached.scroll(PreviewEvent::Right(1), (5, 3)));
+        assert!(!cached.scroll(PreviewMovement::Left(1), (5, 3)));
+        assert!(cached.scroll(PreviewMovement::Right(1), (5, 3)));
         assert_eq!(cached.horizontal_position, 1);
-        assert!(cached.scroll(PreviewEvent::Right(usize::MAX), (5, 3)));
+        assert!(cached.scroll(PreviewMovement::Right(usize::MAX), (5, 3)));
         assert_eq!(cached.horizontal_position, 3);
         for columns in [0, 1, usize::MAX] {
-            assert!(!cached.scroll(PreviewEvent::Right(columns), (5, 3)));
+            assert!(!cached.scroll(PreviewMovement::Right(columns), (5, 3)));
         }
-        assert!(cached.scroll(PreviewEvent::Left(1), (5, 3)));
+        assert!(cached.scroll(PreviewMovement::Left(1), (5, 3)));
         assert_eq!(cached.horizontal_position, 2);
-        assert!(cached.scroll(PreviewEvent::Left(usize::MAX), (5, 3)));
+        assert!(cached.scroll(PreviewMovement::Left(usize::MAX), (5, 3)));
         assert_eq!(cached.horizontal_position, 0);
-        assert!(!cached.scroll(PreviewEvent::Left(0), (5, 3)));
+        assert!(!cached.scroll(PreviewMovement::Left(0), (5, 3)));
 
         cached.horizontal_position = usize::MAX - 1;
-        assert!(!cached.scroll(PreviewEvent::Right(10), (5, 3)));
+        assert!(!cached.scroll(PreviewMovement::Right(10), (5, 3)));
         assert_eq!(cached.horizontal_position, usize::MAX - 1);
         cached.horizontal_position = usize::MAX;
-        assert!(!cached.scroll(PreviewEvent::Right(1), (5, 3)));
-        assert!(cached.scroll(PreviewEvent::Left(usize::MAX), (5, 3)));
+        assert!(!cached.scroll(PreviewMovement::Right(1), (5, 3)));
+        assert!(cached.scroll(PreviewMovement::Left(usize::MAX), (5, 3)));
     }
 
     #[test]
     fn vertical_scroll_and_resize_preserve_horizontal_position() {
         let mut cached = text_preview("abcdefghijklmnop\nx\n\nabcdefghijklmnop");
-        assert!(cached.scroll(PreviewEvent::Right(usize::MAX), (6, 1)));
+        assert!(cached.scroll(PreviewMovement::Right(usize::MAX), (6, 1)));
         assert_eq!(cached.horizontal_position, 10);
-        for event in [PreviewEvent::Down(1), PreviewEvent::PageDown(1)] {
+        for event in [PreviewMovement::Down(1), PreviewMovement::PageDown(1)] {
             assert!(cached.scroll(event, (6, 1)));
-            assert!(!cached.scroll(PreviewEvent::Right(1), (6, 1)));
+            assert!(!cached.scroll(PreviewMovement::Right(1), (6, 1)));
             assert_eq!(cached.horizontal_position, 10);
         }
-        assert!(cached.scroll(PreviewEvent::Left(1), (6, 1)));
+        assert!(cached.scroll(PreviewMovement::Left(1), (6, 1)));
         assert_eq!(cached.horizontal_position, 9);
-        assert!(cached.scroll(PreviewEvent::PageUp(usize::MAX), (6, 1)));
+        assert!(cached.scroll(PreviewMovement::PageUp(usize::MAX), (6, 1)));
         assert_eq!(cached.horizontal_position, 9);
         cached.resize(3);
         assert_eq!(cached.horizontal_position, 9);
-        assert!(!cached.scroll(PreviewEvent::Right(1), (40, 3)));
+        assert!(!cached.scroll(PreviewMovement::Right(1), (40, 3)));
         assert_eq!(cached.horizontal_position, 9);
-        assert!(cached.scroll(PreviewEvent::Right(1), (5, 3)));
+        assert!(cached.scroll(PreviewMovement::Right(1), (5, 3)));
         assert_eq!(cached.horizontal_position, 10);
     }
 
@@ -420,29 +440,29 @@ mod tests {
         };
         buffer.set_line_numbers(true);
         assert_eq!(cached.number_width(6), 2);
-        assert!(cached.scroll(PreviewEvent::Right(usize::MAX), (6, 1)));
+        assert!(cached.scroll(PreviewMovement::Right(usize::MAX), (6, 1)));
         assert_eq!(cached.horizontal_position, 6);
         cached.line_numbers_override = Some(false);
-        assert!(!cached.scroll(PreviewEvent::Right(1), (6, 1)));
+        assert!(!cached.scroll(PreviewMovement::Right(1), (6, 1)));
         assert_eq!(cached.horizontal_position, 6);
         cached.line_numbers_override = None;
-        assert!(cached.scroll(PreviewEvent::Left(usize::MAX), (6, 1)));
+        assert!(cached.scroll(PreviewMovement::Left(usize::MAX), (6, 1)));
         for width in [0, 1, 2, 3] {
             assert_eq!(cached.number_width(width), 0);
         }
-        assert!(cached.scroll(PreviewEvent::Right(usize::MAX), (1, 1)));
+        assert!(cached.scroll(PreviewMovement::Right(usize::MAX), (1, 1)));
         assert_eq!(cached.horizontal_position, 9);
         for dimensions in [(0, 1), (1, 0), (0, 0)] {
-            for event in [PreviewEvent::Left(1), PreviewEvent::Right(1)] {
+            for event in [PreviewMovement::Left(1), PreviewMovement::Right(1)] {
                 assert!(!cached.scroll(event, dimensions));
                 assert_eq!(cached.horizontal_position, 9);
             }
         }
         for text in ["", "abc", "abcde"] {
             let mut cached = text_preview(text);
-            assert!(!cached.scroll(PreviewEvent::Right(usize::MAX), (5, 1)));
-            assert!(!cached.scroll(PreviewEvent::AlignRight, (5, 1)));
-            assert!(!cached.scroll(PreviewEvent::AlignLeft, (5, 1)));
+            assert!(!cached.scroll(PreviewMovement::Right(usize::MAX), (5, 1)));
+            assert!(!cached.scroll(PreviewMovement::AlignRight, (5, 1)));
+            assert!(!cached.scroll(PreviewMovement::AlignLeft, (5, 1)));
             assert_eq!(cached.horizontal_position, 0);
         }
     }

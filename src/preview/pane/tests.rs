@@ -156,6 +156,187 @@ fn cache_tracks_item_identity_and_preserves_scroll_state() {
 }
 
 #[test]
+fn refresh_reuses_the_buffer_and_resets_display_settings() {
+    let mut picker = picker(["alpha"]);
+    let mut session = PreviewPane::new(
+        &PreviewConfig::default(),
+        &crate::PickerChars::new(),
+        TestPreviewer {
+            lines: 20,
+            ..TestPreviewer::default()
+        },
+    );
+    session.resize_area(Area {
+        width: 12,
+        height: 5,
+        ..Area::default()
+    });
+    update(&mut session, &mut picker).unwrap();
+    let cached = session.cache.get_mut(&0).unwrap();
+    cached.scroll_position = 8;
+    cached.horizontal_position = 7;
+    cached.line_numbers_override = Some(true);
+    let Some(RequestState::Ready(buffer)) = &mut cached.state else {
+        panic!("expected ready preview");
+    };
+    buffer.set_err(true);
+    buffer.set_line_numbers(true);
+    let allocation = buffer.line(0).unwrap().as_str().as_ptr();
+
+    session.previewer.lines = 4;
+    for _ in 0..2 {
+        session.handle(PreviewEvent::Refresh, Some(0));
+    }
+    assert_eq!(session.cache.len(), 1);
+    assert_eq!(session.previewer.requested, ["alpha"]);
+    assert!(update(&mut session, &mut picker).unwrap());
+    assert!(!update(&mut session, &mut picker).unwrap());
+    let cached = session.cached().unwrap();
+    assert_eq!(cached.scroll_position, 0);
+    assert_eq!(cached.horizontal_position, 0);
+    assert_eq!(cached.line_numbers_override, None);
+    let Some(RequestState::Ready(buffer)) = &cached.state else {
+        panic!("expected refreshed preview");
+    };
+    assert_eq!(buffer.lines().len(), 4);
+    assert!(!buffer.is_err());
+    assert!(!buffer.line_numbers());
+    assert_eq!(session.previewer.buffer_allocations[1], allocation);
+    assert_eq!(session.previewer.requested, ["alpha", "alpha"]);
+}
+
+#[test]
+fn refresh_cancels_outstanding_requests_and_discards_unpolled_results() {
+    for stage in 0..4 {
+        let mut picker = picker(["alpha"]);
+        let mut session = PreviewPane::new(
+            &PreviewConfig::default(),
+            &crate::PickerChars::new(),
+            TestPreviewer::default(),
+        );
+        update(&mut session, &mut picker).unwrap();
+        let mut buffer = session
+            .cache
+            .peek_mut(&0)
+            .unwrap()
+            .state
+            .take()
+            .unwrap()
+            .into_buffer();
+        let mut allocation = buffer.line(0).unwrap().as_str().as_ptr();
+        buffer.clear();
+        let (pending, queued) = PreviewRequest {
+            buffer,
+            epoch: session.epoch,
+            snapshot: picker.engine.snapshot(),
+            idx: 0,
+        }
+        .defer();
+        session.cache.peek_mut(&0).unwrap().state = Some(RequestState::Pending(pending));
+        let mut queued = Some(queued);
+        let mut active = None;
+        let mut stale = PreviewBuffer::new();
+        stale.push_str("stale");
+        match stage {
+            0 => {}
+            1 => active = Some(queued.take().unwrap().start().unwrap()),
+            2 => {
+                allocation = stale.line(0).unwrap().as_str().as_ptr();
+                assert!(queued.take().unwrap().start().unwrap().publish(&mut stale));
+            }
+            3 => drop(queued.take()),
+            _ => unreachable!(),
+        }
+        assert!(session.area.is_empty());
+        session.handle(PreviewEvent::Refresh, Some(0));
+        assert_eq!(session.previewer.requested, ["alpha"]);
+        if let Some(queued) = queued {
+            assert!(queued.is_cancelled());
+            assert!(queued.start().is_none());
+        }
+        if let Some(active) = active {
+            assert!(active.is_cancelled());
+            assert!(!active.publish(&mut stale));
+        }
+        assert!(update(&mut session, &mut picker).unwrap());
+        assert!(!update(&mut session, &mut picker).unwrap());
+        let Some(RequestState::Ready(buffer)) = &session.cached().unwrap().state else {
+            panic!("expected refreshed preview");
+        };
+        assert_eq!(buffer.line(0).unwrap().as_str(), "alpha");
+        assert_eq!(session.previewer.buffer_allocations[1], allocation);
+        assert_eq!(session.previewer.requested, ["alpha", "alpha"]);
+    }
+}
+
+#[test]
+fn refresh_only_invalidates_the_selected_cached_preview() {
+    let picker = picker(["alpha", "beta", "gamma"]);
+    let mut session = PreviewPane::new(
+        &PreviewConfig::default(),
+        &crate::PickerChars::new(),
+        TestPreviewer::default(),
+    );
+    for idx in [0, 1] {
+        session
+            .update(Some(idx), picker.engine.snapshot(), Instant::now())
+            .unwrap();
+    }
+    for selected in [None, Some(2)] {
+        session.handle(PreviewEvent::Refresh, selected);
+    }
+    assert!(!session.pending_redraw);
+    assert_eq!(session.cache.len(), 2);
+    assert_eq!(session.previewer.requested, ["alpha", "beta"]);
+    session.cache.peek_mut(&1).unwrap().scroll_position = 7;
+    session.handle(PreviewEvent::Refresh, Some(0));
+    assert!(
+        !session
+            .update(Some(1), picker.engine.snapshot(), Instant::now())
+            .unwrap()
+    );
+    assert_eq!(session.previewer.requested, ["alpha", "beta"]);
+    assert_eq!(session.cache.peek(&1).unwrap().scroll_position, 7);
+    for idx in [0, 1] {
+        session
+            .update(Some(idx), picker.engine.snapshot(), Instant::now())
+            .unwrap();
+    }
+    assert_eq!(session.previewer.requested, ["alpha", "beta", "alpha"]);
+}
+
+#[test]
+fn refresh_after_selection_change_does_not_resubmit_a_queued_request() {
+    let picker = picker(["alpha", "beta"]);
+    let mut session = PreviewPane::new(
+        &PreviewConfig::default(),
+        &crate::PickerChars::new(),
+        TestPreviewer::default(),
+    );
+    for idx in [0, 1] {
+        session
+            .update(Some(idx), picker.engine.snapshot(), Instant::now())
+            .unwrap();
+    }
+    session.previewer.defer = true;
+    session.handle(PreviewEvent::Refresh, Some(0));
+    assert!(session.previewer.queued.is_empty());
+    assert!(
+        session
+            .update(Some(0), picker.engine.snapshot(), Instant::now())
+            .unwrap()
+    );
+    assert!(
+        !session
+            .update(Some(0), picker.engine.snapshot(), Instant::now())
+            .unwrap()
+    );
+    assert_eq!(session.previewer.requested, ["alpha", "beta", "alpha"]);
+    assert_eq!(session.previewer.queued.len(), 1);
+    assert!(!session.previewer.queued[0].is_cancelled());
+}
+
+#[test]
 fn cache_evicts_the_least_recently_visited_item() {
     let config = PreviewConfig {
         cache_size: std::num::NonZero::new(3),
@@ -231,7 +412,7 @@ fn unbounded_cache_retains_previews_and_scroll_state() {
 }
 
 #[test]
-fn evicted_ready_buffers_are_reused_and_scroll_is_reset() {
+fn evicted_ready_and_retry_buffers_are_reused_and_scroll_is_reset() {
     let config = PreviewConfig {
         cache_size: std::num::NonZero::new(1),
         ..PreviewConfig::default()
@@ -255,7 +436,10 @@ fn evicted_ready_buffers_are_reused_and_scroll_is_reset() {
     buffer.set_line_numbers(true);
     let allocation = buffer.line(0).unwrap().as_str().as_ptr();
 
-    for selection in [1, 0, 1] {
+    for (selection, refresh) in [(1, false), (0, true), (1, false)] {
+        if refresh {
+            session.handle(PreviewEvent::Refresh, selected_item(&picker));
+        }
         picker.list_state.layout.set_selection(
             picker.engine.snapshot(),
             selection,
@@ -1313,6 +1497,94 @@ mod picker_loop {
     }
 
     #[test]
+    fn batched_navigation_and_refresh_target_the_event_selection() {
+        let mut picker = picker(["alpha", "beta"]);
+        let mut session = PreviewPane::new(
+            &PreviewConfig::default(),
+            &crate::PickerChars::new(),
+            TestPreviewer::default(),
+        );
+        session
+            .update(Some(1), picker.engine.snapshot(), Instant::now())
+            .unwrap();
+        let events = Events(VecDeque::from([
+            Ok(Event::MatchList(MatchListEvent::Up(1))),
+            Ok(Event::Preview(PreviewEvent::Refresh)),
+            Ok(Event::MatchList(MatchListEvent::Down(1))),
+            Err(RecvError::Timeout),
+            Ok(Event::MatchList(MatchListEvent::Up(1))),
+            Err(RecvError::Timeout),
+            Ok(Event::Quit),
+        ]));
+        let mut terminal = TestTerminal::default();
+        picker
+            .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
+            .unwrap();
+        assert_eq!(session.previewer.requested, ["beta", "alpha", "beta"]);
+        assert_eq!(terminal.changed, [false, true]);
+    }
+
+    #[test]
+    fn refresh_errors_abort_and_clean_up_the_terminal() {
+        for defer in [false, true] {
+            let mut picker = picker(["alpha"]);
+            let mut previewer = TestPreviewer {
+                defer,
+                fail_after: Some(1),
+                ..TestPreviewer::default()
+            };
+            let mut terminal = TestTerminal::default();
+            let events = Events(VecDeque::from([
+                Ok(Event::Preview(PreviewEvent::Refresh)),
+                Err(RecvError::Timeout),
+                Ok(Event::Quit),
+            ]));
+            let mut preview_picker = picker.with_preview(&mut previewer);
+            let result = preview_picker.pick_with_terminal_io(events, &mut terminal);
+            assert!(matches!(result, Err(PickError::Aborted("preview failed"))));
+            assert_eq!(terminal.cleanups, 1);
+            assert_eq!(previewer.requested, ["alpha", "alpha"]);
+            assert!(
+                previewer
+                    .queued
+                    .iter()
+                    .all(QueuedPreviewRequest::is_cancelled)
+            );
+        }
+    }
+
+    #[test]
+    fn refresh_does_not_run_the_previewer_before_a_following_quit() {
+        for defer in [false, true] {
+            let mut picker = picker(["alpha"]);
+            let mut previewer = TestPreviewer {
+                defer,
+                fail_after: Some(1),
+                ..TestPreviewer::default()
+            };
+            let mut terminal = TestTerminal::default();
+            let events = Events(VecDeque::from([
+                Ok(Event::Preview(PreviewEvent::Refresh)),
+                Ok(Event::Quit),
+            ]));
+            let mut preview_picker = picker.with_preview(&mut previewer);
+            assert!(
+                preview_picker
+                    .pick_with_terminal_io(events, &mut terminal)
+                    .unwrap()
+                    .is_none()
+            );
+            assert_eq!(previewer.requested, ["alpha"]);
+            assert!(
+                previewer
+                    .queued
+                    .iter()
+                    .all(QueuedPreviewRequest::is_cancelled)
+            );
+        }
+    }
+
+    #[test]
     fn scrolling_a_filtered_match_uses_its_item_id() {
         let mut picker = picker(["alpha", "beta"]);
         picker.update_query("beta");
@@ -1596,7 +1868,7 @@ mod picker_loop {
             .cache
             .get_mut(&0)
             .unwrap()
-            .scroll(PreviewEvent::Down(usize::MAX), (20, 4));
+            .scroll(PreviewMovement::Down(usize::MAX), (20, 4));
         assert_eq!(session.cache.peek(&0).unwrap().scroll_position, 26);
 
         picker
@@ -1625,7 +1897,7 @@ mod picker_loop {
             .cache
             .get_mut(&0)
             .unwrap()
-            .scroll(PreviewEvent::Down(usize::MAX), (20, 8));
+            .scroll(PreviewMovement::Down(usize::MAX), (20, 8));
         picker.list_state.layout.set_selection(
             picker.engine.snapshot(),
             1,
@@ -1711,6 +1983,7 @@ mod picker_loop {
         let events = Events(VecDeque::from([
             Ok(Event::Preview(PreviewEvent::Down(1))),
             Ok(Event::Preview(PreviewEvent::PageDown(1))),
+            Ok(Event::Preview(PreviewEvent::Refresh)),
             Err(RecvError::Timeout),
             Ok(Event::Select),
         ]));
