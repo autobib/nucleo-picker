@@ -17,7 +17,7 @@
 //! - The [default keybindings](keybind_default), which are also useful to provide fallbacks for
 //!   keybind customization
 //!
-//! For somewhat comprehensive examples, see the [extended fzf
+//! For somewhat comprehensive examples, see the [extended fzf error handling
 //! example](https://github.com/autobib/nucleo-picker/blob/master/examples/fzf_err_handling.rs) or
 //! the [restart
 //! example](https://github.com/autobib/nucleo-picker/blob/master/examples/restart.rs).
