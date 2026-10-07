@@ -121,6 +121,9 @@ impl Default for PreviewConfig {
 
 /// Types which know how to generate previews of items.
 ///
+/// In most simple cases, you don't need to implement this trait yourself: see [`SyncPreviewer`] and
+/// [`PoolPreviewer`]. For more complex use-cases, read on!
+///
 /// # Implementation caveats
 ///
 /// There are a number of caveats to implementing this trait which are not required for correctness

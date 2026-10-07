@@ -8,7 +8,7 @@ use crossterm::style::{Attribute, Color, ContentStyle};
 
 use super::PreviewBuffer;
 
-/// A writer to write an ANSI byte-stream directly into a preview buffer.
+/// Write an ANSI byte-stream directly into a preview buffer.
 ///
 /// The conventional way to construct this type is through [`PreviewBuffer::ansi_writer`]. This type
 /// implements [`io::Write`] and can be used to write an ANSI byte-stream directly into the
@@ -36,7 +36,7 @@ impl<'a> AnsiWriter<'a> {
 }
 
 impl PreviewBuffer {
-    /// Get an input stream of bytes with ANSI coding directly into this buffer.
+    /// Write a stream of bytes with ANSI-encoded styling directly into this buffer.
     ///
     /// It is assumed that the input stream is UTF-8 encoded by convenention. Invalid UTF-8 is
     /// handled using lossy conversion.
