@@ -176,3 +176,35 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn injector_lifetime_updates_status() {
+        let mut engine: MatchEngine<&str, _> = MatchEngine::new(
+            nc::Config::DEFAULT,
+            nc::MatchListConfig {
+                sort_results: false,
+                reverse_items: false,
+            },
+            NonZero::new(1),
+            crate::render::StrRenderer.into(),
+            NucleoCaseMatching::Smart,
+            NucleoNormalization::Smart,
+        );
+
+        let injector = engine.injector();
+        let status = engine.update(0);
+        assert!(status.injecting);
+
+        drop(injector);
+        let mut status = engine.update(0);
+        assert!(!status.injecting);
+
+        while status.matching {
+            status = engine.update(5);
+        }
+    }
+}

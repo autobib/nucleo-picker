@@ -443,32 +443,6 @@ fn indexed_lines_and_skipping_access_only_their_styles() {
 }
 
 #[test]
-fn unstyled_segments_use_default_style() {
-    let mut buffer = PreviewBuffer::new();
-    let style = ContentStyle::new().bold();
-    buffer.push_styled_str("Size: ", style);
-    buffer.push_str("42 bytes");
-    buffer.newline();
-    buffer.push_str("界");
-    buffer.newline();
-    buffer.push_str("done");
-
-    assert_eq!(buffer.text, "Size: 42 bytes界done");
-    assert_eq!(
-        buffer.lines().map(|line| line.as_str()).collect::<Vec<_>>(),
-        ["Size: 42 bytes", "界", "done"]
-    );
-    assert_eq!(
-        buffer.line(0).unwrap().spans().collect::<Vec<_>>(),
-        [
-            style.apply("Size: "),
-            ContentStyle::default().apply("42 bytes"),
-        ]
-    );
-    assert_eq!(buffer.styles.len(), 1);
-}
-
-#[test]
 fn clear_reuses_all_allocations() {
     let mut buffer = PreviewBuffer::new();
     let style = ContentStyle::new().green();

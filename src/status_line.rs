@@ -232,10 +232,9 @@ mod tests {
         .unwrap();
 
         assert_eq!(output, b"\x1b[1G    \x1b[1G");
-        assert!(!String::from_utf8(output).unwrap().contains("\x1b[K"));
     }
     #[test]
-    fn marker_state_is_local_to_a_pick() {
+    fn marker_cycles_while_injecting_then_indicates_matching() {
         let mut marker = StatusMarker::default();
         let chars = PickerChars {
             spinner_chars: &['a', 'b'],

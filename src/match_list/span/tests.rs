@@ -37,8 +37,6 @@ fn required_offset() {
     assert_correct_offset(vec![2], "abc\nab", 2, 1);
     assert_correct_offset(vec![7], "abc\nabcd", 2, 2);
 
-    assert_correct_offset(vec![7], "abc\nabcd", 2, 2);
-
     assert_correct_offset(vec![0, 7], "abc\nabcd", 2, 0);
     assert_correct_offset(vec![1, 7], "abc\nabcd", 2, 0);
     assert_correct_offset(vec![2, 7], "abc\nabcd", 2, 1);
@@ -106,7 +104,6 @@ fn line_prefix_does_not_exceed_the_available_width() {
         .unwrap();
 
     assert_eq!(output, b"\x1b[1G ");
-    assert!(!String::from_utf8(output).unwrap().contains("\x1b[K"));
 }
 
 fn render_ascii_line(

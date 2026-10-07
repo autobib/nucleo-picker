@@ -41,14 +41,12 @@ impl EventSource for ScriptedEvents {
 }
 
 struct CountingTerminal {
-    output: Vec<u8>,
     size: (u16, u16),
     size_calls: usize,
 }
 
 impl io::Write for CountingTerminal {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.output.extend_from_slice(buf);
         Ok(buf.len())
     }
 
@@ -76,7 +74,6 @@ impl Terminal for CountingTerminal {
 fn idle_frame_does_not_query_terminal_size() {
     let events = ScriptedEvents::new([Step::Timeout, Step::Event(Event::Quit)]);
     let mut terminal = CountingTerminal {
-        output: Vec::new(),
         size: (20, 8),
         size_calls: 0,
     };
@@ -95,7 +92,6 @@ fn redraw_queries_terminal_size() {
         Step::Event(Event::Quit),
     ]);
     let mut terminal = CountingTerminal {
-        output: Vec::new(),
         size: (20, 8),
         size_calls: 0,
     };
@@ -114,7 +110,6 @@ fn background_frames_follow_the_configured_frequency() {
             .chain(std::iter::once(Step::Event(Event::Quit))),
     );
     let mut terminal = CountingTerminal {
-        output: Vec::new(),
         size: (20, 8),
         size_calls: 0,
     };

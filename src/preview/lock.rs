@@ -552,8 +552,8 @@ mod tests {
     #[test]
     fn handles_are_send_when_data_is_send() {
         fn assert_send<T: Send>() {}
-        assert_send::<Reader<String>>();
-        assert_send::<QueuedWriter<String>>();
-        assert_send::<ActiveWriter<String>>();
+        assert_send::<Reader<std::cell::Cell<u8>>>();
+        assert_send::<QueuedWriter<std::cell::Cell<u8>>>();
+        assert_send::<ActiveWriter<std::cell::Cell<u8>>>();
     }
 }

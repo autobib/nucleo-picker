@@ -83,46 +83,35 @@ impl From<serde_yaml_ng::Error> for Error {
 mod tests {
     use super::*;
 
-    const SNAPSHOT: &str = include_str!(
-        "../tests/scenarios/snapshots/scenarios__multiline__multiline_default@default-height-60x1.snap"
-    );
+    const SNAPSHOT: &str = include_str!("snap/tests/fixture.snap");
 
     #[test]
     fn parses_header_and_pane_as_separate_yaml_documents() {
         let snap: Snap = SNAPSHOT.parse().unwrap();
 
-        assert_eq!(
-            snap.header.source,
-            "nucleo-picker-vt/tests/scenarios/multiline.rs"
-        );
-        assert_eq!(
-            snap.header.expression,
-            "sr.checkpoint(resolved_name.to_owned())?"
-        );
-        assert_eq!(snap.header.info.resolved_name, "default-height-60x1");
+        assert_eq!(snap.header.source, "parser-fixture.rs");
+        assert_eq!(snap.header.expression, "capture_fixture()");
+        assert_eq!(snap.header.info.resolved_name, "parser-example");
         assert_eq!(
             snap.header.info.name_expression,
-            "format!(\"default-height-60x{rows}\")"
+            "concat!(\"parser-\", \"example\")"
         );
-        assert_eq!(snap.header.info.sequence, 5);
-        assert_eq!(snap.pane.size.cols, 60);
+        assert_eq!(snap.header.info.sequence, 17);
+        assert_eq!(snap.pane.size.cols, 3);
         assert_eq!(snap.pane.size.rows, 1);
     }
 
     #[test]
     fn allows_document_marker_text_inside_header_scalars() {
         let input = SNAPSHOT.replacen(
-            "expression: sr.checkpoint(resolved_name.to_owned())?",
-            "expression: |-\n  sr.checkpoint(resolved_name.to_owned())?\n  ---",
+            "expression: capture_fixture()",
+            "expression: |-\n  capture_fixture()\n  ---",
             1,
         );
 
         let snap: Snap = input.parse().unwrap();
 
-        assert_eq!(
-            snap.header.expression,
-            "sr.checkpoint(resolved_name.to_owned())?\n---"
-        );
+        assert_eq!(snap.header.expression, "capture_fixture()\n---");
     }
 
     #[test]

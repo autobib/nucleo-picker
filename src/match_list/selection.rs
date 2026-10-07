@@ -325,20 +325,28 @@ mod tests {
 
     #[test]
     fn selected_indices_track_insertion_order() {
-        let mut selected = SelectedIndices::init(None);
+        let mut picker = crate::Picker::new(crate::render::StrRenderer);
+        picker.push_batch(["zero", "one", "two", "three"]);
+        while picker.engine.update(5).matching {}
+        let mut selection = SelectedIndices::init(None).into_selection(picker.engine.snapshot());
+        assert!(selection.iter_selected_order().next().is_none());
 
-        assert!(selected.toggle(3));
-        assert!(selected.toggle(1));
-        assert!(selected.toggle(3));
-        assert!(selected.toggle(3));
-
-        let mut selection_order = selected
-            .inner
-            .iter()
-            .map(|(&idx, &order)| (order, idx))
-            .collect::<Vec<_>>();
-        selection_order.sort();
-
-        assert_eq!(selection_order, [(1, 1), (2, 3)]);
+        assert!(selection.queued.toggle(3));
+        assert!(selection.queued.toggle(1));
+        assert!(
+            selection
+                .iter_selected_order()
+                .copied()
+                .eq(["three", "one"])
+        );
+        assert!(selection.queued.toggle(3));
+        assert!(selection.iter_selected_order().copied().eq(["one"]));
+        assert!(selection.queued.toggle(3));
+        assert!(
+            selection
+                .iter_selected_order()
+                .copied()
+                .eq(["one", "three"])
+        );
     }
 }
