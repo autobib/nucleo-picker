@@ -330,7 +330,7 @@ impl PreviewBuffer {
     ///
     /// # Panics
     ///
-    /// Panics before modifying the buffer if `text` contains LF.
+    /// Panics before modifying the buffer if `text` contains a newline.
     pub fn push_styled_line(&mut self, text: &str, style: ContentStyle) {
         self.push_styled_str(text, style);
         self.newline();
