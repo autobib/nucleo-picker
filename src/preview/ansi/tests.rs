@@ -1,4 +1,7 @@
-use std::io::{self, Write};
+use std::{
+    fmt,
+    io::{self, Write},
+};
 
 use crossterm::style::{Attribute, ContentStyle, Stylize};
 
@@ -56,6 +59,75 @@ fn writes_preserve_text_and_styles_at_every_byte_boundary() {
     );
     assert_eq!(buffer.line(0).unwrap().spans().count(), 2);
     assert_eq!(buffer.line(1).unwrap().spans().count(), 2);
+}
+
+#[test]
+fn formatted_writes_preserve_text_and_styles() {
+    let mut buffer = PreviewBuffer::new();
+    {
+        let writer: &mut dyn fmt::Write = &mut buffer.ansi_writer();
+        let color = 31;
+        write!(writer, "\x1b[1;{color}m").unwrap();
+        for ch in "é界e\u{301}👩‍💻".chars() {
+            writer.write_char(ch).unwrap();
+        }
+        writeln!(writer, "\x1b[0m!").unwrap();
+        writer.write_str("\tlast").unwrap();
+    }
+    assert_eq!(buffer.lines().len(), 2);
+    assert!(
+        buffer.line(0).unwrap().spans().eq([
+            ContentStyle::new()
+                .with(Color::AnsiValue(1))
+                .bold()
+                .apply("é界e\u{301}👩‍💻"),
+            ContentStyle::default().apply("!"),
+        ])
+    );
+    assert!(
+        buffer
+            .line(1)
+            .unwrap()
+            .spans()
+            .eq([ContentStyle::default().apply("␉last")])
+    );
+}
+
+#[test]
+fn byte_and_text_writes_share_parser_state() {
+    let input = "\x1b[1;31mé界e\u{301}👩‍💻\x1b[0m!\r\n\t\x1b[38;2;1;2;3mend";
+    let mut expected = PreviewBuffer::new();
+    expected.ansi_writer().write_all(input.as_bytes()).unwrap();
+
+    for boundary in (0..=input.len()).filter(|&i| input.is_char_boundary(i)) {
+        for text_first in [false, true] {
+            let mut buffer = PreviewBuffer::new();
+            {
+                let mut writer = buffer.ansi_writer();
+                let (first, second) = input.split_at(boundary);
+                if text_first {
+                    fmt::Write::write_str(&mut writer, first).unwrap();
+                } else {
+                    writer.write_all(first.as_bytes()).unwrap();
+                }
+                fmt::Write::write_str(&mut writer, "").unwrap();
+                assert_eq!(writer.write(b"").unwrap(), 0);
+                writer.flush().unwrap();
+                if text_first {
+                    writer.write_all(second.as_bytes()).unwrap();
+                } else {
+                    fmt::Write::write_str(&mut writer, second).unwrap();
+                }
+            }
+            assert_eq!(buffer.lines().len(), expected.lines().len());
+            for (actual, expected) in buffer.lines().zip(expected.lines()) {
+                assert!(
+                    actual.spans().eq(expected.spans()),
+                    "boundary {boundary}, text first: {text_first}"
+                );
+            }
+        }
+    }
 }
 
 #[test]
