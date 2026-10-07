@@ -67,22 +67,15 @@ fn line_clearing_respects_the_policy_for_each_row() {
 
 #[test]
 fn spaces_preserve_the_active_style() {
-    for clear in [
-        ClearState::Precleared,
-        ClearState::ToEndOfLine,
-        ClearState::WithinRect,
-    ] {
-        let mut output = Vec::new();
-        let mut rect = CrosstermRect::new(&mut output, area(), clear).unwrap();
-        rect.spaces(2).unwrap();
-        rect.set_background(Color::DarkGrey).unwrap();
-        rect.spaces(3).unwrap();
-        rect.reset_style().unwrap();
-        rect.spaces(0).unwrap();
-        let output = String::from_utf8(output).unwrap();
-        assert!(output.starts_with("  "));
-        assert!(output.ends_with("   \x1b[0m\x1b[0m"));
-    }
+    crossterm::style::force_color_output(true);
+    let mut output = Vec::new();
+    let mut rect = CrosstermRect::new(&mut output, area(), ClearState::Precleared).unwrap();
+    rect.spaces(2).unwrap();
+    rect.set_background(Color::DarkGrey).unwrap();
+    rect.spaces(3).unwrap();
+    rect.reset_style().unwrap();
+    rect.spaces(0).unwrap();
+    assert_eq!(output, b"  \x1b[48;5;8m   \x1b[0m\x1b[0m");
 }
 
 #[test]

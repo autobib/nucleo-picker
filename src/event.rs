@@ -572,3 +572,6 @@ impl<A, F: FnMut(KeyEvent) -> Option<Event<A>>> StdinEventSender<A, F> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

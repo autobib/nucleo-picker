@@ -1,10 +1,6 @@
 use std::{
     io::{self, Write},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-        mpsc,
-    },
+    sync::mpsc,
 };
 
 use crate::{Picker, event::Event, render::StrRenderer};
@@ -12,7 +8,7 @@ use crate::{Picker, event::Event, render::StrRenderer};
 use super::Terminal;
 
 struct PanickingTerminal {
-    cleaned: Arc<AtomicBool>,
+    cleaned: bool,
 }
 
 impl Write for PanickingTerminal {
@@ -31,7 +27,7 @@ impl Terminal for PanickingTerminal {
     }
 
     fn cleanup(&mut self) -> io::Result<()> {
-        self.cleaned.store(true, Ordering::SeqCst);
+        self.cleaned = true;
         Ok(())
     }
 
@@ -42,10 +38,7 @@ impl Terminal for PanickingTerminal {
 
 #[test]
 fn panic_cleans_up_the_supplied_terminal() {
-    let cleaned = Arc::new(AtomicBool::new(false));
-    let mut terminal = PanickingTerminal {
-        cleaned: Arc::clone(&cleaned),
-    };
+    let mut terminal = PanickingTerminal { cleaned: false };
     let mut picker: Picker<String, _> = Picker::new(StrRenderer);
     let (_sender, events) = mpsc::channel::<Event>();
 
@@ -54,5 +47,5 @@ fn panic_cleans_up_the_supplied_terminal() {
     }));
 
     assert!(panic.is_err());
-    assert!(cleaned.load(Ordering::SeqCst));
+    assert!(terminal.cleaned);
 }

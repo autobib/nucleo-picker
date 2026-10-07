@@ -29,18 +29,21 @@ fn run_multiline_scenario_with_layout(
         multiline(),
         PickerOptions::new().reversed(reversed),
     );
-    checkpoint!(sr, "default-initial-60x16");
+    let initial = checkpoint!(sr, "default-initial-60x16");
 
     for rows in [5, 4, 3, 2, 1] {
         sr.set_dimensions(60, rows)?;
         checkpoint!(sr, format!("default-height-60x{rows}"));
     }
     sr.set_dimensions(60, 16)?;
-    checkpoint!(sr, "default-restored-height");
+    assert_eq!(sr.checkpoint("default-restored-height")?, initial);
     for cols in [5, 4, 3, 2, 1] {
         if cols < 5 {
             sr.set_dimensions(60, 16)?;
-            checkpoint!(sr, format!("default-width-reset-{cols}"));
+            assert_eq!(
+                sr.checkpoint(format!("default-width-reset-{cols}"))?,
+                initial
+            );
         }
         sr.set_dimensions(cols, 16)?;
         checkpoint!(sr, format!("default-width-{cols}x16"));
@@ -48,7 +51,7 @@ fn run_multiline_scenario_with_layout(
     sr.set_dimensions(1, 1)?;
     checkpoint!(sr, "default-size-1x1");
     sr.set_dimensions(60, 16)?;
-    checkpoint!(sr, "default-restored-size");
+    assert_eq!(sr.checkpoint("default-restored-size")?, initial);
 
     sr.set_dimensions(12, 40)?;
     checkpoint!(sr, "default-narrow-size");
@@ -66,7 +69,6 @@ fn run_multiline_scenario_with_layout(
 
     sr.send(Event::MatchList(movement(!forward_up, 14)))?;
     sr.set_dimensions(160, 4)?;
-    checkpoint!(sr, "default-wide-size");
     for item in 0..=4 {
         checkpoint!(sr, format!("default-wide-160x4-item-{item:02}"));
         if item != 4 {
@@ -79,11 +81,11 @@ fn run_multiline_scenario_with_layout(
     }
 
     sr.set_dimensions(60, 16)?;
-    checkpoint!(sr, "default-restore-60x16");
+    let restored = checkpoint!(sr, "default-restore-60x16");
     sr.send(Event::MatchList(movement(forward_up, 1)))?;
     sr.wait_for(|status| status.selection == Some(2))?;
     sr.send(Event::MatchList(movement(!forward_up, 1)))?;
-    checkpoint!(sr, "default-restored-60x16");
+    assert_eq!(sr.checkpoint("default-restored-60x16")?, restored);
     sr.send(Event::Quit)?;
     assert!(sr.finish()?.is_empty());
     Ok(())

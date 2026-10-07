@@ -47,7 +47,7 @@ fn toggle_status() -> Result<(), Box<dyn Error>> {
         );
         sr.set_dimensions(30, 5)?;
         sr.wait_for_match_complete(24, 24)?;
-        let shown = sr.checkpoint("shown")?;
+        let shown = checkpoint!(sr, "shown");
         assert_eq!(
             shown
                 .text
@@ -56,10 +56,9 @@ fn toggle_status() -> Result<(), Box<dyn Error>> {
                 .count(),
             3
         );
-        checkpoint!(sr, "shown");
 
         sr.send(Event::Layout(LayoutEvent::ToggleStatus))?;
-        let hidden = sr.checkpoint("hidden")?;
+        let hidden = checkpoint!(sr, "hidden");
         assert!(hidden.text.iter().all(|line| !line.contains("24/24")));
         assert_eq!(
             hidden
@@ -70,11 +69,9 @@ fn toggle_status() -> Result<(), Box<dyn Error>> {
             4
         );
         assert_eq!(hidden.cursor, shown.cursor);
-        checkpoint!(sr, "hidden");
 
         sr.send(Event::Layout(LayoutEvent::ToggleStatus))?;
         assert_eq!(sr.checkpoint("restored")?, shown);
-        checkpoint!(sr, "restored");
 
         sr.send(Event::Layout(LayoutEvent::ToggleStatus))?;
         sr.send(Event::Prompt(PromptEvent::Reset("item-23".to_owned())))?;
@@ -108,11 +105,10 @@ fn prompt_scroll_at_column_zero() -> Result<(), Box<dyn Error>> {
     assert_eq!(before.text.last().unwrap(), "> c");
 
     sr.send(Event::Prompt(PromptEvent::Left(1)))?;
-    let after = sr.checkpoint("after-left")?;
+    let after = checkpoint!(sr, "after-left");
     assert_eq!(after.text, before.text);
     assert!(after.row_flags.is_empty());
     assert_eq!(after.cursor.position, before.cursor.position);
-    checkpoint!(sr, "after-left");
 
     sr.send(Event::Quit)?;
     assert!(sr.finish()?.is_empty());

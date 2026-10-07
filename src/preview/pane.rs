@@ -282,4 +282,4 @@ fn submit<T: Send + Sync + 'static, P: Preview<T>>(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

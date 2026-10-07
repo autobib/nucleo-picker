@@ -14,22 +14,26 @@ struct SnapshotOrigin<'a> {
 }
 
 macro_rules! checkpoint {
-    ($runner:expr, $name:expr) => {{
+    ($runner:expr, $name:expr $(, $capture:expr)?) => {{
         let name = $name;
         let resolved_name: &str = name.as_ref();
+        let snapshot = checkpoint!(@capture $runner, resolved_name $(, $capture)?);
         let origin = crate::SnapshotOrigin {
             resolved_name,
             name_expression: stringify!($name),
-            sequence: $runner.checkpoint_sequence(),
+            sequence: $runner.checkpoint_sequence() - 1,
         };
         insta::with_settings!({ info => &origin, snapshot_suffix => resolved_name }, {
-            insta::assert_yaml_snapshot!(
-                $runner.scenario_name(),
-                $runner.checkpoint(resolved_name.to_owned())?
-            );
-            Ok::<(), nucleo_picker_vt::Error>(())
-        })?;
+            insta::assert_yaml_snapshot!($runner.scenario_name(), &snapshot);
+        });
+        snapshot
     }};
+    (@capture $runner:expr, $name:expr) => {
+        $runner.checkpoint($name.to_owned())?
+    };
+    (@capture $runner:expr, $name:expr, $capture:expr) => {
+        &$capture
+    };
 }
 
 #[path = "scenarios/cancellation.rs"]

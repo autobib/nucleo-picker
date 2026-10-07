@@ -35,7 +35,7 @@ fn basic_unicode() -> Result<(), Box<dyn Error>> {
     sr.set_dimensions(100, 14)?;
     checkpoint!(sr, "wide-initial");
     sr.set_dimensions(20, 12)?;
-    checkpoint!(sr, "narrow-right-elision");
+    let narrow = checkpoint!(sr, "narrow-right-elision");
     sr.set_dimensions(20, 3)?;
     checkpoint!(sr, "short");
 
@@ -54,7 +54,7 @@ fn basic_unicode() -> Result<(), Box<dyn Error>> {
     }
 
     sr.set_dimensions(20, 12)?;
-    checkpoint!(sr, "narrow-before-final");
+    assert_eq!(sr.checkpoint("narrow-before-final")?, narrow);
     sr.type_text("final")?;
     checkpoint!(sr, "narrow-left-elision");
     sr.set_dimensions(12, 12)?;

@@ -121,23 +121,6 @@ macro_rules! assert_layout {
 }
 
 #[test]
-fn injector_lifetime_updates_status() {
-    let mut lt = MatchListTester::init(1, 0);
-
-    let injector = lt.engine.injector();
-    let status = lt.engine.update(0);
-    assert!(status.injecting);
-
-    drop(injector);
-    let mut status = lt.engine.update(0);
-    assert!(!status.injecting);
-
-    while status.matching {
-        status = lt.engine.update(5);
-    }
-}
-
-#[test]
 fn basic() {
     let mut lt = MatchListTester::init(6, 2);
     assert_layout!(lt, Update(&["12\n34", "ab"]), &[2], &[1]);

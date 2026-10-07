@@ -113,3 +113,6 @@ impl PendingPreview {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -138,7 +138,7 @@ fn full_redraw_uses_a_single_screen_clear_strategy() {
 }
 
 #[test]
-fn preview_only_redraw_does_not_draw_other_components() {
+fn preview_redraw_with_no_preview_only_restores_the_cursor() {
     let output = render(Redraw {
         prompt: false,
         list: false,
@@ -162,7 +162,7 @@ fn full_screen_clear_does_not_require_a_preview_change() {
 }
 
 #[test]
-fn zero_width_skips_preview_drawing() {
+fn zero_width_with_no_preview_emits_no_output() {
     let output = render_at_size(Redraw::full(), (0, 4));
 
     assert!(output.is_empty());

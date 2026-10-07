@@ -8,7 +8,7 @@ use nucleo_picker::{
     PickerOptions,
     event::{Event, LayoutEvent, MatchListEvent, PromptEvent, keybind_default},
     preview::{
-        BoundaryChars, Preview, PreviewBuffer, PreviewEvent,
+        BoundaryChars, Preview, PreviewBuffer, PreviewEvent, SyncPreviewer,
         request::{PreviewRequest, PreviewResponse, QueuedPreviewRequest},
     },
 };
@@ -17,25 +17,13 @@ use unicode_width::UnicodeWidthStr;
 
 use super::{ScenarioRunner, WAIT, lines};
 
-struct ItemPreview;
-
-impl Preview<String> for ItemPreview {
-    type AbortErr = Infallible;
-
-    fn preview(
-        &mut self,
-        item: &String,
-        request: PreviewRequest<'_, String>,
-        _timeout: Duration,
-    ) -> Result<PreviewResponse, Infallible> {
-        let mut buffer = request.ready();
-        buffer.push_str(item);
-        Ok(PreviewResponse::Ready(buffer))
-    }
-}
-
 fn start(options: PickerOptions) -> ScenarioRunner {
-    start_with("basic", lines(), options, ItemPreview)
+    start_with(
+        "basic",
+        lines(),
+        options,
+        SyncPreviewer(|item: &String, buffer: &mut PreviewBuffer| buffer.push_str(item)),
+    )
 }
 
 fn start_with<P>(
@@ -170,8 +158,7 @@ fn assert_pane_at_width(
 fn basic() -> Result<(), Box<dyn Error>> {
     let mut sr = start(PickerOptions::new());
     sr.wait_for_match_complete(24, 24)?;
-    assert_pane(&sr.checkpoint("blank")?, false, &["item-00 alpha"]);
-    checkpoint!(sr, "blank");
+    assert_pane(&checkpoint!(sr, "blank"), false, &["item-00 alpha"]);
     sr.send(Event::Select)?;
     assert_eq!(sr.finish()?, ["item-00 alpha"]);
     Ok(())
@@ -230,8 +217,6 @@ fn pane_survives_updates_and_resizes() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-struct TextPreview(fn(&str, &mut PreviewBuffer));
-
 #[test]
 fn pane_layout_adjustments_and_resizes() -> Result<(), Box<dyn Error>> {
     for reversed in [false, true] {
@@ -239,7 +224,9 @@ fn pane_layout_adjustments_and_resizes() -> Result<(), Box<dyn Error>> {
             "pane_layout",
             vec!["item"],
             PickerOptions::new().preview_size(0.4).reversed(reversed),
-            TextPreview(|_, buffer| buffer.push_text("a\nb\nc\nd\ne\nf")),
+            SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
+                buffer.push_text("a\nb\nc\nd\ne\nf")
+            }),
         );
         let check =
             |sr: &mut ScenarioRunner, width, contents: &[&str]| -> Result<(), Box<dyn Error>> {
@@ -358,7 +345,9 @@ fn toggle_preview_restores_layout_and_cached_state() -> Result<(), Box<dyn Error
             "toggle_preview",
             items,
             options(),
-            TextPreview(|_, buffer| buffer.push_text("a\nb\nc\nd\ne\nf")),
+            SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
+                buffer.push_text("a\nb\nc\nd\ne\nf")
+            }),
         );
         let toggle =
             || keybind_default(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::ALT)).unwrap();
@@ -377,22 +366,20 @@ fn toggle_preview_restores_layout_and_cached_state() -> Result<(), Box<dyn Error
             13,
         );
         if !reversed {
-            checkpoint!(sr, "shown");
+            checkpoint!(sr, "shown", shown);
         }
 
         sr.send(toggle())?;
         sr.send(Event::Preview(PreviewEvent::Up(1)))?;
         sr.send(Event::Preview(PreviewEvent::ToggleLineNumbers))?;
         sr.send(Event::Layout(LayoutEvent::MoveDividerLeft(1)))?;
-        assert_eq!(sr.checkpoint("hidden")?, full_width);
+        let hidden = sr.checkpoint("hidden")?;
+        assert_eq!(hidden, full_width);
         if !reversed {
-            checkpoint!(sr, "hidden");
+            checkpoint!(sr, "hidden", hidden);
         }
         sr.send(toggle())?;
         assert_eq!(sr.checkpoint("restored")?, shown);
-        if !reversed {
-            checkpoint!(sr, "restored");
-        }
 
         sr.send(toggle())?;
         sr.set_dimensions(60, 5)?;
@@ -488,7 +475,9 @@ fn status_toggle_preserves_the_preview_pane() -> Result<(), Box<dyn Error>> {
             "status_with_preview",
             lines(),
             PickerOptions::new().reversed(reversed),
-            TextPreview(|_, buffer| buffer.push_text("a\nb\nc\nd\ne\nf")),
+            SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
+                buffer.push_text("a\nb\nc\nd\ne\nf")
+            }),
         );
         sr.set_dimensions(40, 5)?;
         sr.wait_for_match_complete(24, 24)?;
@@ -537,28 +526,13 @@ fn layout_configuration_and_events_are_ignored_without_a_preview() -> Result<(),
     Ok(())
 }
 
-impl Preview<String> for TextPreview {
-    type AbortErr = Infallible;
-
-    fn preview(
-        &mut self,
-        item: &String,
-        request: PreviewRequest<'_, String>,
-        _timeout: Duration,
-    ) -> Result<PreviewResponse, Infallible> {
-        let mut buffer = request.ready();
-        self.0(item, &mut buffer);
-        Ok(PreviewResponse::Ready(buffer))
-    }
-}
-
 #[test]
 fn unicode_clipping_and_styles() -> Result<(), Box<dyn Error>> {
     let mut sr = start_with(
         "unicode_clipping_and_styles",
         vec!["item"],
         PickerOptions::new(),
-        TextPreview(|_, buffer| {
+        SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
             buffer.push_line("12345");
             buffer.push_styled_line("abcdef", ContentStyle::new().green().bold());
             buffer.push_line("界界界");
@@ -601,7 +575,7 @@ fn unicode_clipping_and_styles() -> Result<(), Box<dyn Error>> {
             assert!(styled.style.bold);
             assert!(styled.style.foreground.is_some());
             assert_eq!(styled.end, column + 4);
-            checkpoint!(sr, "styled-unicode");
+            checkpoint!(sr, "styled-unicode", snapshot);
         }
     }
     sr.send(Event::Quit)?;
@@ -615,7 +589,7 @@ fn preview_and_matches_use_the_same_grapheme_widths() -> Result<(), Box<dyn Erro
         "preview_and_matches_use_the_same_grapheme_widths",
         vec!["لاX"],
         PickerOptions::new().highlight_line(true),
-        TextPreview(|_, buffer| {
+        SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
             buffer.push_line("لا");
             buffer.push_line("لاX");
         }),
@@ -650,7 +624,7 @@ fn style_resets_and_custom_elision() -> Result<(), Box<dyn Error>> {
         "style_resets_and_custom_elision",
         vec!["item"],
         PickerOptions::new().truncation_ellipsis('~'),
-        TextPreview(|_, buffer| {
+        SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
             buffer.push_styled_str("AB", ContentStyle::new().green().on_blue().bold());
             buffer.push_str("C");
             buffer.push_styled_str(
@@ -664,7 +638,7 @@ fn style_resets_and_custom_elision() -> Result<(), Box<dyn Error>> {
     );
     sr.set_dimensions(16, 6)?;
     sr.wait_for_match_complete(1, 1)?;
-    let snapshot = sr.checkpoint("styles")?;
+    let snapshot = checkpoint!(sr, "styles");
     assert_pane(&snapshot, false, &["ABCDEF", "abcdef"]);
     let spans: Vec<_> = snapshot
         .styles
@@ -683,10 +657,8 @@ fn style_resets_and_custom_elision() -> Result<(), Box<dyn Error>> {
         spans[2].style.underline,
         nucleo_picker_vt::UnderlineName::Single
     );
-    checkpoint!(sr, "styles");
     sr.set_dimensions(10, 6)?;
-    assert_pane(&sr.checkpoint("custom marker")?, false, &["AB~", "ab~"]);
-    checkpoint!(sr, "custom-marker");
+    assert_pane(&checkpoint!(sr, "custom-marker"), false, &["AB~", "ab~"]);
     sr.send(Event::Quit)?;
     assert!(sr.finish()?.is_empty());
 
@@ -694,7 +666,7 @@ fn style_resets_and_custom_elision() -> Result<(), Box<dyn Error>> {
         "ascii_elision",
         vec!["abcdef"],
         PickerOptions::new().ascii_compatible(true),
-        ItemPreview,
+        SyncPreviewer(|item: &String, buffer: &mut PreviewBuffer| buffer.push_str(item)),
     );
     sr.set_dimensions(10, 5)?;
     sr.wait_for_match_complete(1, 1)?;
@@ -757,7 +729,12 @@ fn boundary_chars() -> Result<(), Box<dyn Error>> {
             ["+---+", "|ab…|", "|   |", "|   |", "+---+"],
         ),
     ] {
-        let mut sr = start_with("boundary_chars", vec!["abcdef"], options, ItemPreview);
+        let mut sr = start_with(
+            "boundary_chars",
+            vec!["abcdef"],
+            options,
+            SyncPreviewer(|item: &String, buffer: &mut PreviewBuffer| buffer.push_str(item)),
+        );
         sr.set_dimensions(10, 5)?;
         sr.wait_for_match_complete(1, 1)?;
         let snapshot = sr.checkpoint("boundary")?;
@@ -789,7 +766,7 @@ fn line_number_preferences_and_overrides() -> Result<(), Box<dyn Error>> {
         "line_number_preferences_and_overrides",
         vec!["off", "on"],
         PickerOptions::new(),
-        TextPreview(|item, buffer| {
+        SyncPreviewer(|item: &String, buffer: &mut PreviewBuffer| {
             buffer.set_line_numbers(item == "on");
             buffer.push_text("ab\ncd");
         }),
@@ -833,7 +810,7 @@ fn toggle_line_numbers() -> Result<(), Box<dyn Error>> {
         "toggle_line_numbers",
         vec!["item"],
         PickerOptions::new(),
-        TextPreview(|_, buffer| {
+        SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
             buffer.set_line_numbers(true);
             buffer.push_styled_text(
                 "alpha\nbeta\ngamma\ndelta\nepsilon",
@@ -845,35 +822,31 @@ fn toggle_line_numbers() -> Result<(), Box<dyn Error>> {
     sr.set_dimensions(32, 5)?;
     sr.wait_for_match_complete(1, 1)?;
     assert_pane(
-        &sr.checkpoint("initial")?,
+        &checkpoint!(sr, "initial"),
         false,
         &["1 alpha", "2 beta", "3 gamma"],
     );
-    checkpoint!(sr, "initial");
 
     sr.send(toggle())?;
     assert_pane(
-        &sr.checkpoint("hidden")?,
+        &checkpoint!(sr, "hidden"),
         false,
         &["alpha", "beta", "gamma"],
     );
-    checkpoint!(sr, "hidden");
 
     sr.send(Event::Preview(PreviewEvent::Down(2)))?;
     assert_pane(
-        &sr.checkpoint("scrolled")?,
+        &checkpoint!(sr, "scrolled"),
         false,
         &["gamma", "delta", "epsilon"],
     );
-    checkpoint!(sr, "scrolled");
 
     sr.send(toggle())?;
     assert_pane(
-        &sr.checkpoint("restored")?,
+        &checkpoint!(sr, "restored"),
         false,
         &["3 gamma", "4 delta", "5 epsilon"],
     );
-    checkpoint!(sr, "restored");
     sr.send(Event::Quit)?;
     assert!(sr.finish()?.is_empty());
     Ok(())
@@ -888,7 +861,7 @@ fn horizontal_scroll_preserves_columns_across_navigation_and_layout() -> Result<
         PickerOptions::new()
             .reverse_items(false)
             .sort_results(false),
-        TextPreview(|item, buffer| {
+        SyncPreviewer(|item: &String, buffer: &mut PreviewBuffer| {
             buffer.set_line_numbers(true);
             buffer.push_text(if item == "long" {
                 "abcdefghijklmnop\nxy\n\nuv\n\nabcdefghijklmnop"
@@ -972,8 +945,7 @@ fn horizontal_scroll_preserves_columns_across_navigation_and_layout() -> Result<
         &["1 abcdefg…", "2 xy", "3 "],
     );
     sr.send(Event::Preview(PreviewEvent::Right(usize::MAX)))?;
-    assert_pane(&sr.checkpoint("restored")?, false, shifted);
-    checkpoint!(sr, "restored");
+    assert_pane(&checkpoint!(sr, "restored"), false, shifted);
     sr.send(Event::Preview(PreviewEvent::AlignBottom))?;
     assert_pane(
         &sr.checkpoint("aligned bottom")?,
@@ -1006,7 +978,7 @@ fn horizontal_scroll_clips_styled_graphemes() -> Result<(), Box<dyn Error>> {
         "horizontal_unicode",
         vec!["item"],
         PickerOptions::new().truncation_ellipsis('~'),
-        TextPreview(|_, buffer| {
+        SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
             buffer.set_line_numbers(true);
             buffer.push_styled_line("ab界cdefgh", ContentStyle::new().green().bold());
             buffer.push_str("a👩");
@@ -1041,8 +1013,7 @@ fn horizontal_scroll_clips_styled_graphemes() -> Result<(), Box<dyn Error>> {
         &["~", "~", "~", "~"],
     );
     sr.set_dimensions(18, 6)?;
-    assert_pane(&sr.checkpoint("restored width")?, false, clipped);
-    checkpoint!(sr, "styled");
+    assert_pane(&checkpoint!(sr, "styled"), false, clipped);
     sr.send(Event::Quit)?;
     assert!(sr.finish()?.is_empty());
     Ok(())
@@ -1073,9 +1044,9 @@ fn numbered_scrolling_and_blank_rows() -> Result<(), Box<dyn Error>> {
         "numbered_scrolling_and_blank_rows",
         vec!["long", "short", "empty"],
         PickerOptions::new(),
-        TextPreview(|item, buffer| {
+        SyncPreviewer(|item: &String, buffer: &mut PreviewBuffer| {
             buffer.set_line_numbers(true);
-            match item {
+            match item.as_str() {
                 "long" => {
                     for _ in 1..100 {
                         buffer.push_line("text");
@@ -1089,7 +1060,7 @@ fn numbered_scrolling_and_blank_rows() -> Result<(), Box<dyn Error>> {
     );
     sr.set_dimensions(26, 6)?;
     sr.wait_for_match_complete(3, 3)?;
-    let initial = sr.checkpoint("initial")?;
+    let initial = checkpoint!(sr, "initial");
     assert_pane(
         &initial,
         false,
@@ -1099,7 +1070,6 @@ fn numbered_scrolling_and_blank_rows() -> Result<(), Box<dyn Error>> {
         &initial,
         &[(1, 14, 17), (2, 14, 17), (3, 14, 17), (4, 14, 17)],
     );
-    checkpoint!(sr, "initial");
     for (event, expected) in [
         (
             PreviewEvent::Down(7),
@@ -1123,13 +1093,13 @@ fn numbered_scrolling_and_blank_rows() -> Result<(), Box<dyn Error>> {
         let snapshot = sr.checkpoint("scroll")?;
         assert_pane(&snapshot, false, &expected);
         if bottom {
+            checkpoint!(sr, "bottom", snapshot);
             assert_numbers(
                 &snapshot,
                 &[(1, 14, 17), (2, 14, 17), (3, 14, 17), (4, 14, 17)],
             );
         }
     }
-    checkpoint!(sr, "bottom");
     sr.set_dimensions(12, 6)?;
     let narrow = sr.checkpoint("hidden numbers")?;
     assert_pane(&narrow, false, &["text", "text", "text", "text"]);
@@ -1149,10 +1119,9 @@ fn numbered_scrolling_and_blank_rows() -> Result<(), Box<dyn Error>> {
         ],
     );
     sr.send(Event::MatchList(MatchListEvent::Up(1)))?;
-    let short = sr.checkpoint("short")?;
+    let short = checkpoint!(sr, "short");
     assert_pane(&short, false, &["1 short", "2 ", "3 last"]);
     assert_numbers(&short, &[(1, 14, 15), (2, 14, 15), (3, 14, 15)]);
-    checkpoint!(sr, "short");
     sr.send(Event::MatchList(MatchListEvent::Up(1)))?;
     assert_pane(&sr.checkpoint("empty")?, false, &["1 "]);
     sr.send(Event::MatchList(MatchListEvent::Down(2)))?;
@@ -1262,7 +1231,7 @@ fn pending_previews_clear_stale_content_and_render_on_publication() -> Result<()
         &["1 first", "2 second", "3 third"],
     );
     sr.send(Event::MatchList(MatchListEvent::Up(1)))?;
-    let pending = sr.checkpoint("pending")?;
+    let pending = checkpoint!(sr, "pending");
     assert_pane(&pending, false, &["Loading..."]);
     let styles: Vec<_> = pending
         .styles
@@ -1278,7 +1247,7 @@ fn pending_previews_clear_stale_content_and_render_on_publication() -> Result<()
         assert_pane(&sr.checkpoint("narrow pending")?, false, &[expected]);
     }
     sr.set_dimensions(30, 6)?;
-    checkpoint!(sr, "pending");
+    assert_eq!(sr.checkpoint("restored pending")?, pending);
     let active = receiver.recv_timeout(WAIT)?.start().unwrap();
     let mut buffer = PreviewBuffer::new();
     buffer.push_styled_str("failed", ContentStyle::new().red());
@@ -1286,13 +1255,12 @@ fn pending_previews_clear_stale_content_and_render_on_publication() -> Result<()
     buffer.set_line_numbers(true);
     assert!(active.publish(&mut buffer));
     assert_pane_with_border(
-        &sr.checkpoint("published")?,
+        &checkpoint!(sr, "error"),
         false,
         &["1 failed"],
         BoundaryChars::new(),
         Some("╭─ Error ─────╮"),
     );
-    checkpoint!(sr, "error");
     sr.send(Event::MatchList(MatchListEvent::Down(1)))?;
     assert_pane(
         &sr.checkpoint("ready again")?,
@@ -1335,7 +1303,7 @@ fn error_labels_fit_and_respect_boundary_chars() -> Result<(), Box<dyn Error>> {
             "error_labels",
             vec!["error"],
             PickerOptions::new().preview_boundary_chars(chars),
-            TextPreview(|_, buffer| buffer.set_err(true)),
+            SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| buffer.set_err(true)),
         );
         sr.wait_for_match_complete(1, 1)?;
         for top in [
@@ -1372,7 +1340,7 @@ fn error_labels_fit_and_respect_boundary_chars() -> Result<(), Box<dyn Error>> {
                     .all(|span| span.end == width + 1 || span.start == width * 2 - 1)
             );
             if chars == BoundaryChars::new() && width >= 6 {
-                checkpoint!(sr, format!("width-{width}"));
+                checkpoint!(sr, format!("width-{width}"), snapshot);
             }
         }
         sr.send(Event::Quit)?;
@@ -1387,7 +1355,7 @@ fn error_previews_preserve_contents_and_scrolling() -> Result<(), Box<dyn Error>
         "error_contents",
         vec!["error", "ready"],
         PickerOptions::new(),
-        TextPreview(|item, buffer| {
+        SyncPreviewer(|item: &String, buffer: &mut PreviewBuffer| {
             buffer.set_line_numbers(true);
             buffer.set_err(item == "error");
             buffer.push_styled_str("AB", ContentStyle::new().green().on_blue().bold());
