@@ -31,9 +31,13 @@ jobs:
     - name: Run tests
       run: cargo test --locked --no-fail-fast --all-features
     - name: Build VT test binaries
-      run: cargo test --locked --release --package nucleo-picker-vt --no-run
+      run: cargo test --locked --release --package nucleo-picker-vt --no-default-features --no-run
     - name: Run VT tests
-      run: cargo test --locked --release --package nucleo-picker-vt --no-fail-fast
+      run: cargo test --locked --release --package nucleo-picker-vt --no-default-features --no-fail-fast
+    - name: Build VT test binaries with all features
+      run: cargo test --locked --release --package nucleo-picker-vt --all-features --no-run
+    - name: Run VT tests with all features
+      run: cargo test --locked --release --package nucleo-picker-vt --all-features --no-fail-fast
 
   checks:
     runs-on: ubuntu-latest
