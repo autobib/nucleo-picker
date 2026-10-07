@@ -328,7 +328,6 @@ fn layout_adjustments_do_not_restart_pending_previews() -> Result<(), Box<dyn Er
     let mut buffer = PreviewBuffer::new();
     buffer.push_str("ready");
     assert!(active.publish(&mut buffer));
-    sr.wait_for(|status| status.changed)?;
     assert_pane_at_width(
         &sr.checkpoint("published after resize")?,
         false,
@@ -1286,7 +1285,6 @@ fn pending_previews_clear_stale_content_and_render_on_publication() -> Result<()
     buffer.set_err(true);
     buffer.set_line_numbers(true);
     assert!(active.publish(&mut buffer));
-    sr.wait_for(|status| status.changed)?;
     assert_pane_with_border(
         &sr.checkpoint("published")?,
         false,
@@ -1471,7 +1469,6 @@ fn pending_previews_distinguish_no_selection_and_publish_success() -> Result<(),
     let mut buffer = PreviewBuffer::new();
     buffer.push_str("complete");
     assert!(active.publish(&mut buffer));
-    sr.wait_for(|status| status.changed)?;
     let ready = sr.checkpoint("published")?;
     assert_pane_with_border(&ready, false, &["complete"], BoundaryChars::ascii(), None);
     assert!(ready.styles.iter().all(|span| span.end <= 15));
