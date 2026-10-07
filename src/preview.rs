@@ -25,6 +25,7 @@ mod picker;
 mod pool;
 pub mod request;
 mod scroll;
+mod text;
 
 use std::{convert::Infallible, num::NonZero, time::Duration};
 
@@ -35,6 +36,7 @@ pub use picker::PreviewPicker;
 pub use pool::{PoolPreviewer, PreviewWorker};
 use request::{PreviewRequest, PreviewResponse};
 pub use scroll::PreviewEvent;
+pub use text::TextWriter;
 
 /// Preview boundary characters.
 ///

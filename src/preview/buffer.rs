@@ -23,7 +23,9 @@ use memchr::memchr;
 ///   [`push_styled_text`](Self::push_styled_text). These convenience methods accept strings which
 ///   may contain line breaks and control characters. Line breaks are processed to break input
 ///   into lines, and control characters are either substituted or discarded. These methods
-///   are most useful for rendering untrusted text directly into the preview buffer.
+///   are most useful for rendering untrusted text directly into the preview buffer. Here, there is
+///   also a convenience [`fmt::Write`](std::fmt::Write) adapter available at
+///   [`text_writer`](Self::text_writer).
 ///
 /// # Example
 ///
