@@ -246,17 +246,9 @@ impl Frame {
         self.pending_resize = false;
     }
 
-    /// Render the frame to the screen if required.
+    /// Check terminal size, resize components, and perform necessary redraws.
     ///
-    /// Redraws occur in one of the following cases cases:
-    ///
-    /// - a redraw was externally requested
-    /// - either a component has requested a redraw because it changed
-    /// - there is a layout change (handled internally)
-    /// - the screen size changed (checked here, at the last possible moment, so rendering reflects
-    ///   the acutal screen size)
-    ///
-    /// This method returns `Ok(true)` if a redraw actually occurred and `Ok(false)` otherwise.
+    /// Returns whether a redraw actually occurred.
     #[allow(clippy::too_many_arguments)]
     pub fn render<S, P, L, C, V, W>(
         &mut self,
@@ -282,6 +274,8 @@ impl Frame {
         }
         self.pending_resize |= self.update_size(writer.size()?);
         if self.pending_resize {
+            // resize immediately before drawing, so that the draw can take into account the new
+            // size
             self.resize(engine, prompt, list, status, preview);
             redraw = Redraw::full();
         }

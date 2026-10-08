@@ -3,6 +3,7 @@ use crate::{Picker, PickerOptions, preview::request::QueuedPreviewRequest, rende
 
 #[derive(Default)]
 pub(crate) struct TestPreviewer {
+    pub(crate) focused: Vec<Option<&'static str>>,
     pub(crate) requested: Vec<&'static str>,
     pub(crate) buffer_allocations: Vec<*const u8>,
     pub(crate) queued: Vec<QueuedPreviewRequest<&'static str>>,
@@ -17,6 +18,10 @@ pub(crate) struct TestPreviewer {
 impl Preview<&'static str> for TestPreviewer {
     type AbortErr = &'static str;
 
+    fn focus_changed(&mut self, item: Option<&&'static str>) {
+        self.focused.push(item.copied());
+    }
+
     fn preview(
         &mut self,
         item: &&'static str,
@@ -25,6 +30,7 @@ impl Preview<&'static str> for TestPreviewer {
     ) -> Result<PreviewResponse, Self::AbortErr> {
         assert!(timeout >= Duration::from_millis(2));
         assert!(std::ptr::eq(item, request.item()));
+        assert_eq!(self.focused.last(), Some(&Some(*item)));
         self.requested.push(item);
         assert_eq!(request.buffer.lines().len(), 1);
         assert_eq!(request.buffer.line(0).unwrap().as_str(), "");
@@ -108,6 +114,7 @@ pub(crate) fn update(
         selected_item(picker),
         picker.engine.snapshot(),
         Instant::now(),
+        true,
     )
 }
 

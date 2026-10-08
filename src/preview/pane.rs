@@ -61,10 +61,18 @@ impl<P> PreviewPane<P> {
         selected: Option<u32>,
         snapshot: &nucleo::Snapshot<T>,
         deadline: Instant,
+        was_enabled: bool,
     ) -> Result<(), P::AbortErr>
     where
         P: Preview<T>,
     {
+        let previous_focus = if was_enabled { self.last_item } else { None };
+        if previous_focus != selected {
+            self.previewer.focus_changed(selected.map(|idx| {
+                // SAFETY: selected is an initialized item index from this snapshot.
+                unsafe { snapshot.get_item_unchecked(idx).data }
+            }));
+        }
         if self.last_item != selected {
             self.last_item = selected;
             self.epoch = self.epoch.wrapping_add(1);
@@ -245,13 +253,24 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewComponent<T> for PreviewPan
         selected: Option<u32>,
         snapshot: &nucleo::Snapshot<T>,
         deadline: Instant,
+        was_enabled: bool,
     ) -> Result<bool, P::AbortErr> {
-        self.update_current(selected, snapshot, deadline)?;
+        self.update_current(selected, snapshot, deadline, was_enabled)?;
         Ok(std::mem::take(&mut self.pending_redraw))
     }
 
+    fn hide(&mut self) {
+        if self.last_item.is_some() {
+            self.previewer.focus_changed(None);
+        }
+    }
+
     fn restart(&mut self) {
+        let had_focus = self.last_item.is_some();
         self.restart_cache();
+        if had_focus {
+            self.previewer.focus_changed(None);
+        }
     }
 }
 
