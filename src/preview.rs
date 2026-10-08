@@ -203,10 +203,27 @@ pub trait Preview<T> {
         request: PreviewRequest<'_, T>,
         timeout: Duration,
     ) -> Result<PreviewResponse, Self::AbortErr>;
+
+    /// Handle changes to an active preview target.
+    ///
+    /// This method is called whenever the preview pane changes to a new target. Unlike `preview`, this
+    /// method is called even if the item is cached. The `None` target means that the preview is
+    /// hidden or that there are no matching items (so none is selected). This method is called
+    /// before the `preview` method (if the `preview` method is called at all).
+    ///
+    /// This method runs on the picker thread and therefore must not block. If it blocks, the picker
+    /// interface will lag.
+    ///
+    /// The default implementation does nothing.
+    fn focus_changed(&mut self, _item: Option<&T>) {}
 }
 
 impl<T, P: Preview<T>> Preview<T> for &mut P {
     type AbortErr = P::AbortErr;
+
+    fn focus_changed(&mut self, item: Option<&T>) {
+        (**self).focus_changed(item);
+    }
 
     fn preview(
         &mut self,

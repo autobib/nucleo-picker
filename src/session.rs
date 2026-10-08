@@ -68,17 +68,16 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
             &mut status_line,
             &mut preview,
         );
-        preview
-            .update(
-                if P::ENABLED {
-                    list.selection(engine).map(|n| engine.idx_from_match(n))
-                } else {
-                    None
-                },
-                engine.snapshot(),
-                frame_start + self.interval,
-            )
-            .map_err(PickError::Aborted)?;
+        if P::ENABLED && frame.preview_enabled() {
+            preview
+                .update(
+                    list.selection(engine).map(|n| engine.idx_from_match(n)),
+                    engine.snapshot(),
+                    frame_start + self.interval,
+                    false,
+                )
+                .map_err(PickError::Aborted)?;
+        }
         frame.draw(
             engine,
             &mut prompt,
@@ -92,6 +91,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         let mut frame_number = 0_u64;
         let mut handle_status = None;
         let selection = 'selection: loop {
+            let preview_was_enabled = frame.preview_enabled();
             let mut force_redraw = false;
             let frame_deadline = frame_start + self.interval;
             // this is a deadline with a 1ms bonus so that we always have a bit of time to
@@ -205,16 +205,20 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                             list.selection(engine).map(|n| engine.idx_from_match(n)),
                             engine.snapshot(),
                             frame_start + self.interval,
+                            preview_was_enabled,
                         )
                         .map_err(PickError::Aborted)?,
             };
+
+            if P::ENABLED && preview_was_enabled && !frame.preview_enabled() {
+                preview.hide();
+            }
 
             // a redraw was externally requested
             if force_redraw {
                 redraw = Redraw::full();
             }
 
-            // render the frame
             let changed = frame.render(
                 engine,
                 &mut prompt,

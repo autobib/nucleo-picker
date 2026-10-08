@@ -1,12 +1,12 @@
-use std::collections::VecDeque;
+use std::{cell::Cell, collections::VecDeque, rc::Rc};
 
 use crate::{
     PickerOptions,
     component::{Component, PreviewComponent},
     error::PickError,
-    event::{Event, EventSource},
+    event::{Event, EventSource, LayoutEvent},
     preview::{
-        PreviewBuffer, PreviewConfig, PreviewEvent,
+        PreviewBuffer, PreviewConfig, PreviewEvent, SyncPreviewer,
         pane::{PreviewPane, tests::support::*},
         request::QueuedPreviewRequest,
     },
@@ -55,6 +55,7 @@ struct TestTerminal {
     output: Vec<u8>,
     cleanups: usize,
     sizes: VecDeque<(u16, u16)>,
+    size_override: Option<Rc<Cell<(u16, u16)>>>,
     changed: Vec<bool>,
     fail_write: bool,
     fail_cleanup: bool,
@@ -88,7 +89,9 @@ impl Terminal for TestTerminal {
     }
 
     fn size(&mut self) -> io::Result<(u16, u16)> {
-        if self.sizes.len() > 1 {
+        if let Some(size) = &self.size_override {
+            Ok(size.get())
+        } else if self.sizes.len() > 1 {
             Ok(self.sizes.pop_front().unwrap())
         } else {
             Ok(self.sizes.front().copied().unwrap_or((20, 10)))
@@ -167,7 +170,7 @@ fn batched_navigation_and_refresh_target_the_event_selection() {
         TestPreviewer::default(),
     );
     session
-        .update(Some(1), picker.engine.snapshot(), Instant::now())
+        .update(Some(1), picker.engine.snapshot(), Instant::now(), true)
         .unwrap();
     let events = Events(VecDeque::from([
         Ok(Event::MatchList(MatchListEvent::Up(1))),
@@ -327,46 +330,91 @@ fn scrolling_pending_previews_is_ignored_by_the_loop() {
 
 #[test]
 fn idle_frames_collect_completed_previews_and_enable_scrolling() {
-    let mut picker = picker(["alpha"]);
-    let mut session = PreviewPane::new(
-        &PreviewConfig::default(),
-        &crate::PickerChars::new(),
-        TestPreviewer {
-            defer: true,
-            ..TestPreviewer::default()
-        },
-    );
-    update(&mut session, &mut picker).unwrap();
-    let mut queued = session.test_previewer().queued.pop();
-    let mut step = 0;
-    let events = CallbackEvents(move || {
-        step += 1;
-        match step {
-            1 | 4 | 5 => Err(RecvError::Timeout),
-            2 => {
-                let mut buffer = PreviewBuffer::new();
-                for _ in 1..30 {
-                    buffer.newline();
+    for size in [(20, 10), (30, 12)] {
+        let mut picker = picker(["alpha"]);
+        let status = picker.status_observer();
+        let mut session = PreviewPane::new(
+            &PreviewConfig::default(),
+            &crate::PickerChars::new(),
+            TestPreviewer {
+                defer: true,
+                ..TestPreviewer::default()
+            },
+        );
+        update(&mut session, &mut picker).unwrap();
+        let mut queued = session.test_previewer().queued.pop();
+        let mut step = 0;
+        let events = CallbackEvents(move || {
+            step += 1;
+            match step {
+                1 | 3 | 5 | 6 => Err(RecvError::Timeout),
+                2 => {
+                    let mut buffer = PreviewBuffer::new();
+                    for _ in 1..30 {
+                        buffer.newline();
+                    }
+                    assert!(queued.take().unwrap().start().unwrap().publish(&mut buffer));
+                    Ok(Event::Status { id: 0 })
                 }
-                assert!(queued.take().unwrap().start().unwrap().publish(&mut buffer));
-                Err(RecvError::Timeout)
+                4 => Ok(Event::Preview(PreviewEvent::Down(1))),
+                _ => Ok(Event::Quit),
             }
-            3 => Ok(Event::Preview(PreviewEvent::Down(1))),
-            _ => Ok(Event::Quit),
+        });
+        let mut terminal = TestTerminal {
+            sizes: VecDeque::from([(20, 10), size]),
+            ..TestTerminal::default()
+        };
+        picker
+            .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
+            .unwrap();
+        let status = status.try_recv().unwrap();
+        assert_eq!((status.width, status.height), size);
+        assert_eq!(terminal.changed, [false, true, true, false]);
+        assert_eq!(session.test_cache().peek(&0).unwrap().scroll_position, 1);
+        assert_eq!(session.test_previewer().requested, ["alpha"]);
+
+        let output = String::from_utf8(terminal.output).unwrap();
+        let list_draws = 1 + usize::from(size != (20, 10));
+        assert_eq!(output.matches("alpha").count(), list_draws);
+        assert_eq!(output.matches('>').count(), list_draws);
+        assert_eq!(output.matches('╭').count(), 3);
+    }
+}
+
+#[test]
+fn redraw_checks_terminal_size_after_preview_generation() {
+    let mut picker = picker(["alpha", "beta"]);
+    let status = picker.status_observer();
+    let size = Rc::new(Cell::new((20, 10)));
+    let mut terminal = TestTerminal {
+        size_override: Some(Rc::clone(&size)),
+        ..TestTerminal::default()
+    };
+    let previewer = SyncPreviewer(|item: &&str, buffer: &mut PreviewBuffer| {
+        if *item == "beta" {
+            size.set((30, 12));
+        }
+        buffer.push_str(item);
+    });
+    let mut steps = VecDeque::from([
+        Ok(Event::MatchList(MatchListEvent::Up(1))),
+        Ok(Event::Status { id: 0 }),
+        Err(RecvError::Timeout),
+        Ok(Event::Quit),
+    ]);
+    let events = super::TestEvents(|timeout: Duration| {
+        if timeout.is_zero() {
+            Err(RecvError::Timeout)
+        } else {
+            steps.pop_front().unwrap()
         }
     });
-    let mut terminal = TestTerminal::default();
     picker
-        .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
+        .with_preview(previewer)
+        .pick_with_terminal_io(events, &mut terminal)
         .unwrap();
-    assert_eq!(terminal.changed, [false, true, true, false]);
-    assert_eq!(session.test_cache().peek(&0).unwrap().scroll_position, 1);
-    assert_eq!(session.test_previewer().requested, ["alpha"]);
-
-    let output = String::from_utf8(terminal.output).unwrap();
-    assert_eq!(output.matches("alpha").count(), 1);
-    assert_eq!(output.matches('>').count(), 1);
-    assert_eq!(output.matches('╭').count(), 3);
+    let status = status.try_recv().unwrap();
+    assert_eq!((status.width, status.height), (30, 12));
 }
 
 #[test]
@@ -392,6 +440,7 @@ fn batched_navigation_back_to_the_same_item_does_not_promote() {
         .unwrap();
     assert_eq!(terminal.changed, [false]);
     assert_eq!(session.test_previewer().requested, ["alpha"]);
+    assert_eq!(session.test_previewer().focused, [Some("alpha")]);
     assert!(!session.test_previewer().queued[0].is_cancelled());
 }
 
@@ -461,7 +510,7 @@ fn scroll_changes_are_reported_without_redrawing_the_match_list() {
 }
 
 #[test]
-fn revealing_the_pane_on_a_width_change_reclamps_the_offset() {
+fn resizing_the_pane_preserves_focus_and_reclamps_the_offset() {
     let mut picker = picker(["alpha"]);
     let mut session = PreviewPane::new(
         &PreviewConfig::default(),
@@ -472,12 +521,17 @@ fn revealing_the_pane_on_a_width_change_reclamps_the_offset() {
         },
     );
     update(&mut session, &mut picker).unwrap();
+    session.test_previewer().focused.clear();
     session.test_cache().get_mut(&0).unwrap().scroll_position = 25;
     let mut terminal = TestTerminal {
-        sizes: VecDeque::from([(5, 10), (20, 10)]),
+        sizes: VecDeque::from([(5, 10), (20, 10), (5, 10), (20, 10)]),
         ..TestTerminal::default()
     };
     let events = Events(VecDeque::from([
+        Ok(Event::Redraw),
+        Err(RecvError::Timeout),
+        Ok(Event::Redraw),
+        Err(RecvError::Timeout),
         Ok(Event::Redraw),
         Err(RecvError::Timeout),
         Ok(Event::Quit),
@@ -486,6 +540,8 @@ fn revealing_the_pane_on_a_width_change_reclamps_the_offset() {
         .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
         .unwrap();
     assert_eq!(session.test_cache().peek(&0).unwrap().scroll_position, 22);
+    assert_eq!(session.test_previewer().focused, [Some("alpha")]);
+    assert_eq!(session.test_previewer().requested, ["alpha"]);
 }
 
 #[test]
@@ -644,6 +700,8 @@ fn zero_sized_panes_ignore_scrolling() {
             .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
             .unwrap();
         assert_eq!(session.test_cache().peek(&0).unwrap().scroll_position, 0);
+        assert_eq!(session.test_previewer().focused, [Some("alpha")]);
+        assert_eq!(session.test_previewer().requested, ["alpha"]);
         assert_eq!(terminal.changed, [false]);
     }
 }
@@ -829,6 +887,7 @@ fn each_pick_session_starts_with_a_fresh_cache() {
             .unwrap();
     }
     assert_eq!(previewer.requested, ["alpha", "alpha"]);
+    assert_eq!(previewer.focused, [Some("alpha"), Some("alpha")]);
 }
 
 #[test]
@@ -889,4 +948,84 @@ fn restart_invalidates_cached_item_ids() {
         .unwrap();
     assert_eq!(selected, Some(&"beta"));
     assert_eq!(previewer.requested, ["alpha", "beta"]);
+    assert_eq!(previewer.focused, [Some("alpha"), None, Some("beta")]);
+}
+
+#[test]
+fn toggling_the_pane_reports_focus_and_coalesces_hidden_navigation() {
+    for defer in [false, true] {
+        for size in [(20, 10), (5, 10)] {
+            let mut picker = picker(["alpha", "beta"]);
+            let mut previewer = TestPreviewer {
+                defer,
+                ..TestPreviewer::default()
+            };
+            let events = Events(VecDeque::from([
+                Ok(Event::Layout(LayoutEvent::TogglePreview)),
+                Err(RecvError::Timeout),
+                Ok(Event::MatchList(MatchListEvent::Up(1))),
+                Err(RecvError::Timeout),
+                Ok(Event::Layout(LayoutEvent::TogglePreview)),
+                Err(RecvError::Timeout),
+                Ok(Event::Layout(LayoutEvent::TogglePreview)),
+                Err(RecvError::Timeout),
+                Ok(Event::MatchList(MatchListEvent::Down(1))),
+                Err(RecvError::Timeout),
+                Ok(Event::Layout(LayoutEvent::TogglePreview)),
+                Err(RecvError::Timeout),
+                Ok(Event::Layout(LayoutEvent::TogglePreview)),
+                Ok(Event::Layout(LayoutEvent::TogglePreview)),
+                Err(RecvError::Timeout),
+                Ok(Event::Quit),
+            ]));
+            let mut terminal = TestTerminal {
+                sizes: VecDeque::from([size]),
+                ..TestTerminal::default()
+            };
+            picker
+                .with_preview(&mut previewer)
+                .pick_with_terminal_io(events, &mut terminal)
+                .unwrap();
+            assert_eq!(
+                previewer.focused,
+                [Some("alpha"), None, Some("beta"), None, Some("alpha")]
+            );
+            assert_eq!(
+                previewer.requested,
+                if defer {
+                    &["alpha", "beta", "alpha"][..]
+                } else {
+                    &["alpha", "beta"][..]
+                }
+            );
+        }
+    }
+}
+
+#[test]
+fn revealing_the_same_item_preserves_its_request_after_hidden_navigation() {
+    for defer in [false, true] {
+        let mut picker = picker(["alpha", "beta"]);
+        let mut previewer = TestPreviewer {
+            defer,
+            ..TestPreviewer::default()
+        };
+        let events = Events(VecDeque::from([
+            Ok(Event::Layout(LayoutEvent::TogglePreview)),
+            Err(RecvError::Timeout),
+            Ok(Event::MatchList(MatchListEvent::Up(1))),
+            Err(RecvError::Timeout),
+            Ok(Event::MatchList(MatchListEvent::Down(1))),
+            Err(RecvError::Timeout),
+            Ok(Event::Layout(LayoutEvent::TogglePreview)),
+            Err(RecvError::Timeout),
+            Ok(Event::Quit),
+        ]));
+        picker
+            .with_preview(&mut previewer)
+            .pick_with_terminal_io(events, &mut TestTerminal::default())
+            .unwrap();
+        assert_eq!(previewer.focused, [Some("alpha"), None, Some("alpha")]);
+        assert_eq!(previewer.requested, ["alpha"]);
+    }
 }

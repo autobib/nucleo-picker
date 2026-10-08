@@ -48,7 +48,10 @@ pub(crate) trait PreviewComponent<T> {
         selected: Option<u32>,
         snapshot: &nucleo::Snapshot<T>,
         deadline: Instant,
+        was_enabled: bool,
     ) -> Result<bool, Self::Error>;
+
+    fn hide(&mut self);
 
     fn restart(&mut self);
 }
@@ -81,9 +84,11 @@ impl<T, A> PreviewComponent<T> for NoPreview<A> {
         _selected: Option<u32>,
         _snapshot: &nucleo::Snapshot<T>,
         _deadline: Instant,
+        _was_enabled: bool,
     ) -> Result<bool, A> {
         Ok(false)
     }
+    fn hide(&mut self) {}
     fn restart(&mut self) {}
 }
 
@@ -112,8 +117,12 @@ impl<T, C: PreviewComponent<T>> PreviewComponent<T> for &mut C {
         selected: Option<u32>,
         snapshot: &nucleo::Snapshot<T>,
         deadline: Instant,
+        was_enabled: bool,
     ) -> Result<bool, Self::Error> {
-        (**self).update(selected, snapshot, deadline)
+        (**self).update(selected, snapshot, deadline, was_enabled)
+    }
+    fn hide(&mut self) {
+        (**self).hide();
     }
     fn restart(&mut self) {
         (**self).restart();
