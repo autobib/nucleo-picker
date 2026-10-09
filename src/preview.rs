@@ -218,7 +218,7 @@ pub trait Preview<T> {
     fn focus_changed(&mut self, _item: Option<&T>) {}
 }
 
-impl<T, P: Preview<T>> Preview<T> for &mut P {
+impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
     type AbortErr = P::AbortErr;
 
     fn focus_changed(&mut self, item: Option<&T>) {

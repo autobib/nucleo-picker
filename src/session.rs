@@ -91,6 +91,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         let mut frame_number = 0_u64;
         let mut handle_status = None;
         let selection = 'selection: loop {
+            // whether the preview was enabled on the previous frame
             let preview_was_enabled = frame.preview_enabled();
             let mut force_redraw = false;
             let frame_deadline = frame_start + self.interval;
@@ -129,6 +130,13 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                     #[cfg(feature = "preview")]
                     Event::Preview(event) => {
                         if P::ENABLED && frame.preview_enabled() {
+                            // we have a previewer (i.e.: inside a PreviewPicker) and moreover
+                            // the frame has not been hidden by the user.
+
+                            // note that this not check *visibility* of the preview frame
+                            // since that would bleed state from the frame logic everywhere
+                            // which is a lot of complexity which is only required for
+                            // unrealistically tiny terminals
                             preview.handle(
                                 event,
                                 list.event_selection(engine)
@@ -211,6 +219,8 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
             };
 
             if P::ENABLED && preview_was_enabled && !frame.preview_enabled() {
+                // this is only used to process `hide` events within the previewer;
+                // currently this controls the 'focus_changed' event
                 preview.hide();
             }
 
@@ -228,6 +238,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                 &mut terminal,
                 redraw,
             )?;
+
             terminal.end_frame(changed)?;
 
             // handle the status event but do not fail if the status notifier
