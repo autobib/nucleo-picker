@@ -51,8 +51,10 @@ pub(crate) trait PreviewComponent<T> {
         was_enabled: bool,
     ) -> Result<bool, Self::Error>;
 
+    /// Do extra processing when a preview frame is hidden.
     fn hide(&mut self);
 
+    /// Do extra processing when a restart event is received.
     fn restart(&mut self);
 }
 
