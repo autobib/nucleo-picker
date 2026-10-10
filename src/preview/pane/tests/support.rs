@@ -13,6 +13,7 @@ pub(crate) struct TestPreviewer {
     pub(crate) ids: Vec<ItemId>,
     pub(crate) buffer_allocations: Vec<*const u8>,
     pub(crate) queued: Vec<QueuedPreviewRequest<&'static str>>,
+    pub(crate) restarts: usize,
     pub(crate) defer: bool,
     pub(crate) drop_requests: bool,
     pub(crate) fail: bool,
@@ -27,6 +28,12 @@ impl Preview<&'static str> for TestPreviewer {
     fn focus_changed(&mut self, item: Option<ItemRef<'_, &'static str>>) {
         self.focused.push(item.map(|item| *item.value()));
         self.focused_ids.push(item.map(|item| item.id()));
+    }
+
+    fn restart(&mut self) {
+        assert!(self.queued.iter().all(QueuedPreviewRequest::is_cancelled));
+        assert!(self.focused.last().is_none_or(Option::is_none));
+        self.restarts += 1;
     }
 
     fn preview(

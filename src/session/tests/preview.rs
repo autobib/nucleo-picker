@@ -994,6 +994,7 @@ fn restart_invalidates_cached_item_ids() {
     assert_eq!(previewer.requested, ["alpha", "beta"]);
     assert_eq!(previewer.focused, [Some("alpha"), None, Some("beta")]);
     assert_ne!(previewer.ids[0], previewer.ids[1]);
+    assert_eq!(previewer.restarts, 1);
 }
 
 #[test]

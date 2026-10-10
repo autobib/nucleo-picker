@@ -135,7 +135,8 @@ impl Default for PreviewConfig {
 ///
 /// ## Do not block the picker
 ///
-/// The picker will block while waiting for the [`preview`](Self::preview) method to return. The
+/// The picker will block while waiting for any of the associated methods to return.
+/// For [`preview`](Self::preview) this can be quite sensitive, and the
 /// provided timeout is a hint to the previewer which indicates how much time remains before the
 /// next frame should be rendered. If the preview method does not return in time, the picker
 /// interface will lag. In practice, the timeout will always be at least 2ms, so the duration does
@@ -201,7 +202,7 @@ pub trait Preview<T> {
     /// Generate a preview.
     ///
     /// The item to which the preview corresponds is available with [`PreviewRequest::item`]. The
-    /// [`Duration`] is a timeout suggested by the picker and depende on the current frame budget. It will always be at least 2ms.
+    /// [`Duration`] is a timeout suggested by the picker and depende on the current frame budget. It will always be at least 2ms. Exceeding the budget will cause the picker to lag.
     ///
     /// See the [trait-level docs](Preview) for more detail.
     fn preview(
@@ -222,6 +223,18 @@ pub trait Preview<T> {
     ///
     /// The default implementation does nothing.
     fn focus_changed(&mut self, _item: Option<ItemRef<'_, T>>) {}
+
+    /// Handle an interactive picker restart.
+    ///
+    /// This method is called when an interactive restart is processed by the picker. Note that this
+    /// method is called *after* clearing the preview cache, cancelling pending requests, and
+    /// the call to `focus_changed(None)`, and *before* restarting the underlying match item.
+    ///
+    /// This method runs on the picker thread and therefore must not block. If it blocks, the picker
+    /// interface will lag.
+    ///
+    /// The default implementation does nothing.
+    fn restart(&mut self) {}
 }
 
 impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
@@ -229,6 +242,10 @@ impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
 
     fn focus_changed(&mut self, item: Option<ItemRef<'_, T>>) {
         (**self).focus_changed(item);
+    }
+
+    fn restart(&mut self) {
+        (**self).restart();
     }
 
     fn preview(

@@ -271,6 +271,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewComponent<T> for PreviewPan
         if had_focus {
             self.previewer.focus_changed(None);
         }
+        self.previewer.restart();
     }
 }
 
