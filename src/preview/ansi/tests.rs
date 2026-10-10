@@ -5,7 +5,7 @@ use std::{
 
 use crossterm::style::{Attribute, ContentStyle, Stylize};
 
-use crate::preview::{AnsiWriter, PreviewBuffer};
+use crate::preview::{AnsiState, AnsiWriter, PreviewBuffer};
 
 use super::Color;
 
@@ -393,4 +393,102 @@ fn invalid_utf8_follows_parser_recovery_without_losing_style() {
                 .eq([ContentStyle::new().bold().apply(expected),])
         );
     }
+}
+
+#[test]
+fn caller_owned_state_preserves_every_byte_boundary() {
+    let input = "\x1b[1;31mé界\x1b[0m!\n\x1b[32mlast".as_bytes();
+    for boundary in 0..=input.len() {
+        let mut buffer = PreviewBuffer::new();
+        let mut state = AnsiState::new();
+        buffer.push_ansi(&input[..boundary], &mut state);
+        buffer.push_ansi(b"", &mut state);
+        let (mut buffer, mut state) = (Box::new(buffer), Box::new(state));
+        buffer.push_ansi(&input[boundary..], &mut state);
+        assert!(
+            buffer.line(0).unwrap().spans().eq([
+                ContentStyle::new()
+                    .with(Color::AnsiValue(1))
+                    .bold()
+                    .apply("é界"),
+                ContentStyle::default().apply("!"),
+            ])
+        );
+        assert!(
+            buffer
+                .line(1)
+                .unwrap()
+                .spans()
+                .eq([ContentStyle::new().with(Color::AnsiValue(2)).apply("last"),])
+        );
+    }
+}
+
+#[test]
+fn interleaved_streams_keep_independent_parser_and_style_state() {
+    let inputs = ["\x1b[31m界\nred", "\x1b[1;34méblue"];
+    let mut streams =
+        std::array::from_fn::<_, 2, _>(|_| (PreviewBuffer::new(), AnsiState::default()));
+    for i in 0..inputs.iter().map(|s| s.len()).max().unwrap() {
+        for ((buffer, state), input) in streams.iter_mut().zip(inputs) {
+            if let Some(byte) = input.as_bytes().get(i) {
+                buffer.push_ansi(std::slice::from_ref(byte), state);
+            }
+        }
+    }
+    assert!(
+        streams[0]
+            .0
+            .line(0)
+            .unwrap()
+            .spans()
+            .eq([ContentStyle::new().with(Color::AnsiValue(1)).apply("界"),])
+    );
+    assert!(
+        streams[0]
+            .0
+            .line(1)
+            .unwrap()
+            .spans()
+            .eq([ContentStyle::new().with(Color::AnsiValue(1)).apply("red"),])
+    );
+    assert!(
+        streams[1]
+            .0
+            .line(0)
+            .unwrap()
+            .spans()
+            .eq([ContentStyle::new()
+                .with(Color::AnsiValue(4))
+                .bold()
+                .apply("éblue"),])
+    );
+}
+
+#[test]
+fn resetting_state_discards_partial_sequences_and_styles() {
+    for incomplete in [b"\x1b[".as_slice(), b"\xe7\x95", b"\x1b]0;title", b""] {
+        let mut buffer = PreviewBuffer::new();
+        let mut state = AnsiState::new();
+        buffer.push_ansi(b"\x1b[1mbold", &mut state);
+        buffer.push_ansi(incomplete, &mut state);
+        state = AnsiState::default();
+        buffer.push_ansi(b"plain", &mut state);
+        assert!(buffer.line(0).unwrap().spans().eq([
+            ContentStyle::new().bold().apply("bold"),
+            ContentStyle::default().apply("plain"),
+        ]));
+    }
+    let mut buffer = PreviewBuffer::new();
+    let mut state = AnsiState::new();
+    buffer.push_ansi(b"\x1b[1mbold", &mut state);
+    buffer.clear();
+    buffer.push_ansi(b"still bold", &mut state);
+    assert!(
+        buffer
+            .line(0)
+            .unwrap()
+            .spans()
+            .eq([ContentStyle::new().bold().apply("still bold"),])
+    );
 }

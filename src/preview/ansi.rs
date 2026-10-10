@@ -8,6 +8,31 @@ use crossterm::style::{Attribute, Color, ContentStyle};
 
 use super::PreviewBuffer;
 
+/// ANSI parser and style state.
+///
+/// This struct holds the state required to parse an ANSI stream by keeping track of styles and ANSI
+/// codes split across byte blocks. This state is required for writing to a preview buffer with
+/// [`PreviewBuffer::push_ansi`].
+///
+/// In most cases, you don't need to use this directly: an [`AnsiWriter`] (returned by
+/// [`PreviewBuffer::ansi_writer`]) implements [`io::Write`] and manages this state internally.
+#[cfg_attr(docsrs, doc(cfg(feature = "preview-ansi")))]
+#[derive(Debug, Default)]
+pub struct AnsiState {
+    parser: Parser,
+    style: ContentStyle,
+}
+
+impl AnsiState {
+    /// Initialize ANSI stream state.
+    ///
+    /// This is the same as the [`Default`] implementation.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 /// Write an ANSI byte-stream directly into a preview buffer.
 ///
 /// The conventional way to construct this type is through [`PreviewBuffer::ansi_writer`]. This type
@@ -16,8 +41,8 @@ use super::PreviewBuffer;
 #[cfg_attr(docsrs, doc(cfg(feature = "preview-ansi")))]
 #[derive(Debug)]
 pub struct AnsiWriter<'a> {
-    parser: Parser,
-    sink: Sink<'a>,
+    buffer: &'a mut PreviewBuffer,
+    state: AnsiState,
 }
 
 impl<'a> AnsiWriter<'a> {
@@ -26,18 +51,13 @@ impl<'a> AnsiWriter<'a> {
     /// Also see [`PreviewBuffer::ansi_writer`].
     pub fn new(buffer: &'a mut PreviewBuffer) -> Self {
         Self {
-            parser: Parser::default(),
-            sink: Sink {
-                buffer,
-                style: ContentStyle::default(),
-            },
+            buffer,
+            state: AnsiState::new(),
         }
     }
 
     fn write_bytes(&mut self, bytes: &[u8]) {
-        for &byte in bytes {
-            self.parser.advance(&mut self.sink, byte);
-        }
+        self.buffer.push_ansi(bytes, &mut self.state);
     }
 }
 
@@ -64,13 +84,31 @@ impl PreviewBuffer {
     /// ```
     #[cfg_attr(docsrs, doc(cfg(feature = "preview-ansi")))]
     pub fn ansi_writer(&mut self) -> AnsiWriter<'_> {
-        AnsiWriter {
-            parser: Parser::default(),
-            sink: Sink {
-                buffer: self,
-                style: ContentStyle::default(),
-            },
+        AnsiWriter::new(self)
+    }
+
+    /// Statefully push ANSI bytes directly into this buffer.
+    ///
+    /// In most cases, it is more convenient to use [`ansi_writer`](Self::ansi_writer) instead,
+    /// which returns an [`AnsiWriter`] which manages this state internally. This API is provided
+    /// for two main reasons:
+    ///
+    /// 1. In the case that it is convenient for the writer state and buffer to not be co-located.
+    /// 2. In order to interleave multiple byte streams or split a stream across multiple buffers.
+    ///
+    /// It is assumed that the input stream is UTF-8 encoded by convenention. Invalid UTF-8 is
+    /// handled using lossy conversion. In order to interleave ANSI streams, you must use a
+    /// separate [`AnsiState`] per stream.
+    #[cfg_attr(docsrs, doc(cfg(feature = "preview-ansi")))]
+    pub fn push_ansi(&mut self, bytes: &[u8], state: &mut AnsiState) {
+        let mut sink = Sink {
+            buffer: self,
+            style: state.style,
+        };
+        for &byte in bytes {
+            state.parser.advance(&mut sink, byte);
         }
+        state.style = sink.style;
     }
 }
 

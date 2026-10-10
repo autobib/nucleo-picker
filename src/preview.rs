@@ -30,7 +30,7 @@ mod text;
 use std::{convert::Infallible, num::NonZero, time::Duration};
 
 #[cfg(feature = "preview-ansi")]
-pub use ansi::AnsiWriter;
+pub use ansi::{AnsiState, AnsiWriter};
 pub use buffer::{PreviewBuffer, PreviewLine};
 pub use picker::PreviewPicker;
 pub use pool::{PoolPreviewer, PreviewWorker};
