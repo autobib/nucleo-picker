@@ -88,7 +88,7 @@ fn submit(
         buffer,
         epoch: 0,
         snapshot: picker.engine.snapshot(),
-        idx,
+        id: picker.engine.item_id(idx),
     };
     let PreviewResponse::Pending(pending) = pool
         .preview(request.item(), request, Duration::ZERO)

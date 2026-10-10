@@ -15,7 +15,10 @@
 //!
 use std::{io, time::Instant};
 
-use crate::rect::{Area, Position, Rect};
+use crate::{
+    match_engine::MatchEngine,
+    rect::{Area, Position, Rect},
+};
 
 /// A single component in the frame.
 pub(crate) trait Component<E> {
@@ -43,10 +46,10 @@ pub(crate) trait PreviewComponent<T> {
     #[cfg(feature = "preview")]
     fn handle(&mut self, event: PreviewEvent, selected_id: Option<u32>);
 
-    fn update(
+    fn update<R>(
         &mut self,
         selected: Option<u32>,
-        snapshot: &nucleo::Snapshot<T>,
+        engine: &MatchEngine<T, R>,
         deadline: Instant,
         was_enabled: bool,
     ) -> Result<bool, Self::Error>;
@@ -81,10 +84,10 @@ impl<T, A> PreviewComponent<T> for NoPreview<A> {
     const ENABLED: bool = false;
     #[cfg(feature = "preview")]
     fn handle(&mut self, _event: PreviewEvent, _selected_id: Option<u32>) {}
-    fn update(
+    fn update<R>(
         &mut self,
         _selected: Option<u32>,
-        _snapshot: &nucleo::Snapshot<T>,
+        _engine: &MatchEngine<T, R>,
         _deadline: Instant,
         _was_enabled: bool,
     ) -> Result<bool, A> {
@@ -114,14 +117,14 @@ impl<T, C: PreviewComponent<T>> PreviewComponent<T> for &mut C {
     fn handle(&mut self, event: PreviewEvent, selected_id: Option<u32>) {
         (**self).handle(event, selected_id);
     }
-    fn update(
+    fn update<R>(
         &mut self,
         selected: Option<u32>,
-        snapshot: &nucleo::Snapshot<T>,
+        engine: &MatchEngine<T, R>,
         deadline: Instant,
         was_enabled: bool,
     ) -> Result<bool, Self::Error> {
-        (**self).update(selected, snapshot, deadline, was_enabled)
+        (**self).update(selected, engine, deadline, was_enabled)
     }
     fn hide(&mut self) {
         (**self).hide();
