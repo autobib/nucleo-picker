@@ -31,7 +31,10 @@ For example:
 
 ## Keyboard shortcuts
 Generally speaking, we attempt to follow the bash-like or vim-like keyboard shortcut conventions.
-Most of these bindings are relatively standard, with some exceptions like `ctrl + o` and `ctrl + r`.
+Most of these bindings are relatively standard, with some exceptions like `ctrl + o`.
+
+Note on macOS the alt keybindings may not work by default, depending on your keyboard configuration.
+Some terminals have a specific feature to forward `⌥` as alt.
 
 Key bindings(s)                    | Action
 -----------------------------------|--------------------
@@ -47,7 +50,7 @@ ctrl + 0                           | Reset Selection Scroll
 alt + b                            | Cursor Word Left
 alt + f                            | Cursor Word Right
 ctrl + a, ⇱                        | Cursor To Start
-ctrl + e                           | Cursor To End
+ctrl + e, ⇲                        | Cursor To End
 ctrl + u                           | Clear Before Cursor
 ctrl + o                           | Clear After Cursor
 ⌫, ctrl + h, shift + ⌫             | Backspace
@@ -58,15 +61,30 @@ There are also special keybindings which are only enabled in multi-selection mod
 
 Key bindings(s)                    | Action
 -----------------------------------|--------------------
-shift + ⇥, shift + ↑               | Toggle Queue And Selection Up
+shift + ⇥                          | Toggle Queue And Selection Up
+⇥                                  | Toggle Queue And Selection Down
 ctrl + =                           | Queue All Matches
 ctrl + -                           | Unqueue All
+
+There are also special keybindings which are only used to manipulate the preview pane.
+
+Key bindings(s)                    | Action
+-----------------------------------|--------------------
+shift + ↑                          | Preview Up 1 Line
+shift + ↓                          | Preview Down 1 Line
+shift + ⇞                          | Preview Up 1 Page
+shift + ⇟                          | Preview Down 1 Page
+alt + n                            | Toggle Preview Line Numbers
+alt + p                            | Toggle Preview
+alt + ,                            | Grow Preview 1 Column
+alt + .                            | Shrink Preview 1 Column
+ctrl + r                           | Refresh Preview
 
 
 ## Scroll and paste
 By default, the picker does not directly capture scroll actions, but if your terminal forwards scroll as up / down arrow input, then scrolling will work as expected.
 
-Pasting is also not directly handled, but rather depends on whether or not your terminal handles [bracketed paste](https://en.wikipedia.org/wiki/Bracketed-paste).
+Paste handling depends on whether or not your terminal handles [bracketed paste](https://en.wikipedia.org/wiki/Bracketed-paste).
 If your terminal does not handle bracketed paste, then the characters are entered as though they were typed in one at a time, which may result in strange behaviour.
 By default, input characters are normalized: newlines and tabs are replaced with spaces, and control characters are removed.
 This is mainly relevant when pasting text into the query.

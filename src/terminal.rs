@@ -151,6 +151,14 @@ impl<T: Terminal> Terminal for TerminalSession<'_, T> {
         self.terminal.size()
     }
 
+    fn begin_render(&mut self) -> io::Result<()> {
+        self.terminal.begin_render()
+    }
+
+    fn end_render(&mut self) -> io::Result<()> {
+        self.terminal.end_render()
+    }
+
     fn end_frame(&mut self, changed: bool) -> io::Result<()> {
         self.terminal.end_frame(changed)
     }

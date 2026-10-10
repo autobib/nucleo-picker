@@ -22,6 +22,7 @@ use libghostty_vt::{
 };
 use nucleo_picker::{
     Picker, PickerOptions, Terminal as PickerTerminal,
+    error::PickError,
     event::{Event, Observer, PickerStatus, PromptEvent},
     render::StrRenderer,
 };
@@ -176,17 +177,54 @@ pub struct Driver {
 
 impl Driver {
     pub fn start_with_options<T: Into<String>>(items: Vec<T>, options: PickerOptions) -> Self {
-        Self::start_inner(items, options, false)
+        Self::start_inner(items, options, |picker, events, terminal| {
+            picker
+                .pick_with_terminal_io(events, terminal)
+                .map(|item| item.into_iter().cloned().collect())
+        })
     }
 
     pub fn start_multi_with_options<T: Into<String>>(
         items: Vec<T>,
         options: PickerOptions,
     ) -> Self {
-        Self::start_inner(items, options, true)
+        Self::start_inner(items, options, |picker, events, terminal| {
+            picker
+                .pick_multi_with_terminal_io(events, terminal)
+                .map(|selection| selection.iter().cloned().collect())
+        })
     }
 
-    fn start_inner<T: Into<String>>(items: Vec<T>, options: PickerOptions, multi: bool) -> Self {
+    #[cfg(feature = "preview")]
+    pub fn start_with_preview<T: Into<String>, P>(
+        items: Vec<T>,
+        options: PickerOptions,
+        previewer: P,
+    ) -> Self
+    where
+        P: nucleo_picker::preview::Preview<String, AbortErr = std::convert::Infallible>
+            + Send
+            + 'static,
+    {
+        Self::start_inner(items, options, move |picker, events, terminal| {
+            picker
+                .with_preview(previewer)
+                .pick_with_terminal_io(events, terminal)
+                .map(|item| item.into_iter().cloned().collect())
+        })
+    }
+
+    fn start_inner<T: Into<String>>(
+        items: Vec<T>,
+        options: PickerOptions,
+        run: impl FnOnce(
+            &mut Picker<String, StrRenderer>,
+            MpscReceiver<Event>,
+            &mut GhosttyBackend,
+        ) -> Result<Vec<String>, PickError>
+        + Send
+        + 'static,
+    ) -> Self {
         let items: Vec<String> = items.into_iter().map(Into::into).collect();
         let (events, event_source) = mpsc::channel();
         let (snapshot_request_tx, snapshot_request_rx) = mpsc::channel();
@@ -205,16 +243,7 @@ impl Driver {
             let result = GhosttyBackend::new(thread_size, snapshot_request_rx)
                 .map_err(ErrorKind::Terminal)
                 .and_then(|mut terminal| {
-                    if multi {
-                        picker
-                            .pick_multi_with_terminal_io(event_source, &mut terminal)
-                            .map(|selection| selection.iter().cloned().collect())
-                    } else {
-                        picker
-                            .pick_with_terminal_io(event_source, &mut terminal)
-                            .map(|item| item.into_iter().cloned().collect())
-                    }
-                    .map_err(ErrorKind::Picker)
+                    run(&mut picker, event_source, &mut terminal).map_err(ErrorKind::Picker)
                 });
             let _ = result_tx.send(result);
         });

@@ -7,9 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### [Unreleased]
 
+### Added
+
+- This release includes a new previewer
+  - The preview pane is gated behind a `preview` feature flag.
+  - Visit the documentation for the `preview` module for more details.
+- Added new `Layout` event, for events which influence the layout of the screen.
+  This includes a new toggle for the status line, which is not bound by default.
+
 ### Fixed
 
 - Fixed swapped `Alt + F/B` keybindings.
+- Correctly preserve prompt state when the picker exits.
+- Fixed `update_config` not also updating the internal matcher config.
+- Fixed some more zero width/height layout bugs.
+- Normalize prompts containing control characters before processing first match.
+- Resize events are now handled sooner to decrease screen flashes caused by terminal repaint without a layout change.
 
 ### [0.12.2] - 2026-09-04
 

@@ -1,0 +1,29 @@
+---
+source: parser-fixture.rs
+expression: capture_fixture()
+info:
+  resolved_name: parser-example
+  name_expression: 'concat!("parser-", "example")'
+  sequence: 17
+---
+version: 1
+size:
+  cols: 3
+  rows: 1
+screen: primary
+cursor:
+  position:
+    x: 1
+    y: 0
+  visible: true
+  shape: block
+  blinking: false
+  pending_wrap: false
+  at_wide_tail: false
+  password_input: false
+colors:
+  foreground: "#ffffff"
+  background: "#000000"
+  cursor: null
+text:
+  - "x  "

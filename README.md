@@ -11,15 +11,18 @@ This library provides a TUI for the [`nucleo`](https://docs.rs/nucleo/latest/nuc
 - For a list of recent changes, see the [`CHANGELOG.md`](CHANGELOG.md) file.
 
 ## Overview
+
 This library sits between a general-purpose fuzzy-finder (such as `fzf`) and a lower level library (such as `nucleo`).
 
 1. **Remove subprocess overhead and failure modes**
    Instead of starting up a subprocess to call `fzf` and using inter-process communication, integrate the picker directly into your binary.
 2. **Distinguish items from their matcher representation.**
    Instead of writing your data structure to a string, passing it to `fzf`, and then parsing the resulting match string back into your data structure, directly obtain the original data structure when matching is complete.
-3. **Don't spend time debugging terminal rendering edge cases.**
+3. **Implement a fully-featured previewer.**
+   `nucleo-picker` has a generic preview API which supports everything from simple preview generation to complex cache and preview priority management.
+4. **Don't spend time debugging terminal rendering edge cases.**
    Out-of-the-box, `nucleo-picker` handles terminal rendering subtleties such as *multiline rendering*, *double-width Unicode*, *automatic overflow scrollthrough*, and *grapheme-aware query input* so you don't have to.
-4. **Handle complex use cases using events.**
+5. **Handle complex use cases using events.**
    `nucleo-picker` exposes a fully-featured [event system](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/) which can be used to drive the picker.
    This lets you [*customize keybindings*](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/struct.StdinReader.html), support [*interactive restarts*](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/enum.Event.html#restart), and much more by implementing the [`EventSource`](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/trait.EventSource.html) trait.
    Versions of such features are available in [fzf](https://github.com/junegunn/fzf) but require manual configuration via an embedded DSL.
@@ -32,6 +35,10 @@ This library sits between a general-purpose fuzzy-finder (such as `fzf`) and a l
   - Match highlighting with automatic scroll-through.
   - Correctly render multi-line or overflowed items, with standard and reversed item order.
   - Responsive interface with batched keyboard input.
+- Fully featured preview
+  - Immediate (synchronous) preview generation with no thread-pool or subprocess overhead.
+  - Deferred (asynchronous) preview generation with managed caching and a preview re-prioritization API to easily implement responsive previews based on external data and IO.
+  - Support preview panes with styled content.
 - Ergonomic API:
   - Fully concurrent lock- and wait-free streaming of input items.
   - Generic [`Picker`](https://docs.rs/nucleo-picker/latest/nucleo_picker/struct.Picker.html) for any type `T` which is `Send + Sync + 'static`.
@@ -83,13 +90,9 @@ More examples can be found in the [examples directory](examples).
 
 ## Feature parity with `fzf`
 
-There is an [extended `fzf` example](examples/fzf.rs) demonstrating the current configuration options using the same syntax as `fzf` command-line tool.
-Try it out:
-```sh
-cargo build --example fzf --release
-./target/release/examples/fzf --help
-```
+There is an [extended `fzf` example](https://github.com/alexrutar/nucleo-picker-fzf) demonstrating this library, using the same syntax as `fzf` command-line tool.
 The supported features are tracked below.
+
 The checked examples are implemented and the unchecked examples are features I would like to support in the future.
 If there are particular `fzf`-specific features that you would like to see supported that are not on this list, please submit an issue.
 
@@ -103,7 +106,7 @@ If there are particular `fzf`-specific features that you would like to see suppo
 - [x] `--query`: `PickerOptions::query`
 - [x] `--highlight-line`: `PickerOptions::highlight_line`
 - [x] `--no-unicode`: `PickerOptions::ascii_compatible`
-- [ ] `--preview`: https://github.com/autobib/nucleo-picker/issues/5
+- [x] `--preview`: `Picker::with_preview`
 - [ ] `--gap`: https://github.com/autobib/nucleo-picker/issues/91
 - [ ] `--cycle`
 - [ ] `--track`

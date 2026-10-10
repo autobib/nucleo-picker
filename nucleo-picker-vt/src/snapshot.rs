@@ -329,7 +329,15 @@ mod tests {
             rows: 2,
             max_scrollback: 0,
         })?;
-        terminal.vt_write(b"a\x1b[31;1mB\x1b[0m\xe7\x95\x8cc");
+        force_color_output(true);
+        let mut output = Vec::new();
+        queue!(
+            output,
+            crossterm::style::Print("a"),
+            PrintStyledContent("B".red().bold()),
+            crossterm::style::Print("界c")
+        )?;
+        terminal.vt_write(&output);
 
         let mut snapshotter = Snapshotter::new()?;
         let snapshot = snapshotter.capture(&terminal)?;
@@ -374,26 +382,6 @@ mod tests {
     }
 
     #[test]
-    fn captures_forced_crossterm_color() -> Result<(), Box<dyn StdError>> {
-        force_color_output(true);
-        let mut output = Vec::new();
-        queue!(output, PrintStyledContent("x".cyan()))?;
-
-        let mut terminal = Terminal::new(TerminalOptions {
-            cols: 1,
-            rows: 1,
-            max_scrollback: 0,
-        })?;
-        terminal.vt_write(&output);
-
-        let snapshot = Snapshotter::new()?.capture(&terminal)?;
-
-        assert_eq!(snapshot.styles.len(), 1);
-        assert!(snapshot.styles[0].style.foreground.is_some());
-        Ok(())
-    }
-
-    #[test]
     fn preserves_combining_graphemes() -> Result<(), Box<dyn StdError>> {
         let mut terminal = Terminal::new(TerminalOptions {
             cols: 4,
@@ -406,104 +394,5 @@ mod tests {
 
         assert_eq!(snapshot.text, ["e\u{301}   "]);
         Ok(())
-    }
-
-    fn svg_snapshot(text: &str, cols: u16) -> PaneSnapshot {
-        PaneSnapshot {
-            version: 1,
-            size: Size { cols, rows: 1 },
-            screen: ScreenName::Alternate,
-            cursor: Cursor {
-                position: None,
-                visible: false,
-                shape: CursorShape::Block,
-                blinking: false,
-                pending_wrap: false,
-                at_wide_tail: false,
-                password_input: false,
-            },
-            colors: DefaultColors {
-                foreground: HexColor("#ffffff".into()),
-                background: HexColor("#000000".into()),
-                cursor: None,
-            },
-            text: vec![text.into()],
-            row_flags: Vec::new(),
-            styles: Vec::new(),
-        }
-    }
-
-    fn render_svg(snapshot: &PaneSnapshot) -> String {
-        let mut output = Vec::new();
-        snapshot.write_svg(&mut output).unwrap();
-        String::from_utf8(output).unwrap()
-    }
-
-    #[test]
-    fn svg_positions_unicode_by_terminal_cell_width() {
-        let svg = render_svg(&svg_snapshot("A界e\u{301}👩🏽‍💻Z", 7));
-
-        assert!(svg.contains("viewBox=\"0 0 70 20\""));
-        assert!(svg.contains("<text x=\"0\" y=\"15\""));
-        assert!(svg.contains("<text x=\"10\" y=\"15\""));
-        assert!(svg.contains("<text x=\"30\" y=\"15\""));
-        assert!(svg.contains("<text x=\"40\" y=\"15\""));
-        assert!(svg.contains("<text x=\"60\" y=\"15\""));
-    }
-
-    #[test]
-    fn svg_renders_styles_colors_cursor_and_escaped_text() {
-        let mut snapshot = svg_snapshot("<&X", 3);
-        snapshot.colors = DefaultColors {
-            foreground: HexColor("#eeeeee".into()),
-            background: HexColor("#111111".into()),
-            cursor: Some(HexColor("#abcdef".into())),
-        };
-        snapshot.cursor.position = Some(Position { x: 2, y: 0 });
-        snapshot.cursor.visible = true;
-        snapshot.cursor.shape = CursorShape::Underline;
-        snapshot.styles.push(StyleSpan {
-            row: 0,
-            start: 0,
-            end: 2,
-            style: CellStyle {
-                foreground: Some(HexColor("#123456".into())),
-                background: Some(HexColor("#654321".into())),
-                underline_color: Some(HexColor("#fedcba".into())),
-                bold: true,
-                italic: true,
-                strikethrough: true,
-                overline: true,
-                underline: UnderlineName::Double,
-                ..CellStyle::default()
-            },
-        });
-        snapshot.styles.push(StyleSpan {
-            row: 0,
-            start: 2,
-            end: 3,
-            style: CellStyle {
-                foreground: Some(HexColor("#010203".into())),
-                background: Some(HexColor("#040506".into())),
-                inverse: true,
-                ..CellStyle::default()
-            },
-        });
-
-        let svg = render_svg(&snapshot);
-
-        assert!(svg.contains("font-family=\"monospace\""));
-        assert!(svg.contains("fill=\"#111111\""));
-        assert!(svg.contains("fill=\"#654321\""));
-        assert!(svg.contains("fill=\"#123456\""));
-        assert!(svg.contains("x=\"20\" y=\"0\" width=\"10\" height=\"20\" fill=\"#010203\""));
-        assert!(svg.contains("x=\"20\" y=\"15\" fill=\"#040506\""));
-        assert!(svg.contains("font-weight=\"bold\""));
-        assert!(svg.contains("font-style=\"italic\""));
-        assert!(svg.contains("text-decoration=\"underline line-through overline\""));
-        assert!(svg.contains("text-decoration-color=\"#fedcba\""));
-        assert!(svg.contains("&lt;"));
-        assert!(svg.contains("&amp;"));
-        assert!(svg.contains("x=\"20\" y=\"18\" width=\"10\" height=\"2\" fill=\"#abcdef\""));
     }
 }

@@ -17,7 +17,7 @@
 //! - The [default keybindings](keybind_default), which are also useful to provide fallbacks for
 //!   keybind customization
 //!
-//! For somewhat comprehensive examples, see the [extended fzf
+//! For somewhat comprehensive examples, see the [extended fzf error handling
 //! example](https://github.com/autobib/nucleo-picker/blob/master/examples/fzf_err_handling.rs) or
 //! the [restart
 //! example](https://github.com/autobib/nucleo-picker/blob/master/examples/restart.rs).
@@ -28,7 +28,7 @@ use std::{
     convert::Infallible,
     io,
     marker::PhantomData,
-    sync::mpsc::{Receiver, RecvTimeoutError, Sender},
+    sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError},
     time::Duration,
 };
 
@@ -37,7 +37,12 @@ use crossterm::event::{KeyEvent, poll, read};
 use self::bind::convert_crossterm_event;
 
 pub use self::bind::{keybind_default, keybind_no_multi};
-pub use crate::{match_list::MatchListEvent, observer::Observer, prompt::PromptEvent};
+#[cfg(feature = "preview")]
+#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
+pub use crate::preview::PreviewEvent;
+pub use crate::{
+    frame::LayoutEvent, match_list::MatchListEvent, observer::Observer, prompt::PromptEvent,
+};
 
 /// An event which controls the picker behaviour.
 ///
@@ -46,7 +51,10 @@ pub use crate::{match_list::MatchListEvent, observer::Observer, prompt::PromptEv
 ///
 /// Most events are explained directly in the enum variant documentation. A few special cases
 /// require a bit more detail: [redraw](#redraw),
-/// [application-defined abort](#application-defined-abort), and [restart](#restart)
+/// [application-defined abort](#application-defined-abort), and [restart](#restart).
+///
+/// Default keybindings for events can be found in the [picker usage
+/// documentation](https://github.com/autobib/nucleo-picker/blob/master/USAGE.md).
 ///
 /// ## Redraw
 /// In most cases, it is not necessary to manually send an [`Event::Redraw`] since the default
@@ -92,6 +100,37 @@ pub use crate::{match_list::MatchListEvent, observer::Observer, prompt::PromptEv
 /// increasing `u64` counter and to check that the received id is greater than or equal to the
 /// requested id.
 ///
+/// Here is an example highlighting status checks using the above conventions.
+/// ```no_run
+/// use std::{io, sync::mpsc, thread};
+/// use nucleo_picker::{Picker, event::{Event, PromptEvent}, render::StrRenderer};
+///
+/// # fn main() -> io::Result<()> {
+/// let mut picker = Picker::new(StrRenderer);
+/// picker.push_batch(["red", "green", "blue"]);
+/// let observer = picker.status_observer();
+/// let (sender, receiver) = mpsc::channel::<Event>();
+/// let driver = thread::spawn(move || {
+///     let id = 1;
+///     sender.send(Event::Prompt(PromptEvent::Reset("blue".into()))).ok()?;
+///     sender.send(Event::Status { id }).ok()?;
+///     while let Ok(status) = observer.recv() {
+///         if status.id >= id {
+///             let _ = sender.send(Event::Quit);
+///             return Some(status);
+///         }
+///     }
+///     None
+/// });
+///
+/// picker.pick_with_io(receiver, &mut io::stderr())?;
+/// drop(picker);
+/// if let Some(status) = driver.join().unwrap() {
+///     assert_eq!(status.query, "blue");
+/// }
+/// # Ok(())
+/// # }
+/// ```
 ///
 /// ## Restart
 /// An [`Event::Restart`] is used to restart the picker while it is still running. After a
@@ -110,8 +149,37 @@ pub use crate::{match_list::MatchListEvent, observer::Observer, prompt::PromptEv
 /// It is possible that no [`Injector`] will be sent if the picker exits or disconnects
 /// before the event is processed.
 ///
-/// For a detailed implementation example, see the [restart
+/// Below is a basic example. For a detailed implementation example, see the [restart
 /// example](https://github.com/autobib/nucleo-picker/blob/master/examples/restart.rs).
+///
+/// ```no_run
+/// use std::thread;
+/// use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+/// use nucleo_picker::{Picker, event::{Event, keybind_default}, render::StrRenderer};
+///
+/// # fn main() -> std::io::Result<()> {
+/// let mut picker = Picker::new(StrRenderer);
+/// let observer = picker.injector_observer(true);
+/// let producer = thread::spawn(move || {
+///     let mut batch = 0;
+///     while let Ok(injector) = observer.recv() {
+///         batch += 1;
+///         injector.push_batch((0..3).map(|i| format!("Batch {batch}: item {i}")));
+///     }
+/// });
+///
+/// let selected = picker.pick_with_keybind(|event| match event {
+///     KeyEvent { code: KeyCode::F(5), kind: KeyEventKind::Press, .. } => Some(Event::Restart),
+///     event => keybind_default(event),
+/// })?;
+/// if let Some(item) = selected {
+///     println!("{item}");
+/// }
+/// drop(picker);
+/// producer.join().unwrap();
+/// # Ok(())
+/// # }
+/// ```
 ///
 /// [`Injector`]: crate::Injector
 #[non_exhaustive]
@@ -120,6 +188,12 @@ pub enum Event<A = Infallible> {
     Prompt(PromptEvent),
     /// Modify the list of matches.
     MatchList(MatchListEvent),
+    /// Modify the layout of the screen.
+    Layout(LayoutEvent),
+    /// Modify the preview pane.
+    #[cfg(feature = "preview")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
+    Preview(PreviewEvent),
     /// Quit the picker (no selection).
     Quit,
     /// Quit the picker (no selection) if the prompt is empty.
@@ -338,6 +412,14 @@ pub trait EventSource {
     /// If the receiver cannot receive any more events, the implementation should return a
     /// [`RecvError::Disconnected`]. Otherwise, return one of the other variants.
     fn recv_timeout(&mut self, duration: Duration) -> Result<Event<Self::AbortErr>, RecvError>;
+
+    /// Receive a new event without blocking, timing out immediately if no event is available.
+    ///
+    /// The default implementation calls [`recv_timeout`](Self::recv_timeout) with a duration of
+    /// zero.
+    fn try_recv(&mut self) -> Result<Event<Self::AbortErr>, RecvError> {
+        self.recv_timeout(Duration::ZERO)
+    }
 }
 
 impl<A> EventSource for Receiver<Event<A>> {
@@ -345,6 +427,13 @@ impl<A> EventSource for Receiver<Event<A>> {
 
     fn recv_timeout(&mut self, duration: Duration) -> Result<Event<A>, RecvError> {
         Self::recv_timeout(self, duration).map_err(From::from)
+    }
+
+    fn try_recv(&mut self) -> Result<Event<A>, RecvError> {
+        Self::try_recv(self).map_err(|err| match err {
+            TryRecvError::Empty => RecvError::Timeout,
+            TryRecvError::Disconnected => RecvError::Disconnected,
+        })
     }
 }
 
@@ -483,3 +572,6 @@ impl<A, F: FnMut(KeyEvent) -> Option<Event<A>>> StdinEventSender<A, F> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,8 +1,13 @@
-use nucleo::{Config, Nucleo, Utf32String};
+use std::num::NonZero;
 
-use super::*;
+use nucleo::{
+    Config,
+    pattern::{CaseMatching, Normalization},
+};
 
-use crate::render::StrRenderer;
+use super::{layout::ListLayout, *};
+
+use crate::{match_engine::MatchEngine, render::StrRenderer};
 
 use Action::*;
 
@@ -14,20 +19,10 @@ enum Action<'a> {
     Resize(u16),
 }
 
-fn reset(nc: &mut Nucleo<&'static str>, items: &[&'static str]) {
-    nc.restart(true);
-    let injector = nc.injector();
-    for item in items {
-        injector.push(item, |item, cols| {
-            cols[0] = Utf32String::from(*item);
-        });
-    }
-
-    while nc.tick(5).running {}
-}
-
 struct MatchListTester {
-    match_list: MatchList<&'static str, StrRenderer>,
+    engine: MatchEngine<&'static str, StrRenderer>,
+    layout: ListLayout,
+    config: MatchListConfig,
 }
 
 /// A view into a [`Matcher`] at a given point in time.
@@ -49,8 +44,7 @@ impl MatchListTester {
             ..MatchListConfig::default()
         };
 
-        let mut match_list = MatchList::new(
-            mc,
+        let engine = MatchEngine::new(
             Config::DEFAULT,
             nucleo::MatchListConfig {
                 sort_results: false,
@@ -58,10 +52,17 @@ impl MatchListTester {
             },
             NonZero::new(1),
             StrRenderer.into(),
+            CaseMatching::Smart,
+            Normalization::Smart,
         );
-        match_list.resize(size);
+        let mut layout = ListLayout::new();
+        layout.resize(engine.snapshot(), size, &mc);
 
-        Self { match_list }
+        Self {
+            engine,
+            layout,
+            config: mc,
+        }
     }
 
     fn init(size: u16, max_padding: u16) -> Self {
@@ -75,42 +76,33 @@ impl MatchListTester {
     fn update(&mut self, lc: Action) {
         match lc {
             Action::Incr(incr) => {
-                self.match_list.selection_incr(incr);
+                self.layout
+                    .selection_incr(self.engine.snapshot(), incr, &self.config);
             }
             Action::Decr(decr) => {
-                self.match_list.selection_decr(decr);
+                self.layout
+                    .selection_decr(self.engine.snapshot(), decr, &self.config);
             }
             Action::Reset => {
-                self.match_list.reset();
+                self.layout.reset(self.engine.snapshot(), &self.config);
             }
             Action::Update(items) => {
-                reset(&mut self.match_list.nucleo, items);
-                self.match_list.update_items();
+                self.engine.restart();
+                self.engine.injector().push_batch(items.iter().copied());
+                while self.engine.update(5).matching {}
+                self.layout
+                    .update_items(self.engine.snapshot(), &self.config);
             }
             Action::Resize(sz) => {
-                self.match_list.resize(sz);
+                self.layout.resize(self.engine.snapshot(), sz, &self.config);
             }
         }
     }
 
     fn view(&self) -> LayoutView<'_> {
         LayoutView {
-            above: &self.match_list.above,
-            below: &self.match_list.below,
-        }
-    }
-
-    #[allow(unused)]
-    fn debug_items(&self) {
-        for item in self.match_list.nucleo.snapshot().matched_items(..).rev() {
-            println!("* * * * * *\n{}", item.data);
-        }
-    }
-
-    #[allow(unused)]
-    fn debug_items_rev(&self) {
-        for item in self.match_list.nucleo.snapshot().matched_items(..) {
-            println!("* * * * * *\n{}", item.data);
+            above: &self.layout.above,
+            below: &self.layout.below,
         }
     }
 }
@@ -126,42 +118,6 @@ macro_rules! assert_layout {
             }
         );
     };
-}
-
-#[test]
-fn selected_indices_track_insertion_order() {
-    let mut selected = SelectedIndices::init(None);
-
-    assert!(selected.toggle(3));
-    assert!(selected.toggle(1));
-    assert!(selected.toggle(3));
-    assert!(selected.toggle(3));
-
-    let mut selection_order = selected
-        .inner
-        .iter()
-        .map(|(&idx, &order)| (order, idx))
-        .collect::<Vec<_>>();
-    selection_order.sort();
-
-    assert_eq!(selection_order, [(1, 1), (2, 3)]);
-}
-
-#[test]
-fn injector_lifetime_updates_status() {
-    let mut lt = MatchListTester::init(1, 0);
-
-    let injector = lt.match_list.injector();
-    let status = lt.match_list.update(0);
-    assert!(status.injecting);
-
-    drop(injector);
-    let mut status = lt.match_list.update(0);
-    assert!(!status.injecting);
-
-    while status.matching {
-        status = lt.match_list.update(5);
-    }
 }
 
 #[test]
@@ -200,6 +156,55 @@ fn size_and_item_edge_cases() {
     assert_layout!(lt, Resize(1), &[], &[]);
     assert_layout!(lt, Update(&["a"]), &[1], &[]);
     assert_layout!(lt, Resize(0), &[], &[]);
+}
+
+#[test]
+fn zero_height_navigation() {
+    check_zero_height_navigation(false);
+}
+
+#[test]
+fn zero_height_navigation_reversed() {
+    check_zero_height_navigation(true);
+}
+
+fn check_zero_height_navigation(reversed: bool) {
+    for initial_size in [0, 3] {
+        let mut lt = MatchListTester::init_inner(initial_size, 2, reversed);
+        lt.update(Update(&["a", "b", "c"]));
+        assert_layout!(lt, Resize(0), &[], &[]);
+
+        for (requested, expected, changed) in [
+            (1, 1, true),
+            (2, 2, true),
+            (1, 1, true),
+            (1, 1, false),
+            (u32::MAX, 2, true),
+            (u32::MAX, 2, false),
+            (0, 0, true),
+            (0, 0, false),
+            (1, 1, true),
+        ] {
+            assert_eq!(
+                lt.layout
+                    .set_selection(lt.engine.snapshot(), requested, &lt.config),
+                changed
+            );
+            assert_eq!(lt.layout.selection(lt.engine.snapshot()), Some(expected));
+            assert_eq!(
+                lt.view(),
+                LayoutView {
+                    below: &[],
+                    above: &[],
+                }
+            );
+        }
+
+        assert_layout!(lt, Resize(1), &[1], &[]);
+        assert_eq!(lt.layout.selection(lt.engine.snapshot()), Some(1));
+        assert_layout!(lt, Resize(3), &[1, 1], &[1]);
+        assert_eq!(lt.layout.selection(lt.engine.snapshot()), Some(1));
+    }
 }
 
 #[test]

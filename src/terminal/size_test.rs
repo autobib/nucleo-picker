@@ -28,6 +28,10 @@ impl ScriptedEvents {
 impl EventSource for ScriptedEvents {
     type AbortErr = Infallible;
 
+    fn try_recv(&mut self) -> Result<Event, RecvError> {
+        Err(RecvError::Timeout)
+    }
+
     fn recv_timeout(&mut self, _: Duration) -> Result<Event, RecvError> {
         match self.steps.pop_front().expect("event script exhausted") {
             Step::Event(event) => Ok(event),
@@ -37,14 +41,12 @@ impl EventSource for ScriptedEvents {
 }
 
 struct CountingTerminal {
-    output: Vec<u8>,
     size: (u16, u16),
     size_calls: usize,
 }
 
 impl io::Write for CountingTerminal {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.output.extend_from_slice(buf);
         Ok(buf.len())
     }
 
@@ -72,7 +74,6 @@ impl Terminal for CountingTerminal {
 fn idle_frame_does_not_query_terminal_size() {
     let events = ScriptedEvents::new([Step::Timeout, Step::Event(Event::Quit)]);
     let mut terminal = CountingTerminal {
-        output: Vec::new(),
         size: (20, 8),
         size_calls: 0,
     };
@@ -91,7 +92,6 @@ fn redraw_queries_terminal_size() {
         Step::Event(Event::Quit),
     ]);
     let mut terminal = CountingTerminal {
-        output: Vec::new(),
         size: (20, 8),
         size_calls: 0,
     };
@@ -100,4 +100,26 @@ fn redraw_queries_terminal_size() {
     picker.pick_with_terminal_io(events, &mut terminal).unwrap();
 
     assert_eq!(terminal.size_calls, 2);
+}
+
+#[test]
+fn background_frames_follow_the_configured_frequency() {
+    let events = ScriptedEvents::new(
+        (0..7)
+            .map(|_| Step::Timeout)
+            .chain(std::iter::once(Step::Event(Event::Quit))),
+    );
+    let mut terminal = CountingTerminal {
+        size: (20, 8),
+        size_calls: 0,
+    };
+    let mut picker: Picker<String, _> = crate::PickerOptions::new()
+        .frame_interval(Duration::from_millis(1))
+        .background_frame_interval(Duration::from_millis(3))
+        .picker(StrRenderer);
+    let _injector = picker.injector();
+
+    picker.pick_with_terminal_io(events, &mut terminal).unwrap();
+
+    assert_eq!(terminal.size_calls, 3);
 }

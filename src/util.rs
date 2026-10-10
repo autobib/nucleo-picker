@@ -1,3 +1,6 @@
+pub(crate) mod line;
+pub(crate) mod unicode;
+
 /// Convert a type into a [`usize`], falling back to [`usize::MAX`] if it fails. This is mainly
 /// used for converting `u32 -> usize` and will compile down to a no-op on the vast majority of
 /// machines.

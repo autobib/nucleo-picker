@@ -1,9 +1,9 @@
-use super::MatchListState;
+use super::LayoutState;
 use crate::{incremental::ExtendIncremental, util::as_usize};
 
 #[inline]
 pub fn incr(
-    previous: MatchListState,
+    previous: LayoutState,
     cursor: u32,
     padding_top: u16,
     mut sizes_below_incl: impl ExtendIncremental,
@@ -32,7 +32,7 @@ pub fn incr(
 
 #[inline]
 pub fn decr(
-    previous: MatchListState,
+    previous: LayoutState,
     cursor: u32,
     padding_top: u16,
     padding_bottom: u16,
@@ -40,6 +40,7 @@ pub fn decr(
     mut sizes_above: impl ExtendIncremental,
 ) {
     let mut total_remaining = previous.size;
+    let min_below = (padding_bottom + 1).min(previous.size);
 
     // render as much of the selection as possible
     let selection_rendered = sizes_below_incl.extend_bounded(total_remaining - padding_top, 1);
@@ -47,7 +48,7 @@ pub fn decr(
 
     // also try to fill the bottom padding
     total_remaining -=
-        sizes_below_incl.extend_unbounded((padding_bottom + 1).saturating_sub(selection_rendered));
+        sizes_below_incl.extend_unbounded(min_below.saturating_sub(selection_rendered));
 
     // render above above until we hit the previous selection
     total_remaining -=
@@ -65,7 +66,7 @@ pub fn decr(
 
 #[inline]
 pub fn incr_rev(
-    previous: MatchListState,
+    previous: LayoutState,
     cursor: u32,
     padding_top: u16,
     padding_bottom: u16,
@@ -73,6 +74,7 @@ pub fn incr_rev(
     mut sizes_above: impl ExtendIncremental,
 ) {
     let mut total_remaining = previous.size;
+    let min_below = (padding_bottom + 1).min(previous.size);
 
     // render as much of the selection as possible
     let selection_rendered = sizes_below_incl.extend_bounded(total_remaining - padding_top, 1);
@@ -81,7 +83,7 @@ pub fn incr_rev(
     // render above above until we hit the previous selection, without also filling the bottom
     // padding
     let rendered_above = sizes_above.extend_bounded(
-        total_remaining.min(previous.size - padding_bottom - 1),
+        total_remaining.min(previous.size - min_below),
         as_usize(cursor - previous.selection),
     );
     total_remaining -= rendered_above;
@@ -89,8 +91,8 @@ pub fn incr_rev(
     // compute the maximum amount of space above by taking the previous size and subtracting the
     // amount of space the new items rendered below occupy, making sure to also reserve space
     // for the bottom padding
-    let max_space_above = previous.size
-        - (rendered_above + selection_rendered.max(padding_bottom + 1)).max(previous.below);
+    let max_space_above =
+        previous.size - (rendered_above + selection_rendered.max(min_below)).max(previous.below);
 
     // render above; note that `max_space_above <= total_remaining` since we only restrict the size
     // more
@@ -102,7 +104,7 @@ pub fn incr_rev(
 
 #[inline]
 pub fn decr_rev(
-    previous: MatchListState,
+    previous: LayoutState,
     cursor: u32,
     padding_top: u16,
     mut sizes_below_incl: impl ExtendIncremental,
