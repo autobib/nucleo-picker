@@ -72,7 +72,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
             preview
                 .update(
                     list.selection(engine).map(|n| engine.idx_from_match(n)),
-                    engine.snapshot(),
+                    engine,
                     frame_start + self.interval,
                     false,
                 )
@@ -211,7 +211,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                     && preview
                         .update(
                             list.selection(engine).map(|n| engine.idx_from_match(n)),
-                            engine.snapshot(),
+                            engine,
                             frame_start + self.interval,
                             preview_was_enabled,
                         )

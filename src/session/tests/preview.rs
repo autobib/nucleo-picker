@@ -170,7 +170,7 @@ fn batched_navigation_and_refresh_target_the_event_selection() {
         TestPreviewer::default(),
     );
     session
-        .update(Some(1), picker.engine.snapshot(), Instant::now(), true)
+        .update(Some(1), &picker.engine, Instant::now(), true)
         .unwrap();
     let events = Events(VecDeque::from([
         Ok(Event::MatchList(MatchListEvent::Up(1))),
@@ -353,7 +353,15 @@ fn idle_frames_collect_completed_previews_and_enable_scrolling() {
                     for _ in 1..30 {
                         buffer.newline();
                     }
-                    assert!(queued.take().unwrap().start().unwrap().publish(&mut buffer));
+                    assert!(
+                        queued
+                            .take()
+                            .unwrap()
+                            .start()
+                            .unwrap()
+                            .publish(&mut buffer)
+                            .is_ok()
+                    );
                     Ok(Event::Status { id: 0 })
                 }
                 4 => Ok(Event::Preview(PreviewEvent::Down(1))),
@@ -888,6 +896,42 @@ fn each_pick_session_starts_with_a_fresh_cache() {
     }
     assert_eq!(previewer.requested, ["alpha", "alpha"]);
     assert_eq!(previewer.focused, [Some("alpha"), Some("alpha")]);
+    assert_eq!(previewer.ids[0], previewer.ids[1]);
+}
+
+#[test]
+fn replacing_items_between_sessions_changes_ids() {
+    let mut picker = picker(["alpha"]);
+    let mut previewer = TestPreviewer::default();
+    for step in 0..3 {
+        match step {
+            0 => {}
+            1 => picker.restart(),
+            2 => picker.reset_renderer(StrRenderer),
+            _ => unreachable!(),
+        }
+        if step != 0 {
+            picker.push_batch(["alpha"]);
+            settle(&mut picker);
+        }
+        picker
+            .with_preview(&mut previewer)
+            .pick_with_terminal_io(
+                Events(VecDeque::from([Ok(Event::Quit)])),
+                &mut TestTerminal::default(),
+            )
+            .unwrap();
+    }
+    assert_eq!(previewer.requested, ["alpha", "alpha", "alpha"]);
+    assert_eq!(
+        previewer
+            .ids
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        3
+    );
 }
 
 #[test]
@@ -949,6 +993,7 @@ fn restart_invalidates_cached_item_ids() {
     assert_eq!(selected, Some(&"beta"));
     assert_eq!(previewer.requested, ["alpha", "beta"]);
     assert_eq!(previewer.focused, [Some("alpha"), None, Some("beta")]);
+    assert_ne!(previewer.ids[0], previewer.ids[1]);
 }
 
 #[test]

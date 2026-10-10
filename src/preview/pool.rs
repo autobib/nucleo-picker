@@ -251,7 +251,7 @@ fn work<T, W: PreviewWorker<T>>(shared: &Shared<T>, mut worker: W) {
                 shared.available.wait(&mut state);
             }
         };
-        let Some(request) = job.start() else {
+        let Ok(request) = job.start() else {
             continue;
         };
         if request.is_cancelled() {

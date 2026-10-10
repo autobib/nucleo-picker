@@ -1,10 +1,15 @@
 use super::super::*;
-use crate::{Picker, PickerOptions, preview::request::QueuedPreviewRequest, render::StrRenderer};
+use crate::{
+    Picker, PickerOptions,
+    preview::request::{ItemId, QueuedPreviewRequest},
+    render::StrRenderer,
+};
 
 #[derive(Default)]
 pub(crate) struct TestPreviewer {
     pub(crate) focused: Vec<Option<&'static str>>,
     pub(crate) requested: Vec<&'static str>,
+    pub(crate) ids: Vec<ItemId>,
     pub(crate) buffer_allocations: Vec<*const u8>,
     pub(crate) queued: Vec<QueuedPreviewRequest<&'static str>>,
     pub(crate) defer: bool,
@@ -32,6 +37,7 @@ impl Preview<&'static str> for TestPreviewer {
         assert!(std::ptr::eq(item, request.item()));
         assert_eq!(self.focused.last(), Some(&Some(*item)));
         self.requested.push(item);
+        self.ids.push(request.id());
         assert_eq!(request.buffer.lines().len(), 1);
         assert_eq!(request.buffer.line(0).unwrap().as_str(), "");
         assert!(!request.buffer.is_err());
@@ -47,6 +53,7 @@ impl Preview<&'static str> for TestPreviewer {
         }
         if self.defer {
             let (pending, queued) = request.defer();
+            assert_eq!(self.ids.last(), Some(&queued.id()));
             if !self.drop_requests {
                 self.queued.push(queued);
             }
@@ -110,12 +117,7 @@ pub(crate) fn update(
     application: &mut PreviewPane<TestPreviewer>,
     picker: &mut Picker<&'static str, StrRenderer>,
 ) -> Result<bool, &'static str> {
-    application.update(
-        selected_item(picker),
-        picker.engine.snapshot(),
-        Instant::now(),
-        true,
-    )
+    application.update(selected_item(picker), &picker.engine, Instant::now(), true)
 }
 
 #[cfg(feature = "unstable-backend")]

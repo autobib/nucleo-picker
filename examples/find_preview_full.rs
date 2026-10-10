@@ -159,7 +159,7 @@ fn work(shared: &Shared) {
         // 'starting' means that a worker has picked up the job: this prevents the picker from
         // cancelling the job for reprioritization since we are already working on it. if this is
         // `None` it means that the job was already cancelled while it was queued
-        let Some(request) = job.start() else {
+        let Ok(request) = job.start() else {
             continue;
         };
         if request.is_cancelled() {

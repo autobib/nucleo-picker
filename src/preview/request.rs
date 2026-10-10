@@ -73,11 +73,11 @@
 //!     let mut buffer = PreviewBuffer::new();
 //!
 //!     while let Ok(queued) = receiver.recv() {
-//!         let Some(request) = queued.start() else {
+//!         let Ok(request) = queued.start() else {
 //!             continue;
 //!         };
 //!         buffer.push_text(request.item());
-//!         if !request.publish(&mut buffer) {
+//!         if request.publish(&mut buffer).is_err() {
 //!             buffer.clear();
 //!         }
 //!     }
@@ -102,11 +102,30 @@
 //! if there are any remaining requests which have not been dropped.
 
 use nucleo::{DetachedItem, Snapshot};
+use std::fmt;
 
 use super::{
     PreviewBuffer,
     lock::{ActiveWriter, QueuedWriter, Reader, request},
 };
+
+/// An opaque item identifier which uniquely identifies an item `T` within its originating picker.
+///
+/// It is guaranteed that if two [`ItemId`]s obtained *from the same picker* are equal, then the
+/// corresponding items are also identical (i.e., they represent the same memory location of the underlying
+/// item `&T`). In particular, this contract is upheld across restarts.
+///
+/// However, *different pickers may reuse identifiers*. Therefore, identifiers originating from
+/// different pickers *may be the same, even if the underlying item is different*. Use caution! If
+/// you require a more robust identification scheme, you must store this identity inside the item
+/// itself.
+///
+/// Note that ordering has no relationship to ranking; it is only provided for convenience of use.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ItemId {
+    pub(crate) generation: u32,
+    pub(crate) index: u32,
+}
 
 /// The outcome of a preview request.
 pub enum PreviewResponse {
@@ -126,9 +145,7 @@ pub struct PreviewRequest<'a, T> {
     pub(super) buffer: PreviewBuffer,
     pub(super) epoch: u64,
     pub(super) snapshot: &'a Snapshot<T>,
-    // the index for the current item, guaranteed to be valid in
-    // the provided snapshot
-    pub(super) idx: u32,
+    pub(super) id: ItemId,
 }
 
 /// A preview request waiting to be processed.
@@ -137,6 +154,7 @@ pub struct PreviewRequest<'a, T> {
 pub struct QueuedPreviewRequest<T> {
     writer: QueuedWriter<PreviewBuffer>,
     item: DetachedItem<T>,
+    id: ItemId,
 }
 
 /// A preview request that is currently being processed.
@@ -145,6 +163,16 @@ pub struct QueuedPreviewRequest<T> {
 pub struct ActivePreviewRequest<T> {
     writer: ActiveWriter<PreviewBuffer>,
     item: DetachedItem<T>,
+    id: ItemId,
+}
+
+/// A preview request that was cancelled by the picker.
+///
+/// This retains the original item and keeps the item pool alive until dropped. See the
+/// [module-level documentation](crate::preview::request) for more detail.
+pub struct CancelledPreviewRequest<T> {
+    item: DetachedItem<T>,
+    id: ItemId,
 }
 
 /// A subscription to a pending preview.
@@ -154,6 +182,11 @@ pub struct PendingPreview {
 }
 
 impl<T> PreviewRequest<'_, T> {
+    /// Returns a unique identifier for the item in this request.
+    pub fn id(&self) -> ItemId {
+        self.id
+    }
+
     /// Declare that the preview is complete and obtain an internal buffer to return to the picker.
     ///
     /// # Reducing allocations
@@ -171,7 +204,7 @@ impl<'a, T: Send + Sync + 'static> PreviewRequest<'a, T> {
     /// The item corresponding to the request.
     pub fn item(&self) -> &'a T {
         // SAFETY: the index is guaranteed to be valid for this snapshot
-        unsafe { self.snapshot.get_item_unchecked(self.idx).data }
+        unsafe { self.snapshot.get_item_unchecked(self.id.index).data }
     }
 
     /// Defer handling of the preview request.
@@ -184,19 +217,24 @@ impl<'a, T: Send + Sync + 'static> PreviewRequest<'a, T> {
             buffer,
             epoch,
             snapshot,
-            idx,
+            id,
         } = self;
         // SAFETY: the request index is initialized in this snapshot, whose borrow prevents restart.
-        let item = unsafe { snapshot.get_detached_item_unchecked(idx) };
+        let item = unsafe { snapshot.get_detached_item_unchecked(id.index) };
         let (reader, writer) = request(buffer);
         (
             PendingPreview { reader, epoch },
-            QueuedPreviewRequest { writer, item },
+            QueuedPreviewRequest { writer, item, id },
         )
     }
 }
 
 impl<T> QueuedPreviewRequest<T> {
+    /// Returns a unique identifier for the item in this request.
+    pub fn id(&self) -> ItemId {
+        self.id
+    }
+
     /// The item corresponding to the request.
     pub fn item(&self) -> &T {
         self.item.item().data
@@ -208,13 +246,13 @@ impl<T> QueuedPreviewRequest<T> {
     /// method will prevent the picker from cancelling and resubmitting the preview request in
     /// order to increase priority.
     ///
-    /// The picker may still cancel the request if the preview pane is no longer required, in which
-    /// case this method will return [`None`].
-    pub fn start(self) -> Option<ActivePreviewRequest<T>> {
-        self.writer.start().map(|writer| ActivePreviewRequest {
-            writer,
-            item: self.item,
-        })
+    /// This method fails if the picker cancelled the request before it could start.
+    pub fn start(self) -> Result<ActivePreviewRequest<T>, CancelledPreviewRequest<T>> {
+        let Self { writer, item, id } = self;
+        match writer.start() {
+            Some(writer) => Ok(ActivePreviewRequest { writer, item, id }),
+            None => Err(CancelledPreviewRequest { item, id }),
+        }
     }
 
     /// Check if the request has been cancelled by the picker.
@@ -227,10 +265,8 @@ impl<T> QueuedPreviewRequest<T> {
     ///    data.
     /// 2. The preview pane is no longer required by the picker.
     ///
-    /// If this method returns true, the next call to [`start`](Self::start) is guaranteed to
-    /// return [`None`]. Note that if this method returns false, the next call to
-    /// [`start`](Self::start) could still return [`None`] if the request is cancelled in between
-    /// these two method calls.
+    /// If true, the next call to [`start`](Self::start) will fail. If false, starting may still
+    /// fail if cancellation occurs between the two calls.
     ///
     /// This method is very cheap and can be used to prune stale requests.
     pub fn is_cancelled(&self) -> bool {
@@ -239,6 +275,11 @@ impl<T> QueuedPreviewRequest<T> {
 }
 
 impl<T> ActivePreviewRequest<T> {
+    /// Returns a unique identifier for the item in this request.
+    pub fn id(&self) -> ItemId {
+        self.id
+    }
+
     /// The item corresponding to the request.
     pub fn item(&self) -> &T {
         self.item.item().data
@@ -250,22 +291,25 @@ impl<T> ActivePreviewRequest<T> {
     /// previewer must prepare the preview in a separate preview buffer, and then call this
     /// method.
     ///
-    /// If this method returns `true`, it means publication was successful and the buffer has been
+    /// If this method returns `Ok`, it means publication was successful and the buffer has been
     /// swapped for a new empty buffer. The empty buffer should be reused to prepare the next
-    /// request.
-    ///
-    /// If this method returns `false`, it means that the request was cancelled, in which case the
-    /// buffer is unmodified.
-    pub fn publish(self, buffer: &mut PreviewBuffer) -> bool {
-        self.writer.publish(buffer)
+    /// request. If this method returns `Err`, it means that the request was cancelled, in which
+    /// case the buffer is unmodified.
+    pub fn publish(self, buffer: &mut PreviewBuffer) -> Result<(), CancelledPreviewRequest<T>> {
+        let Self { writer, item, id } = self;
+        if writer.publish(buffer) {
+            Ok(())
+        } else {
+            Err(CancelledPreviewRequest { item, id })
+        }
     }
 
     /// Check if the request has been cancelled by the picker.
     ///
-    /// If this method returns `true`, this means that the picker has cancelled the request because
-    /// the preview pane is no longer required by the picker. This means that the next call to
-    /// [`publish`](Self::publish) is guaranteed to return `false`. If this method returns false, the next
-    /// call to [`publish`](Self::publish) could still return `false` if the request is cancelled in between
+    /// If this method returns `true`, this means that the picker has cancelled the reque
+    /// the preview pane is no longer required by the picker. This means that the next ca
+    /// [`publish`](Self::publish) is guaranteed to fail. If this method returns false, the next
+    /// call to [`publish`](Self::publish) could still fail if the request is cancelled in between
     /// these two method calls.
     ///
     /// This method is very cheap. When preview generation is expensive, implementors should
@@ -274,3 +318,34 @@ impl<T> ActivePreviewRequest<T> {
         self.writer.is_cancelled()
     }
 }
+
+impl<T> CancelledPreviewRequest<T> {
+    /// Returns the item corresponding to this request.
+    pub fn item(&self) -> &T {
+        self.item.item().data
+    }
+
+    /// Returns a unique identifier for the item in this request.
+    pub fn id(&self) -> ItemId {
+        self.id
+    }
+}
+
+impl<T> fmt::Debug for CancelledPreviewRequest<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CancelledPreviewRequest")
+            .field("id", &self.id)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<T> fmt::Display for CancelledPreviewRequest<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("preview request was cancelled")
+    }
+}
+
+impl<T> std::error::Error for CancelledPreviewRequest<T> {}
+
+#[cfg(test)]
+mod tests;

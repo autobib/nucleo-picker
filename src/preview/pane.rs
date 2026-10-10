@@ -1,12 +1,13 @@
 use super::{
     BoundaryChars, Preview, PreviewBuffer, PreviewConfig, PreviewEvent,
     cache::{BufferNotReady, Cached, RequestState},
-    request::{PreviewRequest, PreviewResponse},
+    request::{ItemId, PreviewRequest, PreviewResponse},
     scroll::PreviewMovement,
 };
 use crate::{
     PickerChars,
     component::{Component, PreviewComponent},
+    match_engine::MatchEngine,
     rect::{Area, Rect},
 };
 use lru::LruCache;
@@ -56,16 +57,17 @@ impl<P> PreviewPane<P> {
 
     /// Update the current preview by polling and resubmitting requests and keeping track if a
     /// redraw is required.
-    fn update_current<T: Send + Sync + 'static>(
+    fn update_current<T: Send + Sync + 'static, R>(
         &mut self,
         selected: Option<u32>,
-        snapshot: &nucleo::Snapshot<T>,
+        engine: &MatchEngine<T, R>,
         deadline: Instant,
         was_enabled: bool,
     ) -> Result<(), P::AbortErr>
     where
         P: Preview<T>,
     {
+        let snapshot = engine.snapshot();
         let previous_focus = if was_enabled { self.last_item } else { None };
         if previous_focus != selected {
             self.previewer.focus_changed(selected.map(|idx| {
@@ -98,7 +100,7 @@ impl<P> PreviewPane<P> {
             let state = submit(
                 &mut self.previewer,
                 snapshot,
-                idx,
+                engine.item_id(idx),
                 buffer,
                 self.epoch,
                 deadline,
@@ -137,7 +139,7 @@ impl<P> PreviewPane<P> {
             Err(buffer) => submit(
                 &mut self.previewer,
                 snapshot,
-                idx,
+                engine.item_id(idx),
                 buffer,
                 self.epoch,
                 deadline,
@@ -248,14 +250,14 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewComponent<T> for PreviewPan
         self.handle_event(selected_id, event);
     }
 
-    fn update(
+    fn update<R>(
         &mut self,
         selected: Option<u32>,
-        snapshot: &nucleo::Snapshot<T>,
+        engine: &MatchEngine<T, R>,
         deadline: Instant,
         was_enabled: bool,
     ) -> Result<bool, P::AbortErr> {
-        self.update_current(selected, snapshot, deadline, was_enabled)?;
+        self.update_current(selected, engine, deadline, was_enabled)?;
         Ok(std::mem::take(&mut self.pending_redraw))
     }
 
@@ -277,7 +279,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewComponent<T> for PreviewPan
 fn submit<T: Send + Sync + 'static, P: Preview<T>>(
     previewer: &mut P,
     snapshot: &nucleo::Snapshot<T>,
-    idx: u32,
+    id: ItemId,
     mut buffer: PreviewBuffer,
     epoch: u64,
     deadline: Instant,
@@ -287,7 +289,7 @@ fn submit<T: Send + Sync + 'static, P: Preview<T>>(
         buffer,
         epoch,
         snapshot,
-        idx,
+        id,
     };
     let timeout = deadline
         .saturating_duration_since(Instant::now())
