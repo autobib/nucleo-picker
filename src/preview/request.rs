@@ -28,7 +28,8 @@
 //!
 //! A queued request may be cancelled at any time, and the underlying request can be re-submitted.
 //! The picker will do this in order to re-prioritize requests when there is a backlog of successful
-//! previews.
+//! previews. When a request is cancelled, the various methods will return a
+//! [`CancelledPreviewRequest`].
 //!
 //! When the queued request is ready to be handled, convert to an [`ActivePreviewRequest`] with the
 //! [`QueuedPreviewRequest::start`] method. This will prevent cancellation for re-prioritization:
@@ -43,7 +44,7 @@
 //! If the previewer wishes to cancel a given request, it may simply drop the request. The picker
 //! will resubmit the request on a subsequent update. Note that repeated drops will cause the
 //! preview to display indefinitely as loading: if the request was dropped because it cannot be
-//! satisfied, the previewer might consider instead completing the request by publishing an error.
+//! satisfied, the previewer should instead satisfy the request by publishing an error.
 //!
 //! ### Basic example
 //!
@@ -105,27 +106,11 @@ use nucleo::{DetachedItem, Snapshot};
 use std::fmt;
 
 use super::{
-    PreviewBuffer,
+    ItemRef, PreviewBuffer,
     lock::{ActiveWriter, QueuedWriter, Reader, request},
 };
 
-/// An opaque item identifier which uniquely identifies an item `T` within its originating picker.
-///
-/// It is guaranteed that if two [`ItemId`]s obtained *from the same picker* are equal, then the
-/// corresponding items are also identical (i.e., they represent the same memory location of the underlying
-/// item `&T`). In particular, this contract is upheld across restarts.
-///
-/// However, *different pickers may reuse identifiers*. Therefore, identifiers originating from
-/// different pickers *may be the same, even if the underlying item is different*. Use caution! If
-/// you require a more robust identification scheme, you must store this identity inside the item
-/// itself.
-///
-/// Note that ordering has no relationship to ranking; it is only provided for convenience of use.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ItemId {
-    pub(crate) generation: u32,
-    pub(crate) index: u32,
-}
+pub use super::ItemId;
 
 /// The outcome of a preview request.
 pub enum PreviewResponse {
@@ -176,17 +161,15 @@ pub struct CancelledPreviewRequest<T> {
 }
 
 /// A subscription to a pending preview.
+///
+/// This is the type which should be returned to the picker if a [`Preview`](super::Preview)
+/// implementation wishes to defer preview generation.
 pub struct PendingPreview {
     pub(super) reader: Reader<PreviewBuffer>,
     pub(super) epoch: u64,
 }
 
-impl<T> PreviewRequest<'_, T> {
-    /// Returns a unique identifier for the item in this request.
-    pub fn id(&self) -> ItemId {
-        self.id
-    }
-
+impl<'a, T: Send + Sync + 'static> PreviewRequest<'a, T> {
     /// Declare that the preview is complete and obtain an internal buffer to return to the picker.
     ///
     /// # Reducing allocations
@@ -197,14 +180,6 @@ impl<T> PreviewRequest<'_, T> {
     /// requests, decreasing allocation overhead.
     pub fn ready(self) -> PreviewBuffer {
         self.buffer
-    }
-}
-
-impl<'a, T: Send + Sync + 'static> PreviewRequest<'a, T> {
-    /// The item corresponding to the request.
-    pub fn item(&self) -> &'a T {
-        // SAFETY: the index is guaranteed to be valid for this snapshot
-        unsafe { self.snapshot.get_item_unchecked(self.id.index).data }
     }
 
     /// Defer handling of the preview request.
@@ -227,19 +202,25 @@ impl<'a, T: Send + Sync + 'static> PreviewRequest<'a, T> {
             QueuedPreviewRequest { writer, item, id },
         )
     }
-}
 
-impl<T> QueuedPreviewRequest<T> {
+    /// The item corresponding to the request.
+    pub fn item(&self) -> &'a T {
+        // SAFETY: the index is guaranteed to be valid for this snapshot
+        unsafe { self.snapshot.get_item_unchecked(self.id.index).data }
+    }
+
     /// Returns a unique identifier for the item in this request.
     pub fn id(&self) -> ItemId {
         self.id
     }
 
-    /// The item corresponding to the request.
-    pub fn item(&self) -> &T {
-        self.item.item().data
+    /// Returns the item corresponding to this request along with its identifier.
+    pub fn item_ref(&self) -> ItemRef<'a, T> {
+        ItemRef::new(self.id, self.item())
     }
+}
 
+impl<T: Send + Sync + 'static> QueuedPreviewRequest<T> {
     /// Declare that the previewer is ready to start generating the preview for this queued request.
     ///
     /// This method should be called when the request is actively being processed. Calling this
@@ -272,19 +253,24 @@ impl<T> QueuedPreviewRequest<T> {
     pub fn is_cancelled(&self) -> bool {
         self.writer.is_cancelled()
     }
-}
-
-impl<T> ActivePreviewRequest<T> {
-    /// Returns a unique identifier for the item in this request.
-    pub fn id(&self) -> ItemId {
-        self.id
-    }
 
     /// The item corresponding to the request.
     pub fn item(&self) -> &T {
         self.item.item().data
     }
 
+    /// Returns a unique identifier for the item in this request.
+    pub fn id(&self) -> ItemId {
+        self.id
+    }
+
+    /// Returns the item corresponding to this request along with its identifier.
+    pub fn item_ref(&self) -> ItemRef<'_, T> {
+        ItemRef::new(self.id, self.item())
+    }
+}
+
+impl<T: Send + Sync + 'static> ActivePreviewRequest<T> {
     /// Publish the preview.
     ///
     /// Mutable access to the buffer internal to this request is not provided. Instead, the
@@ -317,9 +303,24 @@ impl<T> ActivePreviewRequest<T> {
     pub fn is_cancelled(&self) -> bool {
         self.writer.is_cancelled()
     }
+
+    /// The item corresponding to the request.
+    pub fn item(&self) -> &T {
+        self.item.item().data
+    }
+
+    /// Returns a unique identifier for the item in this request.
+    pub fn id(&self) -> ItemId {
+        self.id
+    }
+
+    /// Returns the item corresponding to this request along with its identifier.
+    pub fn item_ref(&self) -> ItemRef<'_, T> {
+        ItemRef::new(self.id, self.item())
+    }
 }
 
-impl<T> CancelledPreviewRequest<T> {
+impl<T: Send + Sync + 'static> CancelledPreviewRequest<T> {
     /// Returns the item corresponding to this request.
     pub fn item(&self) -> &T {
         self.item.item().data
@@ -328,6 +329,11 @@ impl<T> CancelledPreviewRequest<T> {
     /// Returns a unique identifier for the item in this request.
     pub fn id(&self) -> ItemId {
         self.id
+    }
+
+    /// Returns the item corresponding to this request along with its identifier.
+    pub fn item_ref(&self) -> ItemRef<'_, T> {
+        ItemRef::new(self.id, self.item())
     }
 }
 

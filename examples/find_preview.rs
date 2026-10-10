@@ -74,12 +74,11 @@ impl Preview<DirEntry> for FilePreview {
 
     fn preview(
         &mut self,
-        entry: &DirEntry,
         request: PreviewRequest<'_, DirEntry>,
         timeout: Duration,
     ) -> Result<PreviewResponse, Self::AbortErr> {
         // entry metadata is already available in the dir entry so we can label non-files synchronously
-        let label = match entry.file_type() {
+        let label = match request.item().file_type() {
             Some(kind) if kind.is_file() => None,
             Some(kind) if kind.is_dir() => Some("[Directory]"),
             Some(kind) if kind.is_symlink() => Some("[Symbolic link]"),
@@ -93,7 +92,7 @@ impl Preview<DirEntry> for FilePreview {
         }
 
         // let the preview pool handle everything else
-        self.pool.preview(entry, request, timeout)
+        self.pool.preview(request, timeout)
     }
 }
 

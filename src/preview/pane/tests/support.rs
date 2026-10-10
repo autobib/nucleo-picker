@@ -1,13 +1,14 @@
 use super::super::*;
 use crate::{
     Picker, PickerOptions,
-    preview::request::{ItemId, QueuedPreviewRequest},
+    preview::{ItemId, ItemRef, request::QueuedPreviewRequest},
     render::StrRenderer,
 };
 
 #[derive(Default)]
 pub(crate) struct TestPreviewer {
     pub(crate) focused: Vec<Option<&'static str>>,
+    pub(crate) focused_ids: Vec<Option<ItemId>>,
     pub(crate) requested: Vec<&'static str>,
     pub(crate) ids: Vec<ItemId>,
     pub(crate) buffer_allocations: Vec<*const u8>,
@@ -23,19 +24,20 @@ pub(crate) struct TestPreviewer {
 impl Preview<&'static str> for TestPreviewer {
     type AbortErr = &'static str;
 
-    fn focus_changed(&mut self, item: Option<&&'static str>) {
-        self.focused.push(item.copied());
+    fn focus_changed(&mut self, item: Option<ItemRef<'_, &'static str>>) {
+        self.focused.push(item.map(|item| *item.value()));
+        self.focused_ids.push(item.map(|item| item.id()));
     }
 
     fn preview(
         &mut self,
-        item: &&'static str,
         request: PreviewRequest<'_, &'static str>,
         timeout: Duration,
     ) -> Result<PreviewResponse, Self::AbortErr> {
         assert!(timeout >= Duration::from_millis(2));
-        assert!(std::ptr::eq(item, request.item()));
+        let item = request.item();
         assert_eq!(self.focused.last(), Some(&Some(*item)));
+        assert_eq!(self.focused_ids.last(), Some(&Some(request.id())));
         self.requested.push(item);
         self.ids.push(request.id());
         assert_eq!(request.buffer.lines().len(), 1);

@@ -1148,11 +1148,10 @@ impl Preview<String> for DeferredPreview {
 
     fn preview(
         &mut self,
-        item: &String,
         request: PreviewRequest<'_, String>,
         _timeout: Duration,
     ) -> Result<PreviewResponse, Infallible> {
-        if item == "ready" {
+        if request.item() == "ready" {
             let mut buffer = request.ready();
             buffer.set_line_numbers(true);
             buffer.push_styled_text("first\nsecond\nthird", ContentStyle::new().on_blue());

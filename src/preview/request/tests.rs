@@ -28,14 +28,21 @@ fn request<T: Send + Sync + 'static, R>(
 fn request_transitions_preserve_identity_and_publication() {
     let picker = picker(["alpha"]);
     let request = request(&picker, 0);
-    let id = request.id();
-    let item = request.item();
+    let item = request.item_ref();
+    let id = item.id();
+    assert_eq!(request.id(), id);
+    assert!(std::ptr::eq(request.item(), item.value()));
+    let focused = picker.engine.item_ref(0).unwrap();
+    assert_eq!(focused.id(), id);
+    assert!(std::ptr::eq(focused.value(), item.value()));
     let (pending, queued) = request.defer();
     assert_eq!(queued.id(), id);
-    assert!(std::ptr::eq(queued.item(), item));
+    assert_eq!(queued.item_ref().id(), id);
+    assert!(std::ptr::eq(queued.item_ref().value(), item.value()));
     let active = queued.start().unwrap();
     assert_eq!(active.id(), id);
-    assert!(std::ptr::eq(active.item(), item));
+    assert_eq!(active.item_ref().id(), id);
+    assert!(std::ptr::eq(active.item_ref().value(), item.value()));
     let mut buffer = PreviewBuffer::new();
     buffer.push_str(active.item());
     assert!(active.publish(&mut buffer).is_ok());
@@ -76,8 +83,9 @@ fn failed_publication_preserves_item_id_and_buffer() {
             active.publish(&mut buffer).unwrap_err()
         };
         assert_eq!(cancelled.id(), id);
+        assert_eq!(cancelled.item_ref().id(), id);
         assert_eq!(cancelled.item(), "alpha");
-        assert!(std::ptr::eq(cancelled.item(), item));
+        assert!(std::ptr::eq(cancelled.item_ref().value(), item));
         assert_eq!(buffer.lines().len(), 2);
         assert_eq!(buffer.line(0).unwrap().as_str(), "alpha");
         assert_eq!(buffer.line(0).unwrap().as_str().as_ptr(), allocation);
@@ -123,6 +131,8 @@ fn cancelled_request_retains_item_and_id_after_restart_and_picker_drop() {
 
     fn assert_traits<T: std::error::Error + Send + Sync>() {}
     assert_traits::<CancelledPreviewRequest<Item>>();
+    fn assert_copy<T: Copy>() {}
+    assert_copy::<ItemRef<'_, Item>>();
 
     for cancel_before_restart in [false, true] {
         let dropped = Arc::new(AtomicUsize::new(0));
@@ -154,7 +164,8 @@ fn cancelled_request_retains_item_and_id_after_restart_and_picker_drop() {
             queued.start().err().unwrap()
         };
         assert_eq!(cancelled.id(), id);
-        assert!(Arc::ptr_eq(&cancelled.item().dropped, &dropped));
+        assert_eq!(cancelled.item_ref().id(), id);
+        assert!(Arc::ptr_eq(&cancelled.item_ref().value().dropped, &dropped));
         assert_eq!(dropped.load(Ordering::Relaxed), 0);
         assert_eq!(cancelled.to_string(), "preview request was cancelled");
         assert!(format!("{cancelled:?}").contains("CancelledPreviewRequest"));
