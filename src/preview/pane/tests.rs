@@ -97,6 +97,32 @@ fn focus_ids_match_requests_on_cached_revisits_and_restart() {
 }
 
 #[test]
+fn restart_notifies_after_cancellation_even_without_focus() {
+    let picker = picker(["alpha", "beta"]);
+    let mut previewer = TestPreviewer {
+        defer: true,
+        ..TestPreviewer::default()
+    };
+    let mut session = PreviewPane::new(
+        &PreviewConfig::default(),
+        &crate::PickerChars::new(),
+        &mut previewer,
+    );
+    session.restart();
+    for index in [0, 1] {
+        session
+            .update(Some(index), &picker.engine, Instant::now(), true)
+            .unwrap();
+    }
+    session.restart();
+    session.restart();
+    drop(session);
+
+    assert_eq!(previewer.restarts, 3);
+    assert_eq!(previewer.queued.len(), 2);
+}
+
+#[test]
 fn refresh_reuses_the_buffer_and_resets_display_settings() {
     let picker = picker(["alpha"]);
     let mut session = PreviewPane::new(
