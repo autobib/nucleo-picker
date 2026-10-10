@@ -90,11 +90,18 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
     }
 
     #[cfg(feature = "preview")]
-    pub fn item_id(&self, index: u32) -> crate::preview::request::ItemId {
-        crate::preview::request::ItemId {
+    pub fn item_id(&self, index: u32) -> crate::preview::ItemId {
+        crate::preview::ItemId {
             generation: self.generation,
             index,
         }
+    }
+
+    #[cfg(feature = "preview")]
+    pub fn item_ref(&self, index: u32) -> Option<crate::preview::ItemRef<'_, T>> {
+        self.snapshot()
+            .get_item(index)
+            .map(|item| crate::preview::ItemRef::new(self.item_id(index), item.data))
     }
 
     pub fn renderer(&self) -> &R {

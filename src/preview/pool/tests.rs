@@ -90,10 +90,7 @@ fn submit(
         snapshot: picker.engine.snapshot(),
         id: picker.engine.item_id(idx),
     };
-    let PreviewResponse::Pending(pending) = pool
-        .preview(request.item(), request, Duration::ZERO)
-        .unwrap()
-    else {
+    let PreviewResponse::Pending(pending) = pool.preview(request, Duration::ZERO).unwrap() else {
         panic!("pool did not defer request");
     };
     pending

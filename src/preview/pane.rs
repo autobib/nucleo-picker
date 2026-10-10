@@ -1,7 +1,7 @@
 use super::{
-    BoundaryChars, Preview, PreviewBuffer, PreviewConfig, PreviewEvent,
+    BoundaryChars, ItemId, Preview, PreviewBuffer, PreviewConfig, PreviewEvent,
     cache::{BufferNotReady, Cached, RequestState},
-    request::{ItemId, PreviewRequest, PreviewResponse},
+    request::{PreviewRequest, PreviewResponse},
     scroll::PreviewMovement,
 };
 use crate::{
@@ -70,10 +70,8 @@ impl<P> PreviewPane<P> {
         let snapshot = engine.snapshot();
         let previous_focus = if was_enabled { self.last_item } else { None };
         if previous_focus != selected {
-            self.previewer.focus_changed(selected.map(|idx| {
-                // SAFETY: selected is an initialized item index from this snapshot.
-                unsafe { snapshot.get_item_unchecked(idx).data }
-            }));
+            self.previewer
+                .focus_changed(selected.map(|idx| engine.item_ref(idx).unwrap()));
         }
         if self.last_item != selected {
             self.last_item = selected;
@@ -295,7 +293,7 @@ fn submit<T: Send + Sync + 'static, P: Preview<T>>(
         .saturating_duration_since(Instant::now())
         .max(Duration::from_millis(2));
     previewer
-        .preview(request.item(), request, timeout)
+        .preview(request, timeout)
         .map(|response| match response {
             PreviewResponse::Ready(buffer) => RequestState::Ready(buffer),
             PreviewResponse::Pending(pending) => RequestState::Pending(pending),

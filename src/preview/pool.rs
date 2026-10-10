@@ -188,11 +188,9 @@ impl<T: Send + Sync + 'static> Preview<T> for PoolPreviewer<T> {
 
     fn preview(
         &mut self,
-        item: &T,
         request: PreviewRequest<'_, T>,
         timeout: Duration,
     ) -> Result<PreviewResponse, Self::AbortErr> {
-        let _ = item;
         let _ = timeout;
         let (pending, request) = request.defer();
         {
@@ -236,7 +234,7 @@ impl<T> Drop for PoolPreviewer<T> {
     }
 }
 
-fn work<T, W: PreviewWorker<T>>(shared: &Shared<T>, mut worker: W) {
+fn work<T: Send + Sync + 'static, W: PreviewWorker<T>>(shared: &Shared<T>, mut worker: W) {
     let mut buffer = PreviewBuffer::new();
     loop {
         let job = {

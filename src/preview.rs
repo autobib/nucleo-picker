@@ -10,7 +10,7 @@
 //! - For slow previews that should be performed in a background threadpool, see [`PoolPreviewer`].
 //!
 //! If you are doing something more complicated, start at the [`Preview`] documentation and then
-//! proceed with the [`request`] module and types. There are also full implementation examples in the
+//! proceed with the [`request`] module. There are also full implementation examples in the
 //! [examples folder](https://github.com/autobib/nucleo-picker/tree/master/examples)
 //! on GitHub.
 
@@ -19,6 +19,7 @@ mod ansi;
 mod buffer;
 mod cache;
 mod draw;
+mod item;
 mod lock;
 pub(crate) mod pane;
 mod picker;
@@ -32,6 +33,7 @@ use std::{convert::Infallible, num::NonZero, time::Duration};
 #[cfg(feature = "preview-ansi")]
 pub use ansi::{AnsiState, AnsiWriter};
 pub use buffer::{PreviewBuffer, PreviewLine};
+pub use item::{ItemId, ItemRef};
 pub use picker::PreviewPicker;
 pub use pool::{PoolPreviewer, PreviewWorker};
 use request::{PreviewRequest, PreviewResponse};
@@ -176,10 +178,10 @@ impl Default for PreviewConfig {
 ///
 ///     fn preview(
 ///         &mut self,
-///         item: &Item,
 ///         request: PreviewRequest<'_, Item>,
 ///         _timeout: Duration,
 ///     ) -> Result<PreviewResponse, Infallible> {
+///         let item = request.item();
 ///         let mut buffer = request.ready();
 ///         match item {
 ///             Ok(text) => buffer.push_text(text),
@@ -196,10 +198,14 @@ pub trait Preview<T> {
     /// An unrecoverable error which may occur while generating a preview.
     type AbortErr;
 
-    /// Generate a preview of the provided item.
+    /// Generate a preview.
+    ///
+    /// The item to which the preview corresponds is available with [`PreviewRequest::item`]. The
+    /// [`Duration`] is a timeout suggested by the picker and depende on the current frame budget. It will always be at least 2ms.
+    ///
+    /// See the [trait-level docs](Preview) for more detail.
     fn preview(
         &mut self,
-        item: &T,
         request: PreviewRequest<'_, T>,
         timeout: Duration,
     ) -> Result<PreviewResponse, Self::AbortErr>;
@@ -215,23 +221,22 @@ pub trait Preview<T> {
     /// interface will lag.
     ///
     /// The default implementation does nothing.
-    fn focus_changed(&mut self, _item: Option<&T>) {}
+    fn focus_changed(&mut self, _item: Option<ItemRef<'_, T>>) {}
 }
 
 impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
     type AbortErr = P::AbortErr;
 
-    fn focus_changed(&mut self, item: Option<&T>) {
+    fn focus_changed(&mut self, item: Option<ItemRef<'_, T>>) {
         (**self).focus_changed(item);
     }
 
     fn preview(
         &mut self,
-        item: &T,
         request: PreviewRequest<'_, T>,
         timeout: Duration,
     ) -> Result<PreviewResponse, Self::AbortErr> {
-        (*self).preview(item, request, timeout)
+        (*self).preview(request, timeout)
     }
 }
 
@@ -281,16 +286,17 @@ pub struct SyncPreviewer<F>(
 
 impl<T, F> Preview<T> for SyncPreviewer<F>
 where
+    T: Send + Sync + 'static,
     F: FnMut(&T, &mut PreviewBuffer),
 {
     type AbortErr = Infallible;
 
     fn preview(
         &mut self,
-        item: &T,
         request: PreviewRequest<'_, T>,
         _timeout: Duration,
     ) -> Result<PreviewResponse, Self::AbortErr> {
+        let item = request.item();
         let mut buffer = request.ready();
         (self.0)(item, &mut buffer);
         Ok(PreviewResponse::Ready(buffer))

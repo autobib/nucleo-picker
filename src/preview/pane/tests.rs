@@ -49,6 +49,54 @@ fn cache_tracks_item_identity_and_preserves_scroll_state() {
 }
 
 #[test]
+fn focus_ids_match_requests_on_cached_revisits_and_restart() {
+    let mut picker = picker(["same", "same"]);
+    let mut previewer = TestPreviewer::default();
+    let mut session = PreviewPane::new(
+        &PreviewConfig::default(),
+        &crate::PickerChars::new(),
+        &mut previewer,
+    );
+    for index in [0, 1, 0] {
+        session
+            .update(Some(index), &picker.engine, Instant::now(), true)
+            .unwrap();
+    }
+    session.hide();
+    session
+        .update(Some(0), &picker.engine, Instant::now(), false)
+        .unwrap();
+    session.restart();
+    picker.restart();
+    picker.push_batch(["same"]);
+    settle(&mut picker);
+    session
+        .update(Some(0), &picker.engine, Instant::now(), true)
+        .unwrap();
+    drop(session);
+
+    assert_eq!(previewer.ids.len(), 3);
+    let [first, duplicate, restarted] = previewer.ids[..] else {
+        unreachable!();
+    };
+    assert_ne!(first, duplicate);
+    assert_ne!(first, restarted);
+    assert_ne!(duplicate, restarted);
+    assert_eq!(
+        previewer.focused_ids,
+        [
+            Some(first),
+            Some(duplicate),
+            Some(first),
+            None,
+            Some(first),
+            None,
+            Some(restarted),
+        ]
+    );
+}
+
+#[test]
 fn refresh_reuses_the_buffer_and_resets_display_settings() {
     let picker = picker(["alpha"]);
     let mut session = PreviewPane::new(

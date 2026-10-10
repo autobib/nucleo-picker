@@ -546,7 +546,6 @@ mod preview {
         type AbortErr = std::convert::Infallible;
         fn preview(
             &mut self,
-            _: &String,
             request: PreviewRequest<'_, String>,
             _: std::time::Duration,
         ) -> Result<PreviewResponse, Self::AbortErr> {
