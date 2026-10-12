@@ -1016,9 +1016,12 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     }
 
     /// Get a picker variant which also generates previews.
+    ///
+    /// The original picker and the previewer can be recovered using
+    /// [`PreviewPicker::into_parts`](preview::PreviewPicker::into_parts).
     #[cfg(feature = "preview")]
     #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
-    pub fn with_preview<P>(&mut self, previewer: P) -> preview::PreviewPicker<'_, T, R, P>
+    pub fn with_preview<P>(self, previewer: P) -> preview::PreviewPicker<T, R, P>
     where
         P: preview::Preview<T>,
     {

@@ -177,7 +177,7 @@ pub struct Driver {
 
 impl Driver {
     pub fn start_with_options<T: Into<String>>(items: Vec<T>, options: PickerOptions) -> Self {
-        Self::start_inner(items, options, |picker, events, terminal| {
+        Self::start_inner(items, options, |mut picker, events, terminal| {
             picker
                 .pick_with_terminal_io(events, terminal)
                 .map(|item| item.into_iter().cloned().collect())
@@ -188,7 +188,7 @@ impl Driver {
         items: Vec<T>,
         options: PickerOptions,
     ) -> Self {
-        Self::start_inner(items, options, |picker, events, terminal| {
+        Self::start_inner(items, options, |mut picker, events, terminal| {
             picker
                 .pick_multi_with_terminal_io(events, terminal)
                 .map(|selection| selection.iter().cloned().collect())
@@ -218,7 +218,7 @@ impl Driver {
         items: Vec<T>,
         options: PickerOptions,
         run: impl FnOnce(
-            &mut Picker<String, StrRenderer>,
+            Picker<String, StrRenderer>,
             MpscReceiver<Event>,
             &mut GhosttyBackend,
         ) -> Result<Vec<String>, PickError>
@@ -243,7 +243,7 @@ impl Driver {
             let result = GhosttyBackend::new(thread_size, snapshot_request_rx)
                 .map_err(ErrorKind::Terminal)
                 .and_then(|mut terminal| {
-                    run(&mut picker, event_source, &mut terminal).map_err(ErrorKind::Picker)
+                    run(picker, event_source, &mut terminal).map_err(ErrorKind::Picker)
                 });
             let _ = result_tx.send(result);
         });

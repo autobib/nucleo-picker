@@ -183,7 +183,7 @@ fn main() -> io::Result<ExitCode> {
         .nth(1)
         .map_or_else(|| PathBuf::from("."), PathBuf::from);
 
-    let mut picker = PickerOptions::new().match_paths().picker(DirEntryRender);
+    let picker = PickerOptions::new().match_paths().picker(DirEntryRender);
 
     let previewer = FilePreview::new()?;
     let injector = picker.injector();

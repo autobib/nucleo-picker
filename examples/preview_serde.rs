@@ -32,18 +32,7 @@ impl Render<Poem> for PoemRenderer {
 }
 
 fn main() -> io::Result<()> {
-    let mut picker = PickerOptions::new()
-        .highlight_line(true)
-        .picker(PoemRenderer);
-    let injector = picker.injector();
-
-    spawn(move || {
-        injector
-            .deserialize(&mut Deserializer::from_str(include_str!("poems.json")))
-            .unwrap();
-    });
-
-    let previewer = SyncPreviewer(|poem: &Poem, buffer: &mut PreviewBuffer| {
+    let previewer = SyncPreviewer::new(|poem: &Poem, buffer: &mut PreviewBuffer| {
         buffer.set_line_numbers(true);
         for (index, line) in poem.lines.iter().enumerate() {
             // don't write a trailing newline
@@ -56,7 +45,20 @@ fn main() -> io::Result<()> {
         }
     });
 
-    match picker.with_preview(previewer).pick()? {
+    let picker = PickerOptions::new()
+        .highlight_line(true)
+        .picker(PoemRenderer)
+        .with_preview(previewer);
+
+    let injector = picker.injector();
+
+    spawn(move || {
+        injector
+            .deserialize(&mut Deserializer::from_str(include_str!("poems.json")))
+            .unwrap();
+    });
+
+    match picker.pick()? {
         Some(poem) => println!("{}", poem.author),
         None => println!("Nothing selected!"),
     }

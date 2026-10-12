@@ -17,6 +17,10 @@ use crate::{
 ///
 /// Initialize this by first constructing a [`Picker`], then calling [`Picker::with_preview`].
 ///
+/// DOC-TODO[Explain that this wrapper owns the picker and previewer, should be bound to a variable
+/// when retaining selections, and can be reused across sessions. Returned selections borrow the
+/// wrapper; after processing them, use the existing accessors or into_parts to recover ownership.]
+///
 /// Broadly speaking, this struct is similar to a [`Picker`] albeit with additional support for
 /// preview pane rendering. Here we only document the additional preview-specific features.
 ///
@@ -34,24 +38,29 @@ use crate::{
 /// and pending requests continue to be handled, but no new preview requests will be made
 /// automatically. Note that all preview-related events (such as pane movement and refresh) are
 /// ignored while hidden.
-pub struct PreviewPicker<'a, T, R, P> {
-    picker: &'a mut Picker<T, R>,
+pub struct PreviewPicker<T, R, P> {
+    picker: Picker<T, R>,
     previewer: P,
 }
 
-impl<'a, T, R, P> PreviewPicker<'a, T, R, P> {
-    pub(crate) fn new(picker: &'a mut Picker<T, R>, previewer: P) -> Self {
+impl<T, R, P> PreviewPicker<T, R, P> {
+    pub(crate) fn new(picker: Picker<T, R>, previewer: P) -> Self {
         Self { picker, previewer }
+    }
+
+    /// Decompose a previewing picker into the constituent picker and previewer.
+    pub fn into_parts(self) -> (Picker<T, R>, P) {
+        (self.picker, self.previewer)
     }
 
     /// Returns a reference to the internal picker.
     pub fn picker(&self) -> &Picker<T, R> {
-        self.picker
+        &self.picker
     }
 
     /// Returns an exclusive reference to the internal picker.
     pub fn picker_mut(&mut self) -> &mut Picker<T, R> {
-        self.picker
+        &mut self.picker
     }
 
     /// Returns a reference to the internal previewer.
@@ -65,7 +74,7 @@ impl<'a, T, R, P> PreviewPicker<'a, T, R, P> {
     }
 }
 
-impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<'_, T, R, P> {
+impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<T, R, P> {
     /// Open the interactive picker and return the picked item, if any.
     ///
     /// This method is the same as [`Picker::pick`] while also rendering a preview pane.
@@ -182,7 +191,7 @@ impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<'_, T,
 }
 
 #[doc(hidden)]
-impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<'_, T, R, P> {
+impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<T, R, P> {
     /// Run the picker interactively with a custom event source and terminal backend.
     ///
     /// This is the same as [`pick_with_io`](Self::pick_with_io) but in addition defers

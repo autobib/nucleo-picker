@@ -90,10 +90,11 @@ pub trait PreviewWorker<T> {
 /// }
 ///
 /// # fn main() -> std::io::Result<()> {
-/// let mut picker = Picker::new(PathRenderer);
+/// let picker = Picker::new(PathRenderer);
 /// picker.push_batch([PathBuf::from("Cargo.toml"), PathBuf::from("README.md")]);
 /// let previewer = PoolPreviewer::new(FilePreview, NonZeroUsize::new(2).unwrap())?;
-/// if let Some(path) = picker.with_preview(previewer).pick()? {
+/// let mut picker = picker.with_preview(previewer);
+/// if let Some(path) = picker.pick()? {
 ///     println!("{}", path.display());
 /// }
 /// # Ok(())
