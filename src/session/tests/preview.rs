@@ -6,7 +6,7 @@ use crate::{
     error::PickError,
     event::{Event, EventSource, LayoutEvent},
     preview::{
-        PreviewBuffer, PreviewConfig, PreviewEvent, SyncPreviewer,
+        PreviewBuffer, PreviewConfig, PreviewEvent, PreviewPicker, SyncPreviewer,
         pane::{PreviewPane, tests::support::*},
         request::QueuedPreviewRequest,
     },
@@ -195,7 +195,7 @@ fn batched_navigation_and_refresh_target_the_event_selection() {
 #[test]
 fn refresh_errors_abort_and_clean_up_the_terminal() {
     for defer in [false, true] {
-        let mut picker = picker(["alpha"]);
+        let picker = picker(["alpha"]);
         let mut previewer = TestPreviewer {
             defer,
             fail_after: Some(1),
@@ -224,7 +224,7 @@ fn refresh_errors_abort_and_clean_up_the_terminal() {
 #[test]
 fn refresh_does_not_run_the_previewer_before_a_following_quit() {
     for defer in [false, true] {
-        let mut picker = picker(["alpha"]);
+        let picker = picker(["alpha"]);
         let mut previewer = TestPreviewer {
             defer,
             fail_after: Some(1),
@@ -455,7 +455,7 @@ fn batched_navigation_back_to_the_same_item_does_not_promote() {
 #[test]
 fn retry_and_promotion_errors_abort_and_clean_up_the_terminal() {
     for retry in [false, true] {
-        let mut picker = picker(["alpha", "beta"]);
+        let picker = picker(["alpha", "beta"]);
         let mut previewer = TestPreviewer {
             defer: true,
             drop_requests: retry,
@@ -742,6 +742,58 @@ fn navigation() -> Events {
 }
 
 #[test]
+fn preview_picker_can_own_a_temporary_picker() {
+    let mut preview_picker = picker(["alpha", "beta"]).with_preview(TestPreviewer::default());
+    let selected = preview_picker
+        .pick_with_terminal_io(navigation(), &mut TestTerminal::default())
+        .unwrap();
+    assert_eq!(selected, Some(&"alpha"));
+    assert_eq!(preview_picker.previewer().requested, ["alpha", "beta"]);
+}
+
+#[test]
+fn preview_picker_can_be_returned_and_recovered_with_its_state() {
+    fn make_picker() -> PreviewPicker<&'static str, StrRenderer, TestPreviewer> {
+        picker(["alpha", "beta"]).with_preview(TestPreviewer::default())
+    }
+
+    let mut preview_picker = make_picker();
+    let injector = preview_picker.picker().injector();
+    preview_picker.picker_mut().update_query("beta");
+    preview_picker.previewer_mut().lines = 3;
+    settle(preview_picker.picker_mut());
+    for _ in 0..2 {
+        let selected = preview_picker
+            .pick_with_terminal_io(
+                Events(VecDeque::from([Ok(Event::Select)])),
+                &mut TestTerminal::default(),
+            )
+            .unwrap();
+        assert_eq!(selected, Some(&"beta"));
+    }
+
+    let (mut picker, previewer) = preview_picker.into_parts();
+    assert_eq!(picker.query(), "beta");
+    assert_eq!(previewer.lines, 3);
+    assert_eq!(previewer.requested, ["beta", "beta"]);
+    assert_eq!(previewer.ids[0], previewer.ids[1]);
+
+    injector.push("gamma");
+    picker.reset_query();
+    settle(&mut picker);
+    let selected = picker
+        .pick_multi_with_terminal_io(
+            Events(VecDeque::from([
+                Ok(Event::MatchList(MatchListEvent::QueueMatches)),
+                Ok(Event::Select),
+            ])),
+            &mut TestTerminal::default(),
+        )
+        .unwrap();
+    assert!(selected.iter().copied().eq(["alpha", "beta", "gamma"]));
+}
+
+#[test]
 fn preview_picker_uses_the_shared_loop_and_draws_a_pane() {
     let mut picker = picker(["alpha", "beta"]);
     let mut plain_terminal = TestTerminal::default();
@@ -769,7 +821,7 @@ fn preview_picker_uses_the_shared_loop_and_draws_a_pane() {
 
 #[test]
 fn preview_picker_preserves_multiple_selection() {
-    let mut picker = picker(["alpha", "beta"]);
+    let picker = picker(["alpha", "beta"]);
     let mut preview_picker = picker.with_preview(TestPreviewer::default());
     let events = Events(VecDeque::from([
         Ok(Event::MatchList(MatchListEvent::ToggleUp(1))),
@@ -788,7 +840,7 @@ fn preview_picker_preserves_multiple_selection() {
 
 #[test]
 fn preview_errors_abort_and_clean_up_the_terminal() {
-    let mut picker = picker(["alpha"]);
+    let picker = picker(["alpha"]);
     let mut preview_picker = picker.with_preview(TestPreviewer {
         fail: true,
         ..TestPreviewer::default()
@@ -811,7 +863,7 @@ fn picker_exits_cancel_all_pending_requests() {
         (Err(RecvError::Disconnected), false),
         (Err(RecvError::IO(io::Error::other("read failed"))), false),
     ] {
-        let mut picker = picker(["alpha", "beta"]);
+        let picker = picker(["alpha", "beta"]);
         let mut previewer = TestPreviewer {
             defer: true,
             ..TestPreviewer::default()
@@ -840,7 +892,7 @@ fn picker_exits_cancel_all_pending_requests() {
 #[test]
 fn terminal_errors_cancel_pending_requests() {
     for fail_write in [true, false] {
-        let mut picker = picker(["alpha"]);
+        let picker = picker(["alpha"]);
         let mut previewer = TestPreviewer {
             defer: true,
             ..TestPreviewer::default()
@@ -862,7 +914,7 @@ fn terminal_errors_cancel_pending_requests() {
 
 #[test]
 fn unwinding_cancels_pending_requests() {
-    let mut picker = picker(["alpha"]);
+    let picker = picker(["alpha"]);
     let mut previewer = TestPreviewer {
         defer: true,
         ..TestPreviewer::default()
@@ -883,7 +935,7 @@ fn unwinding_cancels_pending_requests() {
 
 #[test]
 fn each_pick_session_starts_with_a_fresh_cache() {
-    let mut picker = picker(["alpha"]);
+    let picker = picker(["alpha"]);
     let mut previewer = TestPreviewer::default();
     let mut preview_picker = picker.with_preview(&mut previewer);
     for _ in 0..2 {
@@ -901,9 +953,10 @@ fn each_pick_session_starts_with_a_fresh_cache() {
 
 #[test]
 fn replacing_items_between_sessions_changes_ids() {
-    let mut picker = picker(["alpha"]);
     let mut previewer = TestPreviewer::default();
+    let mut preview_picker = picker(["alpha"]).with_preview(&mut previewer);
     for step in 0..3 {
+        let picker = preview_picker.picker_mut();
         match step {
             0 => {}
             1 => picker.restart(),
@@ -912,10 +965,9 @@ fn replacing_items_between_sessions_changes_ids() {
         }
         if step != 0 {
             picker.push_batch(["alpha"]);
-            settle(&mut picker);
+            settle(picker);
         }
-        picker
-            .with_preview(&mut previewer)
+        preview_picker
             .pick_with_terminal_io(
                 Events(VecDeque::from([Ok(Event::Quit)])),
                 &mut TestTerminal::default(),
@@ -1001,7 +1053,7 @@ fn restart_invalidates_cached_item_ids() {
 fn toggling_the_pane_reports_focus_and_coalesces_hidden_navigation() {
     for defer in [false, true] {
         for size in [(20, 10), (5, 10)] {
-            let mut picker = picker(["alpha", "beta"]);
+            let picker = picker(["alpha", "beta"]);
             let mut previewer = TestPreviewer {
                 defer,
                 ..TestPreviewer::default()
@@ -1051,7 +1103,7 @@ fn toggling_the_pane_reports_focus_and_coalesces_hidden_navigation() {
 #[test]
 fn revealing_the_same_item_preserves_its_request_after_hidden_navigation() {
     for defer in [false, true] {
-        let mut picker = picker(["alpha", "beta"]);
+        let picker = picker(["alpha", "beta"]);
         let mut previewer = TestPreviewer {
             defer,
             ..TestPreviewer::default()

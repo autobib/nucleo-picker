@@ -25,7 +25,21 @@ fn render_artist(artist: &Artist) -> Cow<'_, str> {
 }
 
 fn main() -> io::Result<()> {
-    let mut picker = Picker::new(render_artist);
+    let previewer = SyncPreviewer::new(|artist: &Artist, buffer: &mut PreviewBuffer| {
+        buffer.push_styled_line(artist.name, ContentStyle::new().bold());
+        for (label, value) in [
+            ("Born:       ", artist.born),
+            ("Birthplace: ", artist.birthplace),
+            ("Movement:   ", artist.movement),
+        ] {
+            buffer.newline();
+            buffer.push_styled_str(label, ContentStyle::new().cyan().bold());
+            buffer.push_str(value);
+        }
+    });
+
+    let picker = Picker::new(render_artist).with_preview(previewer);
+
     picker.push_batch([
         Artist {
             name: "Rembrandt",
@@ -47,20 +61,7 @@ fn main() -> io::Result<()> {
         },
     ]);
 
-    let previewer = SyncPreviewer(|artist: &Artist, buffer: &mut PreviewBuffer| {
-        buffer.push_styled_line(artist.name, ContentStyle::new().bold());
-        for (label, value) in [
-            ("Born:       ", artist.born),
-            ("Birthplace: ", artist.birthplace),
-            ("Movement:   ", artist.movement),
-        ] {
-            buffer.newline();
-            buffer.push_styled_str(label, ContentStyle::new().cyan().bold());
-            buffer.push_str(value);
-        }
-    });
-
-    match picker.with_preview(previewer).pick()? {
+    match picker.pick()? {
         Some(artist) => println!("You selected: '{}'", artist.name),
         None => println!("Nothing selected!"),
     }

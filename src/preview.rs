@@ -282,7 +282,7 @@ impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
 /// }
 ///
 /// # fn main() -> std::io::Result<()> {
-/// let mut picker = Picker::new(render);
+/// let picker = Picker::new(render);
 /// picker.push_batch([
 ///     Item { name: "red", description: "RGB: 255, 0, 0" },
 ///     Item { name: "blue", description: "RGB: 0, 0, 255" },
@@ -290,7 +290,8 @@ impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
 /// let previewer = SyncPreviewer(|item: &Item, buffer: &mut PreviewBuffer| {
 ///     buffer.push_text(item.description);
 /// });
-/// if let Some(item) = picker.with_preview(previewer).pick()? {
+/// let mut picker = picker.with_preview(previewer);
+/// if let Some(item) = picker.pick()? {
 ///     println!("{}", item.name);
 /// }
 /// # Ok(())
