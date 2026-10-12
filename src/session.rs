@@ -74,7 +74,6 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                     list.selection(engine).map(|n| engine.idx_from_match(n)),
                     engine,
                     frame_start + self.interval,
-                    false,
                 )
                 .map_err(PickError::Aborted)?;
         }
@@ -213,7 +212,6 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                             list.selection(engine).map(|n| engine.idx_from_match(n)),
                             engine,
                             frame_start + self.interval,
-                            preview_was_enabled,
                         )
                         .map_err(PickError::Aborted)?,
             };

@@ -218,6 +218,10 @@ pub trait Preview<T> {
     /// hidden or that there are no matching items (so none is selected). This method is called
     /// before the `preview` method (if the `preview` method is called at all).
     ///
+    /// The initial focus state is `None`. When the picker quits, all pending preview requests are
+    /// cancelled followed by a final `focus_changed(None)` if there was an active preview pane at
+    /// the end. Note that `focus_changed` is not called when panicking.
+    ///
     /// This method runs on the picker thread and therefore must not block. If it blocks, the picker
     /// interface will lag.
     ///
@@ -226,9 +230,11 @@ pub trait Preview<T> {
 
     /// Handle an interactive picker restart.
     ///
-    /// This method is called when an interactive restart is processed by the picker. Note that this
-    /// method is called *after* clearing the preview cache, cancelling pending requests, and
-    /// the call to `focus_changed(None)`, and *before* restarting the underlying match item.
+    /// This method is called when an interactive restart (that is,
+    /// [`Event::Restart`](crate::event::Event::Restart)) is processed by the picker. Note that
+    /// this method is called *after* clearing the preview cache, cancelling pending requests, and
+    /// the call to `focus_changed(None)` (if one was made since the focus was active before the
+    /// restart), and *before* restarting the underlying match item.
     ///
     /// This method runs on the picker thread and therefore must not block. If it blocks, the picker
     /// interface will lag.

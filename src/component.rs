@@ -51,7 +51,6 @@ pub(crate) trait PreviewComponent<T> {
         selected: Option<u32>,
         engine: &MatchEngine<T, R>,
         deadline: Instant,
-        was_enabled: bool,
     ) -> Result<bool, Self::Error>;
 
     /// Do extra processing when a preview frame is hidden.
@@ -89,7 +88,6 @@ impl<T, A> PreviewComponent<T> for NoPreview<A> {
         _selected: Option<u32>,
         _engine: &MatchEngine<T, R>,
         _deadline: Instant,
-        _was_enabled: bool,
     ) -> Result<bool, A> {
         Ok(false)
     }
@@ -122,9 +120,8 @@ impl<T, C: PreviewComponent<T>> PreviewComponent<T> for &mut C {
         selected: Option<u32>,
         engine: &MatchEngine<T, R>,
         deadline: Instant,
-        was_enabled: bool,
     ) -> Result<bool, Self::Error> {
-        (**self).update(selected, engine, deadline, was_enabled)
+        (**self).update(selected, engine, deadline)
     }
     fn hide(&mut self) {
         (**self).hide();

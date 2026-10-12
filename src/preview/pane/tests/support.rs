@@ -9,6 +9,7 @@ use crate::{
 pub(crate) struct TestPreviewer {
     pub(crate) focused: Vec<Option<&'static str>>,
     pub(crate) focused_ids: Vec<Option<ItemId>>,
+    pub(crate) cancelled_on_blur: Vec<bool>,
     pub(crate) requested: Vec<&'static str>,
     pub(crate) ids: Vec<ItemId>,
     pub(crate) buffer_allocations: Vec<*const u8>,
@@ -16,7 +17,6 @@ pub(crate) struct TestPreviewer {
     pub(crate) restarts: usize,
     pub(crate) defer: bool,
     pub(crate) drop_requests: bool,
-    pub(crate) fail: bool,
     pub(crate) fail_after: Option<usize>,
     pub(crate) lines: usize,
     pub(crate) line_numbers: bool,
@@ -26,6 +26,10 @@ impl Preview<&'static str> for TestPreviewer {
     type AbortErr = &'static str;
 
     fn focus_changed(&mut self, item: Option<ItemRef<'_, &'static str>>) {
+        if item.is_none() {
+            self.cancelled_on_blur
+                .push(self.queued.iter().all(QueuedPreviewRequest::is_cancelled));
+        }
         self.focused.push(item.map(|item| *item.value()));
         self.focused_ids.push(item.map(|item| item.id()));
     }
@@ -53,10 +57,9 @@ impl Preview<&'static str> for TestPreviewer {
         assert!(!request.buffer.line_numbers());
         self.buffer_allocations
             .push(request.buffer.line(0).unwrap().as_str().as_ptr());
-        if self.fail
-            || self
-                .fail_after
-                .is_some_and(|count| self.requested.len() > count)
+        if self
+            .fail_after
+            .is_some_and(|count| self.requested.len() > count)
         {
             return Err("preview failed");
         }
@@ -122,15 +125,23 @@ pub(crate) fn selected_item(picker: &Picker<&'static str, StrRenderer>) -> Optio
         .map(|n| picker.engine.idx_from_match(n))
 }
 
+pub(crate) fn preview_pane<P: Preview<&'static str>>(previewer: P) -> PreviewPane<&'static str, P> {
+    PreviewPane::new(
+        &PreviewConfig::default(),
+        &crate::PickerChars::new(),
+        previewer,
+    )
+}
+
 pub(crate) fn update(
-    application: &mut PreviewPane<TestPreviewer>,
+    application: &mut PreviewPane<&'static str, TestPreviewer>,
     picker: &mut Picker<&'static str, StrRenderer>,
 ) -> Result<bool, &'static str> {
-    application.update(selected_item(picker), &picker.engine, Instant::now(), true)
+    application.update(selected_item(picker), &picker.engine, Instant::now())
 }
 
 #[cfg(feature = "unstable-backend")]
-impl<P> PreviewPane<P> {
+impl<T, P: Preview<T>> PreviewPane<T, P> {
     pub(crate) fn test_cache(&mut self) -> &mut LruCache<u32, Cached> {
         &mut self.cache
     }

@@ -1,5 +1,5 @@
 use super::{
-    BoundaryChars, ItemId, Preview, PreviewBuffer, PreviewConfig, PreviewEvent,
+    BoundaryChars, ItemId, ItemRef, Preview, PreviewBuffer, PreviewConfig, PreviewEvent,
     cache::{BufferNotReady, Cached, RequestState},
     request::{PreviewRequest, PreviewResponse},
     scroll::PreviewMovement,
@@ -13,15 +13,19 @@ use crate::{
 use lru::LruCache;
 use std::{
     io,
+    marker::PhantomData,
     time::{Duration, Instant},
 };
 
-pub(crate) struct PreviewPane<P> {
+pub(crate) struct PreviewPane<T, P: Preview<T>> {
     // fields drop in declaration order: cancel requests *before* dropping the
     // previewer so that it may join its workers if desired
     cache: LruCache<u32, Cached>,
     previewer: P,
     last_item: Option<u32>,
+    // Unlike last_item, focused is cleared while the pane is hidden.
+    focused: Option<u32>,
+    item: PhantomData<fn() -> T>,
     // state to preserve scroll and restart invalidation and return redraw sate with
     // `update`
     pending_redraw: bool,
@@ -34,7 +38,7 @@ pub(crate) struct PreviewPane<P> {
     ellipsis: char,
 }
 
-impl<P> PreviewPane<P> {
+impl<T, P: Preview<T>> PreviewPane<T, P> {
     pub(crate) fn new(config: &PreviewConfig, chars: &PickerChars, previewer: P) -> Self {
         Self {
             cache: config
@@ -42,6 +46,8 @@ impl<P> PreviewPane<P> {
                 .map_or_else(LruCache::unbounded, LruCache::new),
             previewer,
             last_item: None,
+            focused: None,
+            item: PhantomData,
             pending_redraw: false,
             epoch: 0,
             area: Area::default(),
@@ -55,24 +61,35 @@ impl<P> PreviewPane<P> {
         self.last_item.and_then(|idx| self.cache.peek(&idx))
     }
 
+    fn set_focus(&mut self, item: Option<ItemRef<'_, T>>) {
+        let focused = item.map(|item| item.id().index);
+        if self.focused != focused {
+            self.focused = focused;
+            if !std::thread::panicking() {
+                self.previewer.focus_changed(item);
+            }
+        }
+    }
+}
+
+impl<T, P: Preview<T>> Drop for PreviewPane<T, P> {
+    fn drop(&mut self) {
+        self.cache.clear();
+        self.set_focus(None);
+    }
+}
+
+impl<T: Send + Sync + 'static, P: Preview<T>> PreviewPane<T, P> {
     /// Update the current preview by polling and resubmitting requests and keeping track if a
     /// redraw is required.
-    fn update_current<T: Send + Sync + 'static, R>(
+    fn update_current<R>(
         &mut self,
         selected: Option<u32>,
         engine: &MatchEngine<T, R>,
         deadline: Instant,
-        was_enabled: bool,
-    ) -> Result<(), P::AbortErr>
-    where
-        P: Preview<T>,
-    {
+    ) -> Result<(), P::AbortErr> {
         let snapshot = engine.snapshot();
-        let previous_focus = if was_enabled { self.last_item } else { None };
-        if previous_focus != selected {
-            self.previewer
-                .focus_changed(selected.map(|idx| engine.item_ref(idx).unwrap()));
-        }
+        self.set_focus(selected.map(|idx| engine.item_ref(idx).unwrap()));
         if self.last_item != selected {
             self.last_item = selected;
             self.epoch = self.epoch.wrapping_add(1);
@@ -149,7 +166,7 @@ impl<P> PreviewPane<P> {
     }
 }
 
-impl<P> PreviewPane<P> {
+impl<T, P: Preview<T>> PreviewPane<T, P> {
     fn handle_event(&mut self, idx: Option<u32>, event: PreviewEvent) {
         let Some(cached) = idx.and_then(|idx| self.cache.get_mut(&idx)) else {
             return;
@@ -229,7 +246,7 @@ impl<P> PreviewPane<P> {
     }
 }
 
-impl<E, P> Component<E> for PreviewPane<P> {
+impl<E, T, P: Preview<T>> Component<E> for PreviewPane<T, P> {
     fn resize(&mut self, area: Area, _engine: &E) {
         self.resize_area(area);
     }
@@ -239,7 +256,7 @@ impl<E, P> Component<E> for PreviewPane<P> {
     }
 }
 
-impl<T: Send + Sync + 'static, P: Preview<T>> PreviewComponent<T> for PreviewPane<P> {
+impl<T: Send + Sync + 'static, P: Preview<T>> PreviewComponent<T> for PreviewPane<T, P> {
     type Error = P::AbortErr;
 
     const ENABLED: bool = true;
@@ -253,24 +270,18 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewComponent<T> for PreviewPan
         selected: Option<u32>,
         engine: &MatchEngine<T, R>,
         deadline: Instant,
-        was_enabled: bool,
     ) -> Result<bool, P::AbortErr> {
-        self.update_current(selected, engine, deadline, was_enabled)?;
+        self.update_current(selected, engine, deadline)?;
         Ok(std::mem::take(&mut self.pending_redraw))
     }
 
     fn hide(&mut self) {
-        if self.last_item.is_some() {
-            self.previewer.focus_changed(None);
-        }
+        self.set_focus(None);
     }
 
     fn restart(&mut self) {
-        let had_focus = self.last_item.is_some();
         self.restart_cache();
-        if had_focus {
-            self.previewer.focus_changed(None);
-        }
+        self.set_focus(None);
         self.previewer.restart();
     }
 }
