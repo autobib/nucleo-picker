@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests;
 
-use std::{fmt, io};
+use std::io;
 
 use anstyle_parse::{Params, Parser, Perform};
 use crossterm::style::{Attribute, Color, ContentStyle};
@@ -36,7 +36,7 @@ impl AnsiState {
 /// Write an ANSI byte-stream directly into a preview buffer.
 ///
 /// The conventional way to construct this type is through [`PreviewBuffer::ansi_writer`]. This type
-/// implements [`fmt::Write`] as well as [`io::Write`], and can be used to write an ANSI byte-stream directly into the
+/// implements [`io::Write`], and can be used to write an ANSI byte-stream directly into the
 /// underlying buffer.
 #[cfg_attr(docsrs, doc(cfg(feature = "preview-ansi")))]
 #[derive(Debug)]
@@ -119,13 +119,6 @@ impl io::Write for AnsiWriter<'_> {
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-impl fmt::Write for AnsiWriter<'_> {
-    fn write_str(&mut self, text: &str) -> fmt::Result {
-        self.write_bytes(text.as_bytes());
         Ok(())
     }
 }
