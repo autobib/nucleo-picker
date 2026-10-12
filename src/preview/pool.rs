@@ -36,6 +36,16 @@ pub trait PreviewWorker<T> {
     /// early cancellation using the `is_cancelled` callback. This can be done to avoid unnecessary
     /// work on dropped preview requests.
     ///
+    /// # Cancellation
+    ///
+    /// Since cancellation is cooperative, it cannot interrupt an operation which is blocked in the
+    /// background. For example, if this preview function makes a network request and the network
+    /// hangs without checking for cancellation, then the worker will hang indefinitely.
+    ///
+    /// If all workers block or hang indefinitely, it will not be possible to generate future previews.
+    /// Also, note that workers which hang will cause the [`Drop`] implementation of
+    /// [`PoolPreviewer`] to hang while it waits for the workers to finish.
+    ///
     /// # Panics
     ///
     /// If this method panics, the panic will cause the preview threadpool to shut down.
@@ -58,6 +68,13 @@ pub trait PreviewWorker<T> {
 /// - Fallible preview generation.
 ///
 /// In such cases, it is advised to implement [`Preview`] directly.
+///
+/// ## Shutdown
+///
+/// Dropping the pool discards queued requests, wakes idle workers, and blocks until all worker
+/// threads have joined. While picker exit cancels all outstanding requests, it does not terminate
+/// running workers since cancellation is cooperative. In particular, if a worker is blocked,
+/// dropping the [`PoolPreviewer`] will hang.
 ///
 /// ## Parametrized error
 ///
