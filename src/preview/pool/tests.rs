@@ -192,7 +192,7 @@ fn bounds_cancelled_backlog_and_drops_queued_work_on_shutdown() {
             .cancel_any();
     }
     {
-        let state = pool.shared.state.lock();
+        let state = pool.pool.shared.state.lock();
         let jobs = state.jobs.as_ref().unwrap();
         assert_eq!(
             jobs.iter().filter(|job| !job.is_cancelled()).count(),
@@ -201,7 +201,7 @@ fn bounds_cancelled_backlog_and_drops_queued_work_on_shutdown() {
         assert!(jobs.len() <= 2 * (pending.len() + MIN_PRUNE_AT));
     }
 
-    let shared = Arc::clone(&pool.shared);
+    let shared = Arc::clone(&pool.pool.shared);
     let shutdown = thread::spawn(move || drop(pool));
     wait_until(|| shared.state.lock().jobs.is_none());
     assert!(!shutdown.is_finished());

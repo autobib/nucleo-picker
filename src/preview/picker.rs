@@ -6,9 +6,11 @@ use super::{Preview, pane::PreviewPane};
 #[cfg(feature = "unstable-backend")]
 use crate::Terminal;
 use crate::{
-    Picker, Render, Selection,
+    Injector, Picker, Render, Selection,
     error::PickError,
-    event::{Event, EventSource, StdinReader, keybind_default, keybind_no_multi},
+    event::{
+        Event, EventSource, Observer, PickerStatus, StdinReader, keybind_default, keybind_no_multi,
+    },
     match_list::SelectedIndices,
     terminal::CrosstermTerminal,
 };
@@ -16,10 +18,6 @@ use crate::{
 /// A picker which also generates a preview pane for items.
 ///
 /// Initialize this by first constructing a [`Picker`], then calling [`Picker::with_preview`].
-///
-/// DOC-TODO[Explain that this wrapper owns the picker and previewer, should be bound to a variable
-/// when retaining selections, and can be reused across sessions. Returned selections borrow the
-/// wrapper; after processing them, use the existing accessors or into_parts to recover ownership.]
 ///
 /// Broadly speaking, this struct is similar to a [`Picker`] albeit with additional support for
 /// preview pane rendering. Here we only document the additional preview-specific features.
@@ -71,6 +69,110 @@ impl<T, R, P> PreviewPicker<T, R, P> {
     /// Returns an exclusive reference to the internal previewer.
     pub fn previewer_mut(&mut self) -> &mut P {
         &mut self.previewer
+    }
+}
+
+impl<T: Send + Sync + 'static, R: Render<T>, P> Extend<T> for PreviewPicker<T, R, P> {
+    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
+        self.picker.extend(iter);
+    }
+}
+
+impl<T: Send + Sync + 'static, R, P> PreviewPicker<T, R, P> {
+    /// Update the default query string.
+    ///
+    /// See [`Picker::update_query`] for more details.
+    #[inline]
+    pub fn update_query<Q: Into<String>>(&mut self, query: Q) {
+        self.picker.update_query(query);
+    }
+
+    /// Reset the query string to the empty string.
+    ///
+    /// See [`Picker::reset_query`] for more details.
+    #[inline]
+    pub fn reset_query(&mut self) {
+        self.picker.reset_query();
+    }
+
+    /// Returns the contents of the query string internal to the picker.
+    ///
+    /// See [`Picker::query`] for more details.
+    #[must_use]
+    pub fn query(&self) -> &str {
+        self.picker.query()
+    }
+
+    /// Returns an [`Observer`] containing up-to-date [`Injector`]s for this picker.
+    ///
+    /// See [`Picker::injector_observer`] for more details.
+    #[must_use]
+    pub fn injector_observer(&mut self, with_injector: bool) -> Observer<Injector<T, R>> {
+        self.picker.injector_observer(with_injector)
+    }
+
+    /// Returns an [`Observer`] containing up-to-date responses from [status
+    /// requests](Event::Status).
+    ///
+    /// See [`Picker::status_observer`] for more details.
+    #[must_use]
+    pub fn status_observer(&mut self) -> Observer<PickerStatus> {
+        self.picker.status_observer()
+    }
+
+    /// Update the internal nucleo configuration.
+    ///
+    /// See [`Picker::update_config`] for more details.
+    #[inline]
+    pub fn update_config(&mut self, config: nucleo::Config) {
+        self.picker.update_config(config);
+    }
+
+    /// Restart the match engine, disconnecting all active injectors and clearing the existing
+    /// search query.
+    ///
+    /// See [`Picker::restart`] for more details.
+    pub fn restart(&mut self) {
+        self.picker.restart();
+    }
+
+    /// Restart the match engine, disconnecting all active injectors and replacing the internal
+    /// renderer.
+    ///
+    /// See [`Picker::reset_renderer`] for more details.
+    pub fn reset_renderer(&mut self, render: R) {
+        self.picker.reset_renderer(render);
+    }
+
+    /// Get an [`Injector`] to send items to the picker.
+    ///
+    /// See [`Picker::injector`] for more details.
+    #[must_use]
+    pub fn injector(&self) -> Injector<T, R> {
+        self.picker.injector()
+    }
+
+    /// A convenience method to add a batch of items directly to the picker.
+    ///
+    /// See [`Picker::push_batch`] for more details.
+    pub fn push_batch<I>(&self, iter: I)
+    where
+        R: Render<T>,
+        I: IntoIterator<Item = T>,
+    {
+        self.picker.push_batch(iter);
+    }
+
+    /// A convenience method to obtain the rendered version of an item as it would appear in the
+    /// picker.
+    ///
+    /// See [`Picker::render`] for more details.
+    #[inline]
+    pub fn render<'a>(&self, item: &'a T) -> <R as Render<T>>::Str<'a>
+    where
+        R: Render<T>,
+    {
+        self.picker.render(item)
     }
 }
 

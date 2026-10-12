@@ -22,7 +22,7 @@ fn start(options: PickerOptions) -> ScenarioRunner {
         "basic",
         lines(),
         options,
-        SyncPreviewer(|item: &String, buffer: &mut PreviewBuffer| buffer.push_str(item)),
+        SyncPreviewer::new(|item: &String, buffer: &mut PreviewBuffer| buffer.push_str(item)),
     )
 }
 
@@ -224,7 +224,7 @@ fn pane_layout_adjustments_and_resizes() -> Result<(), Box<dyn Error>> {
             "pane_layout",
             vec!["item"],
             PickerOptions::new().preview_size(0.4).reversed(reversed),
-            SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
+            SyncPreviewer::new(|_: &String, buffer: &mut PreviewBuffer| {
                 buffer.push_text("a\nb\nc\nd\ne\nf")
             }),
         );
@@ -345,7 +345,7 @@ fn toggle_preview_restores_layout_and_cached_state() -> Result<(), Box<dyn Error
             "toggle_preview",
             items,
             options(),
-            SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
+            SyncPreviewer::new(|_: &String, buffer: &mut PreviewBuffer| {
                 buffer.push_text("a\nb\nc\nd\ne\nf")
             }),
         );
@@ -475,7 +475,7 @@ fn status_toggle_preserves_the_preview_pane() -> Result<(), Box<dyn Error>> {
             "status_with_preview",
             lines(),
             PickerOptions::new().reversed(reversed),
-            SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
+            SyncPreviewer::new(|_: &String, buffer: &mut PreviewBuffer| {
                 buffer.push_text("a\nb\nc\nd\ne\nf")
             }),
         );
@@ -532,7 +532,7 @@ fn unicode_clipping_and_styles() -> Result<(), Box<dyn Error>> {
         "unicode_clipping_and_styles",
         vec!["item"],
         PickerOptions::new(),
-        SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
+        SyncPreviewer::new(|_: &String, buffer: &mut PreviewBuffer| {
             buffer.push_line("12345");
             buffer.push_styled_line("abcdef", ContentStyle::new().green().bold());
             buffer.push_line("界界界");
@@ -589,7 +589,7 @@ fn preview_and_matches_use_the_same_grapheme_widths() -> Result<(), Box<dyn Erro
         "preview_and_matches_use_the_same_grapheme_widths",
         vec!["لاX"],
         PickerOptions::new().highlight_line(true),
-        SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
+        SyncPreviewer::new(|_: &String, buffer: &mut PreviewBuffer| {
             buffer.push_line("لا");
             buffer.push_line("لاX");
         }),
@@ -624,7 +624,7 @@ fn style_resets_and_custom_elision() -> Result<(), Box<dyn Error>> {
         "style_resets_and_custom_elision",
         vec!["item"],
         PickerOptions::new().truncation_ellipsis('~'),
-        SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
+        SyncPreviewer::new(|_: &String, buffer: &mut PreviewBuffer| {
             buffer.push_styled_str("AB", ContentStyle::new().green().on_blue().bold());
             buffer.push_str("C");
             buffer.push_styled_str(
@@ -666,7 +666,7 @@ fn style_resets_and_custom_elision() -> Result<(), Box<dyn Error>> {
         "ascii_elision",
         vec!["abcdef"],
         PickerOptions::new().ascii_compatible(true),
-        SyncPreviewer(|item: &String, buffer: &mut PreviewBuffer| buffer.push_str(item)),
+        SyncPreviewer::new(|item: &String, buffer: &mut PreviewBuffer| buffer.push_str(item)),
     );
     sr.set_dimensions(10, 5)?;
     sr.wait_for_match_complete(1, 1)?;
@@ -733,7 +733,7 @@ fn boundary_chars() -> Result<(), Box<dyn Error>> {
             "boundary_chars",
             vec!["abcdef"],
             options,
-            SyncPreviewer(|item: &String, buffer: &mut PreviewBuffer| buffer.push_str(item)),
+            SyncPreviewer::new(|item: &String, buffer: &mut PreviewBuffer| buffer.push_str(item)),
         );
         sr.set_dimensions(10, 5)?;
         sr.wait_for_match_complete(1, 1)?;
@@ -766,7 +766,7 @@ fn line_number_preferences_and_overrides() -> Result<(), Box<dyn Error>> {
         "line_number_preferences_and_overrides",
         vec!["off", "on"],
         PickerOptions::new(),
-        SyncPreviewer(|item: &String, buffer: &mut PreviewBuffer| {
+        SyncPreviewer::new(|item: &String, buffer: &mut PreviewBuffer| {
             buffer.set_line_numbers(item == "on");
             buffer.push_text("ab\ncd");
         }),
@@ -810,7 +810,7 @@ fn toggle_line_numbers() -> Result<(), Box<dyn Error>> {
         "toggle_line_numbers",
         vec!["item"],
         PickerOptions::new(),
-        SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
+        SyncPreviewer::new(|_: &String, buffer: &mut PreviewBuffer| {
             buffer.set_line_numbers(true);
             buffer.push_styled_text(
                 "alpha\nbeta\ngamma\ndelta\nepsilon",
@@ -861,7 +861,7 @@ fn horizontal_scroll_preserves_columns_across_navigation_and_layout() -> Result<
         PickerOptions::new()
             .reverse_items(false)
             .sort_results(false),
-        SyncPreviewer(|item: &String, buffer: &mut PreviewBuffer| {
+        SyncPreviewer::new(|item: &String, buffer: &mut PreviewBuffer| {
             buffer.set_line_numbers(true);
             buffer.push_text(if item == "long" {
                 "abcdefghijklmnop\nxy\n\nuv\n\nabcdefghijklmnop"
@@ -978,7 +978,7 @@ fn horizontal_scroll_clips_styled_graphemes() -> Result<(), Box<dyn Error>> {
         "horizontal_unicode",
         vec!["item"],
         PickerOptions::new().truncation_ellipsis('~'),
-        SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
+        SyncPreviewer::new(|_: &String, buffer: &mut PreviewBuffer| {
             buffer.set_line_numbers(true);
             buffer.push_styled_line("ab界cdefgh", ContentStyle::new().green().bold());
             buffer.push_str("a👩");
@@ -1044,7 +1044,7 @@ fn numbered_scrolling_and_blank_rows() -> Result<(), Box<dyn Error>> {
         "numbered_scrolling_and_blank_rows",
         vec!["long", "short", "empty"],
         PickerOptions::new(),
-        SyncPreviewer(|item: &String, buffer: &mut PreviewBuffer| {
+        SyncPreviewer::new(|item: &String, buffer: &mut PreviewBuffer| {
             buffer.set_line_numbers(true);
             match item.as_str() {
                 "long" => {
@@ -1303,7 +1303,7 @@ fn error_labels_fit_and_respect_boundary_chars() -> Result<(), Box<dyn Error>> {
             "error_labels",
             vec!["error"],
             PickerOptions::new().preview_boundary_chars(chars),
-            SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| buffer.set_err(true)),
+            SyncPreviewer::new(|_: &String, buffer: &mut PreviewBuffer| buffer.set_err(true)),
         );
         sr.wait_for_match_complete(1, 1)?;
         for top in [
@@ -1355,7 +1355,7 @@ fn error_previews_preserve_contents_and_scrolling() -> Result<(), Box<dyn Error>
         "error_contents",
         vec!["error", "ready"],
         PickerOptions::new(),
-        SyncPreviewer(|item: &String, buffer: &mut PreviewBuffer| {
+        SyncPreviewer::new(|item: &String, buffer: &mut PreviewBuffer| {
             buffer.set_line_numbers(true);
             buffer.set_err(item == "error");
             buffer.push_styled_str("AB", ContentStyle::new().green().on_blue().bold());
