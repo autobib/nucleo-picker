@@ -5,7 +5,7 @@
 //! ```
 //!
 //! All data is from Wikipedia.
-use std::{borrow::Cow, convert::Infallible, io};
+use std::{borrow::Cow, io};
 
 use crossterm::style::{ContentStyle, Stylize};
 use nucleo_picker::{
