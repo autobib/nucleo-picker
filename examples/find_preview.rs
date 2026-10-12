@@ -62,7 +62,7 @@ struct FilePreview {
 impl FilePreview {
     fn new() -> io::Result<Self> {
         Ok(Self {
-            pool: PoolPreviewer::new(FileWorker::default(), NonZeroUsize::new(4).unwrap())?,
+            pool: PoolPreviewer::with_default_workers::<FileWorker>(NonZeroUsize::new(4).unwrap())?,
         })
     }
 }
@@ -97,7 +97,7 @@ impl Preview<DirEntry> for FilePreview {
 }
 
 /// A single preview worker. It holds scratch space for reading from the file.
-#[derive(Clone, Default)]
+#[derive(Default)]
 struct FileWorker {
     bytes: Vec<u8>,
 }

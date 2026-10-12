@@ -58,9 +58,15 @@ pub trait PreviewWorker<T> {
 /// This struct manages a background threadpool of [`PreviewWorker`]s and dispatches preview work
 /// without blocking.
 ///
-/// This trait is designed around ease of use: just implement [`PreviewWorker`] and initialize
-/// with [`PoolPreviewer::new`]. However, this means that a number of more complex use-cases are not
-/// supported:
+///
+/// This trait is designed around ease of use: just implement [`PreviewWorker`] and initialize using
+/// one of three standard methods:
+///
+/// - From a single clonable worker using [`PoolPreviewer::from_worker`]
+/// - From a non-empty iterator of workers using [`PoolPreviewer::from_workers`]
+/// - From a default implementatin using [`PoolPreviewer::with_default_workers`]
+///
+/// However, this means that a number of more complex use-cases are not supported:
 ///
 /// - Communication between workers.
 /// - More complex request management (such as deferring or dropping requests after beginning work).
@@ -80,7 +86,7 @@ pub trait PreviewWorker<T> {
 ///
 /// There is a parametrized abort error type `A` (which defaults to [`Infallible`]). This is for
 /// compatibility with arbitrary application abort errors. Note that the
-/// [`PoolPreviewer::new`] constructor uses the [`Infallible`] default; use
+/// [`PoolPreviewer::from_worker`] constructor uses the [`Infallible`] default; use
 /// [`PoolPreviewer::with_abort`] to change the error type.
 ///
 /// ## Example
@@ -118,7 +124,7 @@ pub trait PreviewWorker<T> {
 /// # fn main() -> std::io::Result<()> {
 /// let picker = Picker::new(PathRenderer);
 /// picker.push_batch([PathBuf::from("Cargo.toml"), PathBuf::from("README.md")]);
-/// let previewer = PoolPreviewer::new(FilePreview, NonZeroUsize::new(2).unwrap())?;
+/// let previewer = PoolPreviewer::from_worker(FilePreview, NonZeroUsize::new(2).unwrap())?;
 /// let mut picker = picker.with_preview(previewer);
 /// if let Some(path) = picker.pick()? {
 ///     println!("{}", path.display());
@@ -173,7 +179,7 @@ impl<T, A> PoolPreviewer<T, A> {
     /// Report whether this pool is closed.
     ///
     /// If this method returns `true`, it means the pool is closed and can no longer handle preview
-    /// requests. The pool will only close if a preview worker panics while generating a preview.
+    /// requests. The pool will only close if a preview worker panics during initialization or while generating a preview.
     ///
     /// On the other hand, a worker may still panic after observing `false` but before using this pool.
     #[must_use]
@@ -186,25 +192,56 @@ impl<T: Send + Sync + 'static> PoolPreviewer<T> {
     /// Create a preview thread-pool with the requested number of threads and the provided worker.
     ///
     /// At startup, the worker is cloned `threads - 1` times and sent to each worker thread.
-    pub fn new<W>(worker: W, threads: NonZeroUsize) -> io::Result<Self>
+    pub fn from_worker<W>(worker: W, threads: NonZeroUsize) -> io::Result<Self>
     where
         W: PreviewWorker<T> + Clone + Send + 'static,
     {
-        let mut pool = Pool {
-            shared: Arc::new(Shared {
-                state: Mutex::new(State {
-                    jobs: Some(Vec::new()),
-                    panic: None,
-                }),
-                available: Condvar::new(),
-            }),
-            workers: Vec::with_capacity(threads.get()),
-            prune_at: MIN_PRUNE_AT,
-        };
-        for _ in 1..threads.get() {
-            pool.spawn(worker.clone())?;
+        Self::from_workers(std::iter::repeat_n(worker, threads.get()))
+    }
+
+    /// Create a preview thread-pool from an iterator of workers.
+    ///
+    /// One thread is initialized per worker. Note that the iterator must be non-empty. Empty input
+    /// will result in an IO error with kind [`io::ErrorKind::InvalidInput`].
+    pub fn from_workers<I, W>(workers: I) -> io::Result<Self>
+    where
+        I: IntoIterator<Item = W>,
+        W: PreviewWorker<T> + Send + 'static,
+    {
+        let mut workers = workers.into_iter();
+        let first = workers.next().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "preview pool requires a worker",
+            )
+        })?;
+        let mut pool = Pool::new(workers.size_hint().0.saturating_add(1));
+        pool.spawn(move || first)?;
+        for worker in workers {
+            pool.spawn(move || worker)?;
         }
-        pool.spawn(worker)?;
+        Ok(Self {
+            pool,
+            abort: PhantomData,
+        })
+    }
+
+    /// Create a preview thread-pool with workers initialized using [`Default`].
+    ///
+    /// Each spawned thread calls `W::default()` once. Since the method is called inside the thread,
+    /// this means workers do not need to be [`Send`], unlike the other initialization methods.
+    ///
+    /// This constructor returns one all of the threads have been spawned, but beware that
+    /// initialization amy still be running in the background. If initialization panics, the panic
+    /// is propagated in the usual and will propagate to the picker on the next preview request.
+    pub fn with_default_workers<W>(threads: NonZeroUsize) -> io::Result<Self>
+    where
+        W: PreviewWorker<T> + Default + 'static,
+    {
+        let mut pool = Pool::new(threads.get());
+        for _ in 0..threads.get() {
+            pool.spawn(W::default)?;
+        }
         Ok(Self {
             pool,
             abort: PhantomData,
@@ -213,14 +250,32 @@ impl<T: Send + Sync + 'static> PoolPreviewer<T> {
 }
 
 impl<T: Send + Sync + 'static> Pool<T> {
-    fn spawn<W>(&mut self, worker: W) -> io::Result<()>
+    fn new(capacity: usize) -> Self {
+        Self {
+            shared: Arc::new(Shared {
+                state: Mutex::new(State {
+                    jobs: Some(Vec::new()),
+                    panic: None,
+                }),
+                available: Condvar::new(),
+            }),
+            workers: Vec::with_capacity(capacity),
+            prune_at: MIN_PRUNE_AT,
+        }
+    }
+
+    fn spawn<F, W>(&mut self, initialize: F) -> io::Result<()>
     where
-        W: PreviewWorker<T> + Send + 'static,
+        F: FnOnce() -> W + Send + 'static,
+        W: PreviewWorker<T> + 'static,
     {
         let shared = Arc::clone(&self.shared);
         self.workers.push(thread::Builder::new().spawn(move || {
             // Catch around the whole worker lifetime: a panicking worker is never reused.
-            if let Err(panic) = catch_unwind(AssertUnwindSafe(|| work(&shared, worker))) {
+            if let Err(panic) = catch_unwind(AssertUnwindSafe(|| {
+                let worker = initialize();
+                work(&shared, worker);
+            })) {
                 let discarded = {
                     let mut state = shared.state.lock();
                     (state.jobs.take(), state.panic.replace(panic))
