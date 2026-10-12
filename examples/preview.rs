@@ -5,7 +5,7 @@
 //! ```
 //!
 //! All data is from Wikipedia.
-use std::{borrow::Cow, io};
+use std::{borrow::Cow, convert::Infallible, io};
 
 use crossterm::style::{ContentStyle, Stylize};
 use nucleo_picker::{
@@ -38,7 +38,7 @@ fn main() -> io::Result<()> {
         }
     });
 
-    let picker = Picker::new(render_artist).with_preview(previewer);
+    let mut picker = Picker::new(render_artist).with_preview(previewer);
 
     picker.push_batch([
         Artist {

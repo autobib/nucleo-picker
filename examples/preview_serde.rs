@@ -45,7 +45,7 @@ fn main() -> io::Result<()> {
         }
     });
 
-    let picker = PickerOptions::new()
+    let mut picker = PickerOptions::new()
         .highlight_line(true)
         .picker(PoemRenderer)
         .with_preview(previewer);

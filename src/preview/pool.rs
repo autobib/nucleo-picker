@@ -2,6 +2,7 @@ use std::{
     any::Any,
     convert::Infallible,
     io,
+    marker::PhantomData,
     num::NonZeroUsize,
     panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
     sync::Arc,
@@ -54,8 +55,16 @@ pub trait PreviewWorker<T> {
 /// - Communication between workers.
 /// - More complex request management (such as deferring or dropping requests after beginning work).
 /// - Coalescing related requests.
+/// - Fallible preview generation.
 ///
 /// In such cases, it is advised to implement [`Preview`] directly.
+///
+/// ## Parametrized error
+///
+/// There is a parametrized abort error type `A` (which defaults to [`Infallible`]). This is for
+/// compatibility with arbitrary application abort errors. Note that the
+/// [`PoolPreviewer::new`] constructor uses the [`Infallible`] default; use
+/// [`PoolPreviewer::with_abort`] to change the error type.
 ///
 /// ## Example
 ///
@@ -107,7 +116,13 @@ pub trait PreviewWorker<T> {
 /// preview pool. The next call to `preview` will immediately propagate the panic. However, note
 /// that the picker can return between the panic and the next call to `preview`, so the panic
 /// might not be observed by the picker.
-pub struct PoolPreviewer<T> {
+pub struct PoolPreviewer<T, A = Infallible> {
+    pool: Pool<T>,
+    abort: PhantomData<fn() -> A>,
+}
+
+// Keep shutdown with the pool so changing the abort type can move it without stopping workers.
+struct Pool<T> {
     shared: Arc<Shared<T>>,
     workers: Vec<JoinHandle<()>>,
     // the threshold at which the job queue is scanned for cancellation; this is done with
@@ -125,7 +140,19 @@ struct State<T> {
     panic: Option<Box<dyn Any + Send + 'static>>,
 }
 
-impl<T> PoolPreviewer<T> {
+impl<T, A> PoolPreviewer<T, A> {
+    /// Set an application-defined error type.
+    ///
+    /// This method is intended for compatibility with an application-defined error.
+    /// Preview generation is infallible, regardless of the error type.
+    #[must_use]
+    pub fn with_abort<B>(self) -> PoolPreviewer<T, B> {
+        PoolPreviewer {
+            pool: self.pool,
+            abort: PhantomData,
+        }
+    }
+
     /// Report whether this pool is closed.
     ///
     /// If this method returns `true`, it means the pool is closed and can no longer handle preview
@@ -134,7 +161,7 @@ impl<T> PoolPreviewer<T> {
     /// On the other hand, a worker may still panic after observing `false` but before using this pool.
     #[must_use]
     pub fn is_closed(&self) -> bool {
-        self.shared.state.lock().jobs.is_none()
+        self.pool.shared.state.lock().jobs.is_none()
     }
 }
 
@@ -146,7 +173,7 @@ impl<T: Send + Sync + 'static> PoolPreviewer<T> {
     where
         W: PreviewWorker<T> + Clone + Send + 'static,
     {
-        let mut pool = Self {
+        let mut pool = Pool {
             shared: Arc::new(Shared {
                 state: Mutex::new(State {
                     jobs: Some(Vec::new()),
@@ -161,9 +188,14 @@ impl<T: Send + Sync + 'static> PoolPreviewer<T> {
             pool.spawn(worker.clone())?;
         }
         pool.spawn(worker)?;
-        Ok(pool)
+        Ok(Self {
+            pool,
+            abort: PhantomData,
+        })
     }
+}
 
+impl<T: Send + Sync + 'static> Pool<T> {
     fn spawn<W>(&mut self, worker: W) -> io::Result<()>
     where
         W: PreviewWorker<T> + Send + 'static,
@@ -184,8 +216,8 @@ impl<T: Send + Sync + 'static> PoolPreviewer<T> {
     }
 }
 
-impl<T: Send + Sync + 'static> Preview<T> for PoolPreviewer<T> {
-    type AbortErr = Infallible;
+impl<T: Send + Sync + 'static, A> Preview<T> for PoolPreviewer<T, A> {
+    type AbortErr = A;
 
     fn preview(
         &mut self,
@@ -194,8 +226,9 @@ impl<T: Send + Sync + 'static> Preview<T> for PoolPreviewer<T> {
     ) -> Result<PreviewResponse, Self::AbortErr> {
         let _ = timeout;
         let (pending, request) = request.defer();
+        let pool = &mut self.pool;
         {
-            let mut state = self.shared.state.lock();
+            let mut state = pool.shared.state.lock();
             let Some(jobs) = state.jobs.as_mut() else {
                 let panic = state.panic.take();
                 drop(state);
@@ -210,21 +243,21 @@ impl<T: Send + Sync + 'static> Preview<T> for PoolPreviewer<T> {
             // cache size: once the cache is saturated with N elements, the picker will start
             // cancelling stale requests, which will then be dropped here. the job queue will then
             // be pruned again when it hits size `2N` (or perhaps a bit earlier).
-            if jobs.len() >= self.prune_at {
+            if jobs.len() >= pool.prune_at {
                 jobs.retain(|request| !request.is_cancelled());
                 // reset `prune_at` to allow a number of new items proportional to the current queue
                 // size so we don't re-scan the backlog on every push. note that the rest is done
                 // *after dropping cancelled jobs*
-                self.prune_at = MIN_PRUNE_AT.max(jobs.len().saturating_mul(2));
+                pool.prune_at = MIN_PRUNE_AT.max(jobs.len().saturating_mul(2));
             }
             jobs.push(request);
         }
-        self.shared.available.notify_one();
+        pool.shared.available.notify_one();
         Ok(PreviewResponse::Pending(pending))
     }
 }
 
-impl<T> Drop for PoolPreviewer<T> {
+impl<T> Drop for Pool<T> {
     fn drop(&mut self) {
         let queued = self.shared.state.lock().jobs.take();
         self.shared.available.notify_all();

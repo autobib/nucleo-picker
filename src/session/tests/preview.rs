@@ -398,7 +398,7 @@ fn redraw_checks_terminal_size_after_preview_generation() {
         size_override: Some(Rc::clone(&size)),
         ..TestTerminal::default()
     };
-    let previewer = SyncPreviewer(|item: &&str, buffer: &mut PreviewBuffer| {
+    let previewer = SyncPreviewer::new(|item: &&str, buffer: &mut PreviewBuffer| {
         if *item == "beta" {
             size.set((30, 12));
         }

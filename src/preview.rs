@@ -28,7 +28,7 @@ pub mod request;
 mod scroll;
 mod text;
 
-use std::{convert::Infallible, num::NonZero, time::Duration};
+use std::{convert::Infallible, marker::PhantomData, num::NonZero, time::Duration};
 
 #[cfg(feature = "preview-ansi")]
 pub use ansi::{AnsiState, AnsiWriter};
@@ -266,6 +266,13 @@ impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
 ///
 /// Note that the buffer is already cleared when it is passed to the closure.
 ///
+/// ## Parametrized error
+///
+/// There is a parametrized abort error type `A` (which defaults to [`Infallible`]). This is for
+/// compatibility with arbitrary application abort errors. Note that the
+/// [`SyncPreviewer::new`] constructor uses the [`Infallible`] default; use
+/// [`SyncPreviewer::with_abort`] to change the error type.
+///
 /// ## Example
 ///
 /// ```no_run
@@ -287,7 +294,7 @@ impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
 ///     Item { name: "red", description: "RGB: 255, 0, 0" },
 ///     Item { name: "blue", description: "RGB: 0, 0, 255" },
 /// ]);
-/// let previewer = SyncPreviewer(|item: &Item, buffer: &mut PreviewBuffer| {
+/// let previewer = SyncPreviewer::new(|item: &Item, buffer: &mut PreviewBuffer| {
 ///     buffer.push_text(item.description);
 /// });
 /// let mut picker = picker.with_preview(previewer);
@@ -297,17 +304,49 @@ impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
 /// # Ok(())
 /// # }
 /// ```
-pub struct SyncPreviewer<F>(
+pub struct SyncPreviewer<F, A = Infallible> {
     /// The closure which populates the preview buffer.
-    pub F,
-);
+    preview: F,
+    abort: PhantomData<fn() -> A>,
+}
 
-impl<T, F> Preview<T> for SyncPreviewer<F>
+impl<F> SyncPreviewer<F> {
+    /// Initialize a new previewer by wrapping a closure.
+    #[must_use]
+    pub const fn new(preview: F) -> Self {
+        Self {
+            preview,
+            abort: PhantomData,
+        }
+    }
+}
+
+impl<F, A> SyncPreviewer<F, A> {
+    /// Set the application abort type.
+    ///
+    /// Note that preview generation is still infallible. This is only for compatibility with
+    /// arbitrary application-defined errors.
+    #[must_use]
+    pub fn with_abort<B>(self) -> SyncPreviewer<F, B> {
+        SyncPreviewer {
+            preview: self.preview,
+            abort: PhantomData,
+        }
+    }
+
+    /// Recover the original previewing closure.
+    #[must_use]
+    pub fn into_inner(self) -> F {
+        self.preview
+    }
+}
+
+impl<T, F, A> Preview<T> for SyncPreviewer<F, A>
 where
     T: Send + Sync + 'static,
     F: FnMut(&T, &mut PreviewBuffer),
 {
-    type AbortErr = Infallible;
+    type AbortErr = A;
 
     fn preview(
         &mut self,
@@ -316,7 +355,7 @@ where
     ) -> Result<PreviewResponse, Self::AbortErr> {
         let item = request.item();
         let mut buffer = request.ready();
-        (self.0)(item, &mut buffer);
+        (self.preview)(item, &mut buffer);
         Ok(PreviewResponse::Ready(buffer))
     }
 }
