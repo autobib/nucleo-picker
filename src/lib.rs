@@ -80,7 +80,6 @@ use crate::{
 
 pub use crate::injector::Injector;
 pub use crate::match_list::Selection;
-pub use nucleo;
 
 #[cfg(feature = "unstable-backend")]
 pub use terminal::Terminal;
@@ -590,18 +589,6 @@ impl PickerOptions {
         self
     }
 
-    /// Set the internal match engine configuration (default to [`nucleo::Config::DEFAULT`]).
-    #[must_use]
-    #[inline]
-    #[deprecated(
-        since = "0.10.0",
-        note = "Use native methods `prefer_prefix` and `match_paths`. The `normalize` and `ignore_case` settings are never used; use `normalization` and `case_matching` instead."
-    )]
-    pub fn config(mut self, config: nc::Config) -> Self {
-        self.config = config;
-        self
-    }
-
     /// How to perform Unicode normalization (defaults to [`Normalization::Smart`]).
     #[must_use]
     #[inline]
@@ -1094,13 +1081,6 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         let (notifier, observer) = observer::channel();
         self.status_notifier = Some(notifier);
         observer
-    }
-
-    /// Update the internal nucleo configuration.
-    #[inline]
-    pub fn update_config(&mut self, config: nc::Config) {
-        self.engine.update_nucleo_config(config.clone());
-        self.list_state.update_nucleo_config(config);
     }
 
     /// Restart the match engine, disconnecting all active injectors and clearing the existing

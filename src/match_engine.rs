@@ -140,12 +140,6 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
         self.needs_tick.store(true, Ordering::Relaxed);
     }
 
-    /// Replace the internal [`nucleo`] configuration.
-    pub fn update_nucleo_config(&mut self, config: nc::Config) {
-        self.nucleo.update_config(config);
-        self.needs_tick.store(true, Ordering::Relaxed);
-    }
-
     /// Replace the prompt string with an updated value.
     pub fn reparse(&mut self, new: &str) {
         let appending = match new.strip_prefix(&self.prompt) {

@@ -120,14 +120,6 @@ impl<T: Send + Sync + 'static, R, P> PreviewPicker<T, R, P> {
         self.picker.status_observer()
     }
 
-    /// Update the internal nucleo configuration.
-    ///
-    /// See [`Picker::update_config`] for more details.
-    #[inline]
-    pub fn update_config(&mut self, config: nucleo::Config) {
-        self.picker.update_config(config);
-    }
-
     /// Restart the match engine, disconnecting all active injectors and clearing the existing
     /// search query.
     ///

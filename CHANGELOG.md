@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### [Unreleased]
 
+### Changed
+
+- Breaking deprecation of matching engine APIs:
+  - `nucleo_picker::nucleo` has been removed: the underlying matching engine is now an implementation detail only
+  - `PickerOptions::config` (deprecated since 0.10.0) has been removed.
+    Use `PickerOptions::{match_paths, prefer_prefix, normalization, case_matching}` instead.
+  - `Picker::update_config` and `PreviewPicker::update_config` have been removed.
+    Runtime matcher configuration updates are no longer supported.
+
 ### Added
 
 - This release includes a new previewer
@@ -19,10 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fixed swapped `Alt + F/B` keybindings.
 - Correctly preserve prompt state when the picker exits.
-- Fixed `update_config` not also updating the internal matcher config.
 - Fixed some more zero width/height layout bugs.
 - Normalize prompts containing control characters before processing first match.
 - Resize events are now handled sooner to decrease screen flashes caused by terminal repaint without a layout change.
+- Fixed path prefix bonus scoring inconsistencies
 
 ### [0.12.2] - 2026-09-04
 
