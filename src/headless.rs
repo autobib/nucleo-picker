@@ -34,7 +34,7 @@ impl MatchStatus {
 /// Items are sorted according to the configured match-list order (that is, it takes into account the [`sort_results`](crate::PickerOptions::sort_results) and [`reverse_items`](crate::PickerOptions::reverse_items) configuration).
 ///
 /// This is a view type only, and is only up-to-date as of the time of the last update.
-pub struct Matches<'a, T: Send + Sync + 'static> {
+pub struct Matches<'a, T> {
     pub(crate) snapshot: &'a nucleo::Snapshot<T>,
 }
 
