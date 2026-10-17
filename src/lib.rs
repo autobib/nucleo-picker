@@ -1346,11 +1346,11 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// Filter the items sent to the picker using the current value of the query.
     ///
     /// This method requires that there are no live injectors (so that no new items can be added to
-    /// the picker) and will return `None` if this is not the case.
+    /// the picker) and will return `None` if this is not the case. In order to receive updates
+    /// when there are live injectors, use [`update_matches`](Self::update_matches) instead.
     ///
-    /// Use [`update_matches`](Self::update_matches) to view partial results with a timeout,
-    /// including when there are live injectors. This method is equivalent to polling
-    /// [`update_matches`](Self::update_matches) in a loop until matching is complete.
+    /// If there are no live injectors, this method is equivalent to polling [`update_matches`](Self::update_matches) in a
+    /// loop until matching is complete.
     ///
     /// # Examples
     ///
@@ -1396,9 +1396,11 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// The `wait` duration is the approximate amount of time that this method will try to wait in
     /// order to synchronize with work in a background thread.
     ///
-    /// Call this periodically to inspect partial [`matches`](Self::matches), check application
-    /// cancellation or producer errors, or decide when to open the interactive picker. Once
-    /// [`MatchStatus::is_complete`] is true, the snapshot includes every match for the current
+    /// Matching work will continue in the background even if you do not call this method. Calling
+    /// this method synchronizes background work with the stored match list (that is, the matches visible with
+    /// [`matches`](Self::matches)).
+    ///
+    /// If [`MatchStatus::is_complete`] returns true, the snapshot includes every match for the current
     /// query and input. For a blocking convenience method, use [`filter`](Self::filter).
     pub fn update_matches(&mut self, wait: Duration) -> MatchStatus {
         let millis = u64::try_from(wait.as_millis()).unwrap_or(u64::MAX);
@@ -1412,7 +1414,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// This is the most up-to-date as of the last call to [`update_matches`](Self::update_matches).
     /// In particular, it can be out-of-date if matching is incomplete, if the query changes, or if
     /// there are new items. If there are no active injectors, you can also use
-    /// [`filter`](Self::filter) to wait for matching to complete.
+    /// [`filter`](Self::filter) to block until matching to complete.
     #[must_use]
     pub fn matches(&self) -> Matches<'_, T> {
         Matches {

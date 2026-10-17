@@ -21,7 +21,7 @@ pub struct MatchStatus {
 impl MatchStatus {
     /// Returns if all input has been received and match work has been done.
     ///
-    /// This just checks `!self.matching && !self.injecting`: in other words, all input must be
+    /// This is `!self.matching && !self.injecting`: in other words, all input must be
     /// received and all matching work must be complete against the current query.
     #[must_use]
     pub fn is_complete(&self) -> bool {
