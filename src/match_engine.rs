@@ -7,7 +7,7 @@ use std::{
     num::NonZero,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, Ordering, fence},
     },
     thread::available_parallelism,
 };
@@ -17,16 +17,7 @@ use nucleo::{
     pattern::{CaseMatching as NucleoCaseMatching, Normalization as NucleoNormalization},
 };
 
-use crate::{Injector, Render};
-
-#[derive(Clone, Copy)]
-pub(crate) struct MatchStatus {
-    pub items_changed: bool,
-    pub matched: u32,
-    pub total: u32,
-    pub matching: bool,
-    pub injecting: bool,
-}
+use crate::{Injector, MatchStatus, Render};
 
 pub(crate) struct MatchEngine<T, R> {
     /// The internal matcher engine.
@@ -176,8 +167,35 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
         }
     }
 
+    /// Finish matching when there is no new input, returning whether a new snapshot was published.
+    pub fn finish_matching(&mut self) -> Option<bool> {
+        if self.nucleo.active_injectors() != 0 {
+            return None;
+        }
+        // Acquire the final injector releases before reading their items.
+        fence(Ordering::Acquire);
+
+        let mut items_changed = false;
+        loop {
+            self.needs_tick.store(false, Ordering::Relaxed);
+            // Wait directly on the workers rather than gating ticks on their notifications.
+            let status = self.nucleo.tick(u64::MAX);
+            items_changed |= status.changed;
+            self.nucleo_is_running = status.running;
+            if !status.running {
+                return Some(items_changed);
+            }
+        }
+    }
+
     /// Check if the internal match workers have returned any new updates for matched items.
     pub fn update(&mut self, millis: u64) -> MatchStatus {
+        // Check input closure before consuming notifications. The fence acquires the injectors'
+        // Arc drops so that the final push is visible before we can report completion.
+        let injecting = self.nucleo.active_injectors() != 0;
+        if !injecting {
+            fence(Ordering::Acquire);
+        }
         let items_changed = if self.needs_tick.swap(false, Ordering::Relaxed) {
             let status = self.nucleo.tick(millis);
 
@@ -189,10 +207,10 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
 
         MatchStatus {
             items_changed,
-            matched: self.snapshot().matched_item_count(),
-            total: self.snapshot().item_count(),
+            matched_item_count: self.snapshot().matched_item_count(),
+            item_count: self.snapshot().item_count(),
             matching: self.nucleo_is_running,
-            injecting: self.nucleo.active_injectors() != 0,
+            injecting,
         }
     }
 }

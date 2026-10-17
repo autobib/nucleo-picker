@@ -35,6 +35,7 @@ mod component;
 pub mod error;
 pub mod event;
 mod frame;
+mod headless;
 mod incremental;
 mod injector;
 mod match_engine;
@@ -78,6 +79,7 @@ use crate::{
     terminal::CrosstermTerminal,
 };
 
+pub use crate::headless::{MatchStatus, Matches};
 pub use crate::injector::Injector;
 pub use crate::match_list::Selection;
 
@@ -951,6 +953,18 @@ impl PickerOptions {
 /// queue at most one picked item using `⇥`. With the non-multi-pickers, it is not possible to
 /// queue items at all.
 ///
+/// ### Headless (non-interactive) use
+///
+/// There is also basic support for non-interactive use.
+/// This can be useful when you want to drive the picker without actually opening or rendering to a
+/// terminal.
+///
+/// The main entry points are:
+///
+/// - [`Picker::filter`]: wait for matching to finish, and return the matches for the current query.
+/// - [`Picker::update_matches`]: advance matching and see the current status.
+/// - [`Picker::matches`]: view the current matches.
+///
 /// ### Previewer
 ///
 /// In order to use previews, enable the `preview` feature and pass a previewer to the
@@ -1327,6 +1341,83 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
             &mut CrosstermTerminal::new(writer),
             NoPreview::new(),
         )
+    }
+
+    /// Filter the items sent to the picker using the current value of the query.
+    ///
+    /// This method requires that there are no live injectors (so that no new items can be added to
+    /// the picker) and will return `None` if this is not the case.
+    ///
+    /// Use [`update_matches`](Self::update_matches) to view partial results with a timeout,
+    /// including when there are live injectors. This method is equivalent to polling
+    /// [`update_matches`](Self::update_matches) in a loop until matching is complete.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use nucleo_picker::{PickerOptions, render::StrRenderer};
+    ///
+    /// let mut picker = PickerOptions::new().query("^blue$").picker(StrRenderer);
+    /// picker.push_batch(["red", "blue", "green"]);
+    /// assert_eq!(picker.filter().unwrap().get(0), Some(&"blue"));
+    ///
+    /// picker.reset_query();
+    /// assert_eq!(picker.filter().unwrap().len(), 3);
+    /// ```
+    ///
+    /// Automatically select a unique match, but open the interactive picker if there is ambiguity:
+    ///
+    /// ```no_run
+    /// use nucleo_picker::{PickerOptions, render::StrRenderer};
+    ///
+    /// # fn main() -> std::io::Result<()> {
+    /// let mut picker = PickerOptions::new().query("bl").picker(StrRenderer);
+    /// picker.push_batch(["red", "blue", "black"]);
+    /// let count = picker.filter().map(|matches| matches.len());
+    /// let selected = match count {
+    ///     Some(0) => None,
+    ///     Some(1) => picker.matches().get(0),
+    ///     _ => picker.pick()?,
+    /// };
+    /// if let Some(item) = selected {
+    ///     println!("{item}");
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn filter(&mut self) -> Option<Matches<'_, T>> {
+        let items_changed = self.engine.finish_matching()?;
+        self.list_state.items_changed |= items_changed;
+        Some(self.matches())
+    }
+
+    /// Advance the internal match engine state non-interactively.
+    ///
+    /// The `wait` duration is the approximate amount of time that this method will try to wait in
+    /// order to synchronize with work in a background thread.
+    ///
+    /// Call this periodically to inspect partial [`matches`](Self::matches), check application
+    /// cancellation or producer errors, or decide when to open the interactive picker. Once
+    /// [`MatchStatus::is_complete`] is true, the snapshot includes every match for the current
+    /// query and input. For a blocking convenience method, use [`filter`](Self::filter).
+    pub fn update_matches(&mut self, wait: Duration) -> MatchStatus {
+        let millis = u64::try_from(wait.as_millis()).unwrap_or(u64::MAX);
+        let status = self.engine.update(millis);
+        self.list_state.items_changed |= status.items_changed;
+        status
+    }
+
+    /// Returns a view of the current matches.
+    ///
+    /// This is the most up-to-date as of the last call to [`update_matches`](Self::update_matches).
+    /// In particular, it can be out-of-date if matching is incomplete, if the query changes, or if
+    /// there are new items. If there are no active injectors, you can also use
+    /// [`filter`](Self::filter) to wait for matching to complete.
+    #[must_use]
+    pub fn matches(&self) -> Matches<'_, T> {
+        Matches {
+            snapshot: self.engine.snapshot(),
+        }
     }
 }
 

@@ -4,9 +4,8 @@ use crossterm::style::{Attribute, Color};
 use unicode_width::UnicodeWidthChar;
 
 use crate::{
-    PickerChars,
+    MatchStatus, PickerChars,
     component::Component,
-    match_engine::MatchStatus,
     rect::{Area, Rect},
 };
 
@@ -72,8 +71,8 @@ impl<'a> StatusLine<'a> {
                 .update(status.matching, status.injecting, self.chars);
         }
         let values = StatusValues {
-            matched: status.matched,
-            total: status.total,
+            matched: status.matched_item_count,
+            total: status.item_count,
             multi,
             marker: self.marker.marker,
         };
@@ -334,8 +333,8 @@ mod tests {
         let mut status = StatusLine::new(&chars);
         let mut matching = MatchStatus {
             items_changed: false,
-            matched: 0,
-            total: 0,
+            matched_item_count: 0,
+            item_count: 0,
             matching: false,
             injecting: false,
         };

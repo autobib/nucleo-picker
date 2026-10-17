@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - This release includes a new previewer
   - The preview pane is gated behind a `preview` feature flag.
   - Visit the documentation for the `preview` module for more details.
+- Added methods for non-interactive picker usage: `Picker::filter`, `Picker::matches`, and `Picker::update_matches`.
 - Added new `Layout` event, for events which influence the layout of the screen.
   This includes a new toggle for the status line, which is not bound by default.
 

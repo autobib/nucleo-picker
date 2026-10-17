@@ -37,6 +37,12 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
         P: PreviewComponent<T, Error = E::AbortErr> + Component<MatchEngine<T, R>>,
     {
         let engine = &mut self.engine;
+        // Headless updates defer layout work until the next interactive session.
+        if std::mem::take(&mut self.list_state.items_changed) {
+            self.list_state
+                .layout
+                .update_items(engine.snapshot(), &self.list_state.config);
+        }
         let mut prompt = Prompt::new(&mut self.prompt, &self.chars);
         let mut list = MatchList::new(
             &mut self.list_state,
@@ -250,9 +256,9 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                     query: prompt.contents().to_owned(),
                     changed,
                     selection: list.selection(engine),
-                    item_count: status.total,
+                    item_count: status.item_count,
                     selected_item_count: list.queued().len(),
-                    matched_item_count: status.matched,
+                    matched_item_count: status.matched_item_count,
                     width,
                     height,
                     matching: status.matching,

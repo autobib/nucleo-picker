@@ -15,6 +15,7 @@ use crate::{
 
 #[derive(Default)]
 struct TestTerminal {
+    output: Vec<u8>,
     initial_render_delay: Duration,
     initial_render_end: Option<Instant>,
     first_frame: Option<Instant>,
@@ -22,6 +23,7 @@ struct TestTerminal {
 
 impl io::Write for TestTerminal {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.output.extend_from_slice(buf);
         Ok(buf.len())
     }
 
@@ -267,6 +269,82 @@ fn drain_reserve_does_not_wait_for_more_events() {
         .unwrap();
 
     assert_eq!(status.try_recv().unwrap().id, 9);
+}
+
+#[test]
+fn headless_updates_rebuild_layout_when_reentering_the_picker() {
+    fn draw(picker: &mut Picker<&'static str, StrRenderer>) -> Vec<u8> {
+        let mut terminal = TestTerminal::default();
+        picker
+            .pick_impl::<_, _, (), _>(
+                TestEvents(|_| Ok(Event::Quit)),
+                &mut terminal,
+                NoPreview::new(),
+            )
+            .unwrap();
+        terminal.output
+    }
+
+    for reversed in [false, true] {
+        let items = ["alpha\nsecond line", "beta", "gamma\nsecond\nthird"];
+        let options = || {
+            PickerOptions::new()
+                .threads(std::num::NonZero::new(1))
+                .sort_results(false)
+                .reversed(reversed)
+        };
+        let mut picker = options().picker(StrRenderer);
+        picker.push_batch(items);
+        picker.filter().unwrap();
+        draw(&mut picker);
+
+        for query in ["^beta$", "^alpha", "absent", ""] {
+            picker.update_query(query);
+            picker.filter().unwrap();
+            let mut fresh = options().query(query).picker(StrRenderer);
+            fresh.push_batch(items);
+            fresh.filter().unwrap();
+            assert_eq!(draw(&mut picker), draw(&mut fresh), "query: {query:?}");
+        }
+
+        let navigate = if reversed {
+            crate::event::MatchListEvent::Down(2)
+        } else {
+            crate::event::MatchListEvent::Up(2)
+        };
+        assert_eq!(
+            pick(&mut picker, [Event::MatchList(navigate), Event::Select]),
+            Some(items[2]),
+        );
+        picker.update_query("^beta$");
+        picker.filter().unwrap();
+        assert_eq!(pick(&mut picker, [Event::Select]), Some("beta"));
+    }
+}
+
+#[test]
+fn open_input_can_fall_back_to_interactive_picking() {
+    let mut picker = Picker::new(StrRenderer);
+    let injector = picker.injector();
+    injector.push("alpha");
+    let start = Instant::now();
+    while picker.update_matches(Duration::from_millis(5)).matching {
+        assert!(start.elapsed() < Duration::from_secs(5));
+        thread::yield_now();
+    }
+
+    let count = picker.filter().map(|matches| matches.len());
+    assert_eq!(count, None);
+    let selected = match count {
+        Some(0) => None,
+        Some(1) => picker.matches().get(0).copied(),
+        _ => pick(&mut picker, [Event::Select]),
+    };
+    assert_eq!(selected, Some("alpha"));
+
+    injector.push("beta");
+    drop(injector);
+    assert_eq!(picker.filter().unwrap().len(), 2);
 }
 
 #[cfg(all(feature = "preview", feature = "unstable-backend"))]

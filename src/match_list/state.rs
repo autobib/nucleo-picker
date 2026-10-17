@@ -3,6 +3,7 @@ use super::{MatchListConfig, draw::RenderScratch, layout::ListLayout};
 pub(crate) struct MatchListState {
     pub(crate) layout: ListLayout,
     pub(crate) config: MatchListConfig,
+    pub(crate) items_changed: bool,
     pub(super) scratch: RenderScratch,
 }
 
@@ -11,6 +12,7 @@ impl MatchListState {
         Self {
             layout: ListLayout::new(),
             config,
+            items_changed: false,
             scratch: RenderScratch::new(nucleo_config),
         }
     }
