@@ -52,7 +52,7 @@
 //! channel.
 //!
 //! ```
-//! use std::sync::mpsc::{Receiver, SendError, Sender};
+//! use std::sync::mpsc::{Receiver, Sender};
 //! use nucleo_picker::preview::{
 //!     PreviewBuffer,
 //!     request::{PreviewRequest, PreviewResponse, QueuedPreviewRequest},
@@ -62,10 +62,10 @@
 //! fn enqueue(
 //!     request: PreviewRequest<'_, String>,
 //!     worker: &Sender<QueuedPreviewRequest<String>>,
-//! ) -> Result<PreviewResponse, SendError<QueuedPreviewRequest<String>>> {
+//! ) -> PreviewResponse {
 //!     let (pending, queued) = request.defer();
-//!     worker.send(queued)?;
-//!     Ok(PreviewResponse::Pending(pending))
+//!     worker.send(queued).expect("preview worker disconnected");
+//!     PreviewResponse::Pending(pending)
 //! }
 //!
 //! // Complete the queued preview requests (in a separate thread).

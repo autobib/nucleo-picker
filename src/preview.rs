@@ -28,7 +28,7 @@ pub mod request;
 mod scroll;
 mod text;
 
-use std::{convert::Infallible, marker::PhantomData, num::NonZero, time::Duration};
+use std::{num::NonZero, time::Duration};
 
 #[cfg(feature = "preview-ansi")]
 pub use ansi::{AnsiState, AnsiWriter};
@@ -158,30 +158,28 @@ impl Default for PreviewConfig {
 ///
 /// ## Handling errors
 ///
-/// If the [`preview`](Self::preview) method returns an error, the picker will immediately terminate and propagate the
-/// resulting error to the caller. For non-fatal errors, for instance errors which occur while
-/// generating a preview for a specific item, the previewer should instead write an appropriate
-/// error message directly into the preview buffer.
+/// ### Non-fatal errors
+///
+/// For non-fatal errors, for instance errors which occur while generating a preview for a
+/// specific item, the previewer should instead write an appropriate error message directly into the preview buffer.
 ///
 /// Note that the item may be resubmitted again in the future. This will happen if the preview drops out of the
 /// preview cache, or at manual request via [`PreviewEvent::Refresh`]
 /// (available by default to the user with `ctrl + r`).
 ///
 /// ```
-/// use std::{convert::Infallible, time::Duration};
+/// use std::time::Duration;
 /// use nucleo_picker::preview::{Preview, request::{PreviewRequest, PreviewResponse}};
 ///
 /// type Item = Result<String, String>;
 /// struct ResultPreview;
 ///
 /// impl Preview<Item> for ResultPreview {
-///     type AbortErr = Infallible;
-///
 ///     fn preview(
 ///         &mut self,
 ///         request: PreviewRequest<'_, Item>,
 ///         _timeout: Duration,
-///     ) -> Result<PreviewResponse, Infallible> {
+///     ) -> PreviewResponse {
 ///         let item = request.item();
 ///         let mut buffer = request.ready();
 ///         match item {
@@ -191,25 +189,26 @@ impl Default for PreviewConfig {
 ///                 buffer.push_text(message);
 ///             }
 ///         }
-///         Ok(PreviewResponse::Ready(buffer))
+///         PreviewResponse::Ready(buffer)
 ///     }
 /// }
 /// ```
+///
+/// ### Fatal errors
+///
+/// For fatal errors, it is recommended to pass a handle to the
+/// [`EventSource`](crate::event::EventSource) and propagate errors directly to the picker using
+/// [`Event::Abort`](crate::event::Event::Abort). For instance, if using a channel with
+/// [`StdinEventSender`](crate::event::StdinEventSender), one can pass senders to the
+/// previewer or preview workers directly.
 pub trait Preview<T> {
-    /// An unrecoverable error which may occur while generating a preview.
-    type AbortErr;
-
     /// Generate a preview.
     ///
     /// The item to which the preview corresponds is available with [`PreviewRequest::item`]. The
     /// [`Duration`] is a timeout suggested by the picker and depende on the current frame budget. It will always be at least 2ms. Exceeding the budget will cause the picker to lag.
     ///
     /// See the [trait-level docs](Preview) for more detail.
-    fn preview(
-        &mut self,
-        request: PreviewRequest<'_, T>,
-        timeout: Duration,
-    ) -> Result<PreviewResponse, Self::AbortErr>;
+    fn preview(&mut self, request: PreviewRequest<'_, T>, timeout: Duration) -> PreviewResponse;
 
     /// Handle changes to an active preview target.
     ///
@@ -244,8 +243,6 @@ pub trait Preview<T> {
 }
 
 impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
-    type AbortErr = P::AbortErr;
-
     fn focus_changed(&mut self, item: Option<ItemRef<'_, T>>) {
         (**self).focus_changed(item);
     }
@@ -254,11 +251,7 @@ impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
         (**self).restart();
     }
 
-    fn preview(
-        &mut self,
-        request: PreviewRequest<'_, T>,
-        timeout: Duration,
-    ) -> Result<PreviewResponse, Self::AbortErr> {
+    fn preview(&mut self, request: PreviewRequest<'_, T>, timeout: Duration) -> PreviewResponse {
         (*self).preview(request, timeout)
     }
 }
@@ -271,13 +264,6 @@ impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
 /// for the preview.
 ///
 /// Note that the buffer is already cleared when it is passed to the closure.
-///
-/// ## Parametrized error
-///
-/// There is a parametrized abort error type `A` (which defaults to [`Infallible`]). This is for
-/// compatibility with arbitrary application abort errors. Note that the
-/// [`SyncPreviewer::new`] constructor uses the [`Infallible`] default; use
-/// [`SyncPreviewer::with_abort`] to change the error type.
 ///
 /// ## Example
 ///
@@ -300,7 +286,7 @@ impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
 ///     Item { name: "red", description: "RGB: 255, 0, 0" },
 ///     Item { name: "blue", description: "RGB: 0, 0, 255" },
 /// ]);
-/// let previewer = SyncPreviewer::new(|item: &Item, buffer: &mut PreviewBuffer| {
+/// let previewer = SyncPreviewer(|item: &Item, buffer: &mut PreviewBuffer| {
 ///     buffer.push_text(item.description);
 /// });
 /// let mut picker = picker.with_preview(previewer);
@@ -310,58 +296,20 @@ impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
 /// # Ok(())
 /// # }
 /// ```
-pub struct SyncPreviewer<F, A = Infallible> {
+pub struct SyncPreviewer<F>(
     /// The closure which populates the preview buffer.
-    preview: F,
-    abort: PhantomData<fn() -> A>,
-}
+    pub F,
+);
 
-impl<F> SyncPreviewer<F> {
-    /// Initialize a new previewer by wrapping a closure.
-    #[must_use]
-    pub const fn new(preview: F) -> Self {
-        Self {
-            preview,
-            abort: PhantomData,
-        }
-    }
-}
-
-impl<F, A> SyncPreviewer<F, A> {
-    /// Set the application abort type.
-    ///
-    /// Note that preview generation is still infallible. This is only for compatibility with
-    /// arbitrary application-defined errors.
-    #[must_use]
-    pub fn with_abort<B>(self) -> SyncPreviewer<F, B> {
-        SyncPreviewer {
-            preview: self.preview,
-            abort: PhantomData,
-        }
-    }
-
-    /// Recover the original previewing closure.
-    #[must_use]
-    pub fn into_inner(self) -> F {
-        self.preview
-    }
-}
-
-impl<T, F, A> Preview<T> for SyncPreviewer<F, A>
+impl<T, F> Preview<T> for SyncPreviewer<F>
 where
     T: Send + Sync + 'static,
     F: FnMut(&T, &mut PreviewBuffer),
 {
-    type AbortErr = A;
-
-    fn preview(
-        &mut self,
-        request: PreviewRequest<'_, T>,
-        _timeout: Duration,
-    ) -> Result<PreviewResponse, Self::AbortErr> {
+    fn preview(&mut self, request: PreviewRequest<'_, T>, _timeout: Duration) -> PreviewResponse {
         let item = request.item();
         let mut buffer = request.ready();
-        (self.preview)(item, &mut buffer);
-        Ok(PreviewResponse::Ready(buffer))
+        (self.0)(item, &mut buffer);
+        PreviewResponse::Ready(buffer)
     }
 }

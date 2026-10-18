@@ -57,7 +57,7 @@ fn render(redraw: Redraw) -> String {
     render_at_size(redraw, (20, 4))
 }
 fn render_at_size(redraw: Redraw, size: (u16, u16)) -> String {
-    render_with(redraw, size, NoPreview::<std::convert::Infallible>::new())
+    render_with(redraw, size, NoPreview)
 }
 fn render_with<V>(redraw: Redraw, size: (u16, u16), mut preview: V) -> String
 where
@@ -344,10 +344,10 @@ fn render_pending(frame: &mut Frame) -> bool {
     frame
         .render(
             &(),
-            &mut NoPreview::<std::convert::Infallible>::new(),
-            &mut NoPreview::<std::convert::Infallible>::new(),
-            &mut NoPreview::<std::convert::Infallible>::new(),
-            &mut NoPreview::<std::convert::Infallible>::new(),
+            &mut NoPreview,
+            &mut NoPreview,
+            &mut NoPreview,
+            &mut NoPreview,
             &mut terminal,
             Redraw::default(),
         )
@@ -543,13 +543,12 @@ mod preview {
 
     struct EmptyPreview;
     impl Preview<String> for EmptyPreview {
-        type AbortErr = std::convert::Infallible;
         fn preview(
             &mut self,
             request: PreviewRequest<'_, String>,
             _: std::time::Duration,
-        ) -> Result<PreviewResponse, Self::AbortErr> {
-            Ok(PreviewResponse::Ready(request.ready()))
+        ) -> PreviewResponse {
+            PreviewResponse::Ready(request.ready())
         }
     }
     fn render_preview(redraw: Redraw, size: (u16, u16)) -> String {

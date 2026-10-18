@@ -202,9 +202,7 @@ impl Driver {
         previewer: P,
     ) -> Self
     where
-        P: nucleo_picker::preview::Preview<String, AbortErr = std::convert::Infallible>
-            + Send
-            + 'static,
+        P: nucleo_picker::preview::Preview<String> + Send + 'static,
     {
         Self::start_inner(items, options, move |picker, events, terminal| {
             picker

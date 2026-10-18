@@ -34,7 +34,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
     where
         E: EventSource,
         W: Terminal,
-        P: PreviewComponent<T, Error = E::AbortErr> + Component<MatchEngine<T, R>>,
+        P: PreviewComponent<T> + Component<MatchEngine<T, R>>,
     {
         let engine = &mut self.engine;
         // Headless updates defer layout work until the next interactive session.
@@ -75,13 +75,11 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
             &mut preview,
         );
         if P::ENABLED && frame.preview_enabled() {
-            preview
-                .update(
-                    list.selection(engine).map(|n| engine.idx_from_match(n)),
-                    engine,
-                    frame_start + self.interval,
-                )
-                .map_err(PickError::Aborted)?;
+            preview.update(
+                list.selection(engine).map(|n| engine.idx_from_match(n)),
+                engine,
+                frame_start + self.interval,
+            );
         }
         frame.draw(
             engine,
@@ -213,13 +211,11 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                 ) && frame.status_enabled(),
                 preview: P::ENABLED
                     && frame.preview_enabled()
-                    && preview
-                        .update(
-                            list.selection(engine).map(|n| engine.idx_from_match(n)),
-                            engine,
-                            frame_start + self.interval,
-                        )
-                        .map_err(PickError::Aborted)?,
+                    && preview.update(
+                        list.selection(engine).map(|n| engine.idx_from_match(n)),
+                        engine,
+                        frame_start + self.interval,
+                    ),
             };
 
             if P::ENABLED && preview_was_enabled && !frame.preview_enabled() {

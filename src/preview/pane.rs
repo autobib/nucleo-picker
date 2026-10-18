@@ -1,6 +1,6 @@
 use super::{
     BoundaryChars, ItemId, ItemRef, Preview, PreviewBuffer, PreviewConfig, PreviewEvent,
-    cache::{BufferNotReady, Cached, RequestState},
+    cache::{Cached, RequestState},
     request::{PreviewRequest, PreviewResponse},
     scroll::PreviewMovement,
 };
@@ -87,7 +87,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewPane<T, P> {
         selected: Option<u32>,
         engine: &MatchEngine<T, R>,
         deadline: Instant,
-    ) -> Result<(), P::AbortErr> {
+    ) {
         let snapshot = engine.snapshot();
         self.set_focus(selected.map(|idx| engine.item_ref(idx).unwrap()));
         if self.last_item != selected {
@@ -96,7 +96,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewPane<T, P> {
             self.pending_redraw = true;
         }
         let Some(idx) = selected else {
-            return Ok(());
+            return;
         };
 
         let Some(cached) = self.cache.get_mut(&idx) else {
@@ -119,13 +119,13 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewPane<T, P> {
                 buffer,
                 self.epoch,
                 deadline,
-            )?;
+            );
             self.pending_redraw |= matches!(state, RequestState::Ready(_));
             self.cache.peek_mut(&idx).unwrap().state = Some(state);
-            return Ok(());
+            return;
         };
         if matches!(cached.state, Some(RequestState::Ready(_))) {
-            return Ok(());
+            return;
         }
 
         // check the state:
@@ -137,32 +137,22 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewPane<T, P> {
         //   wait
         // - if dropped, recover the buffer and resubmit
         let state = match cached.state.take() {
-            Some(state) => match state.try_into_buffer() {
-                Ok(buffer) => Ok(RequestState::Ready(buffer)),
-                Err(BufferNotReady::Queued(RequestState::Pending(pending)))
-                    if pending.epoch != self.epoch =>
-                {
-                    pending.reprioritize()
-                }
-                Err(BufferNotReady::Queued(state) | BufferNotReady::Active(state)) => Ok(state),
-                Err(BufferNotReady::Retry(buffer)) => Err(buffer),
-            },
-            None => Err(PreviewBuffer::new()),
+            Some(state) => state.poll(self.epoch),
+            None => RequestState::Retry(PreviewBuffer::new()),
         };
         let state = match state {
-            Ok(state) => state,
-            Err(buffer) => submit(
+            RequestState::Retry(buffer) => submit(
                 &mut self.previewer,
                 snapshot,
                 engine.item_id(idx),
                 buffer,
                 self.epoch,
                 deadline,
-            )?,
+            ),
+            state => state,
         };
         self.pending_redraw |= matches!(state, RequestState::Ready(_));
         cached.state = Some(state);
-        Ok(())
     }
 }
 
@@ -257,8 +247,6 @@ impl<E, T, P: Preview<T>> Component<E> for PreviewPane<T, P> {
 }
 
 impl<T: Send + Sync + 'static, P: Preview<T>> PreviewComponent<T> for PreviewPane<T, P> {
-    type Error = P::AbortErr;
-
     const ENABLED: bool = true;
 
     fn handle(&mut self, event: PreviewEvent, selected_id: Option<u32>) {
@@ -270,9 +258,9 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewComponent<T> for PreviewPan
         selected: Option<u32>,
         engine: &MatchEngine<T, R>,
         deadline: Instant,
-    ) -> Result<bool, P::AbortErr> {
-        self.update_current(selected, engine, deadline)?;
-        Ok(std::mem::take(&mut self.pending_redraw))
+    ) -> bool {
+        self.update_current(selected, engine, deadline);
+        std::mem::take(&mut self.pending_redraw)
     }
 
     fn hide(&mut self) {
@@ -293,7 +281,7 @@ fn submit<T: Send + Sync + 'static, P: Preview<T>>(
     mut buffer: PreviewBuffer,
     epoch: u64,
     deadline: Instant,
-) -> Result<RequestState, P::AbortErr> {
+) -> RequestState {
     buffer.clear();
     let request = PreviewRequest {
         buffer,
@@ -304,12 +292,10 @@ fn submit<T: Send + Sync + 'static, P: Preview<T>>(
     let timeout = deadline
         .saturating_duration_since(Instant::now())
         .max(Duration::from_millis(2));
-    previewer
-        .preview(request, timeout)
-        .map(|response| match response {
-            PreviewResponse::Ready(buffer) => RequestState::Ready(buffer),
-            PreviewResponse::Pending(pending) => RequestState::Pending(pending),
-        })
+    match previewer.preview(request, timeout) {
+        PreviewResponse::Ready(buffer) => RequestState::Ready(buffer),
+        PreviewResponse::Pending(pending) => RequestState::Pending(pending),
+    }
 }
 
 #[cfg(test)]

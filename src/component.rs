@@ -35,8 +35,6 @@ pub(crate) trait Component<E> {
 }
 
 pub(crate) trait PreviewComponent<T> {
-    type Error;
-
     // this is a bit hacky: mostly we try to feature-gate the preview component but
     // if the preview feature is enabled, one can still use the usual picker, in which case
     // we don't want any runtime cost
@@ -51,7 +49,7 @@ pub(crate) trait PreviewComponent<T> {
         selected: Option<u32>,
         engine: &MatchEngine<T, R>,
         deadline: Instant,
-    ) -> Result<bool, Self::Error>;
+    ) -> bool;
 
     /// Do extra processing when a preview frame is hidden.
     fn hide(&mut self);
@@ -63,23 +61,16 @@ pub(crate) trait PreviewComponent<T> {
 #[cfg(feature = "preview")]
 use crate::preview::PreviewEvent;
 
-pub(crate) struct NoPreview<A>(std::marker::PhantomData<fn() -> A>);
+pub(crate) struct NoPreview;
 
-impl<A> NoPreview<A> {
-    pub fn new() -> Self {
-        Self(std::marker::PhantomData)
-    }
-}
-
-impl<E, A> Component<E> for NoPreview<A> {
+impl<E> Component<E> for NoPreview {
     fn resize(&mut self, _area: Area, _engine: &E) {}
     fn draw<D: Rect>(&mut self, _engine: &E, _rect: &mut D) -> io::Result<()> {
         Ok(())
     }
 }
 
-impl<T, A> PreviewComponent<T> for NoPreview<A> {
-    type Error = A;
+impl<T> PreviewComponent<T> for NoPreview {
     const ENABLED: bool = false;
     #[cfg(feature = "preview")]
     fn handle(&mut self, _event: PreviewEvent, _selected_id: Option<u32>) {}
@@ -88,8 +79,8 @@ impl<T, A> PreviewComponent<T> for NoPreview<A> {
         _selected: Option<u32>,
         _engine: &MatchEngine<T, R>,
         _deadline: Instant,
-    ) -> Result<bool, A> {
-        Ok(false)
+    ) -> bool {
+        false
     }
     fn hide(&mut self) {}
     fn restart(&mut self) {}
@@ -109,7 +100,6 @@ impl<E, C: Component<E>> Component<E> for &mut C {
 }
 #[cfg(test)]
 impl<T, C: PreviewComponent<T>> PreviewComponent<T> for &mut C {
-    type Error = C::Error;
     const ENABLED: bool = C::ENABLED;
     #[cfg(feature = "preview")]
     fn handle(&mut self, event: PreviewEvent, selected_id: Option<u32>) {
@@ -120,7 +110,7 @@ impl<T, C: PreviewComponent<T>> PreviewComponent<T> for &mut C {
         selected: Option<u32>,
         engine: &MatchEngine<T, R>,
         deadline: Instant,
-    ) -> Result<bool, Self::Error> {
+    ) -> bool {
         (**self).update(selected, engine, deadline)
     }
     fn hide(&mut self) {

@@ -173,13 +173,7 @@ impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<T, R, 
     ///
     /// This method is the same as [`Picker::pick`] while also rendering a preview pane.
     /// Read those docs for more detail.
-    ///
-    /// # Errors
-    ///
-    /// In addition to the errors which are described in [`Picker::pick`], an error from
-    /// [`Preview::preview`] will immediately terminate the picker with [`PickError::Aborted`].
-    /// Read the [`Preview`] docs for more detail about preview pane errors.
-    pub fn pick(&mut self) -> Result<Option<&T>, PickError<P::AbortErr>> {
+    pub fn pick(&mut self) -> Result<Option<&T>, PickError> {
         self.pick_with_keybind(keybind_no_multi)
     }
 
@@ -187,7 +181,7 @@ impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<T, R, 
     ///
     /// This method is the same as [`Picker::pick_multi`] while also rendering a preview pane.
     /// Read those docs for more detail.
-    pub fn pick_multi(&mut self) -> Result<Selection<'_, T>, PickError<P::AbortErr>> {
+    pub fn pick_multi(&mut self) -> Result<Selection<'_, T>, PickError> {
         self.pick_multi_with_keybind(keybind_default)
     }
 
@@ -196,9 +190,9 @@ impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<T, R, 
     ///
     /// This is the same as [`Picker::pick_with_keybind`], with additional default keybindings
     /// for the previewer. Read those docs for more detail.
-    pub fn pick_with_keybind<F>(&mut self, keybind: F) -> Result<Option<&T>, PickError<P::AbortErr>>
+    pub fn pick_with_keybind<F, A>(&mut self, keybind: F) -> Result<Option<&T>, PickError<A>>
     where
-        F: FnMut(KeyEvent) -> Option<Event<P::AbortErr>>,
+        F: FnMut(KeyEvent) -> Option<Event<A>>,
     {
         let stderr = io::stderr().lock();
         if stderr.is_terminal() {
@@ -213,12 +207,12 @@ impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<T, R, 
     ///
     /// This method permits the user to select multiple items, but is otherwise identical to [`pick_with_keybind`](Self::pick_with_keybind). See those docs as well as the
     /// [docs on multiple selections](Picker#multiple-selections) for more detail.
-    pub fn pick_multi_with_keybind<F>(
+    pub fn pick_multi_with_keybind<F, A>(
         &mut self,
         keybind: F,
-    ) -> Result<Selection<'_, T>, PickError<P::AbortErr>>
+    ) -> Result<Selection<'_, T>, PickError<A>>
     where
-        F: FnMut(KeyEvent) -> Option<Event<P::AbortErr>>,
+        F: FnMut(KeyEvent) -> Option<Event<A>>,
     {
         let stderr = io::stderr().lock();
         if stderr.is_terminal() {
@@ -232,19 +226,13 @@ impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<T, R, 
     /// item, if any.
     ///
     /// This method is the same as [`Picker::pick_with_io`]; read those docs for more detail.
-    ///
-    /// # Errors
-    ///
-    /// The event source and previewer must use the same abort error type. In addition to the
-    /// errors documented in [`Picker::pick_with_io`], previewer errors are also propagated as
-    /// [`PickError::Aborted`].
     pub fn pick_with_io<E, W>(
         &mut self,
         event_source: E,
         writer: &mut W,
-    ) -> Result<Option<&T>, PickError<P::AbortErr>>
+    ) -> Result<Option<&T>, PickError<E::AbortErr>>
     where
-        E: EventSource<AbortErr = P::AbortErr>,
+        E: EventSource,
         W: io::Write,
     {
         self.picker.pick_impl::<_, _, (), _>(
@@ -267,9 +255,9 @@ impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<T, R, 
         &mut self,
         event_source: E,
         writer: &mut W,
-    ) -> Result<Selection<'_, T>, PickError<P::AbortErr>>
+    ) -> Result<Selection<'_, T>, PickError<E::AbortErr>>
     where
-        E: EventSource<AbortErr = P::AbortErr>,
+        E: EventSource,
         W: io::Write,
     {
         self.picker.pick_impl::<_, _, SelectedIndices, _>(
@@ -295,9 +283,9 @@ impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<T, R, 
         &mut self,
         event_source: E,
         terminal: &mut W,
-    ) -> Result<Option<&T>, PickError<P::AbortErr>>
+    ) -> Result<Option<&T>, PickError<E::AbortErr>>
     where
-        E: EventSource<AbortErr = P::AbortErr>,
+        E: EventSource,
         W: Terminal,
     {
         self.picker.pick_impl::<_, _, (), _>(
@@ -321,9 +309,9 @@ impl<T: Send + Sync + 'static, R: Render<T>, P: Preview<T>> PreviewPicker<T, R, 
         &mut self,
         event_source: E,
         terminal: &mut W,
-    ) -> Result<Selection<'_, T>, PickError<P::AbortErr>>
+    ) -> Result<Selection<'_, T>, PickError<E::AbortErr>>
     where
-        E: EventSource<AbortErr = P::AbortErr>,
+        E: EventSource,
         W: Terminal,
     {
         self.picker.pick_impl::<_, _, SelectedIndices, _>(

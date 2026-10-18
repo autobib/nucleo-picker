@@ -1314,11 +1314,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         E: EventSource,
         W: io::Write,
     {
-        self.pick_impl::<_, _, (), _>(
-            event_source,
-            &mut CrosstermTerminal::new(writer),
-            NoPreview::new(),
-        )
+        self.pick_impl::<_, _, (), _>(event_source, &mut CrosstermTerminal::new(writer), NoPreview)
     }
 
     /// Run the picker interactively with a custom event source and writer, allowing the user to
@@ -1339,7 +1335,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         self.pick_impl::<_, _, SelectedIndices, _>(
             event_source,
             &mut CrosstermTerminal::new(writer),
-            NoPreview::new(),
+            NoPreview,
         )
     }
 
@@ -1440,7 +1436,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         E: EventSource,
         W: Terminal,
     {
-        self.pick_impl::<_, _, (), _>(event_source, terminal, NoPreview::new())
+        self.pick_impl::<_, _, (), _>(event_source, terminal, NoPreview)
     }
 
     /// Run the picker interactively with a custom event source and terminal backend, allowing the
@@ -1458,6 +1454,6 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         E: EventSource,
         W: Terminal,
     {
-        self.pick_impl::<_, _, SelectedIndices, _>(event_source, terminal, NoPreview::new())
+        self.pick_impl::<_, _, SelectedIndices, _>(event_source, terminal, NoPreview)
     }
 }
