@@ -267,6 +267,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
             }
         };
 
+        list.flush(engine);
         if prompt.update().contents_changed {
             engine.reparse(prompt.contents());
         }

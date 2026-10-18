@@ -140,6 +140,32 @@ fn select_preserves_the_buffered_prompt_event_and_current_selection() {
 }
 
 #[test]
+fn reused_picker_preserves_navigation_on_exit() {
+    for reversed in [false, true] {
+        for (exit, expected) in [(Event::Select, Some("beta")), (Event::Quit, None)] {
+            let mut picker = PickerOptions::new()
+                .sort_results(false)
+                .reversed(reversed)
+                .frame_interval(Duration::from_secs(1))
+                .picker(StrRenderer);
+            picker.push_batch(["alpha", "beta"]);
+            picker.filter().unwrap();
+
+            let navigate = if reversed {
+                crate::event::MatchListEvent::Down(1)
+            } else {
+                crate::event::MatchListEvent::Up(1)
+            };
+            assert_eq!(
+                pick(&mut picker, [Event::MatchList(navigate), exit]),
+                expected,
+            );
+            assert_eq!(pick(&mut picker, [Event::Select]), Some("beta"));
+        }
+    }
+}
+
+#[test]
 fn reused_picker_matches_the_query_saved_on_exit() {
     let mut picker = Picker::new(StrRenderer);
     picker.extend(["alpha", "beta"]);
