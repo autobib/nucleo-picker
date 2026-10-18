@@ -45,6 +45,7 @@ rand = "0.10.2"
 ignore = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+ureq = { version = "3.4", features = ["json"] }
 
 [lints.clippy]
 redundant_closure_for_method_calls = "warn"
@@ -96,6 +97,10 @@ required-features = ["preview"]
 [[example]]
 name = "preview_serde"
 required-features = ["serde", "preview"]
+
+[[example]]
+name = "online_preview"
+required-features = ["preview"]
 
 [[example]]
 name = "options"
