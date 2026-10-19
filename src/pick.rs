@@ -45,7 +45,7 @@ pub trait Pick: sealed::Sealed {
 
     /// The output of the picker after selection. This is an `Option<&T>` for single-selection
     /// pickers and [`Selection`] for multi-selection pickers.
-    type Output<'a>: IntoIterator<Item = &'a Self::Item>
+    type Output<'a>: IntoIterator<Item = &'a Self::Item, IntoIter: ExactSizeIterator>
     where
         Self: 'a;
 
