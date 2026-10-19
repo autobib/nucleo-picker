@@ -96,7 +96,7 @@ The supported features are tracked below.
 The checked examples are implemented and the unchecked examples are features I would like to support in the future.
 If there are particular `fzf`-specific features that you would like to see supported that are not on this list, please submit an issue.
 
-- [x] `--multi`: `Picker::pick_multi`
+- [x] `--multi`: `Picker::multi`
 - [x] `--multi=[MAX]`: `PickerOptions::max_selection_count`
 - [x] `--reverse`, `--layout=(default|reverse)`: `PickerOptions::reversed`
 - [x] `--no-sort`: `PickerOptions::sort_results`

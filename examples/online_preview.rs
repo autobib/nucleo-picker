@@ -1,4 +1,4 @@
-//! A Rust RFC brower
+//! A Rust RFC browser
 //!
 //! Dynamically load live Rust RFCs into the picker for browsing.
 //!
@@ -27,7 +27,7 @@ use std::{
 };
 
 use nucleo_picker::{
-    Injector, Picker, Render,
+    Injector, Pick, Picker, Render,
     error::PickError,
     event::{Event, StdinEventSender},
     preview::{PoolPreviewer, PreviewBuffer, PreviewWorker},

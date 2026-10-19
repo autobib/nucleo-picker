@@ -34,7 +34,7 @@ use std::{num::NonZero, time::Duration};
 pub use ansi::{AnsiState, AnsiWriter};
 pub use buffer::{PreviewBuffer, PreviewLine};
 pub use item::{ItemId, ItemRef};
-pub use picker::PreviewPicker;
+pub use picker::{PreviewMultiPicker, PreviewPicker};
 pub use pool::{PoolPreviewer, PreviewWorker};
 use request::{PreviewRequest, PreviewResponse};
 pub use scroll::PreviewEvent;
@@ -243,14 +243,17 @@ pub trait Preview<T> {
 }
 
 impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
+    #[inline]
     fn focus_changed(&mut self, item: Option<ItemRef<'_, T>>) {
         (**self).focus_changed(item);
     }
 
+    #[inline]
     fn restart(&mut self) {
         (**self).restart();
     }
 
+    #[inline]
     fn preview(&mut self, request: PreviewRequest<'_, T>, timeout: Duration) -> PreviewResponse {
         (*self).preview(request, timeout)
     }
@@ -306,6 +309,7 @@ where
     T: Send + Sync + 'static,
     F: FnMut(&T, &mut PreviewBuffer),
 {
+    #[inline]
     fn preview(&mut self, request: PreviewRequest<'_, T>, _timeout: Duration) -> PreviewResponse {
         let item = request.item();
         let mut buffer = request.ready();

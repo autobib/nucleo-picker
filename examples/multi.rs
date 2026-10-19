@@ -23,7 +23,7 @@ fn main() -> io::Result<()> {
     ]);
 
     // open interactive prompt, and do not return an error if there is no selection
-    for it in picker.pick_multi()?.iter() {
+    for it in picker.as_multi().pick()? {
         println!("{it}");
     }
 

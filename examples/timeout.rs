@@ -122,7 +122,7 @@ fn main() -> io::Result<()> {
     }
     let mut stderr = BufWriter::new(stderr.lock());
 
-    match picker.pick_multi_with_io(event_receiver, &mut stderr) {
+    match picker.as_multi().pick_with_io(event_receiver, &mut stderr) {
         Ok(selection) => {
             if selection.is_empty() {
                 eprintln!("No path selected!");

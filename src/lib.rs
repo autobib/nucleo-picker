@@ -41,6 +41,7 @@ mod injector;
 mod match_engine;
 mod match_list;
 mod observer;
+mod pick;
 #[cfg(feature = "preview")]
 #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
 pub mod preview;
@@ -72,16 +73,19 @@ use preview::{BoundaryChars, PreviewConfig};
 use crate::{
     component::NoPreview,
     error::PickError,
-    event::{Event, EventSource, PickerStatus, StdinReader, keybind_default, keybind_no_multi},
+    event::{Event, EventSource, PickerStatus, StdinReader, keybind_no_multi},
     match_engine::MatchEngine,
-    match_list::{MatchListConfig, MatchListState, SelectedIndices},
+    match_list::{MatchListConfig, MatchListState},
     prompt::{PromptConfig, PromptState},
     terminal::CrosstermTerminal,
 };
 
 pub use crate::headless::{MatchStatus, Matches};
 pub use crate::injector::Injector;
-pub use crate::match_list::Selection;
+pub use crate::match_list::{Selection, SelectionIntoIter};
+pub use crate::pick::{MultiPicker, Pick};
+#[cfg(feature = "preview")]
+pub use crate::preview::{PreviewMultiPicker, PreviewPicker};
 
 #[cfg(feature = "unstable-backend")]
 pub use terminal::Terminal;
@@ -262,6 +266,7 @@ impl<T, R: for<'a> Fn(&'a T) -> Cow<'a, str>> Render<T> for R {
     where
         T: 'a;
 
+    #[inline]
     fn render<'a>(&self, item: &'a T) -> Self::Str<'a> {
         self(item)
     }
@@ -922,16 +927,17 @@ impl PickerOptions {
 ///
 /// ### Multiple selections
 ///
-/// If you wish to permit multiple selections, use one of the similarly named methods:
+/// In order to make multiple selections, use the [`MultiPicker`] variant by calling
+/// [`Picker::multi`]. The corresponding methods are named the same:
 ///
-/// 1. [`Picker::pick_multi`]
-/// 2. [`Picker::pick_multi_with_keybind`]
-/// 3. [`Picker::pick_multi_with_io`]
+/// 1. [`MultiPicker::pick`]
+/// 2. [`MultiPicker::pick_with_keybind`]
+/// 3. [`MultiPicker::pick_with_io`]
 ///
 /// These methods are analogous to their single-selection variants, except additional items can be
 /// queued with the [`MatchListEvent::ToggleDown`](crate::event::MatchListEvent::ToggleDown) and
 /// [`MatchListEvent::ToggleUp`](crate::event::MatchListEvent::ToggleUp) events. The [default
-/// keybindings](keybind_default) bind these to `⇥` and `shift + ⇥` respectively. In this case, an
+/// keybindings](event::keybind_default) bind these to `⇥` and `shift + ⇥` respectively. In this case, an
 /// [`Event::Select`] is handled slightly differently: if there are no queued selections, this
 /// picks the highlighted item, but if there are queued selections, then only the queued selections
 /// are returned.
@@ -941,6 +947,11 @@ impl PickerOptions {
 ///
 /// The selected items are returned as a [`Selection`], which is empty if picker exited with
 /// [`Event::Quit`] (or [`Event::QuitPromptEmpty`]), and non-empty if not.
+///
+/// You can also use [`Picker::as_multi`] to temporarily mutably borrow as a multiple-selection
+/// picker.
+/// For instance, this enables patterns like `picker.as_multi().pick()` without owned type
+/// conversion.
 ///
 /// ### Emulate single selection using a multi-picker
 ///
@@ -969,8 +980,41 @@ impl PickerOptions {
 ///
 /// In order to use previews, enable the `preview` feature and pass a previewer to the
 /// picker with [`Picker::with_preview`]. The corresponding pick methods on the resulting
-/// [`PreviewPicker`](preview::PreviewPicker) have the same names and behaviour, except with an
+/// [`PreviewPicker`] have the same names and behaviour, except with an
 /// additional preview pane rendered on the right hand side of the screen.
+/// Similarly to the [`MultiPicker`], there is also a [`PreviewMultiPicker`].
+///
+/// ### Generics
+///
+/// The [`Picker`] has a number of inherent methods which are shared by all of the picker variants.
+/// However, on the variants, the shared methods require importing [`Pick`] for access.
+///
+/// The [`Pick`] trait also makes it easier to write code which is generic over all picker types:
+///
+/// ```no_run
+/// use nucleo_picker::{Pick, Picker, error::PickError, render::StrRenderer};
+///
+/// // print the selected items, independent of the picker type
+/// fn print_selection<P: Pick>(picker: &mut P) -> Result<(), PickError>
+/// where
+///     P::Item: std::fmt::Display,
+/// {
+///     for item in picker.pick()? {
+///         println!("{item}");
+///     }
+///     Ok(())
+/// }
+///
+/// # fn main() -> Result<(), PickError> {
+/// let mut picker = Picker::new(StrRenderer);
+/// picker.push_batch(["red", "blue", "green"]);
+///
+/// // Pick is always implemented for &mut impl Pick
+/// print_selection(&mut picker)?;
+/// print_selection(picker.as_multi())?;
+/// # Ok(())
+/// # }
+/// ```
 ///
 /// ## A note on memory usage
 /// Initializing a picker is a relatively expensive operation since the internal match engine uses
@@ -1001,6 +1045,7 @@ pub struct Picker<T, R> {
 }
 
 impl<T: Send + Sync + 'static, R: Render<T>> Extend<T> for Picker<T, R> {
+    #[inline]
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         self.push_batch(iter);
     }
@@ -1009,6 +1054,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Extend<T> for Picker<T, R> {
 impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// Initialize a new picker with default configuration and the provided renderer.
     #[must_use]
+    #[inline]
     pub fn new(render: R) -> Self
     where
         R: Render<T>,
@@ -1022,11 +1068,41 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// [`PreviewPicker::into_parts`](preview::PreviewPicker::into_parts).
     #[cfg(feature = "preview")]
     #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
+    #[inline]
     pub fn with_preview<P>(self, previewer: P) -> preview::PreviewPicker<T, R, P>
     where
         P: preview::Preview<T>,
     {
         preview::PreviewPicker::new(self, previewer)
+    }
+
+    /// Convert into a multi-selection picker.
+    #[must_use]
+    #[inline]
+    pub fn multi(self) -> MultiPicker<T, R> {
+        MultiPicker { picker: self }
+    }
+
+    /// Mutably borrow this picker as a multi-selection picker.
+    ///
+    /// This is a convenience method for one-off multi-selection, for instance by chaining
+    /// `picker.as_multi().pick()`.
+    #[must_use]
+    #[inline]
+    pub fn as_multi(&mut self) -> &mut MultiPicker<T, R> {
+        // SAFETY: MultiPicker transparently wraps Picker with identical invariants.
+        // The returned reference exclusively reborrows self for the same lifetime.
+        unsafe { &mut *std::ptr::from_mut(self).cast::<MultiPicker<T, R>>() }
+    }
+
+    /// Returns the contents of the query string internal to the picker.
+    ///
+    /// If called after running [`Picker::pick`], this will contain the contents of the query string
+    /// at the moment that the item was selected or the picker quit.
+    #[must_use]
+    #[inline]
+    pub fn query(&self) -> &str {
+        self.prompt.contents()
     }
 
     /// Update the default query string. This is mainly useful for modifying the query string
@@ -1048,15 +1124,6 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         self.update_query(String::new());
     }
 
-    /// Returns the contents of the query string internal to the picker.
-    ///
-    /// If called after running [`Picker::pick`], this will contain the contents of the query string
-    /// at the moment that the item was selected or the picker quit.
-    #[must_use]
-    pub fn query(&self) -> &str {
-        self.prompt.contents()
-    }
-
     /// Returns an [`Observer`] containing up-to-date [`Injector`]s for this picker.
     ///
     /// This is the channel to which new injectors will be sent when the picker processes a
@@ -1070,6 +1137,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// If `with_injector` is `true`, the channel is intialized with an injector currently valid
     /// for the picker on creation.
     #[must_use]
+    #[inline]
     pub fn injector_observer(&mut self, with_injector: bool) -> Observer<Injector<T, R>> {
         let (notifier, observer) = if with_injector {
             observer::occupied_channel(self.injector())
@@ -1091,6 +1159,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// Calling this method will *invalidate all earlier status observers*. If you want multiple
     /// copies of the same observer, clone your existing observer.
     #[must_use]
+    #[inline]
     pub fn status_observer(&mut self) -> Observer<PickerStatus> {
         let (notifier, observer) = observer::channel();
         self.status_notifier = Some(notifier);
@@ -1123,6 +1192,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// provided; this is most useful for stateful renderers.
     ///
     /// See [`Picker::restart`] for more detail. Note that method *does not* clear the query.
+    #[inline]
     pub fn reset_renderer(&mut self, render: R) {
         self.engine.reset_renderer(render);
         self.list_state
@@ -1132,6 +1202,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
 
     /// Get an [`Injector`] to send items to the picker.
     #[must_use]
+    #[inline]
     pub fn injector(&self) -> Injector<T, R> {
         self.engine.injector()
     }
@@ -1143,6 +1214,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         since = "0.12.0",
         note = "Use `push_batch` instead which optimizes using `size_hint`"
     )]
+    #[inline]
     pub fn extend_exact<I>(&self, iter: I)
     where
         R: Render<T>,
@@ -1158,6 +1230,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// before running the picker. Only use this method for a small number of items known in
     /// advance. In most cases, you want to use an [`Injector`] and send items to the picker from a
     /// separate thread.
+    #[inline]
     pub fn push_batch<I>(&self, iter: I)
     where
         R: Render<T>,
@@ -1219,11 +1292,12 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// This method permits the user to select multiple items, but is otherwise identical to [`pick`](Self::pick). See those docs as well as the
     /// [docs on multiple selections](Picker#multiple-selections) for more detail.
     #[inline]
+    #[deprecated(since = "0.13.0", note = "Use `as_multi().pick()` instead")]
     pub fn pick_multi(&mut self) -> Result<Selection<'_, T>, PickError>
     where
         R: Render<T>,
     {
-        self.pick_multi_with_keybind(keybind_default)
+        self.as_multi().pick()
     }
 
     /// Open the interactive picker prompt and return the picked item, if any. The provided
@@ -1234,7 +1308,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     ///
     /// To further customize event generation, see the [`pick_with_io`](Self::pick_with_io) method.
     /// The [`pick`](Self::pick) method is internally a call to this method with keybindings
-    /// provided by [`keybind_default`].
+    /// provided by [`keybind_default`](event::keybind_default).
     ///
     /// # Errors
     ///
@@ -1267,17 +1341,16 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// This method permits the user to select multiple items, but is otherwise identical to [`pick_with_keybind`](Self::pick_with_keybind). See those docs as well as the
     /// [docs on multiple selections](Picker#multiple-selections) for more detail.
     #[inline]
+    #[deprecated(
+        since = "0.13.0",
+        note = "Use `as_multi().pick_with_keybind(...)` instead"
+    )]
     pub fn pick_multi_with_keybind<F>(&mut self, keybind: F) -> Result<Selection<'_, T>, PickError>
     where
         R: Render<T>,
         F: FnMut(KeyEvent) -> Option<Event>,
     {
-        let stderr = io::stderr().lock();
-        if stderr.is_terminal() {
-            self.pick_multi_with_io(StdinReader::new(keybind), &mut BufWriter::new(stderr))
-        } else {
-            Err(PickError::NotInteractive)
-        }
+        self.as_multi().pick_with_keybind(keybind)
     }
 
     /// Run the picker interactively with a custom event source and writer, returning the selected
@@ -1304,6 +1377,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     ///
     /// This method will **never** return [`PickError::NotInteractive`] since interactivity checks
     /// are not done.
+    #[inline]
     pub fn pick_with_io<E, W>(
         &mut self,
         event_source: E,
@@ -1322,6 +1396,8 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     ///
     /// This is otherwise identical to [`pick_with_io`](Self::pick_with_io); see those docs as well
     /// as the [docs on multiple selections](Picker#multiple-selections) for more detail.
+    #[deprecated(since = "0.13.0", note = "Use `as_multi().pick_with_io(...)` instead")]
+    #[inline]
     pub fn pick_multi_with_io<E, W>(
         &mut self,
         event_source: E,
@@ -1332,20 +1408,16 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         E: EventSource,
         W: io::Write,
     {
-        self.pick_impl::<_, _, SelectedIndices, _>(
-            event_source,
-            &mut CrosstermTerminal::new(writer),
-            NoPreview,
-        )
+        self.as_multi().pick_with_io(event_source, writer)
     }
 
     /// Filter the items sent to the picker using the current value of the query.
     ///
     /// This method requires that there are no live injectors (so that no new items can be added to
     /// the picker) and will return `None` if this is not the case. In order to receive updates
-    /// when there are live injectors, use [`update_matches`](Self::update_matches) instead.
+    /// when there are live injectors, use [`update_matches`](Pick::update_matches) instead.
     ///
-    /// If there are no live injectors, this method is equivalent to polling [`update_matches`](Self::update_matches) in a
+    /// If there are no live injectors, this method is equivalent to polling [`update_matches`](Pick::update_matches) in a
     /// loop until matching is complete.
     ///
     /// # Examples
@@ -1392,9 +1464,10 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// The `wait` duration is the approximate amount of time that this method will try to wait in
     /// order to synchronize with work in a background thread.
     ///
-    /// Matching work will continue in the background even if you do not call this method. Calling
-    /// this method synchronizes background work with the stored match list (that is, the matches visible with
-    /// [`matches`](Self::matches)).
+    /// This method synchronizes state between the background work, the picker, and injectors:
+    /// calling this method is required to process new background items, to handle query updates,
+    /// and to update the matches internal to this picker. Matching work which has already been
+    /// dispatched will continue independently in the background.
     ///
     /// If [`MatchStatus::is_complete`] returns true, the snapshot includes every match for the current
     /// query and input. For a blocking convenience method, use [`filter`](Self::filter).
@@ -1410,8 +1483,9 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// This is the most up-to-date as of the last call to [`update_matches`](Self::update_matches).
     /// In particular, it can be out-of-date if matching is incomplete, if the query changes, or if
     /// there are new items. If there are no active injectors, you can also use
-    /// [`filter`](Self::filter) to block until matching to complete.
+    /// [`filter`](Self::filter) to block until matching is complete.
     #[must_use]
+    #[inline]
     pub fn matches(&self) -> Matches<'_, T> {
         Matches {
             snapshot: self.engine.snapshot(),
@@ -1426,6 +1500,8 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     ///
     /// This is the same as [`pick_with_io`](Self::pick_with_io) but in addition defers
     /// terminal-specific implementation to the passed [`Terminal`].
+    #[doc(hidden)]
+    #[inline]
     pub fn pick_with_terminal_io<E, W>(
         &mut self,
         event_source: E,
@@ -1444,6 +1520,12 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
     ///
     /// This is the same as [`pick_multi_with_io`](Self::pick_multi_with_io) but in addition defers
     /// terminal-specific implementation to the passed [`Terminal`].
+    #[doc(hidden)]
+    #[deprecated(
+        since = "0.13.0",
+        note = "Use `as_multi().pick_with_terminal_io(...)` instead"
+    )]
+    #[inline]
     pub fn pick_multi_with_terminal_io<E, W>(
         &mut self,
         event_source: E,
@@ -1454,6 +1536,7 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
         E: EventSource,
         W: Terminal,
     {
-        self.pick_impl::<_, _, SelectedIndices, _>(event_source, terminal, NoPreview)
+        self.as_multi()
+            .pick_with_terminal_io(event_source, terminal)
     }
 }

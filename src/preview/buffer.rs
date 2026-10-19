@@ -201,6 +201,7 @@ impl PreviewBuffer {
     /// # Panics
     ///
     /// Panics without modifying the buffer if `text` contains a newline.
+    #[inline]
     pub fn push_str(&mut self, text: &str) {
         self.push_styled_str(text, ContentStyle::default());
     }
@@ -252,6 +253,7 @@ impl PreviewBuffer {
     ///
     /// This is a convenience method to call [`push_styled_text`](Self::push_styled_text) with
     /// the default style. See that method for more details.
+    #[inline]
     pub fn push_text(&mut self, text: &str) {
         self.push_styled_text(text, ContentStyle::default());
     }
@@ -309,6 +311,7 @@ impl PreviewBuffer {
     }
 
     /// Complete the current line and start the next empty line.
+    #[inline]
     pub fn newline(&mut self) {
         self.push_empty_line();
     }
@@ -320,6 +323,7 @@ impl PreviewBuffer {
     /// # Panics
     ///
     /// Panics before modifying the buffer if `text` contains a newline.
+    #[inline]
     pub fn push_line(&mut self, text: &str) {
         self.push_styled_line(text, ContentStyle::default());
     }
@@ -333,6 +337,7 @@ impl PreviewBuffer {
     /// # Panics
     ///
     /// Panics before modifying the buffer if `text` contains a newline.
+    #[inline]
     pub fn push_styled_line(&mut self, text: &str, style: ContentStyle) {
         self.push_styled_str(text, style);
         self.newline();
@@ -349,15 +354,18 @@ impl PreviewBuffer {
 
     /// Get the `n`th line in the buffer as a string slice, excluding the newline and carriage
     /// return (if any).
+    #[inline]
     pub fn line(&self, index: usize) -> Option<PreviewLine<'_>> {
         self.lines.get(index).map(|line| self.line_view(line))
     }
 
     /// Iterate over the all of the lines in this buffer.
+    #[inline]
     pub fn lines(&self) -> impl DoubleEndedIterator<Item = PreviewLine<'_>> + ExactSizeIterator {
         self.lines.iter().map(|line| self.line_view(line))
     }
 
+    #[inline]
     fn line_view(&self, line: &LineIndex) -> PreviewLine<'_> {
         PreviewLine {
             text: &self.text[line.text.clone()],
@@ -368,6 +376,7 @@ impl PreviewBuffer {
 
 impl<'a> PreviewLine<'a> {
     /// Returns the raw text of the current line.
+    #[inline]
     pub fn as_str(&self) -> &'a str {
         self.text
     }

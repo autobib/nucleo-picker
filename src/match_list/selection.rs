@@ -1,5 +1,9 @@
 use std::{
-    collections::{BTreeMap, btree_map::Entry},
+    collections::{
+        BTreeMap,
+        btree_map::{self, Entry},
+    },
+    iter::FusedIterator,
     num::NonZero,
 };
 
@@ -246,15 +250,94 @@ impl SelectedIndices {
 
 /// The selected items when the picker quits.
 ///
-/// This is the return type of the various `pick_multi*` methods of a [`Picker`](crate::Picker).
-/// Iterate over the picked items with [`iter`](Self::iter). Also see the documentation for
-/// [multiple selections](crate::Picker#multiple-selections)
+/// This is the selection type of th `pick*` methods of the multi-selection picker variants
+/// [`MultiPicker`](crate::MultiPicker) and [`PreviewMultiPicker`](crate::preview::PreviewMultiPicker).
+/// Iterate over the picked items with [`iter`](Self::iter) or using `IntoIterator`. Also see the documentation
+/// for [multiple selections](crate::Picker#multiple-selections)
 ///
-/// The lifetime of this struct is bound to the lifetime of the picker from which it originated.
+/// The lifetime of the selection is bound to the lifetime of the picker from which it originated.
 pub struct Selection<'a, T: Send + Sync + 'static> {
     snapshot: &'a nc::Snapshot<T>,
     queued: SelectedIndices,
 }
+
+impl<'a, T: Send + Sync + 'static> IntoIterator for Selection<'a, T> {
+    type Item = &'a T;
+    type IntoIter = SelectionIntoIter<'a, T>;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        SelectionIntoIter {
+            snapshot: self.snapshot,
+            indices: self.queued.inner.into_keys(),
+        }
+    }
+}
+
+/// An owning iterator over a [`Selection`] in item insertion order.
+///
+/// The order is the same as [`Selection::iter`], except as an owned variant.
+pub struct SelectionIntoIter<'a, T: Send + Sync + 'static> {
+    snapshot: &'a nc::Snapshot<T>,
+    indices: btree_map::IntoKeys<u32, u64>,
+}
+
+impl<'a, T: Send + Sync + 'static> Iterator for SelectionIntoIter<'a, T> {
+    type Item = &'a T;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.indices.next().map(|idx| {
+            // SAFETY: Selection owns indices from this snapshot, which remains borrowed.
+            unsafe { self.snapshot.get_item_unchecked(idx).data }
+        })
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.indices.size_hint()
+    }
+
+    #[inline]
+    fn count(self) -> usize {
+        self.indices.len()
+    }
+
+    #[inline]
+    fn last(mut self) -> Option<Self::Item> {
+        self.next_back()
+    }
+
+    #[inline]
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        self.indices.nth(n).map(|idx| {
+            // SAFETY: Selection owns indices from this snapshot, which remains borrowed.
+            unsafe { self.snapshot.get_item_unchecked(idx).data }
+        })
+    }
+}
+
+impl<T: Send + Sync + 'static> DoubleEndedIterator for SelectionIntoIter<'_, T> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.indices.next_back().map(|idx| {
+            // SAFETY: Selection owns indices from this snapshot, which remains borrowed.
+            unsafe { self.snapshot.get_item_unchecked(idx).data }
+        })
+    }
+
+    #[inline]
+    fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
+        self.indices.nth_back(n).map(|idx| {
+            // SAFETY: Selection owns indices from this snapshot, which remains borrowed.
+            unsafe { self.snapshot.get_item_unchecked(idx).data }
+        })
+    }
+}
+
+impl<T: Send + Sync + 'static> ExactSizeIterator for SelectionIntoIter<'_, T> {}
+
+impl<T: Send + Sync + 'static> FusedIterator for SelectionIntoIter<'_, T> {}
 
 impl<'a, T: Send + Sync + 'static> Selection<'a, T> {
     /// Returns an iterator over the other selected items.
@@ -268,6 +351,7 @@ impl<'a, T: Send + Sync + 'static> Selection<'a, T> {
     /// selected by the user.
     ///
     /// The iterator will be empty if the picker quit without selecting any items.
+    #[inline]
     pub fn iter(&self) -> impl ExactSizeIterator<Item = &'a T> + DoubleEndedIterator {
         self.queued.inner.keys().map(|idx| {
             // SAFETY: the indices were produced by the same snapshot which is stored inside this
@@ -308,12 +392,14 @@ impl<'a, T: Send + Sync + 'static> Selection<'a, T> {
 
     /// Returns if there were no selected items.
     #[must_use]
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.queued.inner.is_empty()
     }
 
     /// Returns the number of selected items.
     #[must_use]
+    #[inline]
     pub fn len(&self) -> usize {
         self.queued.inner.len()
     }
@@ -348,5 +434,22 @@ mod tests {
                 .copied()
                 .eq(["one", "three"])
         );
+        assert!(selection.queued.toggle(1));
+        assert!(selection.queued.toggle(1));
+        assert!(
+            selection
+                .iter_selected_order()
+                .copied()
+                .eq(["three", "one"])
+        );
+
+        let mut items = selection.into_iter();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items.next(), Some(&"one"));
+        assert_eq!(items.len(), 1);
+        assert_eq!(items.next_back(), Some(&"three"));
+        assert_eq!(items.size_hint(), (0, Some(0)));
+        assert_eq!(items.next(), None);
+        assert_eq!(items.next_back(), None);
     }
 }

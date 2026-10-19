@@ -27,6 +27,7 @@ impl<T: AsRef<str>> Render<T> for StrRenderer {
     where
         T: 'a;
 
+    #[inline]
     fn render<'a>(&self, item: &'a T) -> Self::Str<'a> {
         item.as_ref()
     }
@@ -58,6 +59,7 @@ impl<T: AsRef<Path>> Render<T> for PathRenderer {
     where
         T: 'a;
 
+    #[inline]
     fn render<'a>(&self, item: &'a T) -> Self::Str<'a> {
         item.as_ref().to_string_lossy()
     }
@@ -80,6 +82,7 @@ impl<T: ToString> Render<T> for DisplayRenderer {
     where
         T: 'a;
 
+    #[inline]
     fn render<'a>(&self, item: &'a T) -> Self::Str<'a> {
         item.to_string()
     }

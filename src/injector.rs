@@ -70,6 +70,7 @@ impl<T: Send + Sync + 'static, R> Injector<T, R> {
 
 impl<T, R: Render<T>> Injector<T, R> {
     /// Add an item to the picker.
+    #[inline]
     pub fn push(&self, item: T) {
         self.inner.push(item, |s, columns| {
             columns[0] = self.render.render(s).as_ref().into();
@@ -84,6 +85,7 @@ impl<T, R: Render<T>> Injector<T, R> {
         since = "0.12.0",
         note = "Use `push_batch` instead which optimizes using `size_hint`"
     )]
+    #[inline]
     pub fn extend_exact<I>(&self, iter: I)
     where
         I: IntoIterator<Item = T>,
@@ -102,6 +104,7 @@ impl<T, R: Render<T>> Injector<T, R> {
     ///
     /// This is identical to the [`Extend`] implementation but does not require a mutable
     /// self-reference.
+    #[inline]
     pub fn push_batch<I>(&self, iter: I)
     where
         I: IntoIterator<Item = T>,
@@ -113,12 +116,14 @@ impl<T, R: Render<T>> Injector<T, R> {
 
     /// Returns a reference to the renderer internal to the picker.
     #[must_use]
+    #[inline]
     pub fn renderer(&self) -> &R {
         &self.render
     }
 }
 
 impl<T, R: Render<T>> Extend<T> for Injector<T, R> {
+    #[inline]
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         self.push_batch(iter);
     }
@@ -168,6 +173,7 @@ mod serde {
 
         /// Deserialize from a sequence of picker items.
         /// This implementation is enabled using the `serde` feature.
+        #[inline]
         fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
         where
             D: Deserializer<'de>,

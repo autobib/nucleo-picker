@@ -48,6 +48,7 @@ pub trait Terminal: Write {
     ///
     /// This method is called immediately after a frame render ends. The default
     /// implementation calls `self.flush()`.
+    #[inline]
     fn end_render(&mut self) -> io::Result<()> {
         self.flush()
     }
@@ -82,10 +83,12 @@ impl<'a, W> CrosstermTerminal<'a, W> {
 }
 
 impl<W: Write> Write for CrosstermTerminal<'_, W> {
+    #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.writer.write(buf)
     }
 
+    #[inline]
     fn flush(&mut self) -> io::Result<()> {
         self.writer.flush()
     }
@@ -102,6 +105,7 @@ impl<W: Write> Terminal for CrosstermTerminal<'_, W> {
         execute!(self.writer, DisableBracketedPaste, LeaveAlternateScreen)
     }
 
+    #[inline]
     fn size(&mut self) -> io::Result<(u16, u16)> {
         size()
     }
@@ -129,36 +133,44 @@ impl<'a, T: Terminal> TerminalSession<'a, T> {
 }
 
 impl<T: Terminal> Write for TerminalSession<'_, T> {
+    #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.terminal.write(buf)
     }
 
+    #[inline]
     fn flush(&mut self) -> io::Result<()> {
         self.terminal.flush()
     }
 }
 
 impl<T: Terminal> Terminal for TerminalSession<'_, T> {
+    #[inline]
     fn init(&mut self) -> io::Result<()> {
         self.terminal.init()
     }
 
+    #[inline]
     fn cleanup(&mut self) -> io::Result<()> {
         self.finish()
     }
 
+    #[inline]
     fn size(&mut self) -> io::Result<(u16, u16)> {
         self.terminal.size()
     }
 
+    #[inline]
     fn begin_render(&mut self) -> io::Result<()> {
         self.terminal.begin_render()
     }
 
+    #[inline]
     fn end_render(&mut self) -> io::Result<()> {
         self.terminal.end_render()
     }
 
+    #[inline]
     fn end_frame(&mut self, changed: bool) -> io::Result<()> {
         self.terminal.end_frame(changed)
     }

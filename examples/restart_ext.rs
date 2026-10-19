@@ -117,7 +117,7 @@ fn main() -> io::Result<()> {
         e => keybind_default(e),
     });
 
-    for n in picker.pick_multi_with_io(event_source, &mut stderr)?.iter() {
+    for n in picker.as_multi().pick_with_io(event_source, &mut stderr)? {
         println!("Your liked: {n}");
     }
 

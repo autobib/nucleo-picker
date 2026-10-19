@@ -648,7 +648,8 @@ fn preview_picker_can_be_returned_and_recovered_with_its_state() {
     picker.reset_query();
     settle(&mut picker);
     let selected = picker
-        .pick_multi_with_terminal_io(
+        .as_multi()
+        .pick_with_terminal_io(
             Events(VecDeque::from([
                 Ok(Event::MatchList(MatchListEvent::QueueMatches)),
                 Ok(Event::Select),
@@ -696,7 +697,8 @@ fn preview_picker_preserves_multiple_selection() {
         Ok(Event::Select),
     ]));
     let selected = preview_picker
-        .pick_multi_with_terminal_io(events, &mut TestTerminal::default())
+        .as_multi()
+        .pick_with_terminal_io(events, &mut TestTerminal::default())
         .unwrap();
     assert_eq!(
         selected.iter().copied().collect::<Vec<_>>(),
@@ -830,8 +832,8 @@ fn replacing_items_between_sessions_changes_ids() {
 #[test]
 fn restart_invalidates_cached_item_ids() {
     struct RestartEvents {
-        injectors: crate::Observer<crate::Injector<&'static str, StrRenderer>>,
-        statuses: crate::Observer<crate::event::PickerStatus>,
+        injectors: crate::event::Observer<crate::Injector<&'static str, StrRenderer>>,
+        statuses: crate::event::Observer<crate::event::PickerStatus>,
         step: usize,
         started: Instant,
     }

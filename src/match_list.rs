@@ -31,8 +31,8 @@ mod unicode;
 mod tests;
 
 pub(crate) use component::MatchList;
-pub use selection::Selection;
 pub(crate) use selection::{Queued, SelectedIndices};
+pub use selection::{Selection, SelectionIntoIter};
 pub(crate) use state::MatchListState;
 
 /// An event that modifies the selection in the match list.
