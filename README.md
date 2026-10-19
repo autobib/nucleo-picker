@@ -112,7 +112,6 @@ If there are particular `fzf`-specific features that you would like to see suppo
 - [ ] `--track`
 - [ ] `--ghost`
 
-
 ## Related crates
 
 This crate mainly exists as a result of the author's annoyance with pretty much every fuzzy picker TUI in the rust ecosystem.

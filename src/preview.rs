@@ -205,7 +205,7 @@ pub trait Preview<T> {
     /// Generate a preview.
     ///
     /// The item to which the preview corresponds is available with [`PreviewRequest::item`]. The
-    /// [`Duration`] is a timeout suggested by the picker and depende on the current frame budget. It will always be at least 2ms. Exceeding the budget will cause the picker to lag.
+    /// [`Duration`] is a timeout suggested by the picker and depends on the current frame budget. It will always be at least 2ms. Exceeding the budget will cause the picker to lag.
     ///
     /// See the [trait-level docs](Preview) for more detail.
     fn preview(&mut self, request: PreviewRequest<'_, T>, timeout: Duration) -> PreviewResponse;

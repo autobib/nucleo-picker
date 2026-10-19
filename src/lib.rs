@@ -6,7 +6,7 @@
 //! In short, initialize a [`Picker`] using [`PickerOptions`] and describe how the items
 //! should be represented by implementing [`Render`], or use a [built-in renderer](render).
 //!
-//! To include a preview pane in the picker, enable the `preview` feature and see the [`preview`]
+//! To include a preview pane in the picker, enable the [preview feature](#cargo-features) and see the [`preview`]
 //! module.
 //! For more complex use-cases and integration with an existing application, see the
 //! [`event`] module.
@@ -26,6 +26,18 @@
 //! ```no_run
 #![doc = include_str!("../examples/find.rs")]
 //! ```
+//!
+//! ## Cargo features
+//!
+//! This library uses Cargo features to enable and disable various behaviour, especially when that
+//! behaviour would require additional dependencies to operate.
+//! The features are as follows:
+//!
+//! | Feature | Default | Dependencies | Requires | Description |
+//! | --- | --- | --- | --- | --- |
+//! | <code style="white-space: nowrap;">unix-poll</code> | Yes | — | — | This enables the <code style="white-space: nowrap;">use-dev-tty</code> feature of `crossterm` to fix a polling issue on macOS which breaks non-interactive STDIN. (Note that the <code style="white-space: nowrap;">use-dev-tty</code> feature is confusingly named, since even with this feature disabled, crossterm uses `/dev/tty` anyway.) |
+//! | `preview` | No | [`lru`] | — | This enables all of the preview features. |
+//! | <code style="white-space: nowrap;">preview-ansi</code> | No | [`anstyle_parse`] | `preview` | This adds ANSI-parsing support for the preview buffer. |
 
 #![deny(missing_docs)]
 #![warn(rustdoc::unescaped_backticks)]
