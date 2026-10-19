@@ -32,6 +32,7 @@ impl PreviewBuffer {
     /// that this only supports writing unstyled text. Ensure to use a single writer for the entire
     /// input stream: dropping and reopening this writer can result in slightly different buffer
     /// content.
+    #[inline]
     pub fn text_writer(&mut self) -> TextWriter<'_> {
         TextWriter::new(self)
     }

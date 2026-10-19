@@ -12,9 +12,7 @@ fn polled_queued_request() -> (PendingPreview, QueuedPreviewRequest<&'static str
         id: picker.engine.item_id(0),
     }
     .defer();
-    let Err(BufferNotReady::Queued(RequestState::Pending(pending))) =
-        RequestState::Pending(pending).try_into_buffer()
-    else {
+    let RequestState::Pending(pending) = RequestState::Pending(pending).poll(1) else {
         panic!("expected queued preview");
     };
     (pending, queued)
@@ -24,13 +22,16 @@ fn polled_queued_request() -> (PendingPreview, QueuedPreviewRequest<&'static str
 fn promotion_preserves_work_that_starts_after_polling() {
     let (pending, queued) = polled_queued_request();
     let active = queued.start().unwrap();
-    let RequestState::Pending(pending) = pending.reprioritize().unwrap() else {
+    let RequestState::Pending(pending) = pending.reprioritize() else {
         panic!("expected active preview");
     };
     assert!(!active.is_cancelled());
     let mut buffer = PreviewBuffer::new();
     assert!(active.publish(&mut buffer).is_ok());
-    assert!(RequestState::Pending(pending).try_into_buffer().is_ok());
+    assert!(matches!(
+        RequestState::Pending(pending).poll(1),
+        RequestState::Ready(_)
+    ));
 }
 
 #[test]
@@ -39,7 +40,7 @@ fn promotion_collects_work_published_after_polling() {
     let mut buffer = PreviewBuffer::new();
     buffer.push_str("completed");
     assert!(queued.start().unwrap().publish(&mut buffer).is_ok());
-    let RequestState::Ready(buffer) = pending.reprioritize().unwrap() else {
+    let RequestState::Ready(buffer) = pending.reprioritize() else {
         panic!("expected ready preview");
     };
     assert_eq!(buffer.line(0).unwrap().as_str(), "completed");
@@ -49,5 +50,5 @@ fn promotion_collects_work_published_after_polling() {
 fn promotion_reclaims_work_dropped_after_polling() {
     let (pending, queued) = polled_queued_request();
     drop(queued);
-    assert!(pending.reprioritize().is_err());
+    assert!(matches!(pending.reprioritize(), RequestState::Retry(_)));
 }

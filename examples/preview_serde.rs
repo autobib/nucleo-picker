@@ -8,7 +8,7 @@
 use std::{io, thread::spawn};
 
 use nucleo_picker::{
-    PickerOptions, Render,
+    Pick, PickerOptions, Render,
     preview::{PreviewBuffer, SyncPreviewer},
 };
 use serde::{Deserialize, de::DeserializeSeed};
@@ -32,7 +32,7 @@ impl Render<Poem> for PoemRenderer {
 }
 
 fn main() -> io::Result<()> {
-    let previewer = SyncPreviewer::new(|poem: &Poem, buffer: &mut PreviewBuffer| {
+    let previewer = SyncPreviewer(|poem: &Poem, buffer: &mut PreviewBuffer| {
         buffer.set_line_numbers(true);
         for (index, line) in poem.lines.iter().enumerate() {
             // don't write a trailing newline

@@ -99,7 +99,7 @@ fn submit(
         snapshot: picker.engine.snapshot(),
         id: picker.engine.item_id(idx),
     };
-    let PreviewResponse::Pending(pending) = pool.preview(request, Duration::ZERO).unwrap() else {
+    let PreviewResponse::Pending(pending) = pool.preview(request, Duration::ZERO) else {
         panic!("pool did not defer request");
     };
     pending
@@ -452,7 +452,7 @@ fn shutdown_waits_for_default_initialization() {
     INITIALIZE.set(initialize_rx).unwrap();
     let pool = PoolPreviewer::with_default_workers::<WaitingDefault>(NonZeroUsize::new(1).unwrap())
         .unwrap();
-    let shared = Arc::clone(&pool.pool.shared);
+    let shared = Arc::clone(&pool.shared);
     let shutdown = thread::spawn(move || drop(pool));
     wait_until(|| shared.state.lock().jobs.is_none());
     assert!(!shutdown.is_finished());
@@ -530,7 +530,7 @@ fn bounds_cancelled_backlog_and_drops_queued_work_on_shutdown() {
             .cancel_any();
     }
     {
-        let state = pool.pool.shared.state.lock();
+        let state = pool.shared.state.lock();
         let jobs = state.jobs.as_ref().unwrap();
         assert_eq!(
             jobs.iter().filter(|job| !job.is_cancelled()).count(),
@@ -539,7 +539,7 @@ fn bounds_cancelled_backlog_and_drops_queued_work_on_shutdown() {
         assert!(jobs.len() <= 2 * (pending.len() + MIN_PRUNE_AT));
     }
 
-    let shared = Arc::clone(&pool.pool.shared);
+    let shared = Arc::clone(&pool.shared);
     let shutdown = thread::spawn(move || drop(pool));
     wait_until(|| shared.state.lock().jobs.is_none());
     assert!(!shutdown.is_finished());

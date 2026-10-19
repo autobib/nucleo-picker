@@ -67,7 +67,7 @@ pub enum PickError<A = Infallible> {
     UserInterrupted,
     /// The picker could not be started since the writer is not interactive.
     NotInteractive,
-    /// The picker was aborted because of an upstream error.
+    /// The picker was aborted because of an application error.
     Aborted(A),
 }
 

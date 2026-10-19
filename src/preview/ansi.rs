@@ -56,6 +56,7 @@ impl<'a> AnsiWriter<'a> {
         }
     }
 
+    #[inline]
     fn write_bytes(&mut self, bytes: &[u8]) {
         self.buffer.push_ansi(bytes, &mut self.state);
     }
@@ -83,6 +84,7 @@ impl PreviewBuffer {
     /// # Ok::<(), std::io::Error>(())
     /// ```
     #[cfg_attr(docsrs, doc(cfg(feature = "preview-ansi")))]
+    #[inline]
     pub fn ansi_writer(&mut self) -> AnsiWriter<'_> {
         AnsiWriter::new(self)
     }
@@ -113,6 +115,7 @@ impl PreviewBuffer {
 }
 
 impl io::Write for AnsiWriter<'_> {
+    #[inline]
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         self.write_bytes(bytes);
         Ok(bytes.len())

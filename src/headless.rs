@@ -3,6 +3,9 @@
 /// This is returned by [`Picker::update_matches`](crate::Picker::update_matches). The counts display up-to-date information
 /// as available with [`Picker::matches`](crate::Picker::matches). Use [`is_complete`](Self::is_complete) for a convenience
 /// check that matching is complete.
+///
+/// The above headless methods are available on all picker variants through the shared
+/// [`Pick`](crate::Pick) trait.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MatchStatus {
@@ -21,7 +24,7 @@ pub struct MatchStatus {
 impl MatchStatus {
     /// Returns if all input has been received and match work has been done.
     ///
-    /// This just checks `!self.matching && !self.injecting`: in other words, all input must be
+    /// This is `!self.matching && !self.injecting`: in other words, all input must be
     /// received and all matching work must be complete against the current query.
     #[must_use]
     pub fn is_complete(&self) -> bool {
@@ -34,25 +37,28 @@ impl MatchStatus {
 /// Items are sorted according to the configured match-list order (that is, it takes into account the [`sort_results`](crate::PickerOptions::sort_results) and [`reverse_items`](crate::PickerOptions::reverse_items) configuration).
 ///
 /// This is a view type only, and is only up-to-date as of the time of the last update.
-pub struct Matches<'a, T: Send + Sync + 'static> {
+pub struct Matches<'a, T> {
     pub(crate) snapshot: &'a nucleo::Snapshot<T>,
 }
 
 impl<'a, T: Send + Sync + 'static> Matches<'a, T> {
     /// Returns the number of matching items.
     #[must_use]
+    #[inline]
     pub fn len(&self) -> usize {
         self.snapshot.matches().len()
     }
 
     /// Returns if there are no matching items.
     #[must_use]
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.snapshot.matches().is_empty()
     }
 
     /// Returns the item at the given zero-based match rank, or `None` if it is out of bounds.
     #[must_use]
+    #[inline]
     pub fn get(&self, rank: usize) -> Option<&'a T> {
         self.snapshot
             .get_matched_item(u32::try_from(rank).ok()?)
@@ -60,6 +66,7 @@ impl<'a, T: Send + Sync + 'static> Matches<'a, T> {
     }
 
     /// Returns an iterator over the matching items in match-list order.
+    #[inline]
     pub fn iter(&self) -> impl ExactSizeIterator<Item = &'a T> + DoubleEndedIterator + use<'a, T> {
         self.snapshot.matched_items(..).map(|item| item.data)
     }

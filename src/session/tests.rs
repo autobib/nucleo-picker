@@ -80,7 +80,7 @@ fn pick(
     }
     drop(sender);
     picker
-        .pick_impl::<_, _, (), _>(receiver, &mut TestTerminal::default(), NoPreview::new())
+        .pick_impl::<_, _, (), _>(receiver, &mut TestTerminal::default(), NoPreview)
         .unwrap()
         .copied()
 }
@@ -140,6 +140,32 @@ fn select_preserves_the_buffered_prompt_event_and_current_selection() {
 }
 
 #[test]
+fn reused_picker_preserves_navigation_on_exit() {
+    for reversed in [false, true] {
+        for (exit, expected) in [(Event::Select, Some("beta")), (Event::Quit, None)] {
+            let mut picker = PickerOptions::new()
+                .sort_results(false)
+                .reversed(reversed)
+                .frame_interval(Duration::from_secs(1))
+                .picker(StrRenderer);
+            picker.push_batch(["alpha", "beta"]);
+            picker.filter().unwrap();
+
+            let navigate = if reversed {
+                crate::event::MatchListEvent::Down(1)
+            } else {
+                crate::event::MatchListEvent::Up(1)
+            };
+            assert_eq!(
+                pick(&mut picker, [Event::MatchList(navigate), exit]),
+                expected,
+            );
+            assert_eq!(pick(&mut picker, [Event::Select]), Some("beta"));
+        }
+    }
+}
+
+#[test]
 fn reused_picker_matches_the_query_saved_on_exit() {
     let mut picker = Picker::new(StrRenderer);
     picker.extend(["alpha", "beta"]);
@@ -168,7 +194,7 @@ fn reused_picker_matches_the_query_saved_on_exit() {
         sender.send(Event::Select).unwrap();
     });
     let selected = picker
-        .pick_impl::<_, _, (), _>(receiver, &mut TestTerminal::default(), NoPreview::new())
+        .pick_impl::<_, _, (), _>(receiver, &mut TestTerminal::default(), NoPreview)
         .unwrap()
         .copied();
     input.join().unwrap();
@@ -204,7 +230,7 @@ fn busy_events_do_not_starve_frames_or_status() {
         let mut terminal = TestTerminal::default();
 
         picker
-            .pick_impl::<_, _, (), _>(events, &mut terminal, NoPreview::new())
+            .pick_impl::<_, _, (), _>(events, &mut terminal, NoPreview)
             .unwrap();
 
         assert!(terminal.first_frame.is_some());
@@ -238,7 +264,7 @@ fn slow_render_leaves_time_to_drain() {
     };
 
     picker
-        .pick_impl::<_, _, (), _>(events, &mut terminal, NoPreview::new())
+        .pick_impl::<_, _, (), _>(events, &mut terminal, NoPreview)
         .unwrap();
 
     assert!(
@@ -265,7 +291,7 @@ fn drain_reserve_does_not_wait_for_more_events() {
     });
 
     picker
-        .pick_impl::<_, _, (), _>(events, &mut TestTerminal::default(), NoPreview::new())
+        .pick_impl::<_, _, (), _>(events, &mut TestTerminal::default(), NoPreview)
         .unwrap();
 
     assert_eq!(status.try_recv().unwrap().id, 9);
@@ -276,11 +302,7 @@ fn headless_updates_rebuild_layout_when_reentering_the_picker() {
     fn draw(picker: &mut Picker<&'static str, StrRenderer>) -> Vec<u8> {
         let mut terminal = TestTerminal::default();
         picker
-            .pick_impl::<_, _, (), _>(
-                TestEvents(|_| Ok(Event::Quit)),
-                &mut terminal,
-                NoPreview::new(),
-            )
+            .pick_impl::<_, _, (), _>(TestEvents(|_| Ok(Event::Quit)), &mut terminal, NoPreview)
             .unwrap();
         terminal.output
     }

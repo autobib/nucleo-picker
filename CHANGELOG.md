@@ -9,12 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Breaking deprecation of matching engine APIs:
+- Removal of deprecated matching engine APIs:
   - `nucleo_picker::nucleo` has been removed: the underlying matching engine is now an implementation detail only
   - `PickerOptions::config` (deprecated since 0.10.0) has been removed.
     Use `PickerOptions::{match_paths, prefer_prefix, normalization, case_matching}` instead.
   - `Picker::update_config` and `PreviewPicker::update_config` have been removed.
     Runtime matcher configuration updates are no longer supported.
+- `Picker::pick_multi*` has been deprecated.
+  Instead, use the new multi-selection picker type directly with `Picker::multi`, or locally use `Picker::as_multi().pick*()`.
 
 ### Added
 
@@ -24,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added methods for non-interactive picker usage: `Picker::filter`, `Picker::matches`, and `Picker::update_matches`.
 - Added new `Layout` event, for events which influence the layout of the screen.
   This includes a new toggle for the status line, which is not bound by default.
+- Added a new generic `Pick` trait containing all of the core picker methods.
+  - In addition to the new `PreviewPicker`, this also adds `MultiPicker` and `PreviewMultiPicker`, for which the `pick*` methods are the same as the old `pick_multi*`
+- Added an `IntoIterator` implementation for `Selection`
 
 ### Fixed
 

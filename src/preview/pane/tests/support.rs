@@ -17,14 +17,11 @@ pub(crate) struct TestPreviewer {
     pub(crate) restarts: usize,
     pub(crate) defer: bool,
     pub(crate) drop_requests: bool,
-    pub(crate) fail_after: Option<usize>,
     pub(crate) lines: usize,
     pub(crate) line_numbers: bool,
 }
 
 impl Preview<&'static str> for TestPreviewer {
-    type AbortErr = &'static str;
-
     fn focus_changed(&mut self, item: Option<ItemRef<'_, &'static str>>) {
         if item.is_none() {
             self.cancelled_on_blur
@@ -44,7 +41,7 @@ impl Preview<&'static str> for TestPreviewer {
         &mut self,
         request: PreviewRequest<'_, &'static str>,
         timeout: Duration,
-    ) -> Result<PreviewResponse, Self::AbortErr> {
+    ) -> PreviewResponse {
         assert!(timeout >= Duration::from_millis(2));
         let item = request.item();
         assert_eq!(self.focused.last(), Some(&Some(*item)));
@@ -57,19 +54,13 @@ impl Preview<&'static str> for TestPreviewer {
         assert!(!request.buffer.line_numbers());
         self.buffer_allocations
             .push(request.buffer.line(0).unwrap().as_str().as_ptr());
-        if self
-            .fail_after
-            .is_some_and(|count| self.requested.len() > count)
-        {
-            return Err("preview failed");
-        }
         if self.defer {
             let (pending, queued) = request.defer();
             assert_eq!(self.ids.last(), Some(&queued.id()));
             if !self.drop_requests {
                 self.queued.push(queued);
             }
-            Ok(PreviewResponse::Pending(pending))
+            PreviewResponse::Pending(pending)
         } else {
             let mut buffer = request.ready();
             buffer.set_line_numbers(self.line_numbers);
@@ -78,7 +69,7 @@ impl Preview<&'static str> for TestPreviewer {
                 buffer.newline();
                 buffer.push_str(item);
             }
-            Ok(PreviewResponse::Ready(buffer))
+            PreviewResponse::Ready(buffer)
         }
     }
 }
@@ -136,7 +127,7 @@ pub(crate) fn preview_pane<P: Preview<&'static str>>(previewer: P) -> PreviewPan
 pub(crate) fn update(
     application: &mut PreviewPane<&'static str, TestPreviewer>,
     picker: &mut Picker<&'static str, StrRenderer>,
-) -> Result<bool, &'static str> {
+) -> bool {
     application.update(selected_item(picker), &picker.engine, Instant::now())
 }
 

@@ -9,7 +9,7 @@ use std::{borrow::Cow, io};
 
 use crossterm::style::{ContentStyle, Stylize};
 use nucleo_picker::{
-    Picker,
+    Pick, Picker,
     preview::{PreviewBuffer, SyncPreviewer},
 };
 
@@ -25,7 +25,7 @@ fn render_artist(artist: &Artist) -> Cow<'_, str> {
 }
 
 fn main() -> io::Result<()> {
-    let previewer = SyncPreviewer::new(|artist: &Artist, buffer: &mut PreviewBuffer| {
+    let previewer = SyncPreviewer(|artist: &Artist, buffer: &mut PreviewBuffer| {
         buffer.push_styled_line(artist.name, ContentStyle::new().bold());
         for (label, value) in [
             ("Born:       ", artist.born),

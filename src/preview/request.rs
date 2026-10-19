@@ -52,7 +52,7 @@
 //! channel.
 //!
 //! ```
-//! use std::sync::mpsc::{Receiver, SendError, Sender};
+//! use std::sync::mpsc::{Receiver, Sender};
 //! use nucleo_picker::preview::{
 //!     PreviewBuffer,
 //!     request::{PreviewRequest, PreviewResponse, QueuedPreviewRequest},
@@ -62,10 +62,10 @@
 //! fn enqueue(
 //!     request: PreviewRequest<'_, String>,
 //!     worker: &Sender<QueuedPreviewRequest<String>>,
-//! ) -> Result<PreviewResponse, SendError<QueuedPreviewRequest<String>>> {
+//! ) -> PreviewResponse {
 //!     let (pending, queued) = request.defer();
-//!     worker.send(queued)?;
-//!     Ok(PreviewResponse::Pending(pending))
+//!     worker.send(queued).expect("preview worker disconnected");
+//!     PreviewResponse::Pending(pending)
 //! }
 //!
 //! // Complete the queued preview requests (in a separate thread).
@@ -204,6 +204,7 @@ impl<'a, T: Send + Sync + 'static> PreviewRequest<'a, T> {
     }
 
     /// The item corresponding to the request.
+    #[inline]
     pub fn item(&self) -> &'a T {
         // SAFETY: the index is guaranteed to be valid for this snapshot
         unsafe { self.snapshot.get_item_unchecked(self.id.index).data }
@@ -215,6 +216,7 @@ impl<'a, T: Send + Sync + 'static> PreviewRequest<'a, T> {
     }
 
     /// Returns the item corresponding to this request along with its identifier.
+    #[inline]
     pub fn item_ref(&self) -> ItemRef<'a, T> {
         ItemRef::new(self.id, self.item())
     }
@@ -250,11 +252,13 @@ impl<T: Send + Sync + 'static> QueuedPreviewRequest<T> {
     /// fail if cancellation occurs between the two calls.
     ///
     /// This method is very cheap and can be used to prune stale requests.
+    #[inline]
     pub fn is_cancelled(&self) -> bool {
         self.writer.is_cancelled()
     }
 
     /// The item corresponding to the request.
+    #[inline]
     pub fn item(&self) -> &T {
         self.item.item().data
     }
@@ -265,6 +269,7 @@ impl<T: Send + Sync + 'static> QueuedPreviewRequest<T> {
     }
 
     /// Returns the item corresponding to this request along with its identifier.
+    #[inline]
     pub fn item_ref(&self) -> ItemRef<'_, T> {
         ItemRef::new(self.id, self.item())
     }
@@ -300,11 +305,13 @@ impl<T: Send + Sync + 'static> ActivePreviewRequest<T> {
     ///
     /// This method is very cheap. When preview generation is expensive, implementors should
     /// periodically call this method to avoid unnecessary work if possible.
+    #[inline]
     pub fn is_cancelled(&self) -> bool {
         self.writer.is_cancelled()
     }
 
     /// The item corresponding to the request.
+    #[inline]
     pub fn item(&self) -> &T {
         self.item.item().data
     }
@@ -315,6 +322,7 @@ impl<T: Send + Sync + 'static> ActivePreviewRequest<T> {
     }
 
     /// Returns the item corresponding to this request along with its identifier.
+    #[inline]
     pub fn item_ref(&self) -> ItemRef<'_, T> {
         ItemRef::new(self.id, self.item())
     }
@@ -322,6 +330,7 @@ impl<T: Send + Sync + 'static> ActivePreviewRequest<T> {
 
 impl<T: Send + Sync + 'static> CancelledPreviewRequest<T> {
     /// Returns the item corresponding to this request.
+    #[inline]
     pub fn item(&self) -> &T {
         self.item.item().data
     }
@@ -332,6 +341,7 @@ impl<T: Send + Sync + 'static> CancelledPreviewRequest<T> {
     }
 
     /// Returns the item corresponding to this request along with its identifier.
+    #[inline]
     pub fn item_ref(&self) -> ItemRef<'_, T> {
         ItemRef::new(self.id, self.item())
     }

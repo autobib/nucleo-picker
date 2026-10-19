@@ -15,7 +15,6 @@
 
 use std::{
     borrow::Cow,
-    convert::Infallible,
     env::args_os,
     fs::File,
     io::{self, Read},
@@ -68,15 +67,11 @@ impl FilePreview {
 }
 
 impl Preview<DirEntry> for FilePreview {
-    // there are no fatal errors: all errors are reported directly into the PreviewBuffer.
-    // returning an abort error here would abort the picker unnecessarily
-    type AbortErr = Infallible;
-
     fn preview(
         &mut self,
         request: PreviewRequest<'_, DirEntry>,
         timeout: Duration,
-    ) -> Result<PreviewResponse, Self::AbortErr> {
+    ) -> PreviewResponse {
         // entry metadata is already available in the dir entry so we can label non-files synchronously
         let label = match request.item().file_type() {
             Some(kind) if kind.is_file() => None,
@@ -88,7 +83,7 @@ impl Preview<DirEntry> for FilePreview {
             let mut buffer = request.ready();
             // push the information label
             buffer.push_styled_str(label, ContentStyle::new().dim().italic());
-            return Ok(PreviewResponse::Ready(buffer));
+            return PreviewResponse::Ready(buffer);
         }
 
         // let the preview pool handle everything else

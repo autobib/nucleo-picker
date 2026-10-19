@@ -190,7 +190,8 @@ impl Driver {
     ) -> Self {
         Self::start_inner(items, options, |mut picker, events, terminal| {
             picker
-                .pick_multi_with_terminal_io(events, terminal)
+                .as_multi()
+                .pick_with_terminal_io(events, terminal)
                 .map(|selection| selection.iter().cloned().collect())
         })
     }
@@ -202,9 +203,7 @@ impl Driver {
         previewer: P,
     ) -> Self
     where
-        P: nucleo_picker::preview::Preview<String, AbortErr = std::convert::Infallible>
-            + Send
-            + 'static,
+        P: nucleo_picker::preview::Preview<String> + Send + 'static,
     {
         Self::start_inner(items, options, move |picker, events, terminal| {
             picker
