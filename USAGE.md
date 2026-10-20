@@ -6,8 +6,8 @@ Jump to:
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Scroll and paste](#scroll-and-paste)
 
-
 ## Query syntax
+
 The query is parsed as a sequence of whitespace-separated "atoms", such as `a1 a2 a3`.
 By default, each atom corresponds to a fuzzy match: that is, higher score is assigned for a closer match, but exact match is not required.
 There is also a special syntax for various types of exact matches.

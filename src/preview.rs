@@ -10,9 +10,13 @@
 //! - For slow previews that should be performed in a background thread pool, see [`PoolPreviewer`].
 //!
 //! If you are doing something more complicated, start at the [`Preview`] documentation and then
-//! proceed with the [`request`] module. There are also full implementation examples in the
-//! [examples folder](https://github.com/autobib/nucleo-picker/tree/master/examples)
-//! on GitHub.
+//! proceed with the [`request`] module. Here are some other useful resources:
+//!
+//! - There are full implementation examples in the [examples folder](https://github.com/autobib/nucleo-picker/tree/master/examples)
+//!   on GitHub.
+//! - Default keybindings for preview events can be found in the [picker usage documetation](https://github.com/autobib/nucleo-picker/blob/master/USAGE.md)
+//! - For documentation concerning the internal preview cache, see the [preview interface
+//!   docs](WithPreview#preview-cache).
 //!
 //! ## Using previews
 //!
@@ -257,6 +261,9 @@ impl Default for PreviewConfig {
 /// [`Event::Abort`](crate::event::Event::Abort). For instance, if using a channel with
 /// [`StdinEventSender`](crate::event::StdinEventSender), one can pass senders to the
 /// previewer or preview workers directly.
+///
+/// See the [online preview example](https://github.com/autobib/nucleo-picker/blob/master/examples/online_preview.rs)
+/// for a complete example highlighting propagation of fatal preview errors.
 pub trait Preview<T> {
     /// Generate a preview.
     ///

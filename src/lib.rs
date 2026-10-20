@@ -7,11 +7,14 @@
 //! In short, initialize a [`Picker`] using [`PickerOptions`] and describe how the items
 //! should be represented by implementing [`Render`], or use a [built-in renderer](render).
 //!
-//! To include a preview pane in the picker, enable the [preview feature](#cargo-features) and see the [`preview`]
-//! module.
-//! feature-aware documentation or an explicit documentation URL.]
-//! For more complex use-cases and integration with an existing application, see the
-//! [`event`] module.
+//! Here are some other common use-cases:
+//!
+//! - To include a preview pane in the picker, enable the [preview feature](#cargo-features) and see
+//!   the [`preview`] module.
+//! - For headless (non-interactive) use, see the [relevant section of the picker documentation](Picker#headless-non-interactive-use).
+//! - For more precise control over the interface and integration with an existing application, see the [`event`] module.
+//! - See the [picker usage documentation](https://github.com/autobib/nucleo-picker/blob/master/USAGE.md)
+//!   for end-user-relevant TUI usage documentation.
 //!
 //! ## Usage examples
 //! For many usage examples, visit the [examples
@@ -1262,7 +1265,10 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     /// for more detail.
     ///
     /// Calling this method will *invalidate all earlier injector observers*. If you want multiple copies of
-    /// the same observer, clone your existing observer.
+    /// the same observer, clone your existing observer. However, note that [cloning has
+    /// caveats](Observer#clone-caveats): each status response can be witnessed by at most one
+    /// observer clone. Callers with multiple consumers must coordinate receipt and distribution of
+    /// responses.
     ///
     /// If `with_injector` is `true`, the channel is initialized with an injector currently valid
     /// for the picker on creation.
@@ -1287,7 +1293,10 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     /// for more detail.
     ///
     /// Calling this method will *invalidate all earlier status observers*. If you want multiple
-    /// copies of the same observer, clone your existing observer.
+    /// copies of the same observer, clone your existing observer. Note that [cloning has
+    /// caveats](Observer#clone-caveats): each status response can be witnessed by at most one
+    /// observer clone. Callers with multiple consumers must coordinate receipt and distribution of
+    /// responses.
     #[must_use]
     #[inline]
     pub fn status_observer(&mut self) -> Observer<PickerStatus> {

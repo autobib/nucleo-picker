@@ -100,6 +100,9 @@ pub use crate::{
 /// increasing `u64` counter and to check that the received id is greater than or equal to the
 /// requested id.
 ///
+/// Note that [cloned status observers compete for responses](Observer#clone-caveats). Read those
+/// docs for workarounds if you require multiple status observers.
+///
 /// Here is an example highlighting status checks using the above conventions.
 /// ```no_run
 /// use std::{io, sync::mpsc, thread};
@@ -145,7 +148,8 @@ pub use crate::{
 /// there is no receiver, the picker will fail with
 /// [`PickError::Disconnected`](crate::error::PickError::Disconnected). The picker will overwrite any
 /// previously pushed [`Injector`] when pushing the updated one to the channel. In particular,
-/// the [`Injector`] in the channel (if any) is always the most up-to-date.
+/// the [`Injector`] in the channel (if any) is always the most up-to-date. Also watch out for the
+/// [observer clone caveats](Observer#clone-caveats).
 ///
 /// It is possible that no [`Injector`] will be sent if the picker exits or disconnects
 /// before the event is processed.

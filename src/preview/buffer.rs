@@ -26,6 +26,8 @@ use memchr::memchr;
 ///   are most useful for rendering untrusted text directly into the preview buffer. Here, there is
 ///   also a convenience [`fmt::Write`](std::fmt::Write) adapter available at
 ///   [`text_writer`](Self::text_writer).
+/// - ANSI-styled input: [`ansi_writer`](Self::ansi_writer). This allows writing ANSI-styled text
+///   directly into a preview buffer. Note that this requires the `preview-ansi` feature to be enabled.
 ///
 /// # Example
 ///
