@@ -82,8 +82,7 @@ pub use crate::{
 /// ## Status
 /// An [`Event::Status`] requests a status update from the picker while it is running. At the end
 /// of the frame in which the event is received, the picker will update the [`Observer`]
-/// returned by [`Picker::status_observer`](crate::Picker::status_observer) (or
-/// [`Pick::status_observer`](crate::Pick::status_observer) in the general case) with an up-to-date
+/// returned by [`Picker::status_observer`](crate::Picker::status_observer) with an up-to-date
 /// [`PickerStatus`] response.
 ///
 /// It is guaranteed that every event received *before* the [`Event::Status`] will be processed.
@@ -134,12 +133,12 @@ pub use crate::{
 /// ```
 ///
 /// ## Restart
+///
 /// An [`Event::Restart`] is used to restart the picker while it is still running. After a
 /// restart, all previously created [`Injector`]s become invalidated and the match list is
 /// cleared on the next frame. Therefore to receive a valid [`Injector`], the caller must
 /// watch for new injectors using the [`Observer`] returned by
-/// [`Picker::injector_observer`](crate::Picker::injector_observer) (or
-/// [`Pick::injector_observer`](crate::Pick::injector_observer) in the general case).
+/// [`Picker::injector_observer`](crate::Picker::injector_observer).
 ///
 /// When the [`Event::Restart`] is processed by the picker, it will clear the item list and
 /// immediately update the observer with the new [`Injector`]. If the send fails because

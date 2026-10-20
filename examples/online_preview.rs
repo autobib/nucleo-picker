@@ -27,7 +27,7 @@ use std::{
 };
 
 use nucleo_picker::{
-    Injector, Pick, Picker, Render,
+    Injector, Picker, Render,
     error::PickError,
     event::{Event, StdinEventSender},
     preview::{PoolPreviewer, PreviewBuffer, PreviewWorker},

@@ -80,6 +80,7 @@ fn pick(
     }
     drop(sender);
     picker
+        .core
         .pick_impl::<_, _, (), _>(receiver, &mut TestTerminal::default(), NoPreview)
         .unwrap()
         .copied()
@@ -89,10 +90,10 @@ fn pick(
 fn initial_query_matches_the_normalized_prompt() {
     let mut picker = PickerOptions::new().query("a\u{7}b").picker(StrRenderer);
     picker.extend(["ab", "cd"]);
-    while picker.engine.update(5).matching {}
+    while picker.core.engine.update(5).matching {}
 
     assert_eq!(picker.query(), "ab");
-    assert_eq!(picker.engine.snapshot().matched_item_count(), 1);
+    assert_eq!(picker.core.engine.snapshot().matched_item_count(), 1);
     assert_eq!(pick(&mut picker, [Event::Select]), Some("ab"));
 
     pick(
@@ -102,10 +103,10 @@ fn initial_query_matches_the_normalized_prompt() {
             Event::Quit,
         ],
     );
-    while picker.engine.update(5).matching {}
+    while picker.core.engine.update(5).matching {}
 
     assert_eq!(picker.query(), "ab");
-    assert_eq!(picker.engine.snapshot().matched_item_count(), 1);
+    assert_eq!(picker.core.engine.snapshot().matched_item_count(), 1);
     assert_eq!(pick(&mut picker, [Event::Select]), Some("ab"));
 }
 
@@ -127,7 +128,7 @@ fn quit_preserves_the_buffered_prompt_event() {
 fn select_preserves_the_buffered_prompt_event_and_current_selection() {
     let mut picker = Picker::new(StrRenderer);
     picker.extend(["alpha"]);
-    while picker.engine.update(5).matching {}
+    while picker.core.engine.update(5).matching {}
 
     assert_eq!(
         pick(
@@ -169,7 +170,7 @@ fn reused_picker_preserves_navigation_on_exit() {
 fn reused_picker_matches_the_query_saved_on_exit() {
     let mut picker = Picker::new(StrRenderer);
     picker.extend(["alpha", "beta"]);
-    while picker.engine.update(5).matching {}
+    while picker.core.engine.update(5).matching {}
 
     pick(
         &mut picker,
@@ -194,6 +195,7 @@ fn reused_picker_matches_the_query_saved_on_exit() {
         sender.send(Event::Select).unwrap();
     });
     let selected = picker
+        .core
         .pick_impl::<_, _, (), _>(receiver, &mut TestTerminal::default(), NoPreview)
         .unwrap()
         .copied();
@@ -230,6 +232,7 @@ fn busy_events_do_not_starve_frames_or_status() {
         let mut terminal = TestTerminal::default();
 
         picker
+            .core
             .pick_impl::<_, _, (), _>(events, &mut terminal, NoPreview)
             .unwrap();
 
@@ -264,6 +267,7 @@ fn slow_render_leaves_time_to_drain() {
     };
 
     picker
+        .core
         .pick_impl::<_, _, (), _>(events, &mut terminal, NoPreview)
         .unwrap();
 
@@ -291,6 +295,7 @@ fn drain_reserve_does_not_wait_for_more_events() {
     });
 
     picker
+        .core
         .pick_impl::<_, _, (), _>(events, &mut TestTerminal::default(), NoPreview)
         .unwrap();
 
@@ -302,6 +307,7 @@ fn headless_updates_rebuild_layout_when_reentering_the_picker() {
     fn draw(picker: &mut Picker<&'static str, StrRenderer>) -> Vec<u8> {
         let mut terminal = TestTerminal::default();
         picker
+            .core
             .pick_impl::<_, _, (), _>(TestEvents(|_| Ok(Event::Quit)), &mut terminal, NoPreview)
             .unwrap();
         terminal.output

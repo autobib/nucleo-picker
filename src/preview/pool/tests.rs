@@ -83,7 +83,7 @@ fn pool(threads: usize) -> (PoolPreviewer<&'static str>, Receiver<Started>, Send
 fn picker() -> Picker<&'static str, StrRenderer> {
     let mut picker = PickerOptions::new().picker(StrRenderer);
     picker.push_batch(["first", "second", "third", "fourth", "panic"]);
-    wait_until(|| !picker.engine.update(5).matching);
+    wait_until(|| !picker.core.engine.update(5).matching);
     picker
 }
 
@@ -96,8 +96,8 @@ fn submit(
     let request = PreviewRequest {
         buffer,
         epoch: 0,
-        snapshot: picker.engine.snapshot(),
-        id: picker.engine.item_id(idx),
+        snapshot: picker.core.engine.snapshot(),
+        id: picker.core.engine.item_id(idx),
     };
     let PreviewResponse::Pending(pending) = pool.preview(request, Duration::ZERO) else {
         panic!("pool did not defer request");

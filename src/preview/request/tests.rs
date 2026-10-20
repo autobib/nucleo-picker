@@ -19,8 +19,8 @@ fn request<T: Send + Sync + 'static, R>(
     PreviewRequest {
         buffer: PreviewBuffer::new(),
         epoch: 0,
-        snapshot: picker.engine.snapshot(),
-        id: picker.engine.item_id(index),
+        snapshot: picker.core.engine.snapshot(),
+        id: picker.core.engine.item_id(index),
     }
 }
 
@@ -32,7 +32,7 @@ fn request_transitions_preserve_identity_and_publication() {
     let id = item.id();
     assert_eq!(request.id(), id);
     assert!(std::ptr::eq(request.item(), item.value()));
-    let focused = picker.engine.item_ref(0).unwrap();
+    let focused = picker.core.engine.item_ref(0).unwrap();
     assert_eq!(focused.id(), id);
     assert!(std::ptr::eq(focused.value(), item.value()));
     let (pending, queued) = request.defer();
@@ -59,7 +59,7 @@ fn failed_publication_preserves_item_id_and_buffer() {
     for publish_before_restart in [false, true] {
         let mut picker = Picker::new(StrRenderer);
         picker.push_batch([String::from("alpha")]);
-        while picker.engine.update(5).matching {}
+        while picker.core.engine.update(5).matching {}
         let request = request(&picker, 0);
         let id = request.id();
         let item = request.item() as *const String;
@@ -140,7 +140,7 @@ fn cancelled_request_retains_item_and_id_after_restart_and_picker_drop() {
         picker.push_batch([Item {
             dropped: Arc::clone(&dropped),
         }]);
-        while picker.engine.update(5).matching {}
+        while picker.core.engine.update(5).matching {}
         let original = request(&picker, 0);
         let id = original.id();
         let (pending, queued) = original.defer();

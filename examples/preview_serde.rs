@@ -8,7 +8,7 @@
 use std::{io, thread::spawn};
 
 use nucleo_picker::{
-    Pick, PickerOptions, Render,
+    PickerOptions, Render,
     preview::{PreviewBuffer, SyncPreviewer},
 };
 use serde::{Deserialize, de::DeserializeSeed};

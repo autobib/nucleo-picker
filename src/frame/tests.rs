@@ -64,12 +64,12 @@ where
     V: PreviewComponent<String> + Component<MatchEngine<String, StrRenderer>>,
 {
     let mut picker = Picker::<String, _>::new(StrRenderer);
-    let mut prompt = Prompt::new(&mut picker.prompt, &picker.chars);
-    let mut list = MatchList::new(&mut picker.list_state, &picker.chars, ());
-    let mut status_line = StatusLine::new(&picker.chars);
+    let mut prompt = Prompt::new(&mut picker.core.prompt, &picker.core.chars);
+    let mut list = MatchList::new(&mut picker.core.list_state, &picker.core.chars, ());
+    let mut status_line = StatusLine::new(&picker.core.chars);
     let mut frame = Frame::new(size, false, V::ENABLED.then_some(0.5));
     frame.resize(
-        &picker.engine,
+        &picker.core.engine,
         &mut prompt,
         &mut list,
         &mut status_line,
@@ -81,7 +81,7 @@ where
     };
     frame
         .draw(
-            &picker.engine,
+            &picker.core.engine,
             &mut prompt,
             &mut list,
             &mut status_line,

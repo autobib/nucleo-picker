@@ -6,7 +6,7 @@ mod tests;
 use std::time::{Duration, Instant};
 
 use crate::{
-    Picker, Render, Terminal,
+    PickerCore, Render, Terminal,
     component::{Component, PreviewComponent},
     error::PickError,
     event::{Event, EventSource, PickerStatus, RecvError},
@@ -24,7 +24,7 @@ enum SelectionTarget {
     Queued,
 }
 
-impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
+impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
     pub(crate) fn pick_impl<E, W, Q: Queued, P>(
         &mut self,
         mut event_source: E,

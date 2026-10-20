@@ -74,15 +74,15 @@ impl Preview<&'static str> for TestPreviewer {
     }
 }
 
-pub(crate) fn settle(picker: &mut Picker<&'static str, StrRenderer>) {
+pub(crate) fn settle<I>(picker: &mut Picker<&'static str, StrRenderer, I>) {
     let start = std::time::Instant::now();
     loop {
-        let status = picker.engine.update(5);
+        let status = picker.core.engine.update(5);
         if status.items_changed {
-            picker
-                .list_state
-                .layout
-                .update_items(picker.engine.snapshot(), &picker.list_state.config);
+            picker.core.list_state.layout.update_items(
+                picker.core.engine.snapshot(),
+                &picker.core.list_state.config,
+            );
         }
         if !status.matching {
             break;
@@ -101,19 +101,21 @@ pub(crate) fn picker(
         .picker(StrRenderer);
     picker.push_batch(items);
     settle(&mut picker);
-    picker
-        .list_state
-        .layout
-        .resize(picker.engine.snapshot(), 8, &picker.list_state.config);
+    picker.core.list_state.layout.resize(
+        picker.core.engine.snapshot(),
+        8,
+        &picker.core.list_state.config,
+    );
     picker
 }
 
 pub(crate) fn selected_item(picker: &Picker<&'static str, StrRenderer>) -> Option<u32> {
     picker
+        .core
         .list_state
         .layout
-        .selection(picker.engine.snapshot())
-        .map(|n| picker.engine.idx_from_match(n))
+        .selection(picker.core.engine.snapshot())
+        .map(|n| picker.core.engine.idx_from_match(n))
 }
 
 pub(crate) fn preview_pane<P: Preview<&'static str>>(previewer: P) -> PreviewPane<&'static str, P> {
@@ -128,7 +130,7 @@ pub(crate) fn update(
     application: &mut PreviewPane<&'static str, TestPreviewer>,
     picker: &mut Picker<&'static str, StrRenderer>,
 ) -> bool {
-    application.update(selected_item(picker), &picker.engine, Instant::now())
+    application.update(selected_item(picker), &picker.core.engine, Instant::now())
 }
 
 #[cfg(feature = "unstable-backend")]

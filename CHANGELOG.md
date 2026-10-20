@@ -15,19 +15,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     Use `PickerOptions::{match_paths, prefer_prefix, normalization, case_matching}` instead.
   - `Picker::update_config` and `PreviewPicker::update_config` have been removed.
     Runtime matcher configuration updates are no longer supported.
-- `Picker::pick_multi*` has been deprecated.
-  Instead, use the new multi-selection picker type directly with `Picker::multi`, or locally use `Picker::as_multi().pick*()`.
+- The `Picker` has a new type-state parameter `I` which controls the picker behaviour.
+  The parameter `I` defaults to `Single`, which is the same behaviour as the old picker.
+  However, other selection modes are no longer available on the base picker and instead require first changing the type-state.
+  - `Picker::pick_multi*` has been deprecated.
+    Instead, use the new multi-selection picker type directly with `Picker::multi`, or locally use `Picker::as_multi().pick*()`.
+  - The previewer (detailed below) is also a separate type-state available using `Picker::with_preview`.
+  - The type parameter `I` satisfies a generic `Interface` trait, which is helpful for writing code which is generic over all picker types.
 
 ### Added
 
-- This release includes a new previewer
+- This release includes a new previewer!
   - The preview pane is gated behind a `preview` feature flag.
   - Visit the documentation for the `preview` module for more details.
 - Added methods for non-interactive picker usage: `Picker::filter`, `Picker::matches`, and `Picker::update_matches`.
 - Added new `Layout` event, for events which influence the layout of the screen.
   This includes a new toggle for the status line, which is not bound by default.
-- Added a new generic `Pick` trait containing all of the core picker methods.
-  - In addition to the new `PreviewPicker`, this also adds `MultiPicker` and `PreviewMultiPicker`, for which the `pick*` methods are the same as the old `pick_multi*`
 - Added an `IntoIterator` implementation for `Selection`
 
 ### Fixed

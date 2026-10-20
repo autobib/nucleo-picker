@@ -246,11 +246,11 @@ mod tests {
     fn picker() -> Picker<&'static str, StrRenderer> {
         let mut picker = Picker::new(StrRenderer);
         picker.extend(["a", "b"]);
-        while picker.engine.update(5).matching {}
-        picker
-            .list_state
-            .layout
-            .update_items(picker.engine.snapshot(), &picker.list_state.config);
+        while picker.core.engine.update(5).matching {}
+        picker.core.list_state.layout.update_items(
+            picker.core.engine.snapshot(),
+            &picker.core.list_state.config,
+        );
         picker
     }
 
@@ -267,12 +267,12 @@ mod tests {
     fn selection_changes_do_not_change_the_queue() {
         let mut picker = picker();
         let mut list = MatchList::new(
-            &mut picker.list_state,
-            &picker.chars,
+            &mut picker.core.list_state,
+            &picker.core.chars,
             SelectedIndices::init(None),
         );
-        list.handle(MatchListEvent::Up(1), &picker.engine);
-        let redraw = update(&mut list, &mut picker.engine);
+        list.handle(MatchListEvent::Up(1), &picker.core.engine);
+        let redraw = update(&mut list, &mut picker.core.engine);
         assert!(redraw);
         assert!(list.queued().is_empty());
     }
@@ -281,15 +281,15 @@ mod tests {
     fn queue_changes_are_reported_separately() {
         let mut picker = picker();
         let mut list = MatchList::new(
-            &mut picker.list_state,
-            &picker.chars,
+            &mut picker.core.list_state,
+            &picker.core.chars,
             SelectedIndices::init(None),
         );
-        list.handle(MatchListEvent::ToggleDown(0), &picker.engine);
+        list.handle(MatchListEvent::ToggleDown(0), &picker.core.engine);
         assert_eq!(list.queued().len(), 1);
-        let redraw = update(&mut list, &mut picker.engine);
+        let redraw = update(&mut list, &mut picker.core.engine);
         assert!(redraw);
-        assert_eq!(list.selection(&picker.engine), Some(0));
-        assert!(!update(&mut list, &mut picker.engine));
+        assert_eq!(list.selection(&picker.core.engine), Some(0));
+        assert!(!update(&mut list, &mut picker.core.engine));
     }
 }

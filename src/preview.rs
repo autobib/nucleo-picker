@@ -13,6 +13,62 @@
 //! proceed with the [`request`] module. There are also full implementation examples in the
 //! [examples folder](https://github.com/autobib/nucleo-picker/tree/master/examples)
 //! on GitHub.
+//!
+//! ## Using previews
+//!
+//! In short, start with a [`Picker`](crate::Picker) and add a previewer using
+//! [`Picker::with_preview`](crate::Picker::with_preview). The type transitions are compatible with
+//! [`Picker::multi`](crate::Picker::multi) for previewing pickers with multiple selections.
+//!
+//! For one-off usage, the above methods are typically sufficient. Note that if `P` implements
+//! [`Preview`], then `&mut P` also implements [`Preview`]: this can be useful if the previewer has
+//! state which should be preserved between calls or which should be accessed after selection is
+//! complete.
+//!
+//! ### Basic example
+//!
+//! Here is an example highlighting basic usage.
+//!
+//! ```no_run
+//! use nucleo_picker::{
+//!     Multi, Picker,
+//!     preview::{PreviewBuffer, SyncPreviewer},
+//!     render::StrRenderer,
+//! };
+//!
+//! # fn main() -> std::io::Result<()> {
+//! let picker = Picker::new(StrRenderer);
+//! picker.push_batch(["red", "blue", "green"]);
+//!
+//! // this is a bit of a silly previewer, which just previews the item
+//! // text itself, but it's enough for the example
+//! let previewer = SyncPreviewer(|color: &&str, buffer: &mut PreviewBuffer| {
+//!     buffer.push_text(color);
+//! });
+//!
+//! // run the picker with previews
+//! let mut picker = picker.with_preview(previewer);
+//! if let Some(color) = picker.pick()? {
+//!     println!("{color}");
+//! }
+//!
+//! // run the picker without previews and with multiple selections
+//! // without consuming the original picker or previewer
+//! for color in picker.as_interface(Multi).pick()? {
+//!     println!("{color}");
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//! 
+//! ### Extended example
+//!
+//! This example uses a stateful previewer. Run this example with
+//! `cargo run --release --example preview_style --features preview`.
+//!
+//! ```no_run
+#![doc = include_str!("../examples/preview_style.rs")]
+//! ```
 
 #[cfg(feature = "preview-ansi")]
 mod ansi;
@@ -34,7 +90,7 @@ use std::{num::NonZero, time::Duration};
 pub use ansi::{AnsiState, AnsiWriter};
 pub use buffer::{PreviewBuffer, PreviewLine};
 pub use item::{ItemId, ItemRef};
-pub use picker::{PreviewMultiPicker, PreviewPicker};
+pub use picker::WithPreview;
 pub use pool::{PoolPreviewer, PreviewWorker};
 use request::{PreviewRequest, PreviewResponse};
 pub use scroll::PreviewEvent;

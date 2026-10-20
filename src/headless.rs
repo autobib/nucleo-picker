@@ -3,9 +3,6 @@
 /// This is returned by [`Picker::update_matches`](crate::Picker::update_matches). The counts display up-to-date information
 /// as available with [`Picker::matches`](crate::Picker::matches). Use [`is_complete`](Self::is_complete) for a convenience
 /// check that matching is complete.
-///
-/// The above headless methods are available on all picker variants through the shared
-/// [`Pick`](crate::Pick) trait.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MatchStatus {
