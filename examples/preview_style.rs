@@ -60,11 +60,7 @@ impl Preview<Color> for ColorPreview {
             Color::Magenta => ContentStyle::new().on_magenta(),
         };
         let mut buffer = request.ready();
-        let _ = writeln!(
-            buffer.text_writer(),
-            "Preview #{}",
-            self.generated
-        );
+        let _ = writeln!(buffer.text_writer(), "Preview #{}", self.generated);
         buffer.push_styled_text("        \n        \n        ", style);
         PreviewResponse::Ready(buffer)
     }

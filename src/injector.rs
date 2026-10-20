@@ -6,7 +6,8 @@ use super::Render;
 
 /// A handle which allows adding new items to a [`Picker`](super::Picker).
 ///
-/// This struct is cheaply clonable and can be sent across threads. By default, add new items to
+/// This struct is cheaply clonable and can be sent across threads whenever the renderer can be sent
+/// across threads. By default, add new items to
 /// the [`Picker`](super::Picker) using the [`push`](Injector::push) method. For convenience, an
 /// injector also implements [`Extend`] if you want to add items from an iterator.
 ///
@@ -18,6 +19,7 @@ use super::Render;
 /// The [`DeserializeSeed`](::serde::de::DeserializeSeed) implementation sends the items to the
 /// picker immediately, without waiting for the entire file to be deserialized (or even loaded into
 /// memory).
+///
 /// ```
 /// # #[cfg(not(feature = "serde"))]
 /// # fn main() {}

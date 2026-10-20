@@ -26,7 +26,7 @@ pub(crate) struct PreviewPane<T, P: Preview<T>> {
     // Unlike last_item, focused is cleared while the pane is hidden.
     focused: Option<u32>,
     item: PhantomData<fn() -> T>,
-    // state to preserve scroll and restart invalidation and return redraw sate with
+    // state to preserve scroll and restart invalidation and return redraw state with
     // `update`
     pending_redraw: bool,
     // the epoch is advanced when the item changes and is reset on restart. the epoch is passed to

@@ -20,7 +20,7 @@ const MIN_PRUNE_AT: usize = 32;
 /// A persistent background preview worker.
 ///
 /// This trait represents the work done to compute a preview cooperatively in a background
-/// threadpool. Each worker lives in its own thread and manages its own scratch space. There are no
+/// thread pool. Each worker lives in its own thread and manages its own scratch space. There are no
 /// synchronization methods between workers. This trait is designed for use with a [`PoolPreviewer`];
 /// read those docs for more detail.
 pub trait PreviewWorker<T> {
@@ -46,23 +46,22 @@ pub trait PreviewWorker<T> {
     ///
     /// # Panics
     ///
-    /// If this method panics, the panic will cause the preview threadpool to shut down.
+    /// If this method panics, the panic will cause the preview thread pool to shut down.
     /// On the next preview request, the panic will be propagated to the picker itself.
     fn preview(&mut self, item: &T, buffer: &mut PreviewBuffer, is_cancelled: impl Fn() -> bool);
 }
 
-/// A dedicated thread-pool for handling preview requests without blocking.
+/// A dedicated thread pool for handling preview requests without blocking.
 ///
-/// This struct manages a background threadpool of [`PreviewWorker`]s and dispatches preview work
+/// This struct manages a background thread pool of [`PreviewWorker`]s and dispatches preview work
 /// without blocking.
 ///
-///
-/// This trait is designed around ease of use: just implement [`PreviewWorker`] and initialize using
+/// This previewer is designed around ease of use: just implement [`PreviewWorker`] and initialize using
 /// one of three standard methods:
 ///
 /// - From a single clonable worker using [`PoolPreviewer::from_worker`]
 /// - From a non-empty iterator of workers using [`PoolPreviewer::from_workers`]
-/// - From a default implementatin using [`PoolPreviewer::with_default_workers`]
+/// - From a default implementation using [`PoolPreviewer::with_default_workers`]
 ///
 /// However, this means that a number of more complex use-cases are not supported:
 ///
@@ -125,7 +124,7 @@ pub trait PreviewWorker<T> {
 ///
 /// ## Worker panic
 ///
-/// If a worker panics, this thread-pool is shut down and the panic is stored internally to the
+/// If a worker panics, this thread pool is shut down and the panic is stored internally to the
 /// preview pool. The next call to `preview` will immediately propagate the panic. However, note
 /// that the picker can return between the panic and the next call to `preview`, so the panic
 /// might not be observed by the picker.
@@ -161,7 +160,7 @@ impl<T> PoolPreviewer<T> {
 }
 
 impl<T: Send + Sync + 'static> PoolPreviewer<T> {
-    /// Create a preview thread-pool with the requested number of threads and the provided worker.
+    /// Create a preview thread pool with the requested number of threads and the provided worker.
     ///
     /// At startup, the worker is cloned `threads - 1` times and sent to each worker thread.
     pub fn from_worker<W>(worker: W, threads: NonZeroUsize) -> io::Result<Self>
@@ -171,7 +170,7 @@ impl<T: Send + Sync + 'static> PoolPreviewer<T> {
         Self::from_workers(std::iter::repeat_n(worker, threads.get()))
     }
 
-    /// Create a preview thread-pool from an iterator of workers.
+    /// Create a preview thread pool from an iterator of workers.
     ///
     /// One thread is initialized per worker. Note that the iterator must be non-empty. Empty input
     /// will result in an IO error with kind [`io::ErrorKind::InvalidInput`].
@@ -195,14 +194,14 @@ impl<T: Send + Sync + 'static> PoolPreviewer<T> {
         Ok(pool)
     }
 
-    /// Create a preview thread-pool with workers initialized using [`Default`].
+    /// Create a preview thread pool with workers initialized using [`Default`].
     ///
     /// Each spawned thread calls `W::default()` once. Since the method is called inside the thread,
     /// this means workers do not need to be [`Send`], unlike the other initialization methods.
     ///
-    /// This constructor returns one all of the threads have been spawned, but beware that
-    /// initialization amy still be running in the background. If initialization panics, the panic
-    /// is propagated in the usual and will propagate to the picker on the next preview request.
+    /// This constructor returns once all of the threads have been spawned, but beware that
+    /// initialization may still be running in the background. If initialization panics, the panic
+    /// is propagated in the usual way and will propagate to the picker on the next preview request.
     pub fn with_default_workers<W>(threads: NonZeroUsize) -> io::Result<Self>
     where
         W: PreviewWorker<T> + Default + 'static,

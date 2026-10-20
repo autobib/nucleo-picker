@@ -65,7 +65,7 @@ impl<'a> AnsiWriter<'a> {
 impl PreviewBuffer {
     /// Write a stream of bytes with ANSI-encoded styling directly into this buffer.
     ///
-    /// It is assumed that the input stream is UTF-8 encoded by convenention. Invalid UTF-8 is
+    /// It is assumed that the input stream is UTF-8 encoded by convention. Invalid UTF-8 is
     /// handled using lossy conversion.
     ///
     /// Note that writes require holding some parser state, so make sure the entire byte stream is
@@ -98,7 +98,7 @@ impl PreviewBuffer {
     /// 1. In the case that it is convenient for the writer state and buffer to not be co-located.
     /// 2. In order to interleave multiple byte streams or split a stream across multiple buffers.
     ///
-    /// It is assumed that the input stream is UTF-8 encoded by convenention. Invalid UTF-8 is
+    /// It is assumed that the input stream is UTF-8 encoded by convention. Invalid UTF-8 is
     /// handled using lossy conversion. In order to interleave ANSI streams, you must use a
     /// separate [`AnsiState`] per stream.
     #[cfg_attr(docsrs, doc(cfg(feature = "preview-ansi")))]

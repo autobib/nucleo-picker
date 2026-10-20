@@ -32,7 +32,7 @@ impl<I: Iterator<Item = usize>> IncrementalIterator<I> {
     /// incomplete.
     ///
     /// If this method returns false, [`next_partial`](Self::next_partial) could either return
-    /// `None` or a [`Partial`] with `new = false` if called with `limit = 0`. If the internal
+    /// `None` or a [`Partial`] with `new = true` if called with `limit = 0`. If the internal
     /// iterator is not finished and `limit > 0`, the next call will return a [`Partial`] with
     /// `new = true`.
     #[inline]

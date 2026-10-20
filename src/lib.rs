@@ -9,6 +9,7 @@
 //!
 //! To include a preview pane in the picker, enable the [preview feature](#cargo-features) and see the [`preview`]
 //! module.
+//! feature-aware documentation or an explicit documentation URL.]
 //! For more complex use-cases and integration with an existing application, see the
 //! [`event`] module.
 //!
@@ -37,7 +38,8 @@
 //! | Feature | Default | Dependencies | Requires | Description |
 //! | --- | --- | --- | --- | --- |
 //! | <code style="white-space: nowrap;">unix-poll</code> | Yes | — | — | This enables the <code style="white-space: nowrap;">use-dev-tty</code> feature of `crossterm` to fix a polling issue on macOS which breaks non-interactive STDIN. (Note that the <code style="white-space: nowrap;">use-dev-tty</code> feature is confusingly named, since even with this feature disabled, crossterm uses `/dev/tty` anyway.) |
-//! | `preview` | No | [`lru`] | — | This enables all of the preview features. |
+//! | `preview` | No | [`lru`] | — | This enables the base preview-pane functionality. |
+//! | `serde`   | No | [`serde`] | — | This enables `DeserializeSeed` for an [`Injector`]. |
 //! | <code style="white-space: nowrap;">preview-ansi</code> | No | [`anstyle_parse`] | `preview` | This adds ANSI-parsing support for the preview buffer. |
 
 #![deny(missing_docs)]
@@ -106,7 +108,7 @@ pub(crate) use terminal::Terminal;
 /// This trait is also automatically implemented for [closures which return `Cow<'a,
 /// str>`](#impl-Render<T>-for-R).
 ///
-/// Rendering *must* be **pure**: for a given render implementation `R` and a item `T`, the call
+/// Rendering *must* be **pure**: for a given render implementation `R` and an item `T`, the call
 /// `R::render(&self, &T)` must depend only on the specific render instance and the specific item,
 /// and not any other state. Violation of this condition is normally only possible via interior
 /// mutability, global state, I/O, or unsafe code.
@@ -181,7 +183,7 @@ pub(crate) use terminal::Terminal;
 /// calculations are performed to keep track of the amount of space that it takes on the screen to
 /// display a given item.
 ///
-/// The main exeption is control characters which are not newlines (`\n` or `\r\n`). Even visible
+/// The main exception is control characters which are not newlines (`\n` or `\r\n`). Even visible
 /// control characters such as tabs (`\t`) will cause issues: width calculations will most likely
 /// be incorrect since the amount of space a tab occupies depends on its position within the
 /// screen.
@@ -223,7 +225,7 @@ pub(crate) use terminal::Terminal;
 /// particular, in the majority of situations, [`Render::render`] is called exactly once per item
 /// when it is sent to the picker.
 ///
-/// The **only** exception to this rule occurs the value returned by [`Render::render`] contains
+/// The **only** exception to this rule occurs when the value returned by [`Render::render`] contains
 /// non-ASCII characters. In this situation, it can happen that *exceptionally slow* [`Render`]
 /// implementations will reduce interactivity. A crude rule of thumb is that rendering a single
 /// item should take (in the worst case) at most 100μs. For comparison, display formatting a
@@ -348,7 +350,7 @@ pub(crate) struct PickerChars {
 }
 
 impl PickerChars {
-    /// The default the Unicode character set.
+    /// The default Unicode character set.
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -524,10 +526,13 @@ impl PickerOptions {
         .with_interface(Single)
     }
 
-    /// Set 'reversed' layout.
+    /// Set a 'reversed' rendering order in the interface.
     ///
-    /// Option `false` (default) will put the prompt at the bottom and render items in ascending
-    /// order. Option `true` will put the prompt at the top and render items in descending order.
+    /// Option `false` (default) will put the prompt at the bottom and render items in from the
+    /// bottom to the top. Option `true` will put the prompt at the top and render items from the
+    /// top to the bottom.
+    ///
+    /// This does not influence the sort order of the items themselves.
     #[must_use]
     #[inline]
     pub const fn reversed(mut self, reversed: bool) -> Self {
@@ -553,8 +558,10 @@ impl PickerOptions {
     /// Whether or not to sort matching items by score.
     ///
     /// This option is useful when you just want to filter items, but preserve the original order.
-    /// By default, the oldest items will appear at the beginning and the newest items will appear at the end.
+    /// When this option is set to `false`, the oldest items will appear at the beginning and the newest items will appear at the end.
     /// This can be swapped by setting [`reverse_items`](Self::reverse_items) to `true`.
+    ///
+    /// The default value is `true`.
     #[must_use]
     #[inline]
     pub const fn sort_results(mut self, sort: bool) -> Self {
@@ -638,7 +645,7 @@ impl PickerOptions {
         self
     }
 
-    /// Whether or not to highlight matches (default to `true`).
+    /// Whether or not to highlight matches (defaults to `true`).
     #[must_use]
     #[inline]
     pub const fn highlight(mut self, highlight: bool) -> Self {
@@ -656,7 +663,7 @@ impl PickerOptions {
         self
     }
 
-    /// How much space to leave when rendering match highlighting (default to `3`).
+    /// How much space to leave when rendering match highlighting (defaults to `3`).
     #[must_use]
     #[inline]
     pub const fn highlight_padding(mut self, size: u16) -> Self {
@@ -664,7 +671,7 @@ impl PickerOptions {
         self
     }
 
-    /// How much space to leave around the selection when scrolling (default to `3`).
+    /// How much space to leave around the selection when scrolling (defaults to `3`).
     #[must_use]
     #[inline]
     pub const fn scroll_padding(mut self, size: u16) -> Self {
@@ -672,7 +679,7 @@ impl PickerOptions {
         self
     }
 
-    /// How much space to leave around the cursor (default to `2`).
+    /// How much space to leave around the cursor (defaults to `2`).
     #[must_use]
     #[inline]
     pub const fn prompt_padding(mut self, size: u16) -> Self {
@@ -735,7 +742,7 @@ impl PickerOptions {
     /// While the picker may still receive items, an indicator cycles through the characters.
     /// An empty slice disables the indicator entirely. The default value is
     /// `&['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']`.  The characters
-    /// must all Unicode width 1.
+    /// must all have Unicode width 1.
     #[must_use]
     #[inline]
     pub const fn spinner_chars(mut self, spinner: &'static [char]) -> Self {
@@ -810,7 +817,7 @@ impl PickerOptions {
         self
     }
 
-    /// Provide an initial query string for the prompt (default to `""`).
+    /// Provide an initial query string for the prompt (defaults to `""`).
     #[must_use]
     #[inline]
     pub fn query<Q: Into<String>>(mut self, query: Q) -> Self {
@@ -900,8 +907,8 @@ impl PickerOptions {
 /// 2. If you wish to customize keybindings, use [`Picker::pick_with_keybind`].
 /// 3. If you wish to customize all IO to the picker, use [`Picker::pick_with_io`].
 ///
-/// These methods return `Option<&T>` as the return type, where `None` indicates that no items were
-/// selected.
+/// On success, these methods return `Option<&T>` as the return type, where `None` indicates that
+/// no items were selected.
 ///
 /// More generally, the picker uses a type-state pattern with a parameter `I` to define the
 /// behaviour of the above 3 methods. Currently, the parameter `I` is used to define the
@@ -1020,8 +1027,8 @@ impl PickerOptions {
 ///
 /// ### Emulate single selection using a multi-picker
 ///
-/// It is possible to emulate single selection with a multi-picker methods by setting
-/// [`PickerOptions::max_selection_count`] to `Some(1)`. This will force the resulting
+/// It is possible to emulate single selection with multi-picker methods by setting
+/// [`PickerOptions::max_selection_count`] to `NonZero::new(1)`. This will force the resulting
 /// [`Selection`] to contain either 0 or 1 element, and you can convert to `Option<&T>` by calling
 /// `next` on the [iterator](Selection::iter).
 ///
@@ -1064,7 +1071,8 @@ impl PickerOptions {
 /// an arena-based memory approach to minimize allocator costs, and this memory is initialized when
 /// the picker is created.
 ///
-/// To re-use the picker without additional start-up costs, use [`Picker::restart`].
+/// To re-use the picker with reduced start-up costs, use [`Picker::restart`]. This allocates space
+/// for the new items but reuses matching infrastructure.
 ///
 /// # Example
 ///
@@ -1099,6 +1107,124 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
 
 /// Inherent picker methods which are independent of the interface.
 impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
+    /// Open the interactive picker prompt and return the picked item, if any.
+    ///
+    /// ## Interface
+    ///
+    /// The behaviour of this function is influenced by the [`Interface`] parameter (for instance,
+    /// returning a single or multiple items; or rendering a preview). Read the [interface
+    /// docs](Interface) for more details.
+    ///
+    /// ## Stderr lock
+    /// The picker prompt is rendered in an alternate screen using the `stderr` file handle. In
+    /// order to prevent screen corruption, a lock is acquired to `stderr`; see
+    /// [`StderrLock`](std::io::StderrLock) for more detail.
+    ///
+    /// In particular, while the picker is interactive, any other thread which attempts to write to
+    /// stderr will block. Note that `stdin` and `stdout` will remain fully interactive.
+    ///
+    /// ## IO customization
+    ///
+    /// To further customize the IO behaviour of the picker, such as to provide your own writer
+    /// (for instance to write to [`Stdout`](std::io::Stdout) instead) or use custom keybindings,
+    /// see the [`pick_with_io`](Self::pick_with_io)  and
+    /// [`pick_with_keybind`](Self::pick_with_keybind) methods.
+    ///
+    /// # Errors
+    /// Underlying IO errors from the standard library or [`crossterm`] will be propagated with the
+    /// [`PickError::IO`] variant.
+    ///
+    /// This method also fails with:
+    ///
+    /// 1. [`PickError::NotInteractive`] if stderr is not interactive.
+    /// 2. [`PickError::UserInterrupted`] if the user presses `ctrl + c`.
+    ///
+    /// This method will **never** return [`PickError::Disconnected`].
+    #[inline]
+    pub fn pick(&mut self) -> Result<I::Output<'_>, PickError>
+    where
+        R: Render<T>,
+        I: Interface<T>,
+    {
+        self.pick_with_keybind(I::default_keybind)
+    }
+
+    /// Open the interactive picker prompt and return the picked item, if any. The provided
+    /// keybindings are used in the interactive picker.
+    ///
+    /// The picker prompt is rendered in an alternate screen using the `stderr` file handle. See
+    /// the [`pick`](Self::pick) method for more detail.
+    ///
+    /// To further customize event generation, see the [`pick_with_io`](Self::pick_with_io) method.
+    /// The [`pick`](Self::pick) method is internally a call to this method with keybindings
+    /// provided by [`keybind_default`](event::keybind_default).
+    ///
+    /// ## Interface
+    ///
+    /// The behaviour of this function is influenced by the [`Interface`] parameter (for instance,
+    /// returning a single or multiple items; or rendering a preview). Read the [interface
+    /// docs](Interface) for more details.
+    ///
+    /// # Errors
+    ///
+    /// Underlying IO errors from the standard library or [`crossterm`] will be propagated with the
+    /// [`PickError::IO`] variant.
+    ///
+    /// This method also fails with:
+    ///
+    /// 1. [`PickError::NotInteractive`] if stderr is not interactive.
+    /// 2. [`PickError::UserInterrupted`] if a keybinding results in a [`Event::UserInterrupt`],
+    /// 3. [`PickError::Disconnected`] if an [`Event::Restart`] is processed and there is no
+    ///    [injector observer](Self::injector_observer) available.
+    #[inline]
+    pub fn pick_with_keybind<F>(&mut self, keybind: F) -> Result<I::Output<'_>, PickError>
+    where
+        R: Render<T>,
+        I: Interface<T>,
+        F: FnMut(KeyEvent) -> Option<Event>,
+    {
+        interface::pick_with_keybind(&mut self.core, &mut self.interface, keybind)
+    }
+
+    /// Run the picker interactively with a custom event source and writer, returning the selected
+    /// item, if any.
+    ///
+    /// The picker is rendered using the given writer. In most situations, you want to check that
+    /// the writer is interactive using, for instance, [`IsTerminal`](io::IsTerminal). The picker reads
+    /// events from the [`EventSource`] to update the screen. See the docs for [`EventSource`]
+    /// for more detail.
+    ///
+    /// # Errors
+    /// Underlying IO errors from the standard library or [`crossterm`] will be propagated with the
+    /// [`PickError::IO`] variant.
+    ///
+    /// Whether or not this fails with another [`PickError`] variant depends on the [`EventSource`]
+    /// implementation:
+    ///
+    /// 1. If [`EventSource::recv_timeout`] fails with a [`RecvError::Disconnected`](event::RecvError::Disconnected), the error
+    ///    returned will be [`PickError::Disconnected`].
+    /// 2. The error will be [`PickError::UserInterrupted`] if the [`Picker`] receives an
+    ///    [`Event::UserInterrupt`].
+    /// 3. The error will be [`PickError::Aborted`] if the [`Picker`] receives an
+    ///    [`Event::Abort`].
+    ///
+    /// This method will **never** return [`PickError::NotInteractive`] since interactivity checks
+    /// are not done.
+    #[inline]
+    pub fn pick_with_io<E, W>(
+        &mut self,
+        event_source: E,
+        writer: &mut W,
+    ) -> Result<I::Output<'_>, PickError<E::AbortErr>>
+    where
+        R: Render<T>,
+        I: Interface<T>,
+        E: EventSource,
+        W: io::Write,
+    {
+        interface::pick_with_io(&mut self.core, &mut self.interface, event_source, writer)
+    }
+
     /// Returns the contents of the query string internal to the picker.
     ///
     /// If called after running [`Picker::pick`], this will contain the contents of the query string
@@ -1138,7 +1264,7 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     /// Calling this method will *invalidate all earlier injector observers*. If you want multiple copies of
     /// the same observer, clone your existing observer.
     ///
-    /// If `with_injector` is `true`, the channel is intialized with an injector currently valid
+    /// If `with_injector` is `true`, the channel is initialized with an injector currently valid
     /// for the picker on creation.
     #[must_use]
     #[inline]
@@ -1177,9 +1303,13 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     /// items will no longer be received by this instance. The old items will only be dropped when
     /// all injectors are dropped.
     ///
+    /// When previews are enabled, the old items will also only drop when all deferred preview
+    /// requests (perhaps owned by the previewer) are dropped as well. See the [preview request
+    /// documentation](crate::preview::request) for more details.
+    ///
     /// This method is mainly useful for re-using the picker for multiple matches since the
-    /// internal memory buffers are preserved. To restart the picker during interactive use, see
-    /// the [`Event`] documentation or the [restart
+    /// internal memory buffers used for matching and scoring are preserved. To restart the
+    /// picker during interactive use, see the [`Event`] documentation or the [restart
     /// example](https://github.com/autobib/nucleo-picker/blob/master/examples/restart.rs).
     pub fn restart(&mut self) {
         self.core.engine.restart();
@@ -1215,7 +1345,7 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
 
     /// A convenience method to add a batch of items directly to the picker.
     ///
-    /// This method has been superceded by [`push_batch`](Self::push_batch).
+    /// This method has been superseded by [`push_batch`](Self::push_batch).
     #[deprecated(
         since = "0.12.0",
         note = "Use `push_batch` instead which optimizes using `size_hint`"
@@ -1256,42 +1386,6 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
         R: Render<T>,
     {
         self.core.engine.render(item)
-    }
-
-    /// Open the interactive picker prompt and return the picked item, if any.
-    ///
-    /// ## Stderr lock
-    /// The picker prompt is rendered in an alternate screen using the `stderr` file handle. In
-    /// order to prevent screen corruption, a lock is acquired to `stderr`; see
-    /// [`StderrLock`](std::io::StderrLock) for more detail.
-    ///
-    /// In particular, while the picker is interactive, any other thread which attempts to write to
-    /// stderr will block. Note that `stdin` and `stdout` will remain fully interactive.
-    ///
-    /// ## IO customization
-    ///
-    /// To further customize the IO behaviour of the picker, such as to provide your own writer
-    /// (for instance to write to [`Stdout`](std::io::Stdout) instead) or use custom keybindings,
-    /// see the [`pick_with_io`](Self::pick_with_io)  and
-    /// [`pick_with_keybind`](Self::pick_with_keybind) methods.
-    ///
-    /// # Errors
-    /// Underlying IO errors from the standard library or [`crossterm`] will be propagated with the
-    /// [`PickError::IO`] variant.
-    ///
-    /// This method also fails with:
-    ///
-    /// 1. [`PickError::NotInteractive`] if stderr is not interactive.
-    /// 2. [`PickError::UserInterrupted`] if the user presses `ctrl + c`.
-    ///
-    /// This method will **never** return [`PickError::Disconnected`].
-    #[inline]
-    pub fn pick(&mut self) -> Result<I::Output<'_>, PickError>
-    where
-        R: Render<T>,
-        I: Interface<T>,
-    {
-        self.pick_with_keybind(I::default_keybind)
     }
 }
 
@@ -1365,80 +1459,6 @@ impl<T, R> Picker<T, R, Multi> {
     #[inline]
     pub fn as_single(&mut self) -> PickerRef<'_, T, R, Single> {
         self.core.as_interface(Single)
-    }
-}
-
-impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
-    /// Open the interactive picker prompt and return the picked item, if any. The provided
-    /// keybindings are used in the interactive picker.
-    ///
-    /// The picker prompt is rendered in an alternate screen using the `stderr` file handle. See
-    /// the [`pick`](Self::pick) method for more detail.
-    ///
-    /// To further customize event generation, see the [`pick_with_io`](Self::pick_with_io) method.
-    /// The [`pick`](Self::pick) method is internally a call to this method with keybindings
-    /// provided by [`keybind_default`](event::keybind_default).
-    ///
-    /// # Errors
-    ///
-    /// Underlying IO errors from the standard library or [`crossterm`] will be propagated with the
-    /// [`PickError::IO`] variant.
-    ///
-    /// This method also fails with:
-    ///
-    /// 1. [`PickError::NotInteractive`] if stderr is not interactive.
-    /// 2. [`PickError::UserInterrupted`] if a keybinding results in a [`Event::UserInterrupt`],
-    ///
-    /// This method will **never** return [`PickError::Disconnected`].
-    #[inline]
-    pub fn pick_with_keybind<F>(&mut self, keybind: F) -> Result<I::Output<'_>, PickError>
-    where
-        R: Render<T>,
-        I: Interface<T>,
-        F: FnMut(KeyEvent) -> Option<Event>,
-    {
-        interface::pick_with_keybind(&mut self.core, &mut self.interface, keybind)
-    }
-}
-
-impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
-    /// Run the picker interactively with a custom event source and writer, returning the selected
-    /// item, if any.
-    ///
-    /// The picker is rendered using the given writer. In most situations, you want to check that
-    /// the writer is interactive using, for instance, [`IsTerminal`](io::IsTerminal). The picker reads
-    /// events from the [`EventSource`] to update the screen. See the docs for [`EventSource`]
-    /// for more detail.
-    ///
-    /// # Errors
-    /// Underlying IO errors from the standard library or [`crossterm`] will be propagated with the
-    /// [`PickError::IO`] variant.
-    ///
-    /// Whether or not this fails with another [`PickError`] variant depends on the [`EventSource`]
-    /// implementation:
-    ///
-    /// 1. If [`EventSource::recv_timeout`] fails with a [`RecvError::Disconnected`](event::RecvError::Disconnected), the error
-    ///    returned will be [`PickError::Disconnected`].
-    /// 2. The error will be [`PickError::UserInterrupted`] if the [`Picker`] receives an
-    ///    [`Event::UserInterrupt`].
-    /// 3. The error will be [`PickError::Aborted`] if the [`Picker`] receives an
-    ///    [`Event::Abort`].
-    ///
-    /// This method will **never** return [`PickError::NotInteractive`] since interactivity checks
-    /// are not done.
-    #[inline]
-    pub fn pick_with_io<E, W>(
-        &mut self,
-        event_source: E,
-        writer: &mut W,
-    ) -> Result<I::Output<'_>, PickError<E::AbortErr>>
-    where
-        R: Render<T>,
-        I: Interface<T>,
-        E: EventSource,
-        W: io::Write,
-    {
-        interface::pick_with_io(&mut self.core, &mut self.interface, event_source, writer)
     }
 }
 

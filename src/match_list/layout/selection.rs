@@ -50,7 +50,7 @@ pub fn decr(
     total_remaining -=
         sizes_below_incl.extend_unbounded(min_below.saturating_sub(selection_rendered));
 
-    // render above above until we hit the previous selection
+    // render above until we hit the previous selection
     total_remaining -=
         sizes_above.extend_bounded(total_remaining, as_usize(previous.selection - cursor));
 
@@ -80,7 +80,7 @@ pub fn incr_rev(
     let selection_rendered = sizes_below_incl.extend_bounded(total_remaining - padding_top, 1);
     total_remaining -= selection_rendered;
 
-    // render above above until we hit the previous selection, without also filling the bottom
+    // render above until we hit the previous selection, without also filling the bottom
     // padding
     let rendered_above = sizes_above.extend_bounded(
         total_remaining.min(previous.size - min_below),

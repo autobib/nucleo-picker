@@ -9,7 +9,7 @@ use crate::{
     match_list::SelectedIndices,
 };
 
-/// The picker [interface](Interface) which displayes item previews.
+/// The picker [interface](Interface) which displays item previews.
 ///
 /// The type parameter `I` is the base interface, which in practice is either [`Single`] or
 /// [`Multi`]. This interface owns the previewer itself, but do note that if `P` implements
@@ -22,7 +22,7 @@ use crate::{
 /// # Preview cache
 ///
 /// The picker stores generated previews along with scroll position in an LRU cache. This means that
-/// the the internal previewer may not be called to generate the preview pane if previewing already
+/// the internal previewer may not be called to generate the preview pane if previewing already
 /// succeeded earlier. The cache is cleared when processing a [restart event](Event::Restart).
 /// See the [`Preview`] docs for more detail.
 ///

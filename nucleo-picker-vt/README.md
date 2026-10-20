@@ -19,14 +19,14 @@ cargo install cargo-insta
 
 ### Snapshot files on disk
 
-Each `checkpoint!` assertion has an associated `.snap` file with filename combing the test module and snapshot name.
+Each `checkpoint!` assertion has an associated `.snap` file with filename combining the test module and snapshot name.
 For example:
 
 ```text
 scenarios__default__basic@filtered.snap
 ```
 
-THe `.snap` files are tracked by Git.
+The `.snap` files are tracked by Git.
 Each `.snap` file contains two YAML documents:
 
 - A header records the source file, expression, resolved name, and original name expression, as well as a sequence number for the order from the original scenario.
@@ -63,5 +63,5 @@ Changed and new snapshots are written as pending `.snap.new` files, and approved
 To run only one scenario, add its test-name filter:
 
 ```bash
-cargo insta test --package nucleo-picker-vt --test scenarios unicode_scenario
+cargo insta test --package nucleo-picker-vt --test scenarios unicode::basic_unicode
 ```

@@ -199,7 +199,7 @@ fn keybind_core_passthrough<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEvent
     }
 }
 
-/// Convert a crossterm event into an [`Event`], mapping key events with the giving key bindings.
+/// Convert a crossterm event into an [`Event`], mapping key events with the given keybindings.
 pub fn convert_crossterm_event<A, F: FnMut(KeyEvent) -> Option<Event<A>>>(
     ct_event: CrosstermEvent,
     mut keybind: F,

@@ -241,7 +241,76 @@ fn busy_events_do_not_starve_frames_or_status() {
         assert_eq!(response.id, 7);
         assert_eq!(response.query, "x");
         assert!(response.changed);
+        assert!(response.frame_changed);
     }
+}
+
+#[test]
+fn status_changed_accumulates_between_responses() {
+    let mut picker: Picker<&str, _> = PickerOptions::new()
+        .frame_interval(Duration::ZERO)
+        .picker(StrRenderer);
+    let statuses = picker.status_observer();
+    let mut responses = Vec::new();
+    let mut script = [
+        Ok(Event::Status { id: 0 }),
+        Err(RecvError::Timeout),
+        Ok(Event::Redraw),
+        Err(RecvError::Timeout),
+        Err(RecvError::Timeout),
+        Ok(Event::Status { id: 1 }),
+        Err(RecvError::Timeout),
+        Ok(Event::Status { id: 2 }),
+        Err(RecvError::Timeout),
+        Ok(Event::Quit),
+    ]
+    .into_iter();
+    let events = TestEvents(|_| {
+        if let Ok(status) = statuses.try_recv() {
+            responses.push((status.id, status.changed, status.frame_changed));
+        }
+        script.next().unwrap()
+    });
+
+    picker
+        .core
+        .pick_impl::<_, _, (), _>(events, &mut TestTerminal::default(), NoPreview)
+        .unwrap();
+
+    assert_eq!(
+        responses,
+        [(0, true, false), (1, true, false), (2, false, false)]
+    );
+}
+
+#[test]
+fn status_changed_resets_when_an_unread_response_is_produced() {
+    let mut picker: Picker<&str, _> = PickerOptions::new()
+        .frame_interval(Duration::ZERO)
+        .picker(StrRenderer);
+    let statuses = picker.status_observer();
+    let mut script = [
+        Ok(Event::Status { id: 0 }),
+        Err(RecvError::Timeout),
+        Ok(Event::Status { id: 1 }),
+        Err(RecvError::Timeout),
+        Ok(Event::Quit),
+    ]
+    .into_iter();
+
+    picker
+        .core
+        .pick_impl::<_, _, (), _>(
+            TestEvents(|_| script.next().unwrap()),
+            &mut TestTerminal::default(),
+            NoPreview,
+        )
+        .unwrap();
+
+    let status = statuses.try_recv().unwrap();
+    assert_eq!(status.id, 1);
+    assert!(!status.changed);
+    assert!(!status.frame_changed);
 }
 
 #[test]

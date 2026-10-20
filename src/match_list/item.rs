@@ -67,7 +67,7 @@ pub(super) trait ItemListExt: ItemList {
         Incremental::new(vec, self.higher(cursor).map(|item| item.size()))
     }
 
-    /// Wrap the item sizes returned by [`higher_inclusive`](ItemList::higher)
+    /// Wrap the item sizes returned by [`higher_inclusive`](ItemList::higher_inclusive)
     /// into an [`Incremental`].
     fn sizes_higher_inclusive<'a>(
         &self,

@@ -10,7 +10,7 @@
 //! directly into the preview buffer.
 //!
 //! This example could be simplified by using `PoolPreviewer`; see `find_preview` for the details. The
-//! implementation here is provided to give a somewhat simplified by complete reference for implementing `Preview`.
+//! implementation here is provided to give a somewhat simplified but complete reference for implementing `Preview`.
 //! Note that some details are omitted here, mainly around panic handling and job queue growth
 //! management.
 
@@ -152,7 +152,8 @@ fn work(shared: &Shared) {
         };
         // 'starting' means that a worker has picked up the job: this prevents the picker from
         // cancelling the job for reprioritization since we are already working on it. if this is
-        // `None` it means that the job was already cancelled while it was queued
+        // `Err` it means that the job was already cancelled while it was queued
+        // a Result.]
         let Ok(request) = job.start() else {
             continue;
         };

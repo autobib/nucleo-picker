@@ -93,6 +93,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
 
         let mut frame_number = 0_u64;
         let mut handle_status = None;
+        let mut changed_since_status = true;
         let selection = 'selection: loop {
             // whether the preview was enabled on the previous frame
             let preview_was_enabled = frame.preview_enabled();
@@ -239,6 +240,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                 redraw,
             )?;
 
+            changed_since_status |= changed;
             terminal.end_frame(changed)?;
 
             // handle the status event but do not fail if the status notifier
@@ -250,7 +252,8 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                 let _ = notifier.push(PickerStatus {
                     id,
                     query: prompt.contents().to_owned(),
-                    changed,
+                    changed: std::mem::take(&mut changed_since_status),
+                    frame_changed: changed,
                     selection: list.selection(engine),
                     item_count: status.item_count,
                     selected_item_count: list.queued().len(),

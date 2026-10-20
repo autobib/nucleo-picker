@@ -118,7 +118,7 @@ impl<T> Observer<T> {
         channel.0.take().ok_or(RecvError)
     }
 
-    /// Receive a message, blocking for at at most the timeout until a message is available or the
+    /// Receive a message, blocking for at most the timeout until a message is available or the
     /// channel disconnects.
     ///
     /// This operation will fail if no message is received within the given timeout or if there are
@@ -141,7 +141,7 @@ impl<T> Observer<T> {
 
     /// Optimistically receive a message if one is available without blocking the current thread.
     ///
-    /// This operation will fail if there is no message or if there are are no remaining senders.
+    /// This operation will fail if there is no message or if there are no remaining senders.
     pub fn try_recv(&self) -> Result<T, TryRecvError> {
         let (lock, _) = &*self.inner;
         let mut channel = lock.lock();

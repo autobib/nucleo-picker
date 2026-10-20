@@ -64,7 +64,7 @@ pub trait Terminal: Write {
     /// to see if there were no changes to the actual screen content, and suppress writes
     /// in that case as well.
     ///
-    /// For operations which should only be performed if writes actually occurr, override
+    /// For operations which should only be performed if writes actually occur, override
     /// [`begin_render`](Self::begin_render) or [`end_render`](Self::end_render).
     fn end_frame(&mut self, changed: bool) -> io::Result<()> {
         let _ = changed;

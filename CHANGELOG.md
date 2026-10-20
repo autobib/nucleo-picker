@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-### [Unreleased]
+## [Unreleased]
 
 ### Changed
 
@@ -13,11 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `nucleo_picker::nucleo` has been removed: the underlying matching engine is now an implementation detail only
   - `PickerOptions::config` (deprecated since 0.10.0) has been removed.
     Use `PickerOptions::{match_paths, prefer_prefix, normalization, case_matching}` instead.
-  - `Picker::update_config` and `PreviewPicker::update_config` have been removed.
+  - `Picker::update_config` has been removed.
     Runtime matcher configuration updates are no longer supported.
 - The `Picker` has a new type-state parameter `I` which controls the picker behaviour.
   The parameter `I` defaults to `Single`, which is the same behaviour as the old picker.
-  However, other selection modes are no longer available on the base picker and instead require first changing the type-state.
+  Other selection modes require first changing the type-state.
   - `Picker::pick_multi*` has been deprecated.
     Instead, use the new multi-selection picker type directly with `Picker::multi`, or locally use `Picker::as_multi().pick*()`.
   - The previewer (detailed below) is also a separate type-state available using `Picker::with_preview`.
@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added new `Layout` event, for events which influence the layout of the screen.
   This includes a new toggle for the status line, which is not bound by default.
 - Added an `IntoIterator` implementation for `Selection`
+- Picker status responses now distinguish two events:
+  - `changed` means that the frame changed since the previous status request
+  - `frame_changed` means that a changed occurred in frame during which the status event was actually processed
 
 ### Fixed
 
@@ -42,11 +45,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Resize events are now handled sooner to decrease screen flashes caused by terminal repaint without a layout change.
 - Fixed path prefix bonus scoring inconsistencies
 
-### [0.12.2] - 2026-09-04
+## [0.12.2] - 2026-09-04
 
 ### Fixed
 
-- Fixed suprious observer wakeups and potential incorrect reporting of channel disconnection with cloned observers simultaneously.
+- Fixed spurious observer wakeups and potential incorrect reporting of channel disconnection with cloned observers simultaneously.
 - We now only poll the underlying matching engine when there are actually changes to read.
   This can decrease frame tail latency under very heavy matching load.
 
@@ -56,7 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added configuration options to set decorative UI chars.
   New methods: `PickerOptions::{prompt_indicator, selection_indicator, queued_indicator, truncation_ellipsis, separator, ascii_compatible}`
 
-## Changed
+### Changed
 - Unicode NFC canonicalization is now always applied when sending items to the picker.
   If you were previously canonicalizing your input, you can now skip this step as it is done internally.
 
@@ -147,7 +150,7 @@ Happy new year!
 - **Breaking** `PickerOptions::right_highlight_padding` (deprecated since `0.6.2`) has been removed.
 
 ### Added
-- New options for the sorting the match list, which are particularly useful when the desired behaviour is to *filter* rather than to *sort by score*.
+- New options for sorting the match list, which are particularly useful when the desired behaviour is to *filter* rather than to *sort by score*.
   - `PickerOptions::sort_results`: which enables or disables sorting by score.
   - `PickerOptions::reverse_items`: prioritize higher index over lower index items.
 - New method `Injector::extend_exact` for batch insertion when the number of added items is known in advance.
@@ -193,7 +196,7 @@ Happy new year!
 - Reset selection to beginning of match list `ctrl + 0`.
 - New `PickerOptions::frame_interval` option to customize the refresh rate of the picker.
 - Reversed rendering with `PickerOptions::reversed`
-- New `Picker::pick_with_io` and `Picker::pick_with_keybind` functions that allows much greater IO customization.
+- New `Picker::pick_with_io` and `Picker::pick_with_keybind` functions that allow much greater IO customization.
   - Provide your own `Writer`.
   - Customize keybindings using a `StdinReader`.
   - Drive the picker using a `mpsc` channel.
@@ -230,8 +233,8 @@ Happy new year!
 
 ### Added
 - Added configuration for prompt padding and scroll padding.
-- Added key-bindings to go forward and backward by word, and to clear before and after cursor.
-- Support deleting next character (i.e. `Delete` on windows, and `fn + delete` on MacOS).
+- Added keybindings to go forward and backward by word, and to clear before and after cursor.
+- Support deleting next character (i.e. `Delete` on Windows, and `fn + delete` on macOS).
 
 ### Deprecated
 - `PickerOptions::right_highlight_padding` has been deprecated; use `PickerOptions::highlight_padding` instead.
@@ -272,8 +275,8 @@ Happy new year!
 
 ### Added
 - Match highlighting. (#9)
-- Robust Unicode and multi-line support
-  - Correctly renders multi-line items
+- Robust Unicode and multiline support
+  - Correctly renders multiline items
   - Unicode width computations to correctly handle double-width and zero-width graphemes.
 - Full match item scrollback
 - Convenient `Render` implementations in new `render` module.

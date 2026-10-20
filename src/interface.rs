@@ -121,7 +121,7 @@ where
         self.pick_with_keybind(I::default_keybind)
     }
 
-    /// Run the picker interactively using custom key-bindings.
+    /// Run the picker interactively using custom keybindings.
     ///
     /// See the documentation for [`Picker::pick_with_keybind`](crate::Picker::pick_with_keybind) for
     /// more details on the behaviour.

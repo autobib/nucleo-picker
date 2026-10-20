@@ -23,7 +23,7 @@ File                                         | Description
 [preview.rs](preview.rs)                     | A minimal blocking example with a preview pane.
 [custom_io.rs](custom_io.rs)                 | Customize IO with keybindings and alternative writer.
 [find.rs](find.rs)                           | A basic [find](https://en.wikipedia.org/wiki/Find_(Unix)) implementation with fuzzy matching on resulting items.
-[find_preview.rs](find_preview.rs)           | A find impementation with asynchronous file previews.
+[find_preview.rs](find_preview.rs)           | A find implementation with asynchronous file previews.
 [find_preview_full.rs](find_preview_full.rs) | A version of the `find_preview` example but with a detailed `Preview` implementation.
 [fzf_basic.rs](fzf_basic.rs)                 | A simplified [fzf](https://github.com/junegunn/fzf) clone which presents lines from STDIN for matching.
 [fzf_err_handling.rs](fzf_err_handling.rs)   | A simplified version of the `fzf` example using channels to propagate read errors.

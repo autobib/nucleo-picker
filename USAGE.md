@@ -17,16 +17,17 @@ There is also a special syntax for various types of exact matches.
 - `foo$` matches an exact suffix, with negation `!foo$`
 - `^foo$` matches the entire string exactly, with negation `!^foo$`
 
-Note that the negations must match exactly.
+Here, 'exact' means non-fuzzy matching, but still follow the same case-matching and normalization rules.
 The negation does not impact scoring: instead, any match for a negative atom is simply discarded, regardless of score.
 
-Whitespace (that is, anything with the [Unicode whitespace property](https://www.unicode.org/Public/UCD/latest/ucd/PropList.txt)) and control symbols `'^$!` can also be interpreted literally by escaping with a backslash `\`.
+Whitespace (that is, anything with the [Unicode whitespace property](https://www.unicode.org/Public/UCD/latest/ucd/PropList.txt)) and control symbols `'^$!` at the beginning/end respectively can also be interpreted literally by escaping with a backslash `\`.
 Otherwise, backslashes are interpreted literally; in particular, backslashes do not need to be escaped.
 For example:
 
 - `\ ` matches the literal space ` `.
 - `\\` and `\a` match, respectively, literal `\\` and `\a`.
 - The query `fo\$ ^bar` means that we match for strings which contain `fo$` (or similar), and which begin with the exact string `bar`.
+- `a\$b` is a literal `\$b`.
 
 
 ## Keyboard shortcuts
@@ -36,7 +37,7 @@ Most of these bindings are relatively standard, with some exceptions like `ctrl 
 Note on macOS the alt keybindings may not work by default, depending on your keyboard configuration.
 Some terminals have a specific feature to forward `⌥` as alt.
 
-Key bindings(s)                    | Action
+Keybindings                        | Action
 -----------------------------------|--------------------
 ctrl + c                           | Abort
 ⏎                                  | Select and Quit
@@ -59,7 +60,7 @@ ctrl + w                           | Backspace Word
 
 There are also special keybindings which are only enabled in multi-selection mode.
 
-Key bindings(s)                    | Action
+Keybindings                        | Action
 -----------------------------------|--------------------
 shift + ⇥                          | Toggle Queue And Selection Up
 ⇥                                  | Toggle Queue And Selection Down
@@ -68,17 +69,21 @@ ctrl + -                           | Unqueue All
 
 There are also special keybindings which are only used to manipulate the preview pane.
 
-Key bindings(s)                    | Action
+Keybindings                        | Action
 -----------------------------------|--------------------
 shift + ↑                          | Preview Up 1 Line
 shift + ↓                          | Preview Down 1 Line
 shift + ⇞                          | Preview Up 1 Page
 shift + ⇟                          | Preview Down 1 Page
+shift + ⇱                          | Preview Align Left
+shift + ⇲                          | Preview Align Right
 alt + n                            | Toggle Preview Line Numbers
 alt + p                            | Toggle Preview
 alt + ,                            | Grow Preview 1 Column
 alt + .                            | Shrink Preview 1 Column
 ctrl + r                           | Refresh Preview
+shift + ←                          | Preview Left 1 Column
+shift + →                          | Preview Right 1 Column
 
 
 ## Scroll and paste
@@ -91,8 +96,8 @@ This is mainly relevant when pasting text into the query.
 
 ## Terminal support for Unicode
 Unicode rendering is a difficult issue since the application and the terminal must agree on how much space each grapheme occupies on the screen.
-The picker library uses [unicode-width](https://docs.rs/unicode-width/latest/unicode_width/#rules-for-determining-width); but old terminals without modern grapheme often use [wcwidth](https://man7.org/linux/man-pages/man3/wcwidth.3.html) or other bespoke solutions.
+The picker library uses [unicode-width](https://docs.rs/unicode-width/latest/unicode_width/#rules-for-determining-width); but old terminals without modern grapheme support often use [wcwidth](https://man7.org/linux/man-pages/man3/wcwidth.3.html) or other bespoke solutions.
 This can cause many rendering issues, such as line overflow and other types of screen corruption.
 
 There is currently no check for mode 2027 support, but this may be added in the future for better terminal compatibility.
-Terminal rendering currently works properly on [foot](https://codeberg.org/dnkl/foot), [contour](https://contour-terminal.org/), [ghostty](https://ghostty.org), and [wezterm](https://wezterm.org/index.html)
+Terminal rendering currently works properly on [foot](https://codeberg.org/dnkl/foot), [contour](https://contour-terminal.org/), [ghostty](https://ghostty.org), and [wezterm](https://wezterm.org/index.html).

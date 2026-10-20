@@ -15,7 +15,7 @@
 //! - The [`StdinEventSender`] to read events from standard input and send them through a
 //!   [mpsc channel](std::sync::mpsc::channel).
 //! - The [default keybindings](keybind_default), which are also useful to provide fallbacks for
-//!   keybind customization
+//!   keybinding customization
 //!
 //! For somewhat comprehensive examples, see the [extended fzf error handling
 //! example](https://github.com/autobib/nucleo-picker/blob/master/examples/fzf_err_handling.rs) or
@@ -228,7 +228,7 @@ pub struct PickerStatus {
     pub id: u64,
     /// The query string.
     pub query: String,
-    /// The index of the cursor in the ordered match list, or none of there are no matching items.
+    /// The index of the cursor in the ordered match list, or `None` if there are no matching items.
     pub selection: Option<u32>,
     /// The total number of items available to match against.
     pub item_count: u32,
@@ -240,8 +240,10 @@ pub struct PickerStatus {
     pub width: u16,
     /// The height of the picker screen.
     pub height: u16,
-    /// Whether there were any changes since the previous status request.
+    /// Whether any frame required rendering since the previous status request.
     pub changed: bool,
+    /// Whether the exact frame during which this status response required rendering.
+    pub frame_changed: bool,
     /// Whether the internal match engine is processing matches.
     pub matching: bool,
     /// Whether there are any active injectors.
@@ -283,7 +285,7 @@ impl From<RecvTimeoutError> for RecvError {
 /// provided implementations:
 ///
 /// - An implementation for [`StdinReader`], which reads key events interactively from standard
-///   input and supports custom key bindings.
+///   input and supports custom keybindings.
 /// - An implementation for the [`Receiver`] end of a [`sync::mpsc`](std::sync::mpsc) channel.
 ///
 /// The [`Receiver`] implementation means, in most cases, you can simply run an event driver in a
@@ -356,7 +358,7 @@ impl From<RecvTimeoutError> for RecvError {
 /// };
 ///
 ///
-/// // initialize a mpsc channel; we use see the 'sender' end to communicate with the picker
+/// // initialize a mpsc channel; we use the 'sender' end to communicate with the picker
 /// let (sender, receiver) = channel();
 ///
 /// let mut picker = Picker::new(StrRenderer);
@@ -442,7 +444,7 @@ impl<A> EventSource for Receiver<Event<A>> {
 }
 
 /// An [`EventSource`] implementation which reads events from [`io::Stdin`] and maps key
-/// events to events using a keybind closure.
+/// events to events using a keybinding closure.
 ///
 /// The default implementation uses the [`keybind_default`] function for keybindings.
 ///
@@ -532,7 +534,7 @@ impl<A> StdinEventSender<A> {
 }
 
 impl<A, F: Fn(KeyEvent) -> Option<Event<A>>> StdinEventSender<A, F> {
-    /// Watch for events until either the receiver is dropped (in which case `Ok(())` is returned),
+    /// Watch for terminal IO events until either the receiver is dropped (in which case `Ok(())` is returned),
     /// or there is an IO error while reading from standard input. This method will block the
     /// current thread until the channel disconnects or a read fails.
     ///

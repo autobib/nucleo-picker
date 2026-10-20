@@ -153,7 +153,7 @@ impl PreviewBuffer {
 
     /// Clear this buffer, retaining the underlying allocations.
     ///
-    /// This removes all lines and styles (leaving a single empty line) resets the error flag, and
+    /// This removes all lines and styles (leaving a single empty line), resets the error flag, and
     /// sets the line-number preference to `false`.
     pub fn clear(&mut self) {
         self.text.clear();
@@ -206,7 +206,7 @@ impl PreviewBuffer {
         self.push_styled_str(text, ContentStyle::default());
     }
 
-    /// Append an unstyled segment to the current line in the buffer in the given style.
+    /// Append an styled segment to the current line in the buffer in the given style.
     ///
     /// The text must not contain control characters, or the terminal window will be corrupted.
     ///
@@ -359,7 +359,7 @@ impl PreviewBuffer {
         self.lines.get(index).map(|line| self.line_view(line))
     }
 
-    /// Iterate over the all of the lines in this buffer.
+    /// Iterate over all of the lines in this buffer.
     #[inline]
     pub fn lines(&self) -> impl DoubleEndedIterator<Item = PreviewLine<'_>> + ExactSizeIterator {
         self.lines.iter().map(|line| self.line_view(line))

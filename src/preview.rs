@@ -7,7 +7,7 @@
 //! In many cases, you can avoid the full details of implementing a previewer:
 //!
 //! - For fast non-blocking previews, see [`SyncPreviewer`].
-//! - For slow previews that should be performed in a background threadpool, see [`PoolPreviewer`].
+//! - For slow previews that should be performed in a background thread pool, see [`PoolPreviewer`].
 //!
 //! If you are doing something more complicated, start at the [`Preview`] documentation and then
 //! proceed with the [`request`] module. There are also full implementation examples in the
@@ -60,7 +60,7 @@
 //! # Ok(())
 //! # }
 //! ```
-//! 
+//!
 //! ### Extended example
 //!
 //! This example uses a stateful previewer. Run this example with
@@ -206,7 +206,7 @@ impl Default for PreviewConfig {
 ///
 /// ## Preview priority
 ///
-/// The picker will only request previews for items which are either immediately required by the
+/// The picker will only request previews for items which are immediately required by the
 /// interface. In particular, requests should be handled in last-in first-out (LIFO) order. Since
 /// preview requests may become stale (for instance, if the highlighted item has moved many
 /// times and there is backlog), the picker will re-prioritize preview requests by cancelling
@@ -289,7 +289,7 @@ pub trait Preview<T> {
     /// [`Event::Restart`](crate::event::Event::Restart)) is processed by the picker. Note that
     /// this method is called *after* clearing the preview cache, cancelling pending requests, and
     /// the call to `focus_changed(None)` (if one was made since the focus was active before the
-    /// restart), and *before* restarting the underlying match item.
+    /// restart), and *before* restarting the underlying matching engine.
     ///
     /// This method runs on the picker thread and therefore must not block. If it blocks, the picker
     /// interface will lag.
