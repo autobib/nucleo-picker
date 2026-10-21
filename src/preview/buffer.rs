@@ -105,12 +105,13 @@ use memchr::memchr;
 pub struct PreviewBuffer {
     text: String,
     lines: Vec<LineIndex>,
+    active_line: LineIndex,
     styles: Vec<StyleSpan>,
     is_err: bool,
     line_numbers: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct LineIndex {
     text: Range<usize>,
     styles: Range<usize>,
@@ -134,23 +135,26 @@ pub struct PreviewLine<'a> {
 
 impl Default for PreviewBuffer {
     fn default() -> Self {
-        Self {
-            text: String::new(),
-            lines: vec![LineIndex {
-                text: 0..0,
-                styles: 0..0,
-            }],
-            styles: Vec::new(),
-            is_err: false,
-            line_numbers: false,
-        }
+        Self::new()
     }
 }
 
 impl PreviewBuffer {
-    /// Initialize a new buffer containing a single empty line.
-    pub fn new() -> Self {
-        Self::default()
+    /// Initialize a new buffer consisting of a single empty line.
+    ///
+    /// This is the same as the [`Default`] implementation, but as a const function.
+    pub const fn new() -> Self {
+        Self {
+            text: String::new(),
+            lines: Vec::new(),
+            active_line: LineIndex {
+                text: 0..0,
+                styles: 0..0,
+            },
+            styles: Vec::new(),
+            is_err: false,
+            line_numbers: false,
+        }
     }
 
     /// Clear this buffer, retaining the underlying allocations.
@@ -161,7 +165,7 @@ impl PreviewBuffer {
         self.text.clear();
         self.lines.clear();
         self.styles.clear();
-        self.push_empty_line();
+        self.active_line = LineIndex::default();
         self.is_err = false;
         self.line_numbers = false;
     }
@@ -228,7 +232,7 @@ impl PreviewBuffer {
         }
 
         self.text.push_str(text);
-        let line = self.lines.last_mut().unwrap();
+        let line = &mut self.active_line;
         let start = line.text.len();
         line.text.end = self.text.len();
         let end = line.text.len();
@@ -315,7 +319,14 @@ impl PreviewBuffer {
     /// Complete the current line and start the next empty line.
     #[inline]
     pub fn newline(&mut self) {
-        self.push_empty_line();
+        let text_start = self.text.len();
+        let style_start = self.styles.len();
+        let next_line = LineIndex {
+            text: text_start..text_start,
+            styles: style_start..style_start,
+        };
+        self.lines
+            .push(std::mem::replace(&mut self.active_line, next_line));
     }
 
     /// Append an unstyled segment to the current line, then start a new line.
@@ -345,33 +356,36 @@ impl PreviewBuffer {
         self.newline();
     }
 
-    fn push_empty_line(&mut self) {
-        let text_start = self.text.len();
-        let style_start = self.styles.len();
-        self.lines.push(LineIndex {
-            text: text_start..text_start,
-            styles: style_start..style_start,
-        });
-    }
-
     /// Get the `n`th line in the buffer as a string slice, excluding the newline and carriage
     /// return (if any).
     #[inline]
     pub fn line(&self, index: usize) -> Option<PreviewLine<'_>> {
-        self.lines.get(index).map(|line| self.line_view(line))
+        let line = if index == self.lines.len() {
+            &self.active_line
+        } else {
+            self.lines.get(index)?
+        };
+        Some(self.line_view(line))
     }
 
     /// Iterate over all of the lines in this buffer.
     #[inline]
     pub fn lines(&self) -> impl DoubleEndedIterator<Item = PreviewLine<'_>> + ExactSizeIterator {
-        self.lines.iter().map(|line| self.line_view(line))
+        // An index range preserves exact sizing and constant-time skips in both directions.
+        (0..self.lines.len() + 1)
+            .map(|index| self.line_view(self.lines.get(index).unwrap_or(&self.active_line)))
     }
 
     #[inline]
     fn line_view(&self, line: &LineIndex) -> PreviewLine<'_> {
-        PreviewLine {
-            text: &self.text[line.text.clone()],
-            styles: &self.styles[line.styles.clone()],
+        // SAFETY: Both callers pass a line from this buffer. Its ranges are recorded from
+        // buffer lengths and extended only after appending, so they remain ordered and in
+        // bounds. Text endpoints are UTF-8 boundaries because only &str values are appended.
+        unsafe {
+            PreviewLine {
+                text: self.text.get_unchecked(line.text.clone()),
+                styles: self.styles.get_unchecked(line.styles.clone()),
+            }
         }
     }
 }
@@ -402,7 +416,10 @@ impl<'a> PreviewLine<'a> {
                 }
                 None => (text.len(), ContentStyle::default()),
             };
-            let content = &text[offset..end];
+            // SAFETY: Spans are ordered, non-overlapping ranges within this line, with UTF-8
+            // boundaries recorded when appending &str values. `offset` is zero or a previous
+            // endpoint, and `end` is the next span boundary or text.len().
+            let content = unsafe { text.get_unchecked(offset..end) };
             offset = end;
             Some(style.apply(content))
         })
