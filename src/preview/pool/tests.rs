@@ -18,6 +18,8 @@ use crate::{
     render::StrRenderer,
 };
 
+mod scheduling;
+
 const WAIT: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
@@ -140,7 +142,7 @@ fn from_workers_rejects_empty_input() {
 }
 
 #[test]
-fn from_workers_accepts_non_clone_workers_and_borrowed_iterators() {
+fn from_workers_runs_non_clone_send_only_workers_from_a_borrowed_iterator() {
     struct OwnedWorker(Worker);
 
     impl PreviewWorker<&'static str> for OwnedWorker {
@@ -155,30 +157,37 @@ fn from_workers_accepts_non_clone_workers_and_borrowed_iterators() {
     }
 
     let caller = thread::current().id();
-    let created = Rc::new(Cell::new(false));
+    let created = Rc::new(Cell::new(0));
     let (started_tx, started_rx) = unbounded();
     let (release_tx, release_rx) = unbounded();
-    let workers = std::iter::from_fn(|| {
+    let workers = (0..3).map(|_| {
         assert_eq!(thread::current().id(), caller);
-        if created.replace(true) {
-            return None;
-        }
-        Some(OwnedWorker(Worker {
+        created.set(created.get() + 1);
+        OwnedWorker(Worker {
             started: started_tx.clone(),
             release: release_rx.clone(),
             calls: Cell::new(0),
-        }))
+        })
     });
     let mut pool = PoolPreviewer::from_workers(workers).unwrap();
-    assert!(created.get());
+    assert_eq!(created.get(), 3);
 
     let picker = picker();
-    let pending = submit(&mut pool, &picker, 0, PreviewBuffer::new());
-    let started = started_rx.recv_timeout(WAIT).unwrap();
-    assert_eq!(started.item, "first");
-    assert_ne!(started.thread, caller);
-    release_tx.send(false).unwrap();
-    assert_eq!(ready(pending).line(0).unwrap().as_str(), "first");
+    let mut pending = Vec::new();
+    let mut threads = HashSet::new();
+    for idx in 0..3 {
+        pending.push(submit(&mut pool, &picker, idx, PreviewBuffer::new()));
+        let started = started_rx.recv_timeout(WAIT).unwrap();
+        assert_eq!(started.call, 1);
+        assert_ne!(started.thread, caller);
+        assert!(threads.insert(started.thread));
+    }
+    for _ in 0..3 {
+        release_tx.send(false).unwrap();
+    }
+    for (pending, expected) in pending.into_iter().zip(["first", "second", "third"]) {
+        assert_eq!(ready(pending).line(0).unwrap().as_str(), expected);
+    }
 }
 
 #[test]
@@ -327,15 +336,16 @@ fn default_workers_initialize_asynchronously_and_stay_on_their_threads() {
         assert!(created.insert(id));
     }
     let picker = picker();
-    let pending: Vec<_> = (0..3)
-        .map(|idx| submit(&mut pool, &picker, idx, PreviewBuffer::new()))
-        .collect();
+    let mut pending = vec![submit(&mut pool, &picker, 0, PreviewBuffer::new())];
     assert!(events.try_recv().is_err());
     for _ in 0..3 {
         initialize.send(()).unwrap();
     }
     let mut previewed = HashSet::new();
-    for _ in 0..3 {
+    for idx in 0..3 {
+        if idx != 0 {
+            pending.push(submit(&mut pool, &picker, idx, PreviewBuffer::new()));
+        }
         let Lifecycle::Previewed {
             created,
             current,
@@ -452,37 +462,12 @@ fn shutdown_waits_for_default_initialization() {
     INITIALIZE.set(initialize_rx).unwrap();
     let pool = PoolPreviewer::with_default_workers::<WaitingDefault>(NonZeroUsize::new(1).unwrap())
         .unwrap();
-    let shared = Arc::clone(&pool.shared);
+    let shared = Arc::clone(&pool.pool.shared);
     let shutdown = thread::spawn(move || drop(pool));
     wait_until(|| shared.state.lock().jobs.is_none());
     assert!(!shutdown.is_finished());
     initialize.send(()).unwrap();
     shutdown.join().unwrap();
-}
-
-#[test]
-fn dispatches_newest_first_and_skips_cancelled_requests() {
-    let picker = picker();
-    let (mut pool, started, release) = pool(1);
-    let first = submit(&mut pool, &picker, 0, PreviewBuffer::new());
-    assert_eq!(started.recv_timeout(WAIT).unwrap().item, "first");
-
-    let second = submit(&mut pool, &picker, 1, PreviewBuffer::new());
-    let cancelled = submit(&mut pool, &picker, 2, PreviewBuffer::new());
-    let fourth = submit(&mut pool, &picker, 3, PreviewBuffer::new());
-    cancelled.reader.cancel_any();
-
-    release.send(false).unwrap();
-    let next = started.recv_timeout(WAIT).unwrap();
-    assert_eq!((next.item, next.call), ("fourth", 2));
-    release.send(false).unwrap();
-    let next = started.recv_timeout(WAIT).unwrap();
-    assert_eq!((next.item, next.call), ("second", 3));
-    release.send(false).unwrap();
-
-    for (pending, expected) in [(first, "first"), (second, "second"), (fourth, "fourth")] {
-        assert_eq!(ready(pending).line(0).unwrap().as_str(), expected);
-    }
 }
 
 #[test]
@@ -517,9 +502,12 @@ fn reuses_worker_state_and_buffers_after_cancellation_and_publication() {
 #[test]
 fn bounds_cancelled_backlog_and_drops_queued_work_on_shutdown() {
     let picker = picker();
-    let (mut pool, started, release) = pool(1);
-    let active = submit(&mut pool, &picker, 0, PreviewBuffer::new());
-    started.recv_timeout(WAIT).unwrap();
+    let (mut pool, started, release) = pool(2);
+    let active = [0, 1].map(|idx| {
+        let pending = submit(&mut pool, &picker, idx, PreviewBuffer::new());
+        started.recv_timeout(WAIT).unwrap();
+        pending
+    });
 
     let pending: Vec<_> = (0..64)
         .map(|_| submit(&mut pool, &picker, 1, PreviewBuffer::new()))
@@ -530,50 +518,34 @@ fn bounds_cancelled_backlog_and_drops_queued_work_on_shutdown() {
             .cancel_any();
     }
     {
-        let state = pool.shared.state.lock();
+        let state = pool.pool.shared.state.lock();
         let jobs = state.jobs.as_ref().unwrap();
         assert_eq!(
-            jobs.iter().filter(|job| !job.is_cancelled()).count(),
-            pending.len()
+            jobs.urgent
+                .iter()
+                .chain(&jobs.background)
+                .filter(|job| !job.is_cancelled())
+                .count(),
+            2
         );
-        assert!(jobs.len() <= 2 * (pending.len() + MIN_PRUNE_AT));
+        assert_eq!(jobs.background.len(), 2);
     }
 
-    let shared = Arc::clone(&pool.shared);
+    let shared = Arc::clone(&pool.pool.shared);
     let shutdown = thread::spawn(move || drop(pool));
     wait_until(|| shared.state.lock().jobs.is_none());
     assert!(!shutdown.is_finished());
-    release.send(false).unwrap();
+    for _ in 0..2 {
+        release.send(false).unwrap();
+    }
     shutdown.join().unwrap();
-    assert_eq!(ready(active).line(0).unwrap().as_str(), "first");
+    for (pending, expected) in active.into_iter().zip(["first", "second"]) {
+        assert_eq!(ready(pending).line(0).unwrap().as_str(), expected);
+    }
     for pending in pending {
         assert!(completed(pending).is_err());
     }
     assert!(started.try_recv().is_err());
-}
-
-#[test]
-fn runs_send_only_workers_concurrently_on_the_requested_threads() {
-    let picker = picker();
-    let (mut pool, started, release) = pool(3);
-    let pending: Vec<_> = (0..3)
-        .map(|idx| submit(&mut pool, &picker, idx, PreviewBuffer::new()))
-        .collect();
-    let mut threads = HashSet::new();
-    for _ in 0..3 {
-        let started = started.recv_timeout(WAIT).unwrap();
-        assert_eq!(started.call, 1);
-        assert_ne!(started.thread, thread::current().id());
-        threads.insert(started.thread);
-    }
-    assert_eq!(threads.len(), 3);
-    for _ in 0..3 {
-        release.send(false).unwrap();
-    }
-    drop(pool);
-    for pending in pending {
-        assert!(completed(pending).is_ok());
-    }
 }
 
 #[test]
@@ -583,10 +555,12 @@ fn worker_panic_releases_requests_and_propagates_on_submission() {
     assert!(!pool.is_closed());
     let panicking = submit(&mut pool, &picker, 4, PreviewBuffer::new());
     started.recv_timeout(WAIT).unwrap();
+    let background = submit(&mut pool, &picker, 1, PreviewBuffer::new());
     let queued = submit(&mut pool, &picker, 0, PreviewBuffer::new());
     release.send(false).unwrap();
 
     assert!(completed(panicking).is_err());
+    assert!(completed(background).is_err());
     assert!(completed(queued).is_err());
     assert!(pool.is_closed());
     let panic = catch_unwind(AssertUnwindSafe(|| {

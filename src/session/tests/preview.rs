@@ -7,8 +7,9 @@ use crate::{
     error::PickError,
     event::{Event, EventSource, LayoutEvent},
     preview::{
-        PreviewBuffer, PreviewEvent, SyncPreviewer, WithPreview, pane::tests::support::*,
-        request::QueuedPreviewRequest,
+        Preview, PreviewBuffer, PreviewEvent, SyncPreviewer, WithPreview,
+        pane::tests::support::*,
+        request::{PreviewRequest, PreviewResponse, QueuedPreviewRequest},
     },
     rect::Area,
     render::StrRenderer,
@@ -56,6 +57,7 @@ struct TestTerminal {
     cleanups: usize,
     sizes: VecDeque<(u16, u16)>,
     size_override: Option<Rc<Cell<(u16, u16)>>>,
+    render_count: Option<Rc<Cell<usize>>>,
     changed: Vec<bool>,
     fail_write: bool,
     fail_cleanup: bool,
@@ -71,6 +73,9 @@ impl io::Write for TestTerminal {
     }
 
     fn flush(&mut self) -> io::Result<()> {
+        if let Some(count) = &self.render_count {
+            count.set(count.get() + 1);
+        }
         Ok(())
     }
 }
@@ -102,6 +107,71 @@ impl Terminal for TestTerminal {
         self.changed.push(changed);
         Ok(())
     }
+}
+
+#[test]
+fn prefetch_follows_rendering_and_progresses_on_idle_frames() {
+    struct Previewer {
+        render_count: Rc<Cell<usize>>,
+        prefetched: Vec<(&'static str, usize)>,
+    }
+
+    impl Preview<&'static str> for Previewer {
+        fn prefetch_limit(&self) -> usize {
+            3
+        }
+
+        fn preview(
+            &mut self,
+            request: PreviewRequest<'_, &'static str>,
+            _: Duration,
+        ) -> PreviewResponse {
+            let item = request.item();
+            let mut buffer = request.ready();
+            buffer.push_str(item);
+            PreviewResponse::Ready(buffer)
+        }
+
+        fn prefetch(
+            &mut self,
+            request: PreviewRequest<'_, &'static str>,
+            timeout: Duration,
+        ) -> Result<PreviewResponse, PreviewBuffer> {
+            self.prefetched
+                .push((*request.item(), self.render_count.get()));
+            Ok(self.preview(request, timeout))
+        }
+    }
+
+    let render_count = Rc::new(Cell::new(0));
+    let mut previewer = Previewer {
+        render_count: Rc::clone(&render_count),
+        prefetched: Vec::new(),
+    };
+    let mut terminal = TestTerminal {
+        render_count: Some(render_count),
+        ..TestTerminal::default()
+    };
+    let mut picker = PickerOptions::new()
+        .reverse_items(false)
+        .sort_results(false)
+        .frame_interval(Duration::from_secs(5))
+        .picker(StrRenderer);
+    picker.push_batch(["a", "b", "c", "d"]);
+    settle(&mut picker);
+    let events = Events(VecDeque::from([
+        Err(RecvError::Timeout),
+        Ok(Event::MatchList(MatchListEvent::Up(1))),
+        Err(RecvError::Timeout),
+        Ok(Event::Quit),
+    ]));
+    picker
+        .with_preview(&mut previewer)
+        .pick_with_terminal_io(events, &mut terminal)
+        .unwrap();
+
+    assert_eq!(previewer.prefetched, [("b", 1), ("c", 1), ("d", 2)]);
+    assert_eq!(terminal.changed, [false, true]);
 }
 
 #[test]
@@ -962,7 +1032,7 @@ fn toggling_the_pane_reports_focus_and_coalesces_hidden_navigation() {
 }
 
 #[test]
-fn revealing_the_same_item_preserves_its_request_after_hidden_navigation() {
+fn revealing_the_same_item_only_resubmits_queued_previews() {
     for defer in [false, true] {
         let picker = picker(["alpha", "beta"]);
         let mut previewer = TestPreviewer {
@@ -988,7 +1058,14 @@ fn revealing_the_same_item_preserves_its_request_after_hidden_navigation() {
             previewer.focused,
             [Some("alpha"), None, Some("alpha"), None]
         );
-        assert_eq!(previewer.requested, ["alpha"]);
+        assert_eq!(
+            previewer.requested,
+            if defer {
+                &["alpha", "alpha"][..]
+            } else {
+                &["alpha"][..]
+            }
+        );
     }
 }
 

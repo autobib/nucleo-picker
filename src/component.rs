@@ -46,10 +46,12 @@ pub(crate) trait PreviewComponent<T> {
 
     fn update<R>(
         &mut self,
-        selected: Option<u32>,
+        selected_rank: Option<u32>,
         engine: &MatchEngine<T, R>,
         deadline: Instant,
     ) -> bool;
+
+    fn prefetch<R>(&mut self, engine: &MatchEngine<T, R>, deadline: Instant);
 
     /// Do extra processing when a preview frame is hidden.
     fn hide(&mut self);
@@ -76,12 +78,13 @@ impl<T> PreviewComponent<T> for NoPreview {
     fn handle(&mut self, _event: PreviewEvent, _selected_id: Option<u32>) {}
     fn update<R>(
         &mut self,
-        _selected: Option<u32>,
+        _selected_rank: Option<u32>,
         _engine: &MatchEngine<T, R>,
         _deadline: Instant,
     ) -> bool {
         false
     }
+    fn prefetch<R>(&mut self, _engine: &MatchEngine<T, R>, _deadline: Instant) {}
     fn hide(&mut self) {}
     fn restart(&mut self) {}
 }
@@ -107,11 +110,14 @@ impl<T, C: PreviewComponent<T>> PreviewComponent<T> for &mut C {
     }
     fn update<R>(
         &mut self,
-        selected: Option<u32>,
+        selected_rank: Option<u32>,
         engine: &MatchEngine<T, R>,
         deadline: Instant,
     ) -> bool {
-        (**self).update(selected, engine, deadline)
+        (**self).update(selected_rank, engine, deadline)
+    }
+    fn prefetch<R>(&mut self, engine: &MatchEngine<T, R>, deadline: Instant) {
+        (**self).prefetch(engine, deadline);
     }
     fn hide(&mut self) {
         (**self).hide();

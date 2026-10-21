@@ -21,6 +21,8 @@ use crate::{
 ///
 /// # Preview cache
 ///
+/// ## Standard cache
+///
 /// The picker stores generated previews along with scroll position in an LRU cache. This means that
 /// the internal previewer may not be called to generate the preview pane if previewing already
 /// succeeded earlier. The cache is cleared when processing a [restart event](Event::Restart).
@@ -33,6 +35,12 @@ use crate::{
 /// and pending requests continue to be handled, but no new preview requests will be made
 /// automatically. Note that all preview-related events (such as pane movement and refresh) are
 /// ignored while hidden.
+///
+/// ## Prefetch cache
+///
+/// The preview implementation `P` may decide that prefetch is worthwhile (see [`Preview::prefetch`]
+/// and [`Preview::prefetch_limit`]), in which case the picker will also maintain an internal
+/// prefetch cache, separate from the main cache.
 pub struct WithPreview<I, P> {
     interface: I,
     previewer: P,

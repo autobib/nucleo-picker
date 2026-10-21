@@ -46,6 +46,13 @@
 //! preview to display indefinitely as loading: if the request was dropped because it cannot be
 //! satisfied, the previewer should instead satisfy the request by publishing an error.
 //!
+//! ## Prefetch
+//!
+//! The picker also coordinates pre-emptive ("prefetch") requests with the previewer. Prefetch
+//! cancellation logic is handled differently: requests are only retried when the match list or
+//! cursor changes. If a prefetched item which becomes highlighted (so a normal request is sent),
+//! the prefetch request is cancelled if not yet active and upgraded to a normal request.
+//!
 //! ### Basic example
 //!
 //! Here is a simple coordination example with a single preview worker at the other end of a MPSC

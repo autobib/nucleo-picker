@@ -1,7 +1,10 @@
 use super::super::*;
 use crate::{
     Picker, PickerOptions,
-    preview::{ItemId, ItemRef, request::QueuedPreviewRequest},
+    preview::{
+        ItemId, ItemRef,
+        request::{ActivePreviewRequest, PreviewResponse, QueuedPreviewRequest},
+    },
     render::StrRenderer,
 };
 
@@ -13,15 +16,133 @@ pub(crate) struct TestPreviewer {
     pub(crate) requested: Vec<&'static str>,
     pub(crate) ids: Vec<ItemId>,
     pub(crate) buffer_allocations: Vec<*const u8>,
+    pub(crate) prefetched: Vec<&'static str>,
+    pub(crate) prefetch_allocations: Vec<*const u8>,
     pub(crate) queued: Vec<QueuedPreviewRequest<&'static str>>,
     pub(crate) restarts: usize,
     pub(crate) defer: bool,
+    pub(crate) prefetch_limit: usize,
+    pub(crate) prefetch_enabled: bool,
+    pub(crate) prefetch_defer: bool,
     pub(crate) drop_requests: bool,
     pub(crate) lines: usize,
     pub(crate) line_numbers: bool,
 }
 
+impl TestPreviewer {
+    pub(crate) fn take_request(&mut self, item: &str) -> QueuedPreviewRequest<&'static str> {
+        let index = self
+            .queued
+            .iter()
+            .position(|request| *request.item() == item && !request.is_cancelled())
+            .expect("expected queued request for item");
+        self.queued.remove(index)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Stage {
+    Queued,
+    Active,
+    Published,
+    DroppedQueued,
+    DroppedActive,
+}
+
+impl Stage {
+    pub(crate) const ALL: [Self; 5] = [
+        Self::Queued,
+        Self::Active,
+        Self::Published,
+        Self::DroppedQueued,
+        Self::DroppedActive,
+    ];
+
+    pub(crate) fn prepare(
+        self,
+        request: QueuedPreviewRequest<&'static str>,
+    ) -> (
+        Option<QueuedPreviewRequest<&'static str>>,
+        Option<ActivePreviewRequest<&'static str>>,
+    ) {
+        match self {
+            Self::Queued => return (Some(request), None),
+            Self::Active => return (None, Some(request.start().unwrap())),
+            Self::Published => publish(request.start().unwrap()),
+            Self::DroppedQueued => drop(request),
+            Self::DroppedActive => drop(request.start().unwrap()),
+        }
+        (None, None)
+    }
+}
+
+pub(crate) fn publish(request: ActivePreviewRequest<&'static str>) {
+    let mut buffer = PreviewBuffer::new();
+    buffer.push_str(request.item());
+    request.publish(&mut buffer).unwrap();
+}
+
+pub(crate) fn deadline() -> Instant {
+    Instant::now() + Duration::from_secs(5)
+}
+
+impl<T: Send + Sync + 'static, P: Preview<T>> PreviewPane<T, P> {
+    pub(crate) fn run_frame<R>(
+        &mut self,
+        selected_rank: Option<u32>,
+        engine: &MatchEngine<T, R>,
+        deadline: Instant,
+    ) -> bool {
+        let redraw = self.update(selected_rank, engine, deadline);
+        self.prefetch(engine, deadline);
+        redraw
+    }
+}
+
+impl<T, P: Preview<T>> PreviewPane<T, P> {
+    pub(crate) fn contents(&self) -> Vec<&str> {
+        let Some(RequestState::Ready(buffer)) = &self.cached().unwrap().state else {
+            panic!("expected ready preview");
+        };
+        buffer.lines().map(|line| line.as_str()).collect()
+    }
+}
+
 impl Preview<&'static str> for TestPreviewer {
+    fn prefetch_limit(&self) -> usize {
+        self.prefetch_limit
+    }
+
+    fn prefetch(
+        &mut self,
+        request: PreviewRequest<'_, &'static str>,
+        timeout: Duration,
+    ) -> Result<PreviewResponse, PreviewBuffer> {
+        assert!(!timeout.is_zero());
+        let item = request.item();
+        self.prefetched.push(item);
+        assert_eq!(request.buffer.lines().len(), 1);
+        assert_eq!(request.buffer.line(0).unwrap().as_str(), "");
+        assert!(!request.buffer.is_err());
+        assert!(!request.buffer.line_numbers());
+        self.prefetch_allocations
+            .push(request.buffer.line(0).unwrap().as_str().as_ptr());
+        if !self.prefetch_enabled {
+            return Err(request.ready());
+        }
+        if self.prefetch_defer {
+            let (pending, queued) = request.defer();
+            if !self.drop_requests {
+                self.queued.push(queued);
+            }
+            Ok(PreviewResponse::Pending(pending))
+        } else {
+            let mut buffer = request.ready();
+            buffer.push_str(item);
+            Ok(PreviewResponse::Ready(buffer))
+        }
+    }
+
     fn focus_changed(&mut self, item: Option<ItemRef<'_, &'static str>>) {
         if item.is_none() {
             self.cancelled_on_blur
@@ -130,7 +251,12 @@ pub(crate) fn update(
     application: &mut PreviewPane<&'static str, TestPreviewer>,
     picker: &mut Picker<&'static str, StrRenderer>,
 ) -> bool {
-    application.update(selected_item(picker), &picker.core.engine, Instant::now())
+    let rank = picker
+        .core
+        .list_state
+        .layout
+        .selection(picker.core.engine.snapshot());
+    application.update(rank, &picker.core.engine, Instant::now())
 }
 
 #[cfg(feature = "unstable-backend")]

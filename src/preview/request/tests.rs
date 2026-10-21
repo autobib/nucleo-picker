@@ -48,7 +48,7 @@ fn request_transitions_preserve_identity_and_publication() {
     assert!(active.publish(&mut buffer).is_ok());
     assert_eq!(buffer.lines().len(), 1);
     assert_eq!(buffer.line(0).unwrap().as_str(), "");
-    let RequestState::Ready(buffer) = RequestState::Pending(pending).poll(0) else {
+    let RequestState::Ready(buffer) = RequestState::Pending(pending).poll() else {
         panic!("expected published preview");
     };
     assert_eq!(buffer.line(0).unwrap().as_str(), "alpha");

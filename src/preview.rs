@@ -216,6 +216,20 @@ impl Default for PreviewConfig {
 /// times and there is backlog), the picker will re-prioritize preview requests by cancelling
 /// old requests and calling this method again.
 ///
+/// ## Prefetch
+///
+/// A previewer can also optionally enable prefetch support by setting
+/// [`prefetch_limit`](Self::prefetch_limit) to a non-zero value and overriding the default
+/// behaviour of [`prefetch`](Self::prefetch).
+///
+/// Prefetch is used to make preview requests for items which the user may scroll to in the near
+/// future. This can greatly improve the perceived responsiveness of the preview pane, especially in
+/// the presence of slow previews. However, implementations should be careful not to treat prefetch
+/// responses with higher priority than normal responses, which are sent in response to the actual
+/// preview pane that the user currently requires.
+///
+/// See the [`prefetch`](Self::prefetch) documentation for more details.
+///
 /// ## Handling errors
 ///
 /// ### Non-fatal errors
@@ -273,6 +287,53 @@ pub trait Preview<T> {
     /// See the [trait-level docs](Preview) for more detail.
     fn preview(&mut self, request: PreviewRequest<'_, T>, timeout: Duration) -> PreviewResponse;
 
+    /// Configure the preview range for prefetch.
+    ///
+    /// Prefetching requests previews for items which are not yet highlighted, but which the user
+    /// may highlight soon. This can greatly reduce perceived latency at the cost of unnecessary
+    /// preview generation.
+    ///
+    /// If this value is set to `0`, prefetch requests will never be made. The default value is `0`.
+    /// When prefetch is desirable, in most cases a small integer around 4 is sufficient. For very
+    /// large threadpools, larger prefetch limits can be feasible.
+    fn prefetch_limit(&self) -> usize {
+        0
+    }
+
+    /// Handle a speculative preview request.
+    ///
+    /// Return `Ok` if the request can be handled, or return the unused buffer in the `Err` variant
+    /// to decline this particular request. Any request can be safely declined; if the preview is
+    /// required for the current item, the request will be re-submitted to the usual
+    /// [`preview`](Self::preview) method.
+    ///
+    /// Note that callers must override [`prefetch_limit`](Self::prefetch_limit) to a non-zero
+    /// value, or this method will never be called.
+    ///
+    /// Similarly to [`preview`](Self::preview), this method must not block for too long or the
+    /// picker will lag. The [`Duration`] is a timeout suggested by the picker and depends on the
+    /// frame budget; it will always be at least 2ms.
+    /// 
+    /// ## Prefetch call sequence
+    ///
+    /// Call a *cycle* a single pass over the [`prefetch_limit`](Self::prefetch_limit)-nearest items
+    /// in the match list. The cycle refreshes each time the cursor moves or the match list updates.
+    /// For each item, once per cycle, its status is checked:
+    ///
+    /// 1. If the request was dropped or no previous request was made, it will be requested.
+    /// 2. If the request is queued, prefetch requests will pause until the item is processed.
+    /// 3. If the request is active or published, the item is skipped.
+    ///
+    /// Each request is made *at most once per frame*, and moreover *only if the frame has
+    /// additional time after rendering*.
+    fn prefetch(
+        &mut self,
+        request: PreviewRequest<'_, T>,
+        _timeout: Duration,
+    ) -> Result<PreviewResponse, PreviewBuffer> {
+        Err(request.buffer)
+    }
+
     /// Handle changes to an active preview target.
     ///
     /// This method is called whenever the preview pane changes to a new target. Unlike `preview`, this
@@ -286,6 +347,10 @@ pub trait Preview<T> {
     ///
     /// This method runs on the picker thread and therefore must not block. If it blocks, the picker
     /// interface will lag.
+    ///
+    /// When wrapping another [`Preview`] implementation, in most cases you should forward this call
+    /// to the inner previewer, since it may depend on this information for scheduling. For
+    /// instance, this is the case for a [`PoolPreviewer`].
     ///
     /// The default implementation does nothing.
     fn focus_changed(&mut self, _item: Option<ItemRef<'_, T>>) {}
@@ -319,6 +384,20 @@ impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
     #[inline]
     fn preview(&mut self, request: PreviewRequest<'_, T>, timeout: Duration) -> PreviewResponse {
         (*self).preview(request, timeout)
+    }
+
+    #[inline]
+    fn prefetch_limit(&self) -> usize {
+        (**self).prefetch_limit()
+    }
+
+    #[inline]
+    fn prefetch(
+        &mut self,
+        request: PreviewRequest<'_, T>,
+        timeout: Duration,
+    ) -> Result<PreviewResponse, PreviewBuffer> {
+        (**self).prefetch(request, timeout)
     }
 }
 

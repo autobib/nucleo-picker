@@ -12,7 +12,7 @@ fn polled_queued_request() -> (PendingPreview, QueuedPreviewRequest<&'static str
         id: picker.core.engine.item_id(0),
     }
     .defer();
-    let RequestState::Pending(pending) = RequestState::Pending(pending).poll(1) else {
+    let RequestState::Pending(pending) = RequestState::Pending(pending).poll() else {
         panic!("expected queued preview");
     };
     (pending, queued)
@@ -22,14 +22,14 @@ fn polled_queued_request() -> (PendingPreview, QueuedPreviewRequest<&'static str
 fn promotion_preserves_work_that_starts_after_polling() {
     let (pending, queued) = polled_queued_request();
     let active = queued.start().unwrap();
-    let RequestState::Pending(pending) = pending.reprioritize() else {
+    let RequestState::Active(pending) = pending.reprioritize() else {
         panic!("expected active preview");
     };
     assert!(!active.is_cancelled());
     let mut buffer = PreviewBuffer::new();
     assert!(active.publish(&mut buffer).is_ok());
     assert!(matches!(
-        RequestState::Pending(pending).poll(1),
+        RequestState::Active(pending).poll(),
         RequestState::Ready(_)
     ));
 }

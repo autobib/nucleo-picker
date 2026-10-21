@@ -75,11 +75,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
             &mut preview,
         );
         if P::ENABLED && frame.preview_enabled() {
-            preview.update(
-                list.selection(engine).map(|n| engine.idx_from_match(n)),
-                engine,
-                frame_start + self.interval,
-            );
+            preview.update(list.selection(engine), engine, frame_start + self.interval);
         }
         frame.draw(
             engine,
@@ -90,6 +86,9 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
             &mut terminal,
             Redraw::full(),
         )?;
+        if P::ENABLED && frame.preview_enabled() {
+            preview.prefetch(engine, frame_start + self.interval);
+        }
 
         let mut frame_number = 0_u64;
         let mut handle_status = None;
@@ -212,11 +211,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                 ) && frame.status_enabled(),
                 preview: P::ENABLED
                     && frame.preview_enabled()
-                    && preview.update(
-                        list.selection(engine).map(|n| engine.idx_from_match(n)),
-                        engine,
-                        frame_start + self.interval,
-                    ),
+                    && preview.update(list.selection(engine), engine, frame_start + self.interval),
             };
 
             if P::ENABLED && preview_was_enabled && !frame.preview_enabled() {
@@ -263,6 +258,9 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                     matching: status.matching,
                     injecting: status.injecting,
                 });
+            }
+            if P::ENABLED && frame.preview_enabled() {
+                preview.prefetch(engine, frame_start + self.interval);
             }
         };
 

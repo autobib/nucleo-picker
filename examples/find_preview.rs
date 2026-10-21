@@ -26,17 +26,13 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::Duration,
 };
 
 use crossterm::style::{ContentStyle, Stylize};
 use ignore::{DirEntry, WalkBuilder, WalkState};
 use nucleo_picker::{
     PickerOptions, Render,
-    preview::{
-        PoolPreviewer, Preview, PreviewBuffer, PreviewWorker,
-        request::{PreviewRequest, PreviewResponse},
-    },
+    preview::{PoolPreviewer, PreviewBuffer, PreviewWorker},
 };
 
 // maximum size of a preview
@@ -52,43 +48,25 @@ impl Render<DirEntry> for DirEntryRender {
     }
 }
 
-// The internal `PoolPreviewer` does most of the work, but we use this wrapper type since we can
-// handle certain file types directly without IO and immediately return.
-struct FilePreview {
-    pool: PoolPreviewer<DirEntry>,
-}
-
-impl FilePreview {
-    fn new() -> io::Result<Self> {
-        Ok(Self {
-            pool: PoolPreviewer::with_default_workers::<FileWorker>(NonZeroUsize::new(4).unwrap())?,
-        })
+// The 'fast path' preview function: for certain file types (which can already be checked without
+// IO since it is available in the dir entry) we have nothing better to do so we can immediately
+// prepare the preview.
+fn preview_sync(entry: &DirEntry, buffer: &mut PreviewBuffer) -> bool {
+    // entry metadata is already available in the dir entry so we can label non-files synchronously
+    let label = match entry.file_type() {
+        Some(kind) if kind.is_file() => None,
+        Some(kind) if kind.is_dir() => Some("[Directory]"),
+        Some(kind) if kind.is_symlink() => Some("[Symbolic link]"),
+        _ => Some("[Not a regular file]"),
+    };
+    if let Some(label) = label {
+        // push the information label
+        buffer.push_styled_str(label, ContentStyle::new().dim().italic());
+        return true;
     }
-}
 
-impl Preview<DirEntry> for FilePreview {
-    fn preview(
-        &mut self,
-        request: PreviewRequest<'_, DirEntry>,
-        timeout: Duration,
-    ) -> PreviewResponse {
-        // entry metadata is already available in the dir entry so we can label non-files synchronously
-        let label = match request.item().file_type() {
-            Some(kind) if kind.is_file() => None,
-            Some(kind) if kind.is_dir() => Some("[Directory]"),
-            Some(kind) if kind.is_symlink() => Some("[Symbolic link]"),
-            _ => Some("[Not a regular file]"),
-        };
-        if let Some(label) = label {
-            let mut buffer = request.ready();
-            // push the information label
-            buffer.push_styled_str(label, ContentStyle::new().dim().italic());
-            return PreviewResponse::Ready(buffer);
-        }
-
-        // let the preview pool handle everything else
-        self.pool.preview(request, timeout)
-    }
+    // let the preview pool handle everything else
+    false
 }
 
 /// A single preview worker. It holds scratch space for reading from the file.
@@ -180,7 +158,9 @@ fn main() -> io::Result<ExitCode> {
 
     let picker = PickerOptions::new().match_paths().picker(DirEntryRender);
 
-    let previewer = FilePreview::new()?;
+    let previewer: PoolPreviewer<DirEntry> =
+        PoolPreviewer::with_default_workers::<FileWorker>(NonZeroUsize::new(4).unwrap())?
+            .with_sync_preview(preview_sync);
     let injector = picker.injector();
     let mut picker = picker.with_preview(previewer);
 
