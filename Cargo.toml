@@ -99,6 +99,10 @@ name = "preview_style"
 required-features = ["preview"]
 
 [[example]]
+name = "preview_single"
+required-features = ["preview"]
+
+[[example]]
 name = "preview_serde"
 required-features = ["serde", "preview"]
 

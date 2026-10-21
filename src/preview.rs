@@ -17,6 +17,8 @@
 //! - Default keybindings for preview events can be found in the [picker usage documetation](https://github.com/autobib/nucleo-picker/blob/master/USAGE.md)
 //! - For documentation concerning the internal preview cache, see the [preview interface
 //!   docs](WithPreview#preview-cache).
+//! - There is a [basic example](#basic-example), [extended example](#extended-example), and a
+//!   [simple background preview example](#background-preview-example).
 //!
 //! ## Using previews
 //!
@@ -28,6 +30,8 @@
 //! [`Preview`], then `&mut P` also implements [`Preview`]: this can be useful if the previewer has
 //! state which should be preserved between calls or which should be accessed after selection is
 //! complete.
+//!
+//! ## Examples
 //!
 //! ### Basic example
 //!
@@ -72,6 +76,15 @@
 //!
 //! ```no_run
 #![doc = include_str!("../examples/preview_style.rs")]
+//! ```
+//!
+//! ### Background preview example
+//!
+//! Here is a basic example of a previewer running in a background thread. This also uses the
+//! [`PreviewWorker`] trait, which is the same abstraction used by a [`PoolPreviewer`].
+//!
+//! ```no_run
+#![doc = include_str!("../examples/preview_single.rs")]
 //! ```
 
 #[cfg(feature = "preview-ansi")]
@@ -278,6 +291,8 @@ impl Default for PreviewConfig {
 ///
 /// See the [online preview example](https://github.com/autobib/nucleo-picker/blob/master/examples/online_preview.rs)
 /// for a complete example highlighting propagation of fatal preview errors.
+///
+/// There are implementation examples in the [module-level docs](self).
 pub trait Preview<T> {
     /// Generate a preview.
     ///
@@ -313,7 +328,7 @@ pub trait Preview<T> {
     /// Similarly to [`preview`](Self::preview), this method must not block for too long or the
     /// picker will lag. The [`Duration`] is a timeout suggested by the picker and depends on the
     /// frame budget; it will always be at least 2ms.
-    /// 
+    ///
     /// ## Prefetch call sequence
     ///
     /// Call a *cycle* a single pass over the [`prefetch_limit`](Self::prefetch_limit)-nearest items
