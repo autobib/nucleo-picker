@@ -100,9 +100,15 @@ fn keybind_preview_passthrough<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEv
         KeyEvent {
             kind: KeyEventKind::Press,
             modifiers: KeyModifiers::ALT,
-            code: KeyCode::Char('n'),
+            code,
             ..
-        } => Ok(Event::Preview(PreviewEvent::ToggleLineNumbers)),
+        } => match code {
+            KeyCode::Char('n') => Ok(Event::Preview(PreviewEvent::ToggleLineNumbers)),
+            KeyCode::Char('p') => Ok(Event::Layout(LayoutEvent::TogglePreview)),
+            KeyCode::Char(',') => Ok(Event::Layout(LayoutEvent::MoveDividerLeft(1))),
+            KeyCode::Char('.') => Ok(Event::Layout(LayoutEvent::MoveDividerRight(1))),
+            _ => Err(key_event),
+        },
         KeyEvent {
             kind: KeyEventKind::Press,
             modifiers: KeyModifiers::SHIFT,
@@ -124,7 +130,7 @@ fn keybind_preview_passthrough<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEv
 }
 
 #[inline]
-fn keybind_core_passthrough<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEvent> {
+pub(crate) fn keybind_core_passthrough<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEvent> {
     match key_event {
         KeyEvent {
             kind: KeyEventKind::Press,
@@ -175,12 +181,6 @@ fn keybind_core_passthrough<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEvent
         } => match code {
             KeyCode::Char('f') => Ok(Event::Prompt(PromptEvent::WordRight(1))),
             KeyCode::Char('b') => Ok(Event::Prompt(PromptEvent::WordLeft(1))),
-            #[cfg(feature = "preview")]
-            KeyCode::Char('p') => Ok(Event::Layout(LayoutEvent::TogglePreview)),
-            #[cfg(feature = "preview")]
-            KeyCode::Char(',') => Ok(Event::Layout(LayoutEvent::MoveDividerLeft(1))),
-            #[cfg(feature = "preview")]
-            KeyCode::Char('.') => Ok(Event::Layout(LayoutEvent::MoveDividerRight(1))),
             _ => Err(key_event),
         },
         KeyEvent {

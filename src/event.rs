@@ -36,6 +36,7 @@ use crossterm::event::{KeyEvent, poll, read};
 
 use self::bind::convert_crossterm_event;
 
+pub(crate) use self::bind::{keybind_core_passthrough, keybind_multi_passthrough};
 pub use self::bind::{keybind_default, keybind_no_multi};
 #[cfg(feature = "preview")]
 #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
