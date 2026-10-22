@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+In short, this release:
+
+1. Adds support for item previews.
+2. Makes some minor breaking API changes and adds generics for abstracting over picker types.
+3. Improves the multi-threaded performance of the matching engine.
+4. Makes slight improvements to the scoring algorithm.
+
 ### Changed
 
 - Removal of deprecated matching engine APIs:

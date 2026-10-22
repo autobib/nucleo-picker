@@ -36,7 +36,7 @@ use crossterm::event::{KeyEvent, poll, read};
 
 use self::bind::convert_crossterm_event;
 
-#[allow(deprecated)]
+#[expect(deprecated)]
 pub use self::bind::keybind_no_multi;
 pub use self::bind::{keybind_default, keybind_multi, keybind_single};
 #[cfg(feature = "preview")]

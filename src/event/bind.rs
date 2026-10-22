@@ -7,7 +7,9 @@ use super::{LayoutEvent, PreviewEvent};
 /// The default keybindings.
 ///
 /// This includes all keybindings supported by the enabled features. These are the keybindings
-/// used in the [`Default`] implementation for [`StdinReader`](super::StdinReader).
+/// used in the [`Default`] implementation for [`StdinReader`](super::StdinReader). A list of the
+/// bindings can be found in the [picker usage
+/// documentation](https://github.com/autobib/nucleo-picker/blob/master/USAGE.md).
 ///
 /// # Generic parameter
 ///
@@ -25,8 +27,8 @@ use super::{LayoutEvent, PreviewEvent};
 ///
 /// # Specialized bindings
 ///
-/// If you know certain events are not required by a given picker, you can use one of the reduced
-/// keybinding sets.
+/// If you know that certain events are not required by a given picker, you can use one of the
+/// specialized keybind functions.
 ///
 /// Binding | Multiple-selection events? | Preview events?
 /// --------|----------------------------|----------------
@@ -35,15 +37,19 @@ use super::{LayoutEvent, PreviewEvent};
 /// [`keybind_single_preview`] | No | Yes
 /// [`keybind_multi_preview`] | Yes | Yes
 ///
-/// The default keybindings will work in any selection mode, since the unused events will simply be
+/// The default keybindings will work in any selection mode since unused events are
 /// ignored by the picker. The purpose of the specialized bindings is to *slightly reduce overhead
 /// by not emitting the event at all*.
 ///
 /// In most cases, you should just use the default keybindings since the additional
 /// overhead is quite minimal. Using these keybindings will mean that *certain events are never
 /// emitted, independently of picker support*. For example, using [`keybind_single`] with a
-/// multi-selection picker will prevent the user from making more than 1 selection, regardless of
-/// support in the picker itself.
+/// multi-selection picker will prevent the user from making more than 1 selection, since the
+/// multi-selection keybinding is ignored entirely.
+///
+/// Each [interface](crate::session::Interface) also declares the
+/// [keybindings that it uses by default](crate::session::Interface::keybind_default). This can be useful
+/// in generic code.
 #[inline]
 pub fn keybind_default<A>(key_event: KeyEvent) -> Option<Event<A>> {
     #[cfg(feature = "preview")]

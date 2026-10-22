@@ -165,7 +165,7 @@
 //!
 //! In most cases, the picker generic paramters can be inferred from the renderer, inserted items,
 //! and the conversion methods directly. Regardless, here is an overview of the type parameters of a
-//! [`Picker<T, R, I>`] and [`PickerRef<'a, T, R, I>]:
+//! [`Picker<T, R, I>`] and [`PickerRef<'a, T, R, I>`]:
 //!
 //! - `T` is the *item type*. Running the picker requires
 //!   `T: Send + Sync + 'static`. Selected items are borrowed from the picker.
@@ -262,7 +262,6 @@ mod sealed {
 /// This trait is sealed and cannot be implemented outside this library.
 ///
 /// Read the [module documentation](self) for an overview and more details.
-#[allow(rustdoc::redundant_explicit_links)]
 pub trait Interface<T>: sealed::State<T> {
     /// The output of the picker after selection. This is an [`Option<&T>`] for single-selection
     /// pickers and [`Selection<'_, T>`] for multi-selection pickers.
