@@ -3,7 +3,7 @@ use std::io;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use nucleo_picker::{
     Picker,
-    event::{Event, StdinReader, keybind_default},
+    event::{Event, StdinReader, keybind_single},
     render::StrRenderer,
 };
 
@@ -17,7 +17,7 @@ fn keybind_no_interrupt(key_event: KeyEvent) -> Option<Event> {
             code: KeyCode::Char('c'),
             ..
         } => Some(Event::Quit),
-        e => keybind_default(e),
+        e => keybind_single(e),
     }
 }
 

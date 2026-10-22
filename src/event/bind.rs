@@ -6,10 +6,11 @@ use super::{LayoutEvent, PreviewEvent};
 
 /// The default keybindings.
 ///
-/// These are the keybindings used in the [`Default`] implementation for
-/// [`StdinReader`](super::StdinReader).
+/// This includes all keybindings supported by the enabled features. These are the keybindings
+/// used in the [`Default`] implementation for [`StdinReader`](super::StdinReader).
 ///
 /// # Generic parameter
+///
 /// This function is generic over the type parameter `A`, which is the associated type
 /// [`AbortErr`](super::EventSource::AbortErr) of an [`EventSource`](super::EventSource).
 /// However, the type parameter does not appear anywhere in the function arguments since an
@@ -21,32 +22,110 @@ use super::{LayoutEvent, PreviewEvent};
 ///
 /// When the `preview` feature is enabled, the default keybindings include keybindings which target
 /// the preview pane.
+///
+/// # Specialized bindings
+///
+/// If you know certain events are not required by a given picker, you can use one of the reduced
+/// keybinding sets.
+///
+/// Binding | Multiple-selection events? | Preview events?
+/// --------|----------------------------|----------------
+/// [`keybind_single`] | No | No
+/// [`keybind_multi`] | Yes | No
+/// [`keybind_single_preview`] | No | Yes
+/// [`keybind_multi_preview`] | Yes | Yes
+///
+/// The default keybindings will work in any selection mode, since the unused events will simply be
+/// ignored by the picker. The purpose of the specialized bindings is to *slightly reduce overhead
+/// by not emitting the event at all*.
+///
+/// In most cases, you should just use the default keybindings since the additional
+/// overhead is quite minimal. Using these keybindings will mean that *certain events are never
+/// emitted, independently of picker support*. For example, using [`keybind_single`] with a
+/// multi-selection picker will prevent the user from making more than 1 selection, regardless of
+/// support in the picker itself.
 #[inline]
 pub fn keybind_default<A>(key_event: KeyEvent) -> Option<Event<A>> {
-    keybind_no_multi_passthrough(key_event)
-        .or_else(keybind_multi_passthrough)
-        .ok()
+    #[cfg(feature = "preview")]
+    {
+        keybind_multi_preview(key_event)
+    }
+    #[cfg(not(feature = "preview"))]
+    {
+        keybind_multi(key_event)
+    }
 }
 
 /// Keybindings which do not emit [multi-selection events](MatchListEvent#multi-selection-events).
 ///
-/// You should only use these keybindings when you are not running in multi-selection mode. Note
-/// that the default keybindings will still work even in non-multi-selection mode, since the
-/// multi-selection events are simply ignored. The purpose of these keybindings is to slightly
-/// reduce overhead by not even emitting the event at all.
-///
-/// In most cases, you should just use the [default keybindings](keybind_default) since the additional
-/// overhead is quite minimal. Using these keybindings in multi-selection mode will mean that
-/// multi-selection events are never emitted, which will prevent the user from making more than 1
-/// selection regardless of support in the picker itself.
+/// This wrapper type has been deprecated in favour of [`keybind_single`] and [`keybind_single_preview`].
+#[deprecated(
+    since = "0.13.0",
+    note = "Use `keybind_single` or `keybind_single_preview` instead"
+)]
 #[inline]
 pub fn keybind_no_multi<A>(key_event: KeyEvent) -> Option<Event<A>> {
-    keybind_no_multi_passthrough(key_event).ok()
+    #[cfg(feature = "preview")]
+    {
+        keybind_single_preview(key_event)
+    }
+    #[cfg(not(feature = "preview"))]
+    {
+        keybind_single(key_event)
+    }
+}
+
+/// Keybindings which only emit single-selection non-preview events.
+///
+/// These are the keybindings for the [`Single`](crate::session::Single) interface.
+/// See the [caveats on specialized bindings](keybind_default#specialized-bindings) for more details.
+#[inline]
+pub fn keybind_single<A>(key_event: KeyEvent) -> Option<Event<A>> {
+    keybind_passthrough_core(key_event).ok()
+}
+
+/// Keybindings which emit multiple-selection but non-preview events.
+///
+/// These are the keybindings for the [`Multi`](crate::session::Multi) interface.
+/// See the [caveats on specialized bindings](keybind_default#specialized-bindings) for more details.
+#[inline]
+pub fn keybind_multi<A>(key_event: KeyEvent) -> Option<Event<A>> {
+    keybind_passthrough_core(key_event)
+        .or_else(keybind_passthrough_multi)
+        .ok()
+}
+
+/// Keybindings which only emit single-selection events and preview events.
+///
+/// These are the keybindings for the [`WithPreview<Single, P>`](crate::session::WithPreview) interface.
+/// See the [caveats on specialized bindings](keybind_default#specialized-bindings) for more details.
+#[cfg(feature = "preview")]
+#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
+#[inline]
+pub fn keybind_single_preview<A>(key_event: KeyEvent) -> Option<Event<A>> {
+    keybind_passthrough_core(key_event)
+        .or_else(keybind_passthrough_preview)
+        .ok()
+}
+
+/// Keybindings which only emit multi-selection and preview events.
+///
+/// These are the keybindings for the [`WithPreview<Multi, P>`](crate::session::WithPreview) interface.
+/// See the [caveats on specialized bindings](keybind_default#specialized-bindings) for
+/// more details.
+#[cfg(feature = "preview")]
+#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
+#[inline]
+pub fn keybind_multi_preview<A>(key_event: KeyEvent) -> Option<Event<A>> {
+    keybind_passthrough_core(key_event)
+        .or_else(keybind_passthrough_multi)
+        .or_else(keybind_passthrough_preview)
+        .ok()
 }
 
 /// A composable set of keybindings for multi-selection mode.
 #[inline]
-pub fn keybind_multi_passthrough<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEvent> {
+fn keybind_passthrough_multi<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEvent> {
     match key_event {
         KeyEvent {
             kind: KeyEventKind::Press,
@@ -78,18 +157,10 @@ pub fn keybind_multi_passthrough<A>(key_event: KeyEvent) -> Result<Event<A>, Key
     }
 }
 
-/// A composable version of `keybind_no_multi`.
-#[inline]
-fn keybind_no_multi_passthrough<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEvent> {
-    let event = keybind_core_passthrough(key_event);
-    #[cfg(feature = "preview")]
-    let event = event.or_else(keybind_preview_passthrough);
-    event
-}
-
+/// A composable set of keybindings for preview-pane manipulation.
 #[cfg(feature = "preview")]
 #[inline]
-fn keybind_preview_passthrough<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEvent> {
+fn keybind_passthrough_preview<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEvent> {
     match key_event {
         KeyEvent {
             kind: KeyEventKind::Press,
@@ -129,8 +200,9 @@ fn keybind_preview_passthrough<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEv
     }
 }
 
+/// The core keybindings, in a composable format.
 #[inline]
-pub(crate) fn keybind_core_passthrough<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEvent> {
+fn keybind_passthrough_core<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEvent> {
     match key_event {
         KeyEvent {
             kind: KeyEventKind::Press,
@@ -190,7 +262,6 @@ pub(crate) fn keybind_core_passthrough<A>(key_event: KeyEvent) -> Result<Event<A
             ..
         } => match code {
             KeyCode::Char(ch) => Ok(Event::Prompt(PromptEvent::Insert(ch))),
-            KeyCode::BackTab => Ok(Event::MatchList(MatchListEvent::ToggleUp(1))),
             KeyCode::Backspace => Ok(Event::Prompt(PromptEvent::Backspace(1))),
             KeyCode::Enter => Ok(Event::MatchList(MatchListEvent::Down(1))),
             _ => Err(key_event),

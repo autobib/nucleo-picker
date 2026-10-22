@@ -1089,7 +1089,7 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
         R: Render<T>,
         I: Interface<T>,
     {
-        self.pick_with_keybind(I::default_keybind)
+        self.pick_with_keybind(I::keybind_default)
     }
 
     /// Open the interactive picker prompt and return the picked item, if any. The provided
@@ -1100,7 +1100,7 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     ///
     /// To further customize event generation, see the [`pick_with_io`](Self::pick_with_io) method.
     /// The [`pick`](Self::pick) method is internally a call to this method with keybindings
-    /// provided by [`keybind_default`](event::keybind_default).
+    /// provided by [`Interface::keybind_default`].
     ///
     /// ## Interface
     ///

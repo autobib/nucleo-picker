@@ -23,7 +23,7 @@ use std::{
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use nucleo_picker::{
     Picker,
-    event::{Event, StdinReader, keybind_default},
+    event::{Event, StdinReader, keybind_multi},
     render::DisplayRenderer,
 };
 use rand::random;
@@ -114,7 +114,7 @@ fn main() -> io::Result<()> {
             code: KeyCode::Char('r'),
             ..
         } => Some(Event::<Infallible>::Restart),
-        e => keybind_default(e),
+        e => keybind_multi(e),
     });
 
     for n in picker.as_multi().pick_with_io(event_source, &mut stderr)? {

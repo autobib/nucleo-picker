@@ -6,7 +6,7 @@ use crossterm::{
 };
 use nucleo_picker::{
     PickerOptions,
-    event::{Event, LayoutEvent, MatchListEvent, PromptEvent, keybind_default},
+    event::{Event, LayoutEvent, MatchListEvent, PromptEvent, keybind_single_preview},
     preview::{
         BoundaryChars, Preview, PreviewBuffer, PreviewEvent, SyncPreviewer,
         request::{PreviewRequest, PreviewResponse, QueuedPreviewRequest},
@@ -240,8 +240,9 @@ fn pane_layout_adjustments_and_resizes() -> Result<(), Box<dyn Error>> {
                 );
                 Ok(())
             };
-        let adjust =
-            |ch| keybind_default(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::ALT)).unwrap();
+        let adjust = |ch| {
+            keybind_single_preview(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::ALT)).unwrap()
+        };
         sr.set_dimensions(25, 5)?;
         sr.wait_for_match_complete(1, 1)?;
         check(&mut sr, 10, &["a", "b", "c"])?;
@@ -349,8 +350,9 @@ fn toggle_preview_restores_layout_and_cached_state() -> Result<(), Box<dyn Error
                 buffer.push_text("a\nb\nc\nd\ne\nf")
             }),
         );
-        let toggle =
-            || keybind_default(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::ALT)).unwrap();
+        let toggle = || {
+            keybind_single_preview(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::ALT)).unwrap()
+        };
         sr.set_dimensions(30, 5)?;
         sr.wait_for_match_complete(1, 1)?;
         sr.send(Event::Layout(LayoutEvent::MoveDividerLeft(1)))?;
@@ -818,7 +820,8 @@ fn toggle_line_numbers() -> Result<(), Box<dyn Error>> {
             );
         }),
     );
-    let toggle = || keybind_default(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
+    let toggle =
+        || keybind_single_preview(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
     sr.set_dimensions(32, 5)?;
     sr.wait_for_match_complete(1, 1)?;
     assert_pane(
@@ -931,7 +934,7 @@ fn horizontal_scroll_preserves_columns_across_navigation_and_layout() -> Result<
     sr.send(Event::Layout(LayoutEvent::TogglePreview))?;
     assert_pane(&sr.checkpoint("shown pane")?, false, shifted);
 
-    let key = |code| keybind_default(KeyEvent::new(code, KeyModifiers::SHIFT)).unwrap();
+    let key = |code| keybind_single_preview(KeyEvent::new(code, KeyModifiers::SHIFT)).unwrap();
     sr.send(key(KeyCode::Left))?;
     assert_pane(
         &sr.checkpoint("left one column")?,
@@ -992,7 +995,7 @@ fn horizontal_scroll_clips_styled_graphemes() -> Result<(), Box<dyn Error>> {
     );
     sr.set_dimensions(18, 6)?;
     sr.wait_for_match_complete(1, 1)?;
-    let key = |code| keybind_default(KeyEvent::new(code, KeyModifiers::SHIFT)).unwrap();
+    let key = |code| keybind_single_preview(KeyEvent::new(code, KeyModifiers::SHIFT)).unwrap();
     sr.send(key(KeyCode::Right))?;
     let clipped = &["1 ~界c~", "2 ~~bc~", "3 ~bcd~", "4 ~"];
     assert_pane(&sr.checkpoint("inside graphemes")?, false, clipped);
@@ -1167,7 +1170,7 @@ fn invalidating_the_current_preview_redraws_loading_and_new_contents() -> Result
 {
     for ch in ['r', 'R'] {
         assert!(
-            keybind_default::<Infallible>(KeyEvent::new(
+            keybind_single_preview::<Infallible>(KeyEvent::new(
                 KeyCode::Char(ch),
                 KeyModifiers::CONTROL | KeyModifiers::SHIFT,
             ))
@@ -1198,7 +1201,9 @@ fn invalidating_the_current_preview_redraws_loading_and_new_contents() -> Result
     sr.send(Event::Preview(PreviewEvent::ToggleLineNumbers))?;
     assert_pane(&sr.checkpoint("scrolled")?, false, &["4 d", "5 e", "6 f"]);
 
-    sr.send(keybind_default(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL)).unwrap())?;
+    sr.send(
+        keybind_single_preview(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL)).unwrap(),
+    )?;
     assert_pane(&sr.checkpoint("refresh pending")?, false, &["Loading..."]);
     let queued = receiver.recv_timeout(WAIT)?;
     assert_eq!(queued.item(), "alpha");

@@ -55,7 +55,7 @@ where
     /// See the documentation for [`Picker::pick`](crate::Picker::pick) for more details on the behaviour.
     #[inline]
     pub fn pick(self) -> Result<I::Output<'a>, PickError> {
-        self.pick_with_keybind(I::default_keybind)
+        self.pick_with_keybind(I::keybind_default)
     }
 
     /// Run the picker interactively using custom keybindings.

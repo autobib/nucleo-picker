@@ -51,8 +51,8 @@
 //!
 //! The `pick*` methods are analogous to the single-selection variants, except additional items can be
 //! queued with the [`MatchListEvent::ToggleDown`](crate::event::MatchListEvent::ToggleDown) and
-//! [`MatchListEvent::ToggleUp`](crate::event::MatchListEvent::ToggleUp) events. The [default
-//! keybindings](crate::event::keybind_default) bind these to `⇥` and `shift + ⇥` respectively. In this case, an
+//! [`MatchListEvent::ToggleUp`](crate::event::MatchListEvent::ToggleUp) events. The default
+//! keybindings bind these to `⇥` and `shift + ⇥` respectively. In this case, an
 //! [`Event::Select`] is handled slightly differently: if there are no queued selections, this
 //! picks the highlighted item, but if there are queued selections, then only the queued selections
 //! are returned.
@@ -219,13 +219,13 @@ use crate::{
     PickerCore, Render, Selection, Terminal,
     component::NoPreview,
     error::PickError,
-    event::{Event, EventSource, StdinReader, keybind_core_passthrough, keybind_multi_passthrough},
+    event::{Event, EventSource, StdinReader, keybind_multi, keybind_single},
     match_list::SelectedIndices,
     terminal::CrosstermTerminal,
 };
 #[cfg(feature = "preview")]
 use crate::{
-    event::{keybind_default, keybind_no_multi},
+    event::{keybind_multi_preview, keybind_single_preview},
     preview::{Preview, pane::PreviewPane},
 };
 
@@ -233,8 +233,6 @@ mod sealed {
     use super::*;
 
     pub trait State<T>: Sized {
-        fn default_keybind(key: KeyEvent) -> Option<Event>;
-
         fn run<'a, R, E, W>(
             &mut self,
             core: &'a mut PickerCore<T, R>,
@@ -271,6 +269,15 @@ pub trait Interface<T>: sealed::State<T> {
     type Output<'a>: IntoIterator<Item = &'a T, IntoIter: ExactSizeIterator>
     where
         T: 'a;
+
+    /// The default keybindings for this interface.
+    ///
+    /// This method is generic over the abort type `A` for compatibility with arbitrary application
+    /// errors. Interfaces use this to specialize event handling to only emit events which this
+    /// specific interface requires. See the
+    /// [keybind specialization documentation](crate::event::keybind_default#specialized-bindings)
+    /// for more details.
+    fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>>;
 }
 
 /// The single-selection picker interface.
@@ -352,14 +359,14 @@ impl<P> WithPreview<Multi, P> {
 
 impl<T: Send + Sync + 'static> Interface<T> for Single {
     type Output<'a> = Option<&'a T>;
+
+    #[inline]
+    fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>> {
+        keybind_single(key)
+    }
 }
 
 impl<T: Send + Sync + 'static> sealed::State<T> for Single {
-    #[inline]
-    fn default_keybind(key: KeyEvent) -> Option<Event> {
-        keybind_core_passthrough(key).ok()
-    }
-
     #[inline]
     fn run<'a, R, E, W>(
         &mut self,
@@ -378,16 +385,14 @@ impl<T: Send + Sync + 'static> sealed::State<T> for Single {
 
 impl<T: Send + Sync + 'static> Interface<T> for Multi {
     type Output<'a> = Selection<'a, T>;
+
+    #[inline]
+    fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>> {
+        keybind_multi(key)
+    }
 }
 
 impl<T: Send + Sync + 'static> sealed::State<T> for Multi {
-    #[inline]
-    fn default_keybind(key: KeyEvent) -> Option<Event> {
-        keybind_core_passthrough(key)
-            .or_else(keybind_multi_passthrough)
-            .ok()
-    }
-
     #[inline]
     fn run<'a, R, E, W>(
         &mut self,
@@ -407,15 +412,15 @@ impl<T: Send + Sync + 'static> sealed::State<T> for Multi {
 #[cfg(feature = "preview")]
 impl<T: Send + Sync + 'static, P: Preview<T>> Interface<T> for WithPreview<Single, P> {
     type Output<'a> = Option<&'a T>;
+
+    #[inline]
+    fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>> {
+        keybind_single_preview(key)
+    }
 }
 
 #[cfg(feature = "preview")]
 impl<T: Send + Sync + 'static, P: Preview<T>> sealed::State<T> for WithPreview<Single, P> {
-    #[inline]
-    fn default_keybind(key: KeyEvent) -> Option<Event> {
-        keybind_no_multi(key)
-    }
-
     #[inline]
     fn run<'a, R, E, W>(
         &mut self,
@@ -436,15 +441,15 @@ impl<T: Send + Sync + 'static, P: Preview<T>> sealed::State<T> for WithPreview<S
 #[cfg(feature = "preview")]
 impl<T: Send + Sync + 'static, P: Preview<T>> Interface<T> for WithPreview<Multi, P> {
     type Output<'a> = Selection<'a, T>;
+
+    #[inline]
+    fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>> {
+        keybind_multi_preview(key)
+    }
 }
 
 #[cfg(feature = "preview")]
 impl<T: Send + Sync + 'static, P: Preview<T>> sealed::State<T> for WithPreview<Multi, P> {
-    #[inline]
-    fn default_keybind(key: KeyEvent) -> Option<Event> {
-        keybind_default(key)
-    }
-
     #[inline]
     fn run<'a, R, E, W>(
         &mut self,
