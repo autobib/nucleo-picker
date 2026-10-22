@@ -8,7 +8,9 @@ use std::{borrow::Cow, path::Path};
 
 use super::Render;
 
-/// A renderer for any type which de-references as [`str`], such as a [`String`].
+/// A renderer for any type which has cheap references as a `str`, such as a [`String`].
+///
+/// To be precise, this works for any type `T` which implements [`AsRef<str>`].
 ///
 /// ## Example
 /// ```
@@ -33,8 +35,9 @@ impl<T: AsRef<str>> Render<T> for StrRenderer {
     }
 }
 
-/// A renderer for any type which de-references as [`Path`], such as a
-/// [`PathBuf`](std::path::PathBuf).
+/// A renderer for any type which has cheap references as a [`Path`], such as a [`String`].
+///
+/// To be precise, this works for any type `T` which implements [`AsRef<Path>`].
 ///
 /// ## Example
 /// ```

@@ -1,4 +1,4 @@
-//! Utilities for handling unicode display in the terminal.
+//! Utilities for handling Unicode display in the terminal.
 
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::module_name_repetitions)]

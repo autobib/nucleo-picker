@@ -6,7 +6,7 @@ mod tests;
 use std::time::{Duration, Instant};
 
 use crate::{
-    Picker, Render, Terminal,
+    PickerCore, Render, Terminal,
     component::{Component, PreviewComponent},
     error::PickError,
     event::{Event, EventSource, PickerStatus, RecvError},
@@ -24,7 +24,7 @@ enum SelectionTarget {
     Queued,
 }
 
-impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
+impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
     pub(crate) fn pick_impl<E, W, Q: Queued, P>(
         &mut self,
         mut event_source: E,
@@ -75,11 +75,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
             &mut preview,
         );
         if P::ENABLED && frame.preview_enabled() {
-            preview.update(
-                list.selection(engine).map(|n| engine.idx_from_match(n)),
-                engine,
-                frame_start + self.interval,
-            );
+            preview.update(list.selection(engine), engine, frame_start + self.interval);
         }
         frame.draw(
             engine,
@@ -90,9 +86,13 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
             &mut terminal,
             Redraw::full(),
         )?;
+        if P::ENABLED && frame.preview_enabled() {
+            preview.prefetch(engine, frame_start + self.interval);
+        }
 
         let mut frame_number = 0_u64;
         let mut handle_status = None;
+        let mut changed_since_status = true;
         let selection = 'selection: loop {
             // whether the preview was enabled on the previous frame
             let preview_was_enabled = frame.preview_enabled();
@@ -211,11 +211,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                 ) && frame.status_enabled(),
                 preview: P::ENABLED
                     && frame.preview_enabled()
-                    && preview.update(
-                        list.selection(engine).map(|n| engine.idx_from_match(n)),
-                        engine,
-                        frame_start + self.interval,
-                    ),
+                    && preview.update(list.selection(engine), engine, frame_start + self.interval),
             };
 
             if P::ENABLED && preview_was_enabled && !frame.preview_enabled() {
@@ -239,6 +235,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                 redraw,
             )?;
 
+            changed_since_status |= changed;
             terminal.end_frame(changed)?;
 
             // handle the status event but do not fail if the status notifier
@@ -250,7 +247,8 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                 let _ = notifier.push(PickerStatus {
                     id,
                     query: prompt.contents().to_owned(),
-                    changed,
+                    changed: std::mem::take(&mut changed_since_status),
+                    frame_changed: changed,
                     selection: list.selection(engine),
                     item_count: status.item_count,
                     selected_item_count: list.queued().len(),
@@ -260,6 +258,9 @@ impl<T: Send + Sync + 'static, R: Render<T>> Picker<T, R> {
                     matching: status.matching,
                     injecting: status.injecting,
                 });
+            }
+            if P::ENABLED && frame.preview_enabled() {
+                preview.prefetch(engine, frame_start + self.interval);
             }
         };
 

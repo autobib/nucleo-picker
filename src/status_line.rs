@@ -260,46 +260,50 @@ mod tests {
 
         let mut picker = Picker::new(StrRenderer);
         picker.extend(["a", "b"]);
-        while picker.engine.update(5).matching {}
-        picker
-            .list_state
-            .layout
-            .update_items(picker.engine.snapshot(), &picker.list_state.config);
+        while picker.core.engine.update(5).matching {}
+        picker.core.list_state.layout.update_items(
+            picker.core.engine.snapshot(),
+            &picker.core.list_state.config,
+        );
         let mut list = MatchList::new(
-            &mut picker.list_state,
-            &picker.chars,
+            &mut picker.core.list_state,
+            &picker.core.chars,
             SelectedIndices::init(None),
         );
-        let mut status = StatusLine::new(&picker.chars);
-        assert!(status.update(picker.engine.update(5), list.queued().count(None), false));
+        let mut status = StatusLine::new(&picker.core.chars);
+        assert!(status.update(
+            picker.core.engine.update(5),
+            list.queued().count(None),
+            false
+        ));
 
-        list.handle(MatchListEvent::Up(1), &picker.engine);
-        list.flush(&picker.engine);
-        let matching = picker.engine.update(5);
-        assert!(list.update(&picker.engine, matching.items_changed, false));
+        list.handle(MatchListEvent::Up(1), &picker.core.engine);
+        list.flush(&picker.core.engine);
+        let matching = picker.core.engine.update(5);
+        assert!(list.update(&picker.core.engine, matching.items_changed, false));
         assert!(!status.update(matching, list.queued().count(None), false));
 
-        list.handle(MatchListEvent::ToggleDown(0), &picker.engine);
-        list.handle(MatchListEvent::ToggleDown(0), &picker.engine);
-        list.flush(&picker.engine);
-        let matching = picker.engine.update(5);
-        assert!(list.update(&picker.engine, matching.items_changed, false));
+        list.handle(MatchListEvent::ToggleDown(0), &picker.core.engine);
+        list.handle(MatchListEvent::ToggleDown(0), &picker.core.engine);
+        list.flush(&picker.core.engine);
+        let matching = picker.core.engine.update(5);
+        assert!(list.update(&picker.core.engine, matching.items_changed, false));
         assert!(!status.update(matching, list.queued().count(None), false));
         assert_eq!(list.queued().len(), 0);
 
-        list.handle(MatchListEvent::ToggleDown(0), &picker.engine);
-        list.flush(&picker.engine);
-        let matching = picker.engine.update(5);
-        assert!(list.update(&picker.engine, matching.items_changed, false));
+        list.handle(MatchListEvent::ToggleDown(0), &picker.core.engine);
+        list.flush(&picker.core.engine);
+        let matching = picker.core.engine.update(5);
+        assert!(list.update(&picker.core.engine, matching.items_changed, false));
         assert!(status.update(matching, list.queued().count(None), false));
         assert_eq!(list.queued().len(), 1);
 
-        list.handle(MatchListEvent::UnqueueAll, &picker.engine);
-        list.handle(MatchListEvent::Down(1), &picker.engine);
-        list.handle(MatchListEvent::ToggleDown(0), &picker.engine);
-        list.flush(&picker.engine);
-        let matching = picker.engine.update(5);
-        assert!(list.update(&picker.engine, matching.items_changed, false));
+        list.handle(MatchListEvent::UnqueueAll, &picker.core.engine);
+        list.handle(MatchListEvent::Down(1), &picker.core.engine);
+        list.handle(MatchListEvent::ToggleDown(0), &picker.core.engine);
+        list.flush(&picker.core.engine);
+        let matching = picker.core.engine.update(5);
+        assert!(list.update(&picker.core.engine, matching.items_changed, false));
         assert!(!status.update(matching, list.queued().count(None), false));
         assert_eq!(list.queued().len(), 1);
     }
@@ -310,13 +314,13 @@ mod tests {
 
         let mut picker = Picker::new(StrRenderer);
         picker.extend(["a", "b"]);
-        while picker.engine.update(5).matching {}
-        let mut status = StatusLine::new(&picker.chars);
-        assert!(status.update(picker.engine.update(5), None, false));
+        while picker.core.engine.update(5).matching {}
+        let mut status = StatusLine::new(&picker.core.chars);
+        assert!(status.update(picker.core.engine.update(5), None, false));
 
-        picker.engine.reparse("a");
+        picker.core.engine.reparse("a");
         let matching = loop {
-            let matching = picker.engine.update(5);
+            let matching = picker.core.engine.update(5);
             if !matching.matching {
                 break matching;
             }

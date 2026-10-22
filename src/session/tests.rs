@@ -80,6 +80,7 @@ fn pick(
     }
     drop(sender);
     picker
+        .core
         .pick_impl::<_, _, (), _>(receiver, &mut TestTerminal::default(), NoPreview)
         .unwrap()
         .copied()
@@ -89,10 +90,10 @@ fn pick(
 fn initial_query_matches_the_normalized_prompt() {
     let mut picker = PickerOptions::new().query("a\u{7}b").picker(StrRenderer);
     picker.extend(["ab", "cd"]);
-    while picker.engine.update(5).matching {}
+    while picker.core.engine.update(5).matching {}
 
     assert_eq!(picker.query(), "ab");
-    assert_eq!(picker.engine.snapshot().matched_item_count(), 1);
+    assert_eq!(picker.core.engine.snapshot().matched_item_count(), 1);
     assert_eq!(pick(&mut picker, [Event::Select]), Some("ab"));
 
     pick(
@@ -102,10 +103,10 @@ fn initial_query_matches_the_normalized_prompt() {
             Event::Quit,
         ],
     );
-    while picker.engine.update(5).matching {}
+    while picker.core.engine.update(5).matching {}
 
     assert_eq!(picker.query(), "ab");
-    assert_eq!(picker.engine.snapshot().matched_item_count(), 1);
+    assert_eq!(picker.core.engine.snapshot().matched_item_count(), 1);
     assert_eq!(pick(&mut picker, [Event::Select]), Some("ab"));
 }
 
@@ -127,7 +128,7 @@ fn quit_preserves_the_buffered_prompt_event() {
 fn select_preserves_the_buffered_prompt_event_and_current_selection() {
     let mut picker = Picker::new(StrRenderer);
     picker.extend(["alpha"]);
-    while picker.engine.update(5).matching {}
+    while picker.core.engine.update(5).matching {}
 
     assert_eq!(
         pick(
@@ -169,7 +170,7 @@ fn reused_picker_preserves_navigation_on_exit() {
 fn reused_picker_matches_the_query_saved_on_exit() {
     let mut picker = Picker::new(StrRenderer);
     picker.extend(["alpha", "beta"]);
-    while picker.engine.update(5).matching {}
+    while picker.core.engine.update(5).matching {}
 
     pick(
         &mut picker,
@@ -194,6 +195,7 @@ fn reused_picker_matches_the_query_saved_on_exit() {
         sender.send(Event::Select).unwrap();
     });
     let selected = picker
+        .core
         .pick_impl::<_, _, (), _>(receiver, &mut TestTerminal::default(), NoPreview)
         .unwrap()
         .copied();
@@ -230,6 +232,7 @@ fn busy_events_do_not_starve_frames_or_status() {
         let mut terminal = TestTerminal::default();
 
         picker
+            .core
             .pick_impl::<_, _, (), _>(events, &mut terminal, NoPreview)
             .unwrap();
 
@@ -238,7 +241,76 @@ fn busy_events_do_not_starve_frames_or_status() {
         assert_eq!(response.id, 7);
         assert_eq!(response.query, "x");
         assert!(response.changed);
+        assert!(response.frame_changed);
     }
+}
+
+#[test]
+fn status_changed_accumulates_between_responses() {
+    let mut picker: Picker<&str, _> = PickerOptions::new()
+        .frame_interval(Duration::ZERO)
+        .picker(StrRenderer);
+    let statuses = picker.status_observer();
+    let mut responses = Vec::new();
+    let mut script = [
+        Ok(Event::Status { id: 0 }),
+        Err(RecvError::Timeout),
+        Ok(Event::Redraw),
+        Err(RecvError::Timeout),
+        Err(RecvError::Timeout),
+        Ok(Event::Status { id: 1 }),
+        Err(RecvError::Timeout),
+        Ok(Event::Status { id: 2 }),
+        Err(RecvError::Timeout),
+        Ok(Event::Quit),
+    ]
+    .into_iter();
+    let events = TestEvents(|_| {
+        if let Ok(status) = statuses.try_recv() {
+            responses.push((status.id, status.changed, status.frame_changed));
+        }
+        script.next().unwrap()
+    });
+
+    picker
+        .core
+        .pick_impl::<_, _, (), _>(events, &mut TestTerminal::default(), NoPreview)
+        .unwrap();
+
+    assert_eq!(
+        responses,
+        [(0, true, false), (1, true, false), (2, false, false)]
+    );
+}
+
+#[test]
+fn status_changed_resets_when_an_unread_response_is_produced() {
+    let mut picker: Picker<&str, _> = PickerOptions::new()
+        .frame_interval(Duration::ZERO)
+        .picker(StrRenderer);
+    let statuses = picker.status_observer();
+    let mut script = [
+        Ok(Event::Status { id: 0 }),
+        Err(RecvError::Timeout),
+        Ok(Event::Status { id: 1 }),
+        Err(RecvError::Timeout),
+        Ok(Event::Quit),
+    ]
+    .into_iter();
+
+    picker
+        .core
+        .pick_impl::<_, _, (), _>(
+            TestEvents(|_| script.next().unwrap()),
+            &mut TestTerminal::default(),
+            NoPreview,
+        )
+        .unwrap();
+
+    let status = statuses.try_recv().unwrap();
+    assert_eq!(status.id, 1);
+    assert!(!status.changed);
+    assert!(!status.frame_changed);
 }
 
 #[test]
@@ -264,6 +336,7 @@ fn slow_render_leaves_time_to_drain() {
     };
 
     picker
+        .core
         .pick_impl::<_, _, (), _>(events, &mut terminal, NoPreview)
         .unwrap();
 
@@ -291,6 +364,7 @@ fn drain_reserve_does_not_wait_for_more_events() {
     });
 
     picker
+        .core
         .pick_impl::<_, _, (), _>(events, &mut TestTerminal::default(), NoPreview)
         .unwrap();
 
@@ -302,6 +376,7 @@ fn headless_updates_rebuild_layout_when_reentering_the_picker() {
     fn draw(picker: &mut Picker<&'static str, StrRenderer>) -> Vec<u8> {
         let mut terminal = TestTerminal::default();
         picker
+            .core
             .pick_impl::<_, _, (), _>(TestEvents(|_| Ok(Event::Quit)), &mut terminal, NoPreview)
             .unwrap();
         terminal.output

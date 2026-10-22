@@ -64,7 +64,7 @@ fn main() -> io::Result<()> {
             code: KeyCode::Char('r'),
             ..
         } => {
-            // we create the restart event on `ctrl + n`. since this invalidates existing
+            // we create the restart event on `ctrl + r`. since this invalidates existing
             // injectors, a new injector is immediately sent to the observer which we are watching
             // in the other thread
             Some(Event::<Infallible>::Restart)

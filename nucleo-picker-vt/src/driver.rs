@@ -317,7 +317,7 @@ impl Driver {
         total: u32,
     ) -> Result<PickerStatus, Error> {
         self.wait_for(timeout, |status| {
-            !status.changed
+            !status.frame_changed
                 && !status.matching
                 && !status.injecting
                 && status.matched_item_count == matched
@@ -338,7 +338,7 @@ impl Driver {
         let name = name.into();
         let result: Result<PaneSnapshot, Error> = (|| {
             self.wait_for(timeout, |status| {
-                !status.changed && !status.matching && !status.injecting
+                !status.frame_changed && !status.matching && !status.injecting
             })?;
             let (result_tx, result_rx) = oneshot::channel();
             let request = SnapshotRequest { result: result_tx };

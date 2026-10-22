@@ -11,34 +11,33 @@ use std::{
 use parking_lot::{Condvar, Mutex};
 
 use super::{
-    Preview, PreviewBuffer,
+    ItemRef, Preview, PreviewBuffer,
     request::{PreviewRequest, PreviewResponse, QueuedPreviewRequest},
 };
-
-const MIN_PRUNE_AT: usize = 32;
 
 /// A persistent background preview worker.
 ///
 /// This trait represents the work done to compute a preview cooperatively in a background
-/// threadpool. Each worker lives in its own thread and manages its own scratch space. There are no
+/// thread pool. Each worker lives in its own thread and manages its own scratch space. There are no
 /// synchronization methods between workers. This trait is designed for use with a [`PoolPreviewer`];
 /// read those docs for more detail.
 pub trait PreviewWorker<T> {
     /// Generate a preview in the provided buffer.
     ///
-    /// This method may safely block to generate the preview. When this method returns, it is assumed
-    /// that the buffer contents are ready for publication to the preview pane. If the request is
-    /// cancelled while the preview is running, the buffer will not be published.
-    ///
     /// The preview should be generated for the provided `item`. The worker may cooperatively check for
     /// early cancellation using the `is_cancelled` callback. This can be done to avoid unnecessary
-    /// work on dropped preview requests.
+    /// work on preview requests which are no longer required.
+    ///
+    /// This method may safely block to generate the preview. If the worker wishes to abandon the
+    /// preview request, for instance if cancellation is requested, it should return `false`. (If there
+    /// is an error, the error should be [written into the buffer](super::Preview#handling-errors) rather than returning `false`.)
+    /// The buffer will be published only if this method returns `true`.
     ///
     /// # Cancellation
     ///
     /// Since cancellation is cooperative, it cannot interrupt an operation which is blocked in the
     /// background. For example, if this preview function makes a network request and the network
-    /// hangs without checking for cancellation, then the worker will hang indefinitely.
+    /// hangs without checking for cancellation or timeout, then the worker will hang indefinitely.
     ///
     /// If all workers block or hang indefinitely, it will not be possible to generate future previews.
     /// Also, note that workers which hang will cause the [`Drop`] implementation of
@@ -46,28 +45,35 @@ pub trait PreviewWorker<T> {
     ///
     /// # Panics
     ///
-    /// If this method panics, the panic will cause the preview threadpool to shut down.
+    /// If this method panics, the panic will cause the preview thread pool to shut down.
     /// On the next preview request, the panic will be propagated to the picker itself.
-    fn preview(&mut self, item: &T, buffer: &mut PreviewBuffer, is_cancelled: impl Fn() -> bool);
+    fn preview(
+        &mut self,
+        item: &T,
+        buffer: &mut PreviewBuffer,
+        is_cancelled: impl Fn() -> bool,
+    ) -> bool;
 }
 
-/// A dedicated thread-pool for handling preview requests without blocking.
+/// A dedicated thread pool for handling preview requests without blocking.
 ///
-/// This struct manages a background threadpool of [`PreviewWorker`]s and dispatches preview work
+/// This struct manages a background thread pool of [`PreviewWorker`]s and dispatches preview work
 /// without blocking.
 ///
-///
-/// This trait is designed around ease of use: just implement [`PreviewWorker`] and initialize using
+/// This previewer is designed around ease of use: just implement [`PreviewWorker`] and initialize using
 /// one of three standard methods:
 ///
 /// - From a single clonable worker using [`PoolPreviewer::from_worker`]
 /// - From a non-empty iterator of workers using [`PoolPreviewer::from_workers`]
-/// - From a default implementatin using [`PoolPreviewer::with_default_workers`]
+/// - From a default implementation using [`PoolPreviewer::with_default_workers`]
+///
+/// Also see [`PoolPreviewer::with_sync_preview`] to add a cheap non-blocking preview callback which
+/// can handle certain requests before forwarding them to a preview worker.
 ///
 /// However, this means that a number of more complex use-cases are not supported:
 ///
 /// - Communication between workers.
-/// - More complex request management (such as deferring or dropping requests after beginning work).
+/// - More complex request management (such as deferring requests after beginning work).
 /// - Coalescing related requests.
 ///
 /// In such cases, it is advised to implement [`Preview`] directly.
@@ -78,6 +84,12 @@ pub trait PreviewWorker<T> {
 /// threads have joined. While picker exit cancels all outstanding requests, it does not terminate
 /// running workers since cancellation is cooperative. In particular, if a worker is blocked,
 /// dropping the [`PoolPreviewer`] will hang.
+///
+/// ## Preview wrappers
+///
+/// Some previewers may benefit from wrapping a [`PoolPreviewer`]. In this case, it is essential
+/// that the wrapper type focuses [`Preview::focus_changed`], since the [`PoolPreviewer`] uses this
+/// for scheduling to improve responsiveness.
 ///
 /// ## Example
 ///
@@ -100,7 +112,7 @@ pub trait PreviewWorker<T> {
 ///         path: &PathBuf,
 ///         buffer: &mut PreviewBuffer,
 ///         _is_cancelled: impl Fn() -> bool,
-///     ) {
+///     ) -> bool {
 ///         match fs::read_to_string(path) {
 ///             Ok(text) => buffer.push_text(&text),
 ///             Err(error) => {
@@ -108,6 +120,7 @@ pub trait PreviewWorker<T> {
 ///                 buffer.push_text(&error.to_string());
 ///             }
 ///         }
+///         true
 ///     }
 /// }
 ///
@@ -125,16 +138,19 @@ pub trait PreviewWorker<T> {
 ///
 /// ## Worker panic
 ///
-/// If a worker panics, this thread-pool is shut down and the panic is stored internally to the
+/// If a worker panics, this thread pool is shut down and the panic is stored internally to the
 /// preview pool. The next call to `preview` will immediately propagate the panic. However, note
 /// that the picker can return between the panic and the next call to `preview`, so the panic
 /// might not be observed by the picker.
-pub struct PoolPreviewer<T> {
+pub struct PoolPreviewer<T, F = fn(&T, &mut PreviewBuffer) -> bool> {
+    pool: Pool<T>,
+    sync_preview: Option<F>,
+    prefetch_limit: usize,
+}
+
+struct Pool<T> {
     shared: Arc<Shared<T>>,
     workers: Vec<JoinHandle<()>>,
-    // the threshold at which the job queue is scanned for cancellation; this is done with
-    // amortization
-    prune_at: usize,
 }
 
 struct Shared<T> {
@@ -143,11 +159,66 @@ struct Shared<T> {
 }
 
 struct State<T> {
-    jobs: Option<Vec<QueuedPreviewRequest<T>>>,
+    jobs: Option<Jobs<T>>,
+    idle_workers: usize,
     panic: Option<Box<dyn Any + Send + 'static>>,
 }
 
-impl<T> PoolPreviewer<T> {
+struct Jobs<T> {
+    urgent: Option<QueuedPreviewRequest<T>>,
+    background: Vec<QueuedPreviewRequest<T>>,
+}
+
+impl<T: Send + Sync + 'static> Jobs<T> {
+    fn push_background(&mut self, request: QueuedPreviewRequest<T>, capacity: usize) {
+        if capacity == 0 || request.is_cancelled() {
+            return;
+        }
+        let jobs = &mut self.background;
+        if jobs.len() == capacity {
+            jobs.retain(|request| !request.is_cancelled());
+            if jobs.len() == capacity {
+                jobs.remove(0);
+            }
+        }
+        jobs.push(request);
+    }
+}
+
+impl<T, F> PoolPreviewer<T, F> {
+    /// Add a synchronous previewer which can handle some preview requests in the picker thread
+    /// directly.
+    ///
+    /// This method is called synchronously, and therefore *must not block*. If it blocks, the
+    /// picker will lag. This method is mainly useful when, for some items `T`, slow background work
+    /// is not required. This can reduce overhead on the thread-pool.
+    ///
+    /// If previewing is fast for all items `T`, use a [`SyncPreviewer`](super::SyncPreviewer) instead.
+    #[must_use]
+    pub fn with_sync_preview<G>(self, preview: G) -> PoolPreviewer<T, G>
+    where
+        G: FnMut(&T, &mut PreviewBuffer) -> bool,
+    {
+        PoolPreviewer {
+            pool: self.pool,
+            sync_preview: Some(preview),
+            prefetch_limit: self.prefetch_limit,
+        }
+    }
+
+    /// Set the prefetch limit.
+    ///
+    /// The prefetch limit controls how many previews are pre-emptively requested. For slow
+    /// previews, setting this to a non-zero value can greatly improve perceived responsiveness
+    /// of the interactive previewer.
+    ///
+    /// The default value is `4`. Setting this to `0` disables prefetch entirely.
+    #[must_use]
+    pub fn with_prefetch_limit(mut self, limit: usize) -> Self {
+        self.prefetch_limit = limit;
+        self
+    }
+
     /// Report whether this pool is closed.
     ///
     /// If this method returns `true`, it means the pool is closed and can no longer handle preview
@@ -156,12 +227,12 @@ impl<T> PoolPreviewer<T> {
     /// On the other hand, a worker may still panic after observing `false` but before using this pool.
     #[must_use]
     pub fn is_closed(&self) -> bool {
-        self.shared.state.lock().jobs.is_none()
+        self.pool.is_closed()
     }
 }
 
 impl<T: Send + Sync + 'static> PoolPreviewer<T> {
-    /// Create a preview thread-pool with the requested number of threads and the provided worker.
+    /// Create a preview thread pool with the requested number of threads and the provided worker.
     ///
     /// At startup, the worker is cloned `threads - 1` times and sent to each worker thread.
     pub fn from_worker<W>(worker: W, threads: NonZeroUsize) -> io::Result<Self>
@@ -171,7 +242,7 @@ impl<T: Send + Sync + 'static> PoolPreviewer<T> {
         Self::from_workers(std::iter::repeat_n(worker, threads.get()))
     }
 
-    /// Create a preview thread-pool from an iterator of workers.
+    /// Create a preview thread pool from an iterator of workers.
     ///
     /// One thread is initialized per worker. Note that the iterator must be non-empty. Empty input
     /// will result in an IO error with kind [`io::ErrorKind::InvalidInput`].
@@ -188,46 +259,69 @@ impl<T: Send + Sync + 'static> PoolPreviewer<T> {
             )
         })?;
         let mut pool = Self::new(workers.size_hint().0.saturating_add(1));
-        pool.spawn(move || first)?;
+        pool.pool.spawn(move || first)?;
         for worker in workers {
-            pool.spawn(move || worker)?;
+            pool.pool.spawn(move || worker)?;
         }
         Ok(pool)
     }
 
-    /// Create a preview thread-pool with workers initialized using [`Default`].
+    /// Create a preview thread pool with workers initialized using [`Default`].
     ///
     /// Each spawned thread calls `W::default()` once. Since the method is called inside the thread,
     /// this means workers do not need to be [`Send`], unlike the other initialization methods.
     ///
-    /// This constructor returns one all of the threads have been spawned, but beware that
-    /// initialization amy still be running in the background. If initialization panics, the panic
-    /// is propagated in the usual and will propagate to the picker on the next preview request.
+    /// This constructor returns once all of the threads have been spawned, but beware that
+    /// initialization may still be running in the background. If initialization panics, the panic
+    /// is propagated in the usual way and will propagate to the picker on the next preview request.
     pub fn with_default_workers<W>(threads: NonZeroUsize) -> io::Result<Self>
     where
         W: PreviewWorker<T> + Default + 'static,
     {
         let mut pool = Self::new(threads.get());
         for _ in 0..threads.get() {
-            pool.spawn(W::default)?;
+            pool.pool.spawn(W::default)?;
         }
         Ok(pool)
     }
 
     fn new(capacity: usize) -> Self {
         Self {
-            shared: Arc::new(Shared {
-                state: Mutex::new(State {
-                    jobs: Some(Vec::new()),
-                    panic: None,
+            pool: Pool {
+                shared: Arc::new(Shared {
+                    state: Mutex::new(State {
+                        jobs: Some(Jobs {
+                            urgent: None,
+                            background: Vec::new(),
+                        }),
+                        idle_workers: 0,
+                        panic: None,
+                    }),
+                    available: Condvar::new(),
                 }),
-                available: Condvar::new(),
-            }),
-            workers: Vec::with_capacity(capacity),
-            prune_at: MIN_PRUNE_AT,
+                workers: Vec::with_capacity(capacity),
+            },
+            sync_preview: None,
+            prefetch_limit: 4,
         }
     }
+}
 
+impl<T> Pool<T> {
+    fn is_closed(&self) -> bool {
+        self.shared.state.lock().jobs.is_none()
+    }
+
+    fn resume_panic(&self) -> ! {
+        let panic = self.shared.state.lock().panic.take();
+        if let Some(panic) = panic {
+            resume_unwind(panic);
+        }
+        panic!("preview worker pool is closed");
+    }
+}
+
+impl<T: Send + Sync + 'static> Pool<T> {
     fn spawn<F, W>(&mut self, initialize: F) -> io::Result<()>
     where
         F: FnOnce() -> W + Send + 'static,
@@ -250,42 +344,103 @@ impl<T: Send + Sync + 'static> PoolPreviewer<T> {
         })?);
         Ok(())
     }
-}
 
-impl<T: Send + Sync + 'static> Preview<T> for PoolPreviewer<T> {
-    fn preview(&mut self, request: PreviewRequest<'_, T>, _timeout: Duration) -> PreviewResponse {
+    fn submit(&mut self, request: PreviewRequest<'_, T>, urgent: bool) -> PreviewResponse {
         let (pending, request) = request.defer();
+        let background_capacity = 2 * (self.workers.len() - 1);
         {
             let mut state = self.shared.state.lock();
             let Some(jobs) = state.jobs.as_mut() else {
-                let panic = state.panic.take();
                 drop(state);
-                if let Some(panic) = panic {
-                    resume_unwind(panic);
-                }
-                panic!("preview worker pool is closed");
+                self.resume_panic();
             };
 
-            // if there are too many active jobs, look for opportunities for cancellation
-            // in particular, this means the job queue will never be much larger than the picker
-            // cache size: once the cache is saturated with N elements, the picker will start
-            // cancelling stale requests, which will then be dropped here. the job queue will then
-            // be pruned again when it hits size `2N` (or perhaps a bit earlier).
-            if jobs.len() >= self.prune_at {
-                jobs.retain(|request| !request.is_cancelled());
-                // reset `prune_at` to allow a number of new items proportional to the current queue
-                // size so we don't re-scan the backlog on every push. note that the rest is done
-                // *after dropping cancelled jobs*
-                self.prune_at = MIN_PRUNE_AT.max(jobs.len().saturating_mul(2));
+            if urgent {
+                if let Some(previous) = jobs.urgent.replace(request) {
+                    jobs.push_background(previous, background_capacity);
+                }
+            } else {
+                jobs.push_background(request, background_capacity);
             }
-            jobs.push(request);
         }
         self.shared.available.notify_one();
         PreviewResponse::Pending(pending)
     }
 }
 
-impl<T> Drop for PoolPreviewer<T> {
+impl<T: Send + Sync + 'static, F> PoolPreviewer<T, F>
+where
+    F: FnMut(&T, &mut PreviewBuffer) -> bool,
+{
+    fn try_sync(&mut self, request: &mut PreviewRequest<'_, T>) -> bool {
+        if let Some(preview) = &mut self.sync_preview {
+            if self.pool.is_closed() {
+                self.pool.resume_panic();
+            }
+            if preview(request.item(), &mut request.buffer) {
+                return true;
+            }
+            request.buffer.clear();
+        }
+        false
+    }
+}
+
+impl<T: Send + Sync + 'static, F> Preview<T> for PoolPreviewer<T, F>
+where
+    F: FnMut(&T, &mut PreviewBuffer) -> bool,
+{
+    fn prefetch_limit(&self) -> usize {
+        if self.pool.workers.len() > 1 {
+            self.prefetch_limit
+        } else {
+            0
+        }
+    }
+
+    fn prefetch(
+        &mut self,
+        mut request: PreviewRequest<'_, T>,
+        _timeout: Duration,
+    ) -> Result<PreviewResponse, PreviewBuffer> {
+        if self.prefetch_limit() == 0 {
+            return Err(request.ready());
+        }
+        if self.try_sync(&mut request) {
+            return Ok(PreviewResponse::Ready(request.ready()));
+        }
+        Ok(self.pool.submit(request, false))
+    }
+
+    fn preview(
+        &mut self,
+        mut request: PreviewRequest<'_, T>,
+        _timeout: Duration,
+    ) -> PreviewResponse {
+        if self.try_sync(&mut request) {
+            return PreviewResponse::Ready(request.ready());
+        }
+        self.pool.submit(request, true)
+    }
+
+    fn focus_changed(&mut self, item: Option<ItemRef<'_, T>>) {
+        let focused = item.map(|item| item.id());
+        let background_capacity = 2 * (self.pool.workers.len() - 1);
+        {
+            let mut state = self.pool.shared.state.lock();
+            if let Some(jobs) = &mut state.jobs
+                && let Some(request) = jobs.urgent.take_if(|request| Some(request.id()) != focused)
+            {
+                jobs.push_background(request, background_capacity);
+            } else {
+                return;
+            }
+        }
+        self.pool.shared.available.notify_one();
+    }
+}
+
+impl<T> Drop for Pool<T> {
     fn drop(&mut self) {
         let queued = self.shared.state.lock().jobs.take();
         self.shared.available.notify_all();
@@ -298,28 +453,40 @@ impl<T> Drop for PoolPreviewer<T> {
 
 fn work<T: Send + Sync + 'static, W: PreviewWorker<T>>(shared: &Shared<T>, mut worker: W) {
     let mut buffer = PreviewBuffer::new();
+    shared.state.lock().idle_workers += 1;
     loop {
-        let job = {
+        let request = {
             let mut state = shared.state.lock();
             loop {
+                let can_background = state.idle_workers > 1;
                 let Some(jobs) = state.jobs.as_mut() else {
                     return;
                 };
-                if let Some(job) = jobs.pop() {
-                    break job;
+                let job = jobs.urgent.take().or_else(|| {
+                    if can_background {
+                        jobs.background.pop()
+                    } else {
+                        None
+                    }
+                });
+                if let Some(job) = job {
+                    if let Ok(request) = job.start() {
+                        state.idle_workers -= 1;
+                        break request;
+                    }
+                } else {
+                    shared.available.wait(&mut state);
                 }
-                shared.available.wait(&mut state);
             }
         };
-        let Ok(request) = job.start() else {
-            continue;
-        };
-        if request.is_cancelled() {
-            continue;
+        if !request.is_cancelled() {
+            buffer.clear();
+            if worker.preview(request.item(), &mut buffer, || request.is_cancelled()) {
+                let _ = request.publish(&mut buffer);
+            }
         }
-        buffer.clear();
-        worker.preview(request.item(), &mut buffer, || request.is_cancelled());
-        let _ = request.publish(&mut buffer);
+        shared.state.lock().idle_workers += 1;
+        shared.available.notify_one();
     }
 }
 

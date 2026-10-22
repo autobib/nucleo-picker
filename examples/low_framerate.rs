@@ -16,14 +16,14 @@ fn main() -> io::Result<()> {
         "Klimt",
         "Bruegel",
         "Magritte",
-        "Carvaggio",
+        "Caravaggio",
     ];
 
     // populate the matcher
     let injector = picker.injector();
     for opt in choices {
-        // Use `RenderStr` renderer to generate the match contents, since the choices are already
-        // string types.
+        // Use the `StrRenderer` renderer to generate the match contents, since the choices are
+        // already string types.
         injector.push(opt);
     }
 

@@ -250,8 +250,7 @@ impl SelectedIndices {
 
 /// The selected items when the picker quits.
 ///
-/// This is the selection type of th `pick*` methods of the multi-selection picker variants
-/// [`MultiPicker`](crate::MultiPicker) and [`PreviewMultiPicker`](crate::preview::PreviewMultiPicker).
+/// This is the selection type of the `pick*` methods of the multi-selection picker variants.
 /// Iterate over the picked items with [`iter`](Self::iter) or using `IntoIterator`. Also see the documentation
 /// for [multiple selections](crate::Picker#multiple-selections)
 ///
@@ -413,8 +412,9 @@ mod tests {
     fn selected_indices_track_insertion_order() {
         let mut picker = crate::Picker::new(crate::render::StrRenderer);
         picker.push_batch(["zero", "one", "two", "three"]);
-        while picker.engine.update(5).matching {}
-        let mut selection = SelectedIndices::init(None).into_selection(picker.engine.snapshot());
+        while picker.core.engine.update(5).matching {}
+        let mut selection =
+            SelectedIndices::init(None).into_selection(picker.core.engine.snapshot());
         assert!(selection.iter_selected_order().next().is_none());
 
         assert!(selection.queued.toggle(3));

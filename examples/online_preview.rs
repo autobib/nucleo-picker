@@ -27,7 +27,7 @@ use std::{
 };
 
 use nucleo_picker::{
-    Injector, Pick, Picker, Render,
+    Injector, Picker, Render,
     error::PickError,
     event::{Event, StdinEventSender},
     preview::{PoolPreviewer, PreviewBuffer, PreviewWorker},
@@ -203,25 +203,30 @@ impl PreviewWorker<Page> for HttpWorker {
         page: &Page,
         buffer: &mut PreviewBuffer,
         is_cancelled: impl Fn() -> bool,
-    ) {
+    ) -> bool {
         buffer.set_line_numbers(true);
-        if let Err(error) = self.read_preview(page, buffer, is_cancelled) {
-            if error.is_fatal() {
-                // a fatal error cancels the whole session, but only the first failure actually
-                // sends the abort
-                if !self.stopped.swap(true, Ordering::Relaxed) {
-                    let _ = self.events.send(Event::Abort(AppError::Preview {
-                        path: page.path.clone(),
-                        error,
-                    }));
+        match self.read_preview(page, buffer, is_cancelled) {
+            Ok(complete) => complete,
+            Err(error) => {
+                if error.is_fatal() {
+                    // a fatal error cancels the whole session, but only the first failure actually
+                    // sends the abort
+                    if !self.stopped.swap(true, Ordering::Relaxed) {
+                        let _ = self.events.send(Event::Abort(AppError::Preview {
+                            path: page.path.clone(),
+                            error,
+                        }));
+                    }
+                    false
+                } else {
+                    buffer.set_err(true);
+                    let _ = write!(
+                        buffer.text_writer(),
+                        "Cannot preview {BASE_URL}{}:\n{error}",
+                        page.path
+                    );
+                    true
                 }
-            } else {
-                buffer.set_err(true);
-                let _ = write!(
-                    buffer.text_writer(),
-                    "Cannot preview {BASE_URL}{}:\n{error}",
-                    page.path
-                );
             }
         }
     }
@@ -233,10 +238,10 @@ impl HttpWorker {
         page: &Page,
         buffer: &mut PreviewBuffer,
         is_cancelled: impl Fn() -> bool,
-    ) -> Result<(), FetchError> {
+    ) -> Result<bool, FetchError> {
         let cancelled = || is_cancelled() || self.stopped.load(Ordering::Relaxed);
         if cancelled() {
-            return Ok(());
+            return Ok(false);
         }
         let mut response = get(&self.agent, &format!("{BASE_URL}{}", page.path))?;
 
@@ -245,7 +250,7 @@ impl HttpWorker {
         let mut chunk = [0; 8192];
         loop {
             if cancelled() {
-                return Ok(());
+                return Ok(false);
             }
             let count = match reader.read(&mut chunk) {
                 Ok(0) => break,
@@ -257,11 +262,11 @@ impl HttpWorker {
             self.bytes.extend_from_slice(&chunk[..count]);
         }
         if cancelled() {
-            return Ok(());
+            return Ok(false);
         }
         let text = std::str::from_utf8(&self.bytes).map_err(FetchError::InvalidText)?;
         buffer.push_text(text);
-        Ok(())
+        Ok(true)
     }
 }
 

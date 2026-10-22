@@ -4,7 +4,7 @@
 # nucleo-picker
 A native [Rust](https://www.rust-lang.org/) library which enables you to incorporate a highly performant and Unicode-aware fuzzy picker directly in your own terminal application.
 
-This library provides a TUI for the [`nucleo`](https://docs.rs/nucleo/latest/nucleo/) crate with an interface similar to the [fzf](https://github.com/junegunn/fzf) command-line tool.
+This library can be used to equip your program with a TUI interface similar to the [fzf](https://github.com/junegunn/fzf) command-line tool.
 
 - For implementation examples, jump to the [fzf example](#example) or see the [`examples`](examples) directory.
 - For documentation of interactive usage of the picker, see the [`USAGE.md`](USAGE.md) file.
@@ -33,10 +33,10 @@ This library sits between a general-purpose fuzzy-finder (such as `fzf`) and a l
 - Robust rendering:
   - Full Unicode handling with [Unicode text segmentation](https://crates.io/crates/unicode-segmentation) and [Unicode width](https://crates.io/crates/unicode-width).
   - Match highlighting with automatic scroll-through.
-  - Correctly render multi-line or overflowed items, with standard and reversed item order.
+  - Correctly render multiline or overflowed items, with standard and reversed item order.
   - Responsive interface with batched keyboard input.
 - Fully featured preview
-  - Immediate (synchronous) preview generation with no thread-pool or subprocess overhead.
+  - Immediate (synchronous) preview generation with no thread pool or subprocess overhead.
   - Deferred (asynchronous) preview generation with managed caching and a preview re-prioritization API to easily implement responsive previews based on external data and IO.
   - Support preview panes with styled content.
 - Ergonomic API:
@@ -112,22 +112,20 @@ If there are particular `fzf`-specific features that you would like to see suppo
 - [ ] `--track`
 - [ ] `--ghost`
 
-
 ## Related crates
 
-This crate mainly exists as a result of the author's annoyance with pretty much every fuzzy picker TUI in the rust ecosystem.
+This crate mainly exists as a result of the author's annoyance with pretty much every fuzzy picker TUI in the Rust ecosystem.
 As far as I am aware, the fully-exposed [event system](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/enum.Event.html) is unique to this crate.
 Beyond this, here is a brief comparison:
 
 - [skim](https://docs.rs/skim/latest/skim/)'s `Arc<dyn SkimItem>` is inconvenient for a [variety of reasons](https://rutar.org/writing/using-closure-traits-to-simplify-rust-api/).
   `skim` also has a large number of dependencies and is designed more as a binary than a library.
 - [fuzzypicker](https://docs.rs/fuzzypicker/latest/fuzzypicker/) is based on `skim` and inherits `skim`'s problems.
-- [nucleo-ui](https://docs.rs/nucleo-ui/latest/nucleo_ui/) only has a blocking API and only supports matching on `String`. It also seems to be un-maintained.
+- [nucleo-ui](https://docs.rs/nucleo-ui/latest/nucleo_ui/) only has a blocking API and only supports matching on `String`.
 - [fuzzy-select](https://docs.rs/fuzzy-select/latest/fuzzy_select/) only has a blocking API.
-- [dialoguer `FuzzySelect`](https://docs.rs/dialoguer/latest/dialoguer/struct.FuzzySelect.html) only has a blocking API and only supports matching on `String`.
-  The terminal handling also has a few strange bugs.
+- [dialoguer `FuzzySelect`](https://docs.rs/dialoguer/latest/dialoguer/struct.FuzzySelect.html) only has a blocking API and only supports matching on `ToString` types.
 
 ## Disclaimer
 
-There are a currently a few known problems which have not been addressed (see the [issues page on GitHub](https://github.com/autobib/nucleo-picker/issues) for a list).
+There are currently a few known problems which have not been addressed (see the [issues page on GitHub](https://github.com/autobib/nucleo-picker/issues) for a list).
 Issues and contributions are welcome!

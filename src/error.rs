@@ -73,7 +73,7 @@ pub enum PickError<A = Infallible> {
 
 impl<A> PickError<A> {
     /// Convert a `PickError<A>` into either an `Ok(A)` or `Err(PickError<!>)`, for
-    /// convenience of error propogation.
+    /// convenience of error propagation.
     ///
     /// # Example
     /// Use `factor` to simplify processing of custom [`PickError<A>`]s when you mainly care about
@@ -84,7 +84,7 @@ impl<A> PickError<A> {
     ///
     /// // Even though `PickError<A>` need not satisfy `Into<io::Error>`, `PickError<!>`
     /// // always does.
-    /// fn print_or_propogate<A: Display>(pick_err: PickError<A>) -> Result<(), io::Error> {
+    /// fn print_or_propagate<A: Display>(pick_err: PickError<A>) -> Result<(), io::Error> {
     ///     let app_err = pick_err.factor()?;
     ///     eprintln!("{app_err}");
     ///     Ok(())
@@ -128,7 +128,7 @@ impl<A> From<io::Error> for PickError<A> {
 // ideally we would like to replace these two conversions with a blanket implementation
 // `impl<A: Into<io::Error>> From<PickError<A>> for io::Error`; however, currently there is no
 // implementation of `From<!> for T` for a variety of reasons; so we are stuck with doing this for
-// maximal compabitility since in the vast majority of cases, `A = !`.
+// maximal compatibility since in the vast majority of cases, `A = !`.
 impl From<PickError> for io::Error {
     fn from(err: PickError) -> Self {
         match err {

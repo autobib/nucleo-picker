@@ -5,8 +5,8 @@
 //! a writer. The reader is waiting for the writer to submit a completed value. While waiting, the
 //! reader may cancel the request to reclaim the internal buffer.
 //!
-//! The initial state of the slot is [queued](State::Queued). In this state, the data is not yet initialized, and
-//! both the reader and writer are waiting. When the writer is ready to begin work, it becomes
+//! The initial state of the slot is [queued](State::Queued). In this state, both the reader and
+//! writer are waiting. When the writer is ready to begin work, it becomes
 //! [active](State::Active). An active writer does not have access to the value in the slot, so the
 //! reader can still cancel the request and reclaim that value. Once the writer has produced a
 //! value, it briefly enters the private [submitting](State::Submitting) state while swapping the

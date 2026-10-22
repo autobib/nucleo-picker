@@ -4,7 +4,7 @@
 //! functionality of [fzf](https://github.com/junegunn/fzf).
 //!
 //! Unlike the `fzf_basic` example, this example forwards IO errors to the picker thread and tells it to
-//! disconnect.
+//! abort.
 
 use std::{
     io::{self, IsTerminal},
@@ -20,7 +20,7 @@ use nucleo_picker::{
 };
 
 /// The custom error type for our application. We could just use an `io::Error` directly (and also
-/// benefit from free error propogation), but for demonstration purposes we also add more context
+/// benefit from free error propagation), but for demonstration purposes we also add more context
 /// to the IO error with a custom wrapper type.
 enum AppError {
     Key(io::Error),
@@ -73,7 +73,7 @@ fn main() -> io::Result<()> {
                     Ok(s) => injector.push(s),
                     Err(io_err) => {
                         // if we encounter an IO error, we send the corresponding error
-                        // to the picker so that it can abort and propogate the error
+                        // to the picker so that it can abort and propagate the error
                         //
                         // it would also be fine to return but not send an abort event
                         // since the picker will remain interactive with the items it has

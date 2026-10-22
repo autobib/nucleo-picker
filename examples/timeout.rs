@@ -26,7 +26,7 @@ const TIMEOUT_MILLIS: u64 = 5_000;
 
 // a custom application error
 pub enum AppError {
-    // an error occured while iterating over directories
+    // an error occurred while iterating over directories
     FindFailed(io::Error),
     // the selection timed out
     TimedOut,

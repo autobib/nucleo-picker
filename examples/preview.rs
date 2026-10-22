@@ -9,7 +9,7 @@ use std::{borrow::Cow, io};
 
 use crossterm::style::{ContentStyle, Stylize};
 use nucleo_picker::{
-    Pick, Picker,
+    Picker,
     preview::{PreviewBuffer, SyncPreviewer},
 };
 

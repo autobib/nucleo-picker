@@ -34,6 +34,8 @@ pub(crate) struct MatchEngine<T, R> {
     normalization: NucleoNormalization,
     #[cfg(feature = "preview")]
     generation: u32,
+    #[cfg(feature = "preview")]
+    match_revision: u64,
 }
 
 impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
@@ -74,10 +76,17 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
             nucleo_is_running: false,
             #[cfg(feature = "preview")]
             generation: 0,
+            #[cfg(feature = "preview")]
+            match_revision: 0,
         }
     }
     pub fn snapshot(&self) -> &nc::Snapshot<T> {
         self.nucleo.snapshot()
+    }
+
+    #[cfg(feature = "preview")]
+    pub fn match_revision(&self) -> u64 {
+        self.match_revision
     }
 
     #[cfg(feature = "preview")]
@@ -180,6 +189,10 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
             self.needs_tick.store(false, Ordering::Relaxed);
             // Wait directly on the workers rather than gating ticks on their notifications.
             let status = self.nucleo.tick(u64::MAX);
+            #[cfg(feature = "preview")]
+            if status.changed {
+                self.match_revision = self.match_revision.wrapping_add(1);
+            }
             items_changed |= status.changed;
             self.nucleo_is_running = status.running;
             if !status.running {
@@ -198,6 +211,10 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
         }
         let items_changed = if self.needs_tick.swap(false, Ordering::Relaxed) {
             let status = self.nucleo.tick(millis);
+            #[cfg(feature = "preview")]
+            if status.changed {
+                self.match_revision = self.match_revision.wrapping_add(1);
+            }
 
             self.nucleo_is_running = status.running;
             status.changed

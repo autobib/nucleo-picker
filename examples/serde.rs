@@ -1,7 +1,7 @@
 //! # Serde support and multiline rendering
 //!
 //! This example demonstrates how to use serde support when rendering from an input sequence. The
-//! example also incorporates multi-line items to demonstrate large item rendering.
+//! example also incorporates multiline items to demonstrate large item rendering.
 //!
 //! This example requires the `serde` feature: run with
 //! ```bash
@@ -46,7 +46,7 @@ fn main() -> Result<()> {
 
     spawn(move || {
         // just for the example; usually you would read this from a file at runtime or similar and
-        // instead use `serde_json::from_reader`.
+        // instead use `Deserializer::from_reader`.
         let poems_json = include_str!("poems.json");
 
         // use the deserialize implementation of a `Poem` to deserialize from the contents of

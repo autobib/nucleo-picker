@@ -22,7 +22,7 @@ pub enum PreviewEvent {
     /// the first column if all of the rows fit.
     ///
     /// Note that this may result in a left movement if the preview pane is currently scrolled past
-    /// the final visible row. If want to align to the right *without any possible left movement*,
+    /// the final visible row. If you want to align to the right *without any possible left movement*,
     /// use `PreviewEvent::Right(usize::MAX)`.
     AlignRight,
     /// Scroll towards the beginning of the buffer by `n` lines.
@@ -35,18 +35,18 @@ pub enum PreviewEvent {
     PageDown(usize),
     /// Align the preview window to the first row, preserving the horizontal offset.
     ///
-    /// This event has no default keybind.
+    /// This event has no default keybinding.
     AlignTop,
     /// Align the preview window to the final row, preserving the horizontal offset.
     ///
-    /// This event has no default keybind.
+    /// This event has no default keybinding.
     AlignBottom,
     /// Toggle the presence of line numbers in an active preview pane.
     ToggleLineNumbers,
     /// Set visibility of line numbers in an active preview pane, or None to use the preview pane
     /// default.
     ///
-    /// This event has no default keybind.
+    /// This event has no default keybinding.
     SetLineNumbers(Option<bool>),
 }
 

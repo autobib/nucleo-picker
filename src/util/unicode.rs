@@ -1,4 +1,4 @@
-//! Utilities for handling unicode display in the terminal.
+//! Utilities for handling Unicode display in the terminal.
 
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::module_name_repetitions)]
@@ -52,7 +52,7 @@ pub(crate) fn is_ascii_safe(input: &str) -> bool {
     input.is_ascii() && !input.contains("\r\n")
 }
 
-/// A [`Processor`] which is safe for use on all valud UTF-8.
+/// A [`Processor`] which is safe for use on all valid UTF-8.
 pub struct UnicodeProcessor;
 
 impl Processor for UnicodeProcessor {

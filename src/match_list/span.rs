@@ -239,11 +239,11 @@ impl<'a, P: Processor> Spanned<'a, P> {
         let fill_highlight = selected && highlight_line;
 
         if self.max_line_bytes() <= max_width.saturating_sub(highlight_padding) as usize {
-            // Fast path: all of the lines are short, so we can just render them without any unicode width
+            // Fast path: all of the lines are short, so we can just render them without any Unicode width
             // checks. This should be the case for the majority of situations, unless the screen is
             // very narrow or the rendered items are very wide.
             //
-            // This check is safe since the only unicode characters which require two columns consist of
+            // This check is safe since the only Unicode characters which require two columns consist of
             // at least two bytes, so the number of bytes is always an upper bound for the number of
             // columns.
             //
@@ -315,7 +315,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
     ///
     /// # Panics
     /// This method must be called with a span with `range.start` and `range.end` corresponding to
-    /// valid unicode indices in `rendered`.
+    /// valid Unicode indices in `rendered`.
     #[inline]
     fn index_in(&self, span: &Span) -> &str {
         &self.rendered[span.range.start..span.range.end]

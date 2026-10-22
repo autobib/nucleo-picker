@@ -8,6 +8,14 @@ use super::PreviewBuffer;
 fn empty_buffers_always_have_a_current_line() {
     let style = ContentStyle::new().red();
     for mut buffer in [PreviewBuffer::new(), PreviewBuffer::default()] {
+        assert_eq!(
+            (
+                buffer.text.capacity(),
+                buffer.lines.capacity(),
+                buffer.styles.capacity(),
+            ),
+            (0, 0, 0)
+        );
         for _ in 0..2 {
             assert_eq!(buffer.lines().len(), 1);
             assert_eq!(buffer.line(0).unwrap().as_str(), "");
@@ -253,6 +261,19 @@ fn explicit_line_boundaries() {
             assert_eq!(view.spans().collect::<Vec<_>>(), expected_spans);
         }
         assert!(buffer.line(expected.len()).is_none());
+        assert!(buffer.line(usize::MAX).is_none());
+
+        for front in 0..=expected.len() {
+            for back in 0..=expected.len() {
+                let mut lines = buffer.lines().map(|line| line.as_str());
+                let mut reference = expected.iter().copied();
+                assert_eq!(lines.nth(front), reference.nth(front));
+                assert_eq!(lines.nth_back(back), reference.nth_back(back));
+                assert_eq!(lines.len(), reference.len());
+                assert_eq!(lines.size_hint(), reference.size_hint());
+                assert!(lines.eq(reference));
+            }
+        }
     }
 }
 
@@ -440,6 +461,12 @@ fn indexed_lines_and_skipping_access_only_their_styles() {
     assert_eq!(lines.len(), 49);
     assert!(lines.nth(usize::MAX).is_none());
     assert_eq!(lines.len(), 0);
+
+    let mut lines = buffer.lines();
+    assert!(lines.nth_back(usize::MAX).is_none());
+    assert_eq!(lines.len(), 0);
+    assert!(lines.next().is_none());
+    assert!(lines.next_back().is_none());
 }
 
 #[test]

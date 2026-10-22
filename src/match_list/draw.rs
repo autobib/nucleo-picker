@@ -11,7 +11,7 @@ use super::{
 use crate::util::unicode::{AsciiProcessor, UnicodeProcessor};
 use crate::{PickerChars, Render, match_engine::MatchEngine, rect::Rect, util::as_u16};
 
-/// Reusable strach space for match list rendering.
+/// Reusable scratch space for match list rendering.
 pub(super) struct RenderScratch {
     /// Spans used to render items.
     spans: Vec<Span>,

@@ -27,7 +27,7 @@ pub(super) fn draw<D: Rect>(
     let pending = preview.is_some_and(|cached| {
         matches!(
             cached.state,
-            Some(RequestState::Pending(_) | RequestState::Retry(_))
+            Some(RequestState::Pending(_) | RequestState::Active(_) | RequestState::Retry(_))
         )
     });
     let preview = preview.and_then(|cached| match &cached.state {

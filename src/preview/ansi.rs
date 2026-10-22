@@ -37,7 +37,8 @@ impl AnsiState {
 ///
 /// The conventional way to construct this type is through [`PreviewBuffer::ansi_writer`]. This type
 /// implements [`io::Write`], and can be used to write an ANSI byte-stream directly into the
-/// underlying buffer.
+/// underlying buffer. See the [`ansi_writer`](PreviewBuffer::ansi_writer) documentation for more
+/// details.
 #[cfg_attr(docsrs, doc(cfg(feature = "preview-ansi")))]
 #[derive(Debug)]
 pub struct AnsiWriter<'a> {
@@ -65,11 +66,35 @@ impl<'a> AnsiWriter<'a> {
 impl PreviewBuffer {
     /// Write a stream of bytes with ANSI-encoded styling directly into this buffer.
     ///
-    /// It is assumed that the input stream is UTF-8 encoded by convenention. Invalid UTF-8 is
+    /// It is assumed that the input stream is UTF-8 encoded by convention. Invalid UTF-8 is
     /// handled using lossy conversion.
     ///
+    /// This writer appends styled text to the current buffer line by parsing ANSI styles directly.
+    /// The same parsing rules apply to [`push_ansi`](Self::push_ansi).
+    ///
+    /// ## Supported styling
+    ///
+    /// This writer supports common [Select Graphic Rendition (SGR)
+    /// sequences](https://en.wikipedia.org/wiki/ANSI_escape_code#Select_Graphic_Rendition_parameters),
+    /// including text attributes, palette and RGB colors, and style resets. Styles persist across
+    /// writes and line breaks until changed or reset. Note this writer only supports semicolon-separated
+    /// parameters. Colon separators and unsupported styles are ignored.
+    ///
+    /// ## Control characters and other escape sequences
+    ///
+    /// - Line feed (`\n`) starts a preview buffer line.
+    /// - Tab (`\t`) appends the control picture `␉`.
+    /// - Other control characters, including carriage return (`\r`), backspace, and DEL, are
+    ///   discarded.
+    /// - OSC hyperlink visible text is parsed as ordinary styled text, but the link target is
+    ///   discarded.
+    /// - Other escape sequences, including cursor movement, screen erasure, and OSC commands
+    ///   for window titles, are ignored.
+    ///
+    /// ## Stream state
+    ///
     /// Note that writes require holding some parser state, so make sure the entire byte stream is
-    /// written before closing this type. Closing and re-opening the writer on the same stream is
+    /// written before closing this writer. Closing and re-opening the writer on the same stream is
     /// *not equivalent* to using a single writer continuously.
     ///
     /// ## Example
@@ -98,7 +123,7 @@ impl PreviewBuffer {
     /// 1. In the case that it is convenient for the writer state and buffer to not be co-located.
     /// 2. In order to interleave multiple byte streams or split a stream across multiple buffers.
     ///
-    /// It is assumed that the input stream is UTF-8 encoded by convenention. Invalid UTF-8 is
+    /// It is assumed that the input stream is UTF-8 encoded by convention. Invalid UTF-8 is
     /// handled using lossy conversion. In order to interleave ANSI streams, you must use a
     /// separate [`AnsiState`] per stream.
     #[cfg_attr(docsrs, doc(cfg(feature = "preview-ansi")))]

@@ -27,13 +27,13 @@
 //! asynchronously so that the picker can continue rendering the frame.
 //!
 //! A queued request may be cancelled at any time, and the underlying request can be re-submitted.
-//! The picker will do this in order to re-prioritize requests when there is a backlog of successful
-//! previews. When a request is cancelled, the various methods will return a
+//! The picker will do this in order to re-prioritize requests when there is a backlog of pending
+//! preview requests. When a request is cancelled, the various methods will return a
 //! [`CancelledPreviewRequest`].
 //!
 //! When the queued request is ready to be handled, convert to an [`ActivePreviewRequest`] with the
 //! [`QueuedPreviewRequest::start`] method. This will prevent cancellation for re-prioritization:
-//! once this method is called, the previewer will wait for this request to be satisfied without
+//! once this method is called, the picker will wait for this request to be satisfied without
 //! requesting it again (unless the request is dropped). Note that the preview request may still be cancelled
 //! if the preview is no longer required. When the preview itself is ready, call [`ActivePreviewRequest::publish`]
 //! to make the preview available to the picker.
@@ -45,6 +45,13 @@
 //! will resubmit the request on a subsequent update. Note that repeated drops will cause the
 //! preview to display indefinitely as loading: if the request was dropped because it cannot be
 //! satisfied, the previewer should instead satisfy the request by publishing an error.
+//!
+//! ## Prefetch
+//!
+//! The picker also coordinates pre-emptive ("prefetch") requests with the previewer. Prefetch
+//! cancellation logic is handled differently: requests are only retried when the match list or
+//! cursor changes. If a prefetched item which becomes highlighted (so a normal request is sent),
+//! the prefetch request is cancelled if not yet active and upgraded to a normal request.
 //!
 //! ### Basic example
 //!
@@ -88,16 +95,16 @@
 //! ## Buffer reuse
 //!
 //! The [`PreviewRequest`] internally contains a pre-cleared buffer that may be recycled from a
-//! preview preview pane. When publishing a buffer through [`ActivePreviewRequest::publish`], the
+//! previous preview pane. When publishing a buffer through [`ActivePreviewRequest::publish`], the
 //! worker should maintain a separate scratch buffer and swap it with the request buffer on
 //! publication. If publication succeeds, the buffer will be empty, but if it fails the buffer will
 //! have the original contents which the worker must clear manually.
 //!
 //! ## Previewing item and lifetimes
 //!
-//! The item for which the preview as originally requested is always available using an associated
+//! The item for which the preview was originally requested is always available using an associated
 //! `item` method; see [`PreviewRequest::item`], [`QueuedPreviewRequest::item`], and
-//! [`ActivePreviewRequest::item`]. Internally, the requests uses atomic reference counting to
+//! [`ActivePreviewRequest::item`]. Internally, the requests use atomic reference counting to
 //! hold on to the underlying item pool (shared with the picker) as long as any request is
 //! not dropped. This means that the items will remain in memory even if the picker shuts down,
 //! if there are any remaining requests which have not been dropped.
@@ -297,9 +304,9 @@ impl<T: Send + Sync + 'static> ActivePreviewRequest<T> {
 
     /// Check if the request has been cancelled by the picker.
     ///
-    /// If this method returns `true`, this means that the picker has cancelled the reque
-    /// the preview pane is no longer required by the picker. This means that the next ca
-    /// [`publish`](Self::publish) is guaranteed to fail. If this method returns false, the next
+    /// If this method returns `true`, the picker has cancelled the request and the preview
+    /// pane is no longer required by the picker. In particular, the next call to [`publish`](Self::publish)
+    /// is guaranteed to fail. If this method returns false, the next
     /// call to [`publish`](Self::publish) could still fail if the request is cancelled in between
     /// these two method calls.
     ///

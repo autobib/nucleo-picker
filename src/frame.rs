@@ -20,7 +20,7 @@ use std::io;
 pub enum LayoutEvent {
     /// Toggle visibility of the status line.
     ///
-    /// This event has no default keybind.
+    /// This event has no default keybinding.
     ToggleStatus,
     /// Toggle visibility of the preview pane.
     ///

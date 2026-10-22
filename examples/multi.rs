@@ -1,4 +1,4 @@
-//! # Multiline example
+//! # Mult-selection example
 //!
 //! This is identical to the 'blocking' example but allowing multiple picked items.
 use std::{io, num::NonZero};
@@ -19,7 +19,7 @@ fn main() -> io::Result<()> {
         "Klimt",
         "Bruegel",
         "Magritte",
-        "Carvaggio",
+        "Caravaggio",
     ]);
 
     // open interactive prompt, and do not return an error if there is no selection

@@ -9,7 +9,8 @@
 /// you require a more robust identification scheme, you must store this identity inside the item
 /// itself.
 ///
-/// Note that ordering has no relationship to ranking; it is only provided for convenience of use.
+/// Note that ordering has no relationship to ranking or the order in which items were received by
+/// the picker; it is only provided for convenience of use.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ItemId {
     pub(crate) generation: u32,

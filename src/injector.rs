@@ -6,9 +6,23 @@ use super::Render;
 
 /// A handle which allows adding new items to a [`Picker`](super::Picker).
 ///
-/// This struct is cheaply clonable and can be sent across threads. By default, add new items to
+/// This struct is cheaply clonable and can be sent across threads whenever the renderer can be sent
+/// across threads. By default, add new items to
 /// the [`Picker`](super::Picker) using the [`push`](Injector::push) method. For convenience, an
 /// injector also implements [`Extend`] if you want to add items from an iterator.
+///
+/// ## Injector lifecycle
+///
+/// Each injector is essentially a shared handle to the underlying item pool, and in particular
+/// represents *the potential for new items to be added to the picker*. In particular, if any
+/// injectors are still live:
+///
+/// - The picker will display an input spinner.
+/// - [`Picker::filter`](super::Picker::filter) will be blocked from running.
+///
+/// Note that handles can also be present inside an [`Observer`](super::Observer) when the picker
+/// restarts. See [`Picker::restart`](super::Picker::restart) and
+/// [`Event::Restart`](super::event::Event::Restart) for more details on injector invalidation.
 ///
 /// ## `DeserializeSeed` implementation
 /// If your items are being read from an external source and deserialized within the
@@ -18,6 +32,7 @@ use super::Render;
 /// The [`DeserializeSeed`](::serde::de::DeserializeSeed) implementation sends the items to the
 /// picker immediately, without waiting for the entire file to be deserialized (or even loaded into
 /// memory).
+///
 /// ```
 /// # #[cfg(not(feature = "serde"))]
 /// # fn main() {}

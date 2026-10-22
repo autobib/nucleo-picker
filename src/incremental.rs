@@ -67,7 +67,7 @@ pub trait ExtendIncremental {
 
 /// Incremental collection of an [`Iterator`] of [`usize`] into a vector.
 ///
-/// See the [`extended_bounded`](Self::extend_bounded) method for more detail.
+/// See the [`extend_bounded`](Self::extend_bounded) method for more detail.
 pub struct Incremental<C: OrderedCollection, I: Iterator<Item = usize>> {
     /// The internal vector.
     vec: C,
@@ -87,7 +87,7 @@ impl<C: OrderedCollection, I: Iterator<Item = usize>> ExtendIncremental for Incr
 }
 
 impl<C: OrderedCollection, I: Iterator<Item = usize>> Incremental<C, I> {
-    /// Initialize an [`IncrementalExtension`] targeting the given vector with the
+    /// Initialize an [`Incremental`] targeting the given vector with the
     /// provided iterator.
     ///
     /// New elements will be appended to the vector.
@@ -129,7 +129,7 @@ impl<C: OrderedCollection, I: Iterator<Item = usize>> Incremental<C, I> {
                         remaining = remaining.unchecked_sub(size);
                         if new {
                             // SAFETY: we can only be in this branch if the guard call to
-                            // `self.sizes.next_is_not_new()` returned false, in which
+                            // `self.sizes.is_incomplete()` returned false, in which
                             // if `limit_steps.is_finished()`, we would have returned earlier.
                             limit_steps.decr();
                             self.vec.append(size as usize);

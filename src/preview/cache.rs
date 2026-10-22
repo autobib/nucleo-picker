@@ -1,6 +1,10 @@
-use super::{PreviewBuffer, lock, request::PendingPreview};
+use super::{
+    PreviewBuffer, lock,
+    request::{PendingPreview, PreviewResponse},
+};
 
 /// A single entry in the preview cache.
+#[derive(Default)]
 pub(crate) struct Cached {
     pub scroll_position: usize,
     pub horizontal_position: usize,
@@ -9,6 +13,12 @@ pub(crate) struct Cached {
 }
 
 impl Cached {
+    pub fn into_buffer(mut self) -> PreviewBuffer {
+        self.state
+            .take()
+            .map_or_else(PreviewBuffer::new, RequestState::into_buffer)
+    }
+
     pub fn number_width(&self, width: u16) -> u16 {
         let Some(RequestState::Ready(buffer)) = &self.state else {
             return 0;
@@ -44,6 +54,7 @@ impl Drop for Cached {
 /// The status of a preview request.
 pub(crate) enum RequestState {
     Pending(PendingPreview),
+    Active(PendingPreview),
     Ready(PreviewBuffer),
     Retry(PreviewBuffer),
 }
@@ -52,24 +63,44 @@ impl RequestState {
     pub fn into_buffer(self) -> PreviewBuffer {
         match self {
             Self::Ready(buffer) | Self::Retry(buffer) => buffer,
-            Self::Pending(pending) => pending.reader.cancel_any(),
+            Self::Pending(pending) | Self::Active(pending) => pending.reader.cancel_any(),
         }
     }
 
     /// Check for state updates of this request without blocking.
-    pub fn poll(self, current_epoch: u64) -> Self {
-        let Self::Pending(PendingPreview { epoch, reader }) = self else {
+    pub fn poll(self) -> Self {
+        let (Self::Pending(pending) | Self::Active(pending)) = self else {
             return self;
         };
+        let PendingPreview { epoch, reader } = pending;
         match reader.poll() {
             lock::Poll::Ready(buffer) => Self::Ready(buffer),
-            lock::Poll::Queued(reader) if epoch != current_epoch => {
-                PendingPreview { reader, epoch }.reprioritize()
-            }
-            lock::Poll::Queued(reader) | lock::Poll::Active(reader) => {
-                Self::Pending(PendingPreview { reader, epoch })
-            }
+            lock::Poll::Queued(reader) => Self::Pending(PendingPreview { reader, epoch }),
+            lock::Poll::Active(reader) => Self::Active(PendingPreview { reader, epoch }),
             lock::Poll::Dropped(buffer) => Self::Retry(buffer),
+        }
+    }
+
+    pub fn reprioritize(self, current_epoch: u64) -> Self {
+        match self {
+            Self::Pending(pending) if pending.epoch != current_epoch => pending.reprioritize(),
+            state => state,
+        }
+    }
+
+    pub fn cancel_queued(self) -> Self {
+        match self {
+            Self::Pending(pending) => pending.reprioritize(),
+            state => state,
+        }
+    }
+}
+
+impl From<PreviewResponse> for RequestState {
+    fn from(response: PreviewResponse) -> Self {
+        match response {
+            PreviewResponse::Ready(buffer) => Self::Ready(buffer),
+            PreviewResponse::Pending(pending) => Self::Pending(pending),
         }
     }
 }
@@ -82,7 +113,7 @@ impl PendingPreview {
             lock::CancelQueued::Cancelled(buffer) | lock::CancelQueued::Dropped(buffer) => {
                 RequestState::Retry(buffer)
             }
-            lock::CancelQueued::Active(reader) => RequestState::Pending(Self { reader, epoch }),
+            lock::CancelQueued::Active(reader) => RequestState::Active(Self { reader, epoch }),
             lock::CancelQueued::Ready(buffer) => RequestState::Ready(buffer),
         }
     }

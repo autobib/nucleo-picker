@@ -4,8 +4,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use super::{PromptConfig, PromptEvent};
 use crate::util::as_u16;
 
-/// Mutate a given string in-place, removing ASCII control characters and converting newlines,
-/// carriage returns, and TABs to ASCII space.
+/// Mutate a given string in-place, discarding carriage returns and ASCII control characters and converting newlines and TABs to ASCII space.
 pub(super) fn normalize_prompt_string(s: &mut String) {
     *s = s.chars().filter_map(normalize_char).collect();
 }
