@@ -36,7 +36,12 @@ use crossterm::event::{KeyEvent, poll, read};
 
 use self::bind::convert_crossterm_event;
 
-pub use self::bind::{keybind_default, keybind_no_multi};
+#[expect(deprecated)]
+pub use self::bind::keybind_no_multi;
+pub use self::bind::{keybind_default, keybind_multi, keybind_single};
+#[cfg(feature = "preview")]
+#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
+pub use self::bind::{keybind_multi_preview, keybind_single_preview};
 #[cfg(feature = "preview")]
 #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
 pub use crate::preview::PreviewEvent;
@@ -160,7 +165,7 @@ pub use crate::{
 /// ```no_run
 /// use std::thread;
 /// use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
-/// use nucleo_picker::{Picker, event::{Event, keybind_default}, render::StrRenderer};
+/// use nucleo_picker::{Picker, event::{Event, keybind_single}, render::StrRenderer};
 ///
 /// # fn main() -> std::io::Result<()> {
 /// let mut picker = Picker::new(StrRenderer);
@@ -175,7 +180,7 @@ pub use crate::{
 ///
 /// let selected = picker.pick_with_keybind(|event| match event {
 ///     KeyEvent { code: KeyCode::F(5), kind: KeyEventKind::Press, .. } => Some(Event::Restart),
-///     event => keybind_default(event),
+///     event => keybind_single(event),
 /// })?;
 /// if let Some(item) = selected {
 ///     println!("{item}");
@@ -462,13 +467,14 @@ impl<A> EventSource for Receiver<Event<A>> {
 ///
 /// ## Example
 ///
-/// Use the [`keybind_default`] function to simplify your implementation of keybindings:
+/// Use [`keybind_single`] to simplify your implementation of keybindings:
+///
 /// ```
 /// use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-/// use nucleo_picker::event::{keybind_default, Event, StdinReader};
+/// use nucleo_picker::event::{keybind_single, Event, StdinReader};
 ///
-/// /// Keybindings which use the default keybindings, but instead of interrupting on `ctrl + c`,
-/// /// instead performs a normal quit action. Generic over all possible `Event` type parameters
+/// /// Keybindings which use single-selection keybindings, but instead of interrupting on `ctrl + c`,
+/// /// performs a normal quit action. Generic over all possible `Event` type parameters
 /// /// for flexibility.
 /// fn keybind_no_interrupt<A>(key_event: KeyEvent) -> Option<Event<A>> {
 ///     match key_event {
@@ -478,7 +484,7 @@ impl<A> EventSource for Receiver<Event<A>> {
 ///             code: KeyCode::Char('c'),
 ///             ..
 ///         } => Some(Event::Quit),
-///         e => keybind_default(e),
+///         e => keybind_single(e),
 ///     }
 /// }
 /// ```

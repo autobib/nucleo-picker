@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+In short, this release:
+
+1. Adds support for item previews.
+2. Makes some minor breaking API changes and adds generics for abstracting over picker types.
+3. Improves the multi-threaded performance of the matching engine.
+4. Makes slight improvements to the scoring algorithm.
+
 ### Changed
 
 - Removal of deprecated matching engine APIs:
@@ -22,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     Instead, use the new multi-selection picker type directly with `Picker::multi`, or locally use `Picker::as_multi().pick*()`.
   - The previewer (detailed below) is also a separate type-state available using `Picker::with_preview`.
   - The type parameter `I` satisfies a generic `Interface` trait, which is helpful for writing code which is generic over all picker types.
+- Built-in keybindings have been reorganized:
+  - `keybind_no_multi` has been deprecated and replaced by `keybind_single`
+  - There are also preview-specific bindings: `keybind_single_preview` and `keybind_multi_preview`
+  - The interface exposes its keybindings with `Interface::keybind_default`.
 
 ### Added
 
@@ -34,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added an `IntoIterator` implementation for `Selection`
 - Picker status responses now distinguish two events:
   - `changed` means that the frame changed since the previous status request
-  - `frame_changed` means that a changed occurred in frame during which the status event was actually processed
+  - `frame_changed` means that a change occurred in frame during which the status event was actually processed
 
 ### Fixed
 

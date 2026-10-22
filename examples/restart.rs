@@ -13,7 +13,7 @@ use std::{
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use nucleo_picker::{
     Picker,
-    event::{Event, StdinReader, keybind_default},
+    event::{Event, StdinReader, keybind_single},
     render::DisplayRenderer,
 };
 use rand::{RngExt, distr::StandardUniform};
@@ -69,7 +69,7 @@ fn main() -> io::Result<()> {
             // in the other thread
             Some(Event::<Infallible>::Restart)
         }
-        e => keybind_default(e),
+        e => keybind_single(e),
     });
 
     match picker.pick_with_io(event_source, &mut stderr)? {
