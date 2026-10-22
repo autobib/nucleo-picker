@@ -137,15 +137,16 @@ fn work<T: Send + Sync + 'static, W: PreviewWorker<T>>(shared: &Shared<T>, mut w
         };
 
         if !request.is_cancelled() {
-            // failed publication leaves the previous preview in the buffer.
+            // failed publication leaves the previous preview in the buffer, which
+            // may have contents
             buffer.clear();
 
             // make cancellation available cooperatively to the worker and generate the preview
-            worker.preview(request.item(), &mut buffer, || request.is_cancelled());
-
-            // if the request was cancelled, publication will fail anyway, so we don't need to
-            // bother checking it ourself
-            let _ = request.publish(&mut buffer);
+            if worker.preview(request.item(), &mut buffer, || request.is_cancelled()) {
+                // if the request was cancelled, publication will fail anyway, so we don't need to
+                // bother checking it ourself
+                let _ = request.publish(&mut buffer);
+            }
         }
     }
 }
@@ -159,7 +160,7 @@ impl PreviewWorker<PathBuf> for FileWorker {
         path: &PathBuf,
         buffer: &mut PreviewBuffer,
         _is_cancelled: impl Fn() -> bool,
-    ) {
+    ) -> bool {
         // don't do this for large files
         match fs::read_to_string(path) {
             Ok(text) => buffer.push_text(&text),
@@ -168,6 +169,7 @@ impl PreviewWorker<PathBuf> for FileWorker {
                 buffer.push_text(&error.to_string());
             }
         }
+        true
     }
 }
 

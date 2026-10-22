@@ -42,7 +42,7 @@ impl PreviewWorker<&'static str> for Worker {
         item: &&'static str,
         buffer: &mut PreviewBuffer,
         is_cancelled: impl Fn() -> bool,
-    ) {
+    ) -> bool {
         assert_eq!(buffer.lines().len(), 1);
         assert_eq!(buffer.line(0).unwrap().as_str(), "");
         assert!(!buffer.is_err());
@@ -61,9 +61,10 @@ impl PreviewWorker<&'static str> for Worker {
         let cancelled = is_cancelled();
         assert_eq!(cancelled, expected_cancelled);
         if cancelled {
-            return;
+            return false;
         }
         assert_ne!(*item, "panic", "worker panic");
+        true
     }
 }
 
@@ -151,8 +152,8 @@ fn from_workers_runs_non_clone_send_only_workers_from_a_borrowed_iterator() {
             item: &&'static str,
             buffer: &mut PreviewBuffer,
             is_cancelled: impl Fn() -> bool,
-        ) {
-            self.0.preview(item, buffer, is_cancelled);
+        ) -> bool {
+            self.0.preview(item, buffer, is_cancelled)
         }
     }
 
@@ -209,7 +210,12 @@ fn from_worker_clones_on_the_caller_thread_and_moves_the_original() {
     }
 
     impl PreviewWorker<&'static str> for CountClones {
-        fn preview(&mut self, _: &&'static str, _: &mut PreviewBuffer, _: impl Fn() -> bool) {
+        fn preview(
+            &mut self,
+            _: &&'static str,
+            _: &mut PreviewBuffer,
+            _: impl Fn() -> bool,
+        ) -> bool {
             unreachable!();
         }
     }
@@ -278,7 +284,7 @@ fn default_workers_initialize_asynchronously_and_stay_on_their_threads() {
             item: &&'static str,
             buffer: &mut PreviewBuffer,
             _: impl Fn() -> bool,
-        ) {
+        ) -> bool {
             let control = CONTROL.get().unwrap();
             self.calls.set(self.calls.get() + 1);
             control
@@ -291,6 +297,7 @@ fn default_workers_initialize_asynchronously_and_stay_on_their_threads() {
                 .unwrap();
             control.preview.recv_timeout(WAIT).unwrap();
             buffer.push_str(item);
+            true
         }
     }
 
@@ -415,7 +422,12 @@ fn default_worker_panic_releases_requests_and_propagates_on_submission() {
     }
 
     impl PreviewWorker<&'static str> for PanickingDefault {
-        fn preview(&mut self, _: &&'static str, _: &mut PreviewBuffer, _: impl Fn() -> bool) {
+        fn preview(
+            &mut self,
+            _: &&'static str,
+            _: &mut PreviewBuffer,
+            _: impl Fn() -> bool,
+        ) -> bool {
             unreachable!();
         }
     }
@@ -453,7 +465,12 @@ fn shutdown_waits_for_default_initialization() {
     }
 
     impl PreviewWorker<&'static str> for WaitingDefault {
-        fn preview(&mut self, _: &&'static str, _: &mut PreviewBuffer, _: impl Fn() -> bool) {
+        fn preview(
+            &mut self,
+            _: &&'static str,
+            _: &mut PreviewBuffer,
+            _: impl Fn() -> bool,
+        ) -> bool {
             unreachable!();
         }
     }
@@ -468,6 +485,58 @@ fn shutdown_waits_for_default_initialization() {
     assert!(!shutdown.is_finished());
     initialize.send(()).unwrap();
     shutdown.join().unwrap();
+}
+
+#[test]
+fn incomplete_previews_are_dropped_and_scratch_buffers_are_cleared_and_reused() {
+    struct IncompleteWorker(Option<usize>);
+
+    impl PreviewWorker<&'static str> for IncompleteWorker {
+        fn preview(
+            &mut self,
+            item: &&'static str,
+            buffer: &mut PreviewBuffer,
+            is_cancelled: impl Fn() -> bool,
+        ) -> bool {
+            assert!(!is_cancelled());
+            assert_eq!(buffer.lines().len(), 1);
+            assert_eq!(buffer.line(0).unwrap().as_str(), "");
+            assert!(!buffer.is_err());
+            assert!(!buffer.line_numbers());
+            if let Some(allocation) = self.0 {
+                buffer.push_str(item);
+                assert_eq!(
+                    buffer.line(0).unwrap().as_str().as_ptr() as usize,
+                    allocation
+                );
+                true
+            } else {
+                buffer.push_text("incomplete\npreview");
+                buffer.set_err(true);
+                buffer.set_line_numbers(true);
+                self.0 = Some(buffer.line(0).unwrap().as_str().as_ptr() as usize);
+                false
+            }
+        }
+    }
+
+    let picker = picker();
+    let mut pool = PoolPreviewer::from_workers([IncompleteWorker(None)]).unwrap();
+    let mut buffer = PreviewBuffer::new();
+    buffer.push_str("reusable request buffer");
+    let allocation = buffer.line(0).unwrap().as_str().as_ptr();
+    buffer.clear();
+    let incomplete = submit(&mut pool, &picker, 0, buffer);
+    let buffer = completed(incomplete).expect_err("incomplete preview was published");
+    assert_eq!(buffer.line(0).unwrap().as_str(), "");
+    assert_eq!(buffer.line(0).unwrap().as_str().as_ptr(), allocation);
+
+    let retry = submit(&mut pool, &picker, 0, buffer);
+    let buffer = ready(retry);
+    assert_eq!(buffer.lines().len(), 1);
+    assert_eq!(buffer.line(0).unwrap().as_str(), "first");
+    assert!(!buffer.is_err());
+    assert!(!buffer.line_numbers());
 }
 
 #[test]

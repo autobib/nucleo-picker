@@ -81,14 +81,18 @@ impl PreviewWorker<DirEntry> for FileWorker {
         entry: &DirEntry,
         buffer: &mut PreviewBuffer,
         is_cancelled: impl Fn() -> bool,
-    ) {
-        if let Err(err) = read_preview(entry, &mut self.bytes, buffer, is_cancelled) {
-            buffer.clear();
-            buffer.set_err(true);
-            buffer.push_text(&format!(
-                "Cannot preview {}:\n{err}",
-                entry.path().display()
-            ));
+    ) -> bool {
+        match read_preview(entry, &mut self.bytes, buffer, is_cancelled) {
+            Ok(complete) => complete,
+            Err(err) => {
+                buffer.clear();
+                buffer.set_err(true);
+                buffer.push_text(&format!(
+                    "Cannot preview {}:\n{err}",
+                    entry.path().display()
+                ));
+                true
+            }
         }
     }
 }
@@ -98,7 +102,7 @@ fn read_preview(
     bytes: &mut Vec<u8>,
     buffer: &mut PreviewBuffer,
     is_cancelled: impl Fn() -> bool,
-) -> io::Result<()> {
+) -> io::Result<bool> {
     let mut file = File::open(entry.path())?;
     if !file.metadata()?.is_file() {
         return Err(io::Error::other("Path is no longer a regular file"));
@@ -109,7 +113,7 @@ fn read_preview(
     // we can avoid it
     while bytes.len() <= PREVIEW_BYTES {
         if is_cancelled() {
-            return Ok(());
+            return Ok(false);
         }
         // read one extra byte to distinguish a perfectly full preview from a truncated file
         let capacity = chunk.len().min(PREVIEW_BYTES + 1 - bytes.len());
@@ -122,7 +126,7 @@ fn read_preview(
         bytes.extend_from_slice(&chunk[..count]);
     }
     if is_cancelled() {
-        return Ok(());
+        return Ok(false);
     }
     let truncated = bytes.len() > PREVIEW_BYTES;
     let prefix = &bytes[..bytes.len().min(PREVIEW_BYTES)];
@@ -148,7 +152,7 @@ fn read_preview(
     } else {
         buffer.push_styled_str("[Binary file]", ContentStyle::new().dim().italic());
     }
-    Ok(())
+    Ok(true)
 }
 
 fn main() -> io::Result<ExitCode> {

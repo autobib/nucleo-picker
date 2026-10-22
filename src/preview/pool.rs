@@ -24,19 +24,20 @@ use super::{
 pub trait PreviewWorker<T> {
     /// Generate a preview in the provided buffer.
     ///
-    /// This method may safely block to generate the preview. When this method returns, it is assumed
-    /// that the buffer contents are ready for publication to the preview pane. If the request is
-    /// cancelled while the preview is running, the buffer will not be published.
-    ///
     /// The preview should be generated for the provided `item`. The worker may cooperatively check for
     /// early cancellation using the `is_cancelled` callback. This can be done to avoid unnecessary
-    /// work on dropped preview requests.
+    /// work on preview requests which are no longer required.
+    ///
+    /// This method may safely block to generate the preview. If the worker wishes to abandon the
+    /// preview request, for instance if cancellation is requested, it should return `false`. (If there
+    /// is an error, the error should be [written into the buffer](super::Preview#handling-errors) rather than returning `false`.)
+    /// The buffer will be published only if this method returns `true`.
     ///
     /// # Cancellation
     ///
     /// Since cancellation is cooperative, it cannot interrupt an operation which is blocked in the
     /// background. For example, if this preview function makes a network request and the network
-    /// hangs without checking for cancellation, then the worker will hang indefinitely.
+    /// hangs without checking for cancellation or timeout, then the worker will hang indefinitely.
     ///
     /// If all workers block or hang indefinitely, it will not be possible to generate future previews.
     /// Also, note that workers which hang will cause the [`Drop`] implementation of
@@ -46,7 +47,12 @@ pub trait PreviewWorker<T> {
     ///
     /// If this method panics, the panic will cause the preview thread pool to shut down.
     /// On the next preview request, the panic will be propagated to the picker itself.
-    fn preview(&mut self, item: &T, buffer: &mut PreviewBuffer, is_cancelled: impl Fn() -> bool);
+    fn preview(
+        &mut self,
+        item: &T,
+        buffer: &mut PreviewBuffer,
+        is_cancelled: impl Fn() -> bool,
+    ) -> bool;
 }
 
 /// A dedicated thread pool for handling preview requests without blocking.
@@ -67,7 +73,7 @@ pub trait PreviewWorker<T> {
 /// However, this means that a number of more complex use-cases are not supported:
 ///
 /// - Communication between workers.
-/// - More complex request management (such as deferring or dropping requests after beginning work).
+/// - More complex request management (such as deferring requests after beginning work).
 /// - Coalescing related requests.
 ///
 /// In such cases, it is advised to implement [`Preview`] directly.
@@ -106,7 +112,7 @@ pub trait PreviewWorker<T> {
 ///         path: &PathBuf,
 ///         buffer: &mut PreviewBuffer,
 ///         _is_cancelled: impl Fn() -> bool,
-///     ) {
+///     ) -> bool {
 ///         match fs::read_to_string(path) {
 ///             Ok(text) => buffer.push_text(&text),
 ///             Err(error) => {
@@ -114,6 +120,7 @@ pub trait PreviewWorker<T> {
 ///                 buffer.push_text(&error.to_string());
 ///             }
 ///         }
+///         true
 ///     }
 /// }
 ///
@@ -474,8 +481,9 @@ fn work<T: Send + Sync + 'static, W: PreviewWorker<T>>(shared: &Shared<T>, mut w
         };
         if !request.is_cancelled() {
             buffer.clear();
-            worker.preview(request.item(), &mut buffer, || request.is_cancelled());
-            let _ = request.publish(&mut buffer);
+            if worker.preview(request.item(), &mut buffer, || request.is_cancelled()) {
+                let _ = request.publish(&mut buffer);
+            }
         }
         shared.state.lock().idle_workers += 1;
         shared.available.notify_one();
