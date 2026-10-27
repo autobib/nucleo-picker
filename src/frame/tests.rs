@@ -2,7 +2,6 @@ use super::{Frame, LayoutEvent, Redraw};
 use crate::{
     Picker, Terminal,
     component::{Component, NoPreview, PreviewComponent},
-    match_engine::MatchEngine,
     match_list::MatchList,
     prompt::Prompt,
     render::StrRenderer,
@@ -61,7 +60,7 @@ fn render_at_size(redraw: Redraw, size: (u16, u16)) -> String {
 }
 fn render_with<V>(redraw: Redraw, size: (u16, u16), mut preview: V) -> String
 where
-    V: PreviewComponent<String> + Component<MatchEngine<String, StrRenderer>>,
+    V: PreviewComponent<String>,
 {
     let mut picker = Picker::<String, _>::new(StrRenderer);
     let mut prompt = Prompt::new(&mut picker.core.prompt, &picker.core.chars);

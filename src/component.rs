@@ -34,7 +34,7 @@ pub(crate) trait Component<E> {
     }
 }
 
-pub(crate) trait PreviewComponent<T> {
+pub(crate) trait PreviewComponent<T>: Component<()> {
     // this is a bit hacky: mostly we try to feature-gate the preview component but
     // if the preview feature is enabled, one can still use the usual picker, in which case
     // we don't want any runtime cost
@@ -65,9 +65,9 @@ use crate::preview::PreviewEvent;
 
 pub(crate) struct NoPreview;
 
-impl<E> Component<E> for NoPreview {
-    fn resize(&mut self, _area: Area, _engine: &E) {}
-    fn draw<D: Rect>(&mut self, _engine: &E, _rect: &mut D) -> io::Result<()> {
+impl Component<()> for NoPreview {
+    fn resize(&mut self, _area: Area, _engine: &()) {}
+    fn draw<D: Rect>(&mut self, _engine: &(), _rect: &mut D) -> io::Result<()> {
         Ok(())
     }
 }

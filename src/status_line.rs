@@ -82,9 +82,9 @@ impl<'a> StatusLine<'a> {
     }
 }
 
-impl<E> Component<E> for StatusLine<'_> {
-    fn resize(&mut self, _area: Area, _engine: &E) {}
-    fn draw<D: Rect>(&mut self, _engine: &E, rect: &mut D) -> io::Result<()> {
+impl Component<()> for StatusLine<'_> {
+    fn resize(&mut self, _area: Area, _engine: &()) {}
+    fn draw<D: Rect>(&mut self, _engine: &(), rect: &mut D) -> io::Result<()> {
         let values = self.previous.unwrap_or_default();
         draw_match_counts(
             rect,

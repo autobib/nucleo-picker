@@ -231,7 +231,7 @@ impl Frame {
     }
 
     /// Resize all of the frame components.
-    pub fn resize<S, P: Component<S>, L: Component<S>, C: Component<S>, V: Component<S>>(
+    pub fn resize<S, P: Component<()>, L: Component<S>, C: Component<()>, V: Component<()>>(
         &mut self,
         engine: &S,
         prompt: &mut P,
@@ -239,10 +239,10 @@ impl Frame {
         status: &mut C,
         preview: &mut V,
     ) {
-        prompt.resize(self.prompt, engine);
+        prompt.resize(self.prompt, &());
         list.resize(self.list, engine);
-        status.resize(self.status, engine);
-        preview.resize(self.preview, engine);
+        status.resize(self.status, &());
+        preview.resize(self.preview, &());
         self.pending_resize = false;
     }
 
@@ -261,10 +261,10 @@ impl Frame {
         mut redraw: Redraw,
     ) -> io::Result<bool>
     where
-        P: Component<S>,
+        P: Component<()>,
         L: Component<S>,
-        C: Component<S>,
-        V: Component<S>,
+        C: Component<()>,
+        V: Component<()>,
         W: Terminal,
     {
         if !redraw.any() && !self.pending_resize {
@@ -296,10 +296,10 @@ impl Frame {
         mut redraw: Redraw,
     ) -> io::Result<()>
     where
-        P: Component<S>,
+        P: Component<()>,
         L: Component<S>,
-        C: Component<S>,
-        V: Component<S>,
+        C: Component<()>,
+        V: Component<()>,
         W: Terminal,
     {
         if self.size.0 == 0 || self.size.1 == 0 {
@@ -325,15 +325,15 @@ impl Frame {
             draw_component(list, engine, writer, self.list, clear)?;
         }
         if redraw.status {
-            draw_component(status, engine, writer, self.status, clear)?;
+            draw_component(status, &(), writer, self.status, clear)?;
         }
         if redraw.prompt {
-            draw_component(prompt, engine, writer, self.prompt, clear)?;
+            draw_component(prompt, &(), writer, self.prompt, clear)?;
         }
         if redraw.preview {
-            draw_component(preview, engine, writer, self.preview, clear)?;
+            draw_component(preview, &(), writer, self.preview, clear)?;
         }
-        if let Some(cursor) = prompt.cursor(engine) {
+        if let Some(cursor) = prompt.cursor(&()) {
             writer.queue(MoveTo(
                 self.prompt.column + cursor.column,
                 self.prompt.row + cursor.row,

@@ -4,11 +4,10 @@ use std::time::{Duration, Instant};
 
 use crate::{
     PickerCore, Render, Terminal,
-    component::{Component, PreviewComponent},
+    component::PreviewComponent,
     error::PickError,
     event::{Event, EventSource, PickerStatus, RecvError},
     frame::{Frame, Redraw},
-    match_engine::MatchEngine,
     match_list::{MatchList, Queued},
     prompt::Prompt,
     status_line::StatusLine,
@@ -31,7 +30,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
     where
         E: EventSource,
         W: Terminal,
-        P: PreviewComponent<T> + Component<MatchEngine<T, R>>,
+        P: PreviewComponent<T>,
     {
         let engine = &mut self.engine;
         // Headless updates defer layout work until the next interactive session.

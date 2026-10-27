@@ -568,7 +568,7 @@ fn initial_layout_resizes_retained_preview_state() {
             height: 6,
             ..Area::default()
         },
-        &picker.core.engine,
+        &(),
     );
     session.handle(PreviewEvent::Down(usize::MAX), Some(0));
     assert_eq!(session.test_cache().peek(&0).unwrap().scroll_position, 26);
@@ -598,7 +598,7 @@ fn resizing_clamps_cached_previews_before_they_are_revisited() {
             height: 10,
             ..Area::default()
         },
-        &picker.core.engine,
+        &(),
     );
     session.handle(PreviewEvent::Down(usize::MAX), Some(0));
     picker.core.list_state.layout.set_selection(

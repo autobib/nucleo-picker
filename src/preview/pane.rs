@@ -371,11 +371,11 @@ impl<T, P: Preview<T>> PreviewPane<T, P> {
     }
 }
 
-impl<E, T, P: Preview<T>> Component<E> for PreviewPane<T, P> {
-    fn resize(&mut self, area: Area, _engine: &E) {
+impl<T, P: Preview<T>> Component<()> for PreviewPane<T, P> {
+    fn resize(&mut self, area: Area, _engine: &()) {
         self.resize_area(area);
     }
-    fn draw<D: Rect>(&mut self, _engine: &E, rect: &mut D) -> io::Result<()> {
+    fn draw<D: Rect>(&mut self, _engine: &(), rect: &mut D) -> io::Result<()> {
         let preview = self.last_item.and_then(|idx| self.cache.peek(&idx));
         super::draw::draw(rect, preview, self.boundary_chars, self.ellipsis)
     }
