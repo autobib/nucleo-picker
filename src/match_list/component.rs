@@ -1,4 +1,4 @@
-use super::{MatchListEvent, MatchListState, Queued};
+use super::{ItemQueue, MatchListEvent, MatchListState};
 use crate::{
     PickerChars,
     component::Component,
@@ -16,7 +16,7 @@ pub(crate) struct MatchList<'a, Q> {
     pending_redraw: bool,
 }
 
-impl<'a, Q: Queued> MatchList<'a, Q> {
+impl<'a, Q: ItemQueue> MatchList<'a, Q> {
     pub fn new(state: &'a mut MatchListState, chars: &'a PickerChars, queued: Q) -> Self {
         let buffered_selection = state.layout.selection;
         Self {
@@ -223,7 +223,7 @@ impl<'a, Q: Queued> MatchList<'a, Q> {
     }
 }
 
-impl<T: Send + Sync + 'static, R: crate::Render<T>, Q: Queued> Component<MatchEngine<T, R>>
+impl<T: Send + Sync + 'static, R: crate::Render<T>, Q: ItemQueue> Component<MatchEngine<T, R>>
     for MatchList<'_, Q>
 {
     fn resize(&mut self, area: Area, engine: &MatchEngine<T, R>) {

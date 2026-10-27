@@ -254,7 +254,7 @@ mod tests {
         use crate::{
             Picker,
             event::MatchListEvent,
-            match_list::{MatchList, Queued, SelectedIndices},
+            match_list::{ItemQueue, MatchList, SelectedIndices},
             render::StrRenderer,
         };
 

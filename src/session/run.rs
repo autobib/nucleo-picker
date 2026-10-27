@@ -8,7 +8,7 @@ use crate::{
     error::PickError,
     event::{Event, EventSource, PickerStatus, RecvError},
     frame::{Frame, Redraw},
-    match_list::{MatchList, Queued},
+    match_list::{ItemQueue, MatchList},
     prompt::Prompt,
     status_line::StatusLine,
     terminal::TerminalSession,
@@ -21,7 +21,7 @@ enum SelectionTarget {
 }
 
 impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
-    pub(crate) fn pick_impl<E, W, Q: Queued, P>(
+    pub(crate) fn pick_impl<E, W, Q: ItemQueue, P>(
         &mut self,
         mut event_source: E,
         writer: &mut W,

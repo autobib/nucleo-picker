@@ -216,8 +216,8 @@ pub use picker_ref::PickerRef;
 #[cfg(doc)]
 use crate::Picker;
 use crate::{
-    PickerCore, Render, Selection, Terminal,
-    component::NoPreview,
+    PickerChars, PickerCore, Render, Selection, Terminal,
+    component::{NoPreview, PreviewComponent},
     error::PickError,
     event::{Event, EventSource, StdinReader, keybind_multi, keybind_single},
     match_list::SelectedIndices,
@@ -226,13 +226,29 @@ use crate::{
 #[cfg(feature = "preview")]
 use crate::{
     event::{keybind_multi_preview, keybind_single_preview},
-    preview::{Preview, pane::PreviewPane},
+    preview::{Preview, PreviewConfig, pane::PreviewPane},
 };
 
 mod sealed {
     use super::*;
 
-    pub trait State<T>: Sized {
+    pub(crate) trait State<T>: Sized {
+        type ItemQueue: for<'a> crate::match_list::ItemQueue<Output<'a, T> = <Self as Interface<T>>::Output<'a>>
+        where
+            T: Send + Sync + 'static,
+            Self: Interface<T>;
+
+        type Preview<'a>: PreviewComponent<T>
+        where
+            Self: 'a;
+
+        fn make_preview<'a>(
+            &'a mut self,
+            chars: &PickerChars,
+            #[cfg(feature = "preview")] config: &PreviewConfig,
+        ) -> Self::Preview<'a>;
+
+        #[inline]
         fn run<'a, R, E, W>(
             &mut self,
             core: &'a mut PickerCore<T, R>,
@@ -244,7 +260,15 @@ mod sealed {
             Self: Interface<T>,
             R: Render<T>,
             E: EventSource,
-            W: Terminal;
+            W: Terminal,
+        {
+            let preview = self.make_preview(
+                &core.chars,
+                #[cfg(feature = "preview")]
+                &core.preview_config,
+            );
+            core.pick_impl::<_, _, Self::ItemQueue, _>(event_source, terminal, preview)
+        }
     }
 }
 
@@ -262,6 +286,7 @@ mod sealed {
 /// This trait is sealed and cannot be implemented outside this library.
 ///
 /// Read the [module documentation](self) for an overview and more details.
+#[allow(private_bounds)]
 pub trait Interface<T>: sealed::State<T> {
     /// The output of the picker after selection. This is an [`Option<&T>`] for single-selection
     /// pickers and [`Selection<'_, T>`] for multi-selection pickers.
@@ -366,19 +391,16 @@ impl<T: Send + Sync + 'static> Interface<T> for Single {
 }
 
 impl<T: Send + Sync + 'static> sealed::State<T> for Single {
+    type ItemQueue = ();
+    type Preview<'a> = NoPreview;
+
     #[inline]
-    fn run<'a, R, E, W>(
-        &mut self,
-        core: &'a mut PickerCore<T, R>,
-        event_source: E,
-        terminal: &mut W,
-    ) -> Result<<Self as Interface<T>>::Output<'a>, PickError<E::AbortErr>>
-    where
-        R: Render<T>,
-        E: EventSource,
-        W: Terminal,
-    {
-        core.pick_impl::<_, _, (), _>(event_source, terminal, NoPreview)
+    fn make_preview<'a>(
+        &'a mut self,
+        _: &PickerChars,
+        #[cfg(feature = "preview")] _: &PreviewConfig,
+    ) -> Self::Preview<'a> {
+        NoPreview
     }
 }
 
@@ -392,19 +414,16 @@ impl<T: Send + Sync + 'static> Interface<T> for Multi {
 }
 
 impl<T: Send + Sync + 'static> sealed::State<T> for Multi {
+    type ItemQueue = SelectedIndices;
+    type Preview<'a> = NoPreview;
+
     #[inline]
-    fn run<'a, R, E, W>(
-        &mut self,
-        core: &'a mut PickerCore<T, R>,
-        event_source: E,
-        terminal: &mut W,
-    ) -> Result<<Self as Interface<T>>::Output<'a>, PickError<E::AbortErr>>
-    where
-        R: Render<T>,
-        E: EventSource,
-        W: Terminal,
-    {
-        core.pick_impl::<_, _, SelectedIndices, _>(event_source, terminal, NoPreview)
+    fn make_preview<'a>(
+        &'a mut self,
+        _: &PickerChars,
+        #[cfg(feature = "preview")] _: &PreviewConfig,
+    ) -> Self::Preview<'a> {
+        NoPreview
     }
 }
 
@@ -420,20 +439,19 @@ impl<T: Send + Sync + 'static, P: Preview<T>> Interface<T> for WithPreview<Singl
 
 #[cfg(feature = "preview")]
 impl<T: Send + Sync + 'static, P: Preview<T>> sealed::State<T> for WithPreview<Single, P> {
-    #[inline]
-    fn run<'a, R, E, W>(
-        &mut self,
-        core: &'a mut PickerCore<T, R>,
-        event_source: E,
-        terminal: &mut W,
-    ) -> Result<<Self as Interface<T>>::Output<'a>, PickError<E::AbortErr>>
+    type ItemQueue = ();
+    type Preview<'a>
+        = PreviewPane<T, &'a mut P>
     where
-        R: Render<T>,
-        E: EventSource,
-        W: Terminal,
-    {
-        let preview = PreviewPane::new(&core.preview_config, &core.chars, &mut self.previewer);
-        core.pick_impl::<_, _, (), _>(event_source, terminal, preview)
+        Self: 'a;
+
+    #[inline]
+    fn make_preview<'a>(
+        &'a mut self,
+        chars: &PickerChars,
+        config: &PreviewConfig,
+    ) -> Self::Preview<'a> {
+        PreviewPane::new(config, chars, &mut self.previewer)
     }
 }
 
@@ -449,20 +467,19 @@ impl<T: Send + Sync + 'static, P: Preview<T>> Interface<T> for WithPreview<Multi
 
 #[cfg(feature = "preview")]
 impl<T: Send + Sync + 'static, P: Preview<T>> sealed::State<T> for WithPreview<Multi, P> {
-    #[inline]
-    fn run<'a, R, E, W>(
-        &mut self,
-        core: &'a mut PickerCore<T, R>,
-        event_source: E,
-        terminal: &mut W,
-    ) -> Result<<Self as Interface<T>>::Output<'a>, PickError<E::AbortErr>>
+    type ItemQueue = SelectedIndices;
+    type Preview<'a>
+        = PreviewPane<T, &'a mut P>
     where
-        R: Render<T>,
-        E: EventSource,
-        W: Terminal,
-    {
-        let preview = PreviewPane::new(&core.preview_config, &core.chars, &mut self.previewer);
-        core.pick_impl::<_, _, SelectedIndices, _>(event_source, terminal, preview)
+        Self: 'a;
+
+    #[inline]
+    fn make_preview<'a>(
+        &'a mut self,
+        chars: &PickerChars,
+        config: &PreviewConfig,
+    ) -> Self::Preview<'a> {
+        PreviewPane::new(config, chars, &mut self.previewer)
     }
 }
 

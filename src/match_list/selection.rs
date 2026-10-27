@@ -9,7 +9,7 @@ use std::{
 
 use nucleo as nc;
 
-pub(crate) trait Queued {
+pub(crate) trait ItemQueue {
     type Output<'a, T: Send + Sync + 'static>;
 
     fn is_empty(&self) -> bool;
@@ -48,7 +48,7 @@ pub(crate) trait Queued {
     ) -> Self::Output<'_, T>;
 }
 
-impl Queued for () {
+impl ItemQueue for () {
     type Output<'a, T: Send + Sync + 'static> = Option<&'a T>;
 
     #[inline]
@@ -113,7 +113,7 @@ impl Queued for () {
     }
 }
 
-impl Queued for SelectedIndices {
+impl ItemQueue for SelectedIndices {
     type Output<'a, T: Send + Sync + 'static> = Selection<'a, T>;
 
     #[inline]
