@@ -254,8 +254,9 @@ mod tests {
         use crate::{
             Picker,
             event::MatchListEvent,
-            match_list::{ItemQueue, MatchList, SelectedIndices},
+            match_list::{MatchList, Queued, SelectedIndices},
             render::StrRenderer,
+            session::Context,
         };
 
         let mut picker = Picker::new(StrRenderer);
@@ -268,44 +269,63 @@ mod tests {
         let mut list = MatchList::new(
             &mut picker.core.list_state,
             &picker.core.chars,
-            SelectedIndices::init(None),
+            SelectedIndices::default(),
         );
+        let count =
+            |list: &MatchList<'_, SelectedIndices>| list.queued().count().map(|n| (n as u32, None));
         let mut status = StatusLine::new(&picker.core.chars);
-        assert!(status.update(
-            picker.core.engine.update(5),
-            list.queued().count(None),
-            false
-        ));
+        assert!(status.update(picker.core.engine.update(5), count(&list), false));
 
-        list.handle(MatchListEvent::Up(1), &picker.core.engine);
+        list.handle(
+            MatchListEvent::Up(1),
+            &Context::new(&picker.core.engine, None),
+        );
         list.flush(&picker.core.engine);
         let matching = picker.core.engine.update(5);
         assert!(list.update(&picker.core.engine, matching.items_changed, false));
-        assert!(!status.update(matching, list.queued().count(None), false));
+        assert!(!status.update(matching, count(&list), false));
 
-        list.handle(MatchListEvent::ToggleDown(0), &picker.core.engine);
-        list.handle(MatchListEvent::ToggleDown(0), &picker.core.engine);
+        list.handle(
+            MatchListEvent::ToggleDown(0),
+            &Context::new(&picker.core.engine, None),
+        );
+        list.handle(
+            MatchListEvent::ToggleDown(0),
+            &Context::new(&picker.core.engine, None),
+        );
         list.flush(&picker.core.engine);
         let matching = picker.core.engine.update(5);
         assert!(list.update(&picker.core.engine, matching.items_changed, false));
-        assert!(!status.update(matching, list.queued().count(None), false));
-        assert_eq!(list.queued().len(), 0);
+        assert!(!status.update(matching, count(&list), false));
+        assert_eq!(list.queued().count(), Some(0));
 
-        list.handle(MatchListEvent::ToggleDown(0), &picker.core.engine);
+        list.handle(
+            MatchListEvent::ToggleDown(0),
+            &Context::new(&picker.core.engine, None),
+        );
         list.flush(&picker.core.engine);
         let matching = picker.core.engine.update(5);
         assert!(list.update(&picker.core.engine, matching.items_changed, false));
-        assert!(status.update(matching, list.queued().count(None), false));
-        assert_eq!(list.queued().len(), 1);
+        assert!(status.update(matching, count(&list), false));
+        assert_eq!(list.queued().count(), Some(1));
 
-        list.handle(MatchListEvent::UnqueueAll, &picker.core.engine);
-        list.handle(MatchListEvent::Down(1), &picker.core.engine);
-        list.handle(MatchListEvent::ToggleDown(0), &picker.core.engine);
+        list.handle(
+            MatchListEvent::UnqueueAll,
+            &Context::new(&picker.core.engine, None),
+        );
+        list.handle(
+            MatchListEvent::Down(1),
+            &Context::new(&picker.core.engine, None),
+        );
+        list.handle(
+            MatchListEvent::ToggleDown(0),
+            &Context::new(&picker.core.engine, None),
+        );
         list.flush(&picker.core.engine);
         let matching = picker.core.engine.update(5);
         assert!(list.update(&picker.core.engine, matching.items_changed, false));
-        assert!(!status.update(matching, list.queued().count(None), false));
-        assert_eq!(list.queued().len(), 1);
+        assert!(!status.update(matching, count(&list), false));
+        assert_eq!(list.queued().count(), Some(1));
     }
 
     #[test]

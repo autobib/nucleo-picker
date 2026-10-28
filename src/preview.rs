@@ -92,7 +92,6 @@ mod ansi;
 mod buffer;
 mod cache;
 mod draw;
-mod item;
 mod lock;
 pub(crate) mod pane;
 mod pool;
@@ -103,11 +102,10 @@ mod text;
 use std::{num::NonZero, time::Duration};
 
 #[doc(inline)]
-pub use crate::session::WithPreview;
+pub use crate::session::{ItemId, ItemRef, WithPreview};
 #[cfg(feature = "preview-ansi")]
 pub use ansi::{AnsiState, AnsiWriter};
 pub use buffer::{PreviewBuffer, PreviewLine};
-pub use item::{ItemId, ItemRef};
 pub use pool::{PoolPreviewer, PreviewWorker};
 use request::{PreviewRequest, PreviewResponse};
 pub use scroll::PreviewEvent;

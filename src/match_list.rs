@@ -31,7 +31,7 @@ mod unicode;
 mod tests;
 
 pub(crate) use component::MatchList;
-pub(crate) use selection::{ItemQueue, SelectedIndices};
+pub(crate) use selection::{QueueEvent, Queued, SelectedIndices, SelectionTarget};
 pub use selection::{Selection, SelectionIntoIter};
 pub(crate) use state::MatchListState;
 
@@ -40,10 +40,9 @@ pub(crate) use state::MatchListState;
 /// # Multi-selection events
 ///
 /// The following events are only handled by the picker in [multiple selection mode](crate::Picker#multiple-selections):
+///
 /// - [`ToggleUp`](MatchListEvent::ToggleUp)
 /// - [`ToggleDown`](MatchListEvent::ToggleDown)
-/// - [`QueueAbove`](MatchListEvent::QueueAbove)
-/// - [`QueueBelow`](MatchListEvent::QueueBelow)
 /// - [`QueueMatches`](MatchListEvent::QueueMatches)
 /// - [`Unqueue`](MatchListEvent::Unqueue)
 /// - [`UnqueueAll`](MatchListEvent::UnqueueAll)
@@ -68,11 +67,17 @@ pub enum MatchListEvent {
     /// last selected item.
     ///
     /// This event has no default keybinding.
+    ///
+    /// This method is deprecated but still supported with the same behaviour in the interim.
+    #[deprecated(since = "0.13.0", note = "Directional range queuing is deprecated")]
     QueueAbove(usize),
     /// Add the current item and `usize` items below to the item queue, moving the cursor to the
     /// last selected item.
     ///
     /// This event has no default keybinding.
+    ///
+    /// This method is deprecated but still supported with the same behaviour in the interim.
+    #[deprecated(since = "0.13.0", note = "Directional range queuing is deprecated")]
     QueueBelow(usize),
     /// Add all matching items to the item queue, preferring items with higher priority in the
     /// match-list.

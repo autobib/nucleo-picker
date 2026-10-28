@@ -8,6 +8,7 @@ use nucleo_picker::{
 use super::{ScenarioRunner, lines};
 
 #[test]
+#[expect(deprecated)]
 fn exceptional_events_scenario() -> Result<(), Box<dyn Error>> {
     let mut sr = ScenarioRunner::start_multi_with_options(
         "exceptional_events_scenario",

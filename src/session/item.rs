@@ -36,16 +36,19 @@ impl<T> Clone for ItemRef<'_, T> {
 }
 
 impl<'a, T> ItemRef<'a, T> {
+    #[inline]
     pub(crate) fn new(id: ItemId, value: &'a T) -> Self {
         Self { id, value }
     }
 
     /// The identifier for this item in the originating picker.
+    #[inline]
     pub fn id(&self) -> ItemId {
         self.id
     }
 
     /// The borrowed item.
+    #[inline]
     pub fn value(&self) -> &'a T {
         self.value
     }

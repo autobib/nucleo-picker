@@ -33,6 +33,7 @@ In short, this release:
   - `keybind_no_multi` has been deprecated and replaced by `keybind_single`
   - There are also preview-specific bindings: `keybind_single_preview` and `keybind_multi_preview`
   - The interface exposes its keybindings with `Interface::keybind_default`.
+- The events `Event::QueueAbove` and `Event::QueueBelow` have been deprecated.
 
 ### Added
 

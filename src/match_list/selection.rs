@@ -4,239 +4,178 @@ use std::{
         btree_map::{self, Entry},
     },
     iter::FusedIterator,
-    num::NonZero,
 };
 
 use nucleo as nc;
 
-pub(crate) trait ItemQueue {
-    type Output<'a, T: Send + Sync + 'static>;
+use crate::session::{Context, ItemId, ItemRef};
 
-    fn is_empty(&self) -> bool;
+pub(crate) enum QueueEvent<'a, T> {
+    /// Toggle a single item.
+    Toggle(ItemRef<'a, T>),
+    /// Remove an item from the queue.
+    Remove(ItemId),
+    /// Select all items.
+    Matches,
+    /// Clear the queue.
+    Clear,
+}
+
+pub(crate) enum SelectionTarget {
+    None,
+    Current(ItemId),
+    Queued,
+}
+
+pub(crate) trait Queued: Sized {
+    type Output<'items, T: Send + Sync + 'static>: IntoIterator<Item = &'items T, IntoIter: ExactSizeIterator>;
+
+    #[inline]
+    fn is_queued(&self, _id: ItemId) -> bool {
+        false
+    }
 
     /// The number of queued items.
-    fn len(&self) -> u32;
-
-    fn clear(&mut self) -> bool;
-
-    fn deselect(&mut self, idx: u32) -> bool;
-
-    fn toggle(&mut self, idx: u32) -> bool;
-
-    /// Select a range of items.
     ///
-    /// The index is the number of items consumed from the iterator.
-    ///
-    /// The boolean is whether or not any new items were queued.
-    fn select<I: IntoIterator<Item = u32>>(&mut self, items: I) -> (usize, bool);
-
-    fn is_queued(&self, idx: u32) -> bool;
-
-    fn count(&self, limit: Option<NonZero<u32>>) -> Option<(u32, Option<NonZero<u32>>)>;
-
-    fn init(limit: Option<NonZero<u32>>) -> Self;
-
-    fn into_only_selection<T: Send + Sync + 'static>(
-        self,
-        snapshot: &nucleo::Snapshot<T>,
-        idx: u32,
-    ) -> Self::Output<'_, T>;
-
-    fn into_selection<T: Send + Sync + 'static>(
-        self,
-        snapshot: &nucleo::Snapshot<T>,
-    ) -> Self::Output<'_, T>;
-}
-
-impl ItemQueue for () {
-    type Output<'a, T: Send + Sync + 'static> = Option<&'a T>;
-
+    /// `None` means queing is disabled entirely, whereas `Some(n)` indicates the number of queued
+    /// items.
     #[inline]
-    fn is_empty(&self) -> bool {
-        true
-    }
-
-    #[inline]
-    fn len(&self) -> u32 {
-        0
-    }
-
-    #[inline]
-    fn clear(&mut self) -> bool {
-        false
-    }
-
-    #[inline]
-    fn deselect(&mut self, _: u32) -> bool {
-        false
-    }
-
-    #[inline]
-    fn toggle(&mut self, _: u32) -> bool {
-        false
-    }
-
-    #[inline]
-    fn select<I: IntoIterator<Item = u32>>(&mut self, _: I) -> (usize, bool) {
-        (0, false)
-    }
-
-    #[inline]
-    fn is_queued(&self, _: u32) -> bool {
-        false
-    }
-
-    #[inline]
-    fn init(_: Option<NonZero<u32>>) -> Self {}
-
-    #[inline]
-    fn into_selection<T: Send + Sync + 'static>(
-        self,
-        _: &nucleo::Snapshot<T>,
-    ) -> Self::Output<'_, T> {
+    fn count(&self) -> Option<usize> {
         None
     }
 
+    /// Select or deselect items.
+    ///
+    /// The boolean is whether or not there were changes to the queue.
     #[inline]
-    fn into_only_selection<T: Send + Sync + 'static>(
-        self,
-        snapshot: &nucleo::Snapshot<T>,
-        idx: u32,
-    ) -> Self::Output<'_, T> {
-        // SAFETY: the session obtains idx from this snapshot's selected match without updating it.
-        Some(unsafe { snapshot.get_item_unchecked(idx).data })
+    fn on_queue<T: Send + Sync + 'static>(
+        &mut self,
+        _event: QueueEvent<'_, T>,
+        _cx: &Context<'_, T>,
+    ) -> bool {
+        false
     }
 
+    /// Generate the output on completion.
+    fn on_select<'items, T: Send + Sync + 'static>(
+        self,
+        target: SelectionTarget,
+        cx: &Context<'items, T>,
+    ) -> Self::Output<'items, T>;
+}
+
+impl Queued for () {
+    type Output<'items, T: Send + Sync + 'static> = Option<&'items T>;
+
     #[inline]
-    fn count(&self, _: Option<NonZero<u32>>) -> Option<(u32, Option<NonZero<u32>>)> {
-        None
+    fn on_select<'items, T: Send + Sync + 'static>(
+        self,
+        target: SelectionTarget,
+        cx: &Context<'items, T>,
+    ) -> Self::Output<'items, T> {
+        match target {
+            SelectionTarget::None | SelectionTarget::Queued => None,
+            SelectionTarget::Current(id) => {
+                // SAFETY: the session captures id from this snapshot without ticking or restarting
+                // the matcher before output conversion.
+                let item = unsafe { cx.item_unchecked(id) };
+                Some(item.value())
+            }
+        }
     }
 }
 
-impl ItemQueue for SelectedIndices {
-    type Output<'a, T: Send + Sync + 'static> = Selection<'a, T>;
+impl Queued for SelectedIndices {
+    type Output<'items, T: Send + Sync + 'static> = Selection<'items, T>;
 
     #[inline]
-    fn is_empty(&self) -> bool {
-        self.inner.is_empty()
+    fn is_queued(&self, id: ItemId) -> bool {
+        self.inner.contains_key(&id)
     }
 
     #[inline]
-    fn len(&self) -> u32 {
-        self.inner.len() as u32
+    fn count(&self) -> Option<usize> {
+        Some(self.inner.len())
     }
 
-    #[inline]
-    fn clear(&mut self) -> bool {
-        if self.is_empty() {
-            false
-        } else {
-            self.inner.clear();
-            true
-        }
-    }
-
-    #[inline]
-    fn toggle(&mut self, idx: u32) -> bool {
-        let n = self.inner.len();
-        match self.inner.entry(idx) {
-            Entry::Occupied(occupied_entry) => {
-                occupied_entry.remove_entry();
-                true
-            }
-            Entry::Vacant(vacant_entry) => {
-                if self.limit.is_none_or(|l| n < l.get() as usize) {
-                    vacant_entry.insert(Self::next_order(&mut self.next_order));
-                    true
-                } else {
-                    false
+    fn on_queue<T: Send + Sync + 'static>(
+        &mut self,
+        event: QueueEvent<'_, T>,
+        cx: &Context<'_, T>,
+    ) -> bool {
+        match event {
+            QueueEvent::Toggle(item) => {
+                let len = self.inner.len();
+                match self.inner.entry(item.id()) {
+                    Entry::Occupied(entry) => {
+                        entry.remove_entry();
+                        true
+                    }
+                    Entry::Vacant(entry) => {
+                        if cx
+                            .max_selection_count
+                            .is_none_or(|l| len < l.get() as usize)
+                        {
+                            entry.insert(Self::next_order(&mut self.next_order));
+                            true
+                        } else {
+                            false
+                        }
+                    }
                 }
             }
-        }
-    }
-
-    #[inline]
-    fn deselect(&mut self, idx: u32) -> bool {
-        self.inner.remove(&idx).is_some()
-    }
-
-    fn select<I: IntoIterator<Item = u32>>(&mut self, items: I) -> (usize, bool) {
-        let mut toggled = false;
-        let mut consumed: usize = 0;
-
-        for it in items {
-            let current_len = self.inner.len();
-            match self.inner.entry(it) {
-                Entry::Vacant(vacant_entry)
-                    if self.limit.is_none_or(|l| current_len < l.get() as usize) =>
-                {
-                    toggled = true;
-                    consumed += 1;
-                    vacant_entry.insert(Self::next_order(&mut self.next_order));
+            QueueEvent::Remove(id) => self.inner.remove(&id).is_some(),
+            QueueEvent::Matches => {
+                let len = self.inner.len();
+                let limit = cx
+                    .max_selection_count
+                    .map_or(usize::MAX, |l| l.get() as usize);
+                for id in cx.matches() {
+                    if self.inner.len() >= limit {
+                        break;
+                    }
+                    self.insert(id);
                 }
-                Entry::Vacant(_) => break,
-                Entry::Occupied(_) => {
-                    consumed += 1;
-                }
+                self.inner.len() != len
+            }
+            QueueEvent::Clear => {
+                let changed = !self.inner.is_empty();
+                self.inner.clear();
+                changed
             }
         }
-
-        (consumed, toggled)
     }
 
     #[inline]
-    fn is_queued(&self, idx: u32) -> bool {
-        self.inner.contains_key(&idx)
-    }
-
-    #[inline]
-    fn init(limit: Option<NonZero<u32>>) -> Self {
-        Self {
-            inner: BTreeMap::new(),
-            next_order: 0,
-            limit,
-        }
-    }
-
-    #[inline]
-    fn into_selection<T: Send + Sync + 'static>(
-        self,
-        snapshot: &nucleo::Snapshot<T>,
-    ) -> Self::Output<'_, T> {
-        Self::Output {
-            snapshot,
-            queued: self,
-        }
-    }
-
-    #[inline]
-    fn into_only_selection<T: Send + Sync + 'static>(
+    fn on_select<'items, T: Send + Sync + 'static>(
         mut self,
-        snapshot: &nucleo::Snapshot<T>,
-        idx: u32,
-    ) -> Self::Output<'_, T> {
-        self.insert(idx);
-        Self::Output {
-            snapshot,
+        target: SelectionTarget,
+        cx: &Context<'items, T>,
+    ) -> Self::Output<'items, T> {
+        match target {
+            SelectionTarget::None => self.inner.clear(),
+            SelectionTarget::Current(id) => {
+                self.inner.clear();
+                self.insert(id);
+            }
+            SelectionTarget::Queued => {}
+        }
+        Selection {
+            snapshot: cx.snapshot,
             queued: self,
         }
     }
-
-    #[inline]
-    fn count(&self, limit: Option<NonZero<u32>>) -> Option<(u32, Option<NonZero<u32>>)> {
-        Some((self.inner.len() as u32, limit))
-    }
 }
 
+#[derive(Default)]
 pub(crate) struct SelectedIndices {
-    inner: BTreeMap<u32, u64>,
+    inner: BTreeMap<ItemId, u64>,
     next_order: u64,
-    limit: Option<NonZero<u32>>,
 }
 
 impl SelectedIndices {
-    fn insert(&mut self, idx: u32) {
-        if let Entry::Vacant(entry) = self.inner.entry(idx) {
+    fn insert(&mut self, id: ItemId) {
+        if let Entry::Vacant(entry) = self.inner.entry(id) {
             entry.insert(Self::next_order(&mut self.next_order));
         }
     }
@@ -278,7 +217,7 @@ impl<'a, T: Send + Sync + 'static> IntoIterator for Selection<'a, T> {
 /// The order is the same as [`Selection::iter`], except as an owned variant.
 pub struct SelectionIntoIter<'a, T: Send + Sync + 'static> {
     snapshot: &'a nc::Snapshot<T>,
-    indices: btree_map::IntoKeys<u32, u64>,
+    indices: btree_map::IntoKeys<ItemId, u64>,
 }
 
 impl<'a, T: Send + Sync + 'static> Iterator for SelectionIntoIter<'a, T> {
@@ -288,7 +227,7 @@ impl<'a, T: Send + Sync + 'static> Iterator for SelectionIntoIter<'a, T> {
     fn next(&mut self) -> Option<Self::Item> {
         self.indices.next().map(|idx| {
             // SAFETY: Selection owns indices from this snapshot, which remains borrowed.
-            unsafe { self.snapshot.get_item_unchecked(idx).data }
+            unsafe { self.snapshot.get_item_unchecked(idx.index).data }
         })
     }
 
@@ -311,7 +250,7 @@ impl<'a, T: Send + Sync + 'static> Iterator for SelectionIntoIter<'a, T> {
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
         self.indices.nth(n).map(|idx| {
             // SAFETY: Selection owns indices from this snapshot, which remains borrowed.
-            unsafe { self.snapshot.get_item_unchecked(idx).data }
+            unsafe { self.snapshot.get_item_unchecked(idx.index).data }
         })
     }
 }
@@ -321,7 +260,7 @@ impl<T: Send + Sync + 'static> DoubleEndedIterator for SelectionIntoIter<'_, T> 
     fn next_back(&mut self) -> Option<Self::Item> {
         self.indices.next_back().map(|idx| {
             // SAFETY: Selection owns indices from this snapshot, which remains borrowed.
-            unsafe { self.snapshot.get_item_unchecked(idx).data }
+            unsafe { self.snapshot.get_item_unchecked(idx.index).data }
         })
     }
 
@@ -329,7 +268,7 @@ impl<T: Send + Sync + 'static> DoubleEndedIterator for SelectionIntoIter<'_, T> 
     fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
         self.indices.nth_back(n).map(|idx| {
             // SAFETY: Selection owns indices from this snapshot, which remains borrowed.
-            unsafe { self.snapshot.get_item_unchecked(idx).data }
+            unsafe { self.snapshot.get_item_unchecked(idx.index).data }
         })
     }
 }
@@ -356,7 +295,7 @@ impl<'a, T: Send + Sync + 'static> Selection<'a, T> {
             // SAFETY: the indices were produced by the same snapshot which is stored inside this
             // struct, and the lifetime prevents the indices from being invalidated until this struct
             // is dropped
-            unsafe { self.snapshot.get_item_unchecked(*idx).data }
+            unsafe { self.snapshot.get_item_unchecked(idx.index).data }
         })
     }
 
@@ -385,7 +324,7 @@ impl<'a, T: Send + Sync + 'static> Selection<'a, T> {
             // SAFETY: the indices were produced by the same snapshot which is stored inside this
             // struct, and the lifetime prevents the indices from being invalidated until this struct
             // is dropped
-            unsafe { snapshot.get_item_unchecked(idx).data }
+            unsafe { snapshot.get_item_unchecked(idx.index).data }
         })
     }
 
@@ -407,35 +346,38 @@ impl<'a, T: Send + Sync + 'static> Selection<'a, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::num::NonZero;
 
     #[test]
     fn selected_indices_track_insertion_order() {
         let mut picker = crate::Picker::new(crate::render::StrRenderer);
         picker.push_batch(["zero", "one", "two", "three"]);
         while picker.core.engine.update(5).matching {}
-        let mut selection =
-            SelectedIndices::init(None).into_selection(picker.core.engine.snapshot());
+        let cx = Context::new(&picker.core.engine, None);
+        let toggle =
+            |index| QueueEvent::Toggle(cx.item(picker.core.engine.item_id(index)).unwrap());
+        let mut selection = SelectedIndices::default().on_select(SelectionTarget::Queued, &cx);
         assert!(selection.iter_selected_order().next().is_none());
 
-        assert!(selection.queued.toggle(3));
-        assert!(selection.queued.toggle(1));
+        assert!(selection.queued.on_queue(toggle(3), &cx));
+        assert!(selection.queued.on_queue(toggle(1), &cx));
         assert!(
             selection
                 .iter_selected_order()
                 .copied()
                 .eq(["three", "one"])
         );
-        assert!(selection.queued.toggle(3));
+        assert!(selection.queued.on_queue(toggle(3), &cx));
         assert!(selection.iter_selected_order().copied().eq(["one"]));
-        assert!(selection.queued.toggle(3));
+        assert!(selection.queued.on_queue(toggle(3), &cx));
         assert!(
             selection
                 .iter_selected_order()
                 .copied()
                 .eq(["one", "three"])
         );
-        assert!(selection.queued.toggle(1));
-        assert!(selection.queued.toggle(1));
+        assert!(selection.queued.on_queue(toggle(1), &cx));
+        assert!(selection.queued.on_queue(toggle(1), &cx));
         assert!(
             selection
                 .iter_selected_order()
@@ -451,5 +393,37 @@ mod tests {
         assert_eq!(items.size_hint(), (0, Some(0)));
         assert_eq!(items.next(), None);
         assert_eq!(items.next_back(), None);
+    }
+
+    #[test]
+    fn bulk_queuing_preserves_existing_order_and_obeys_the_context_limit() {
+        let mut picker = crate::PickerOptions::new()
+            .sort_results(false)
+            .reverse_items(true)
+            .picker(crate::render::StrRenderer);
+        picker.push_batch(["zero", "one", "two", "three"]);
+        picker.filter().unwrap();
+
+        let selected = {
+            let mut queued = SelectedIndices::default();
+            let cx = Context::new(&picker.core.engine, NonZero::new(1));
+            let one = cx.item(picker.core.engine.item_id(1)).unwrap();
+            assert!(queued.on_queue(QueueEvent::Toggle(one), &cx));
+            assert!(!queued.on_queue(QueueEvent::Matches, &cx));
+
+            let cx = Context::new(&picker.core.engine, NonZero::new(3));
+            assert!(queued.on_queue(QueueEvent::Matches, &cx));
+            assert!(!queued.on_queue(QueueEvent::Matches, &cx));
+            assert_eq!(queued.count(), Some(3));
+            queued.on_select(SelectionTarget::Queued, &cx)
+        };
+
+        assert!(
+            selected
+                .iter_selected_order()
+                .copied()
+                .eq(["one", "three", "two"])
+        );
+        assert!(selected.into_iter().copied().eq(["one", "two", "three"]));
     }
 }

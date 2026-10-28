@@ -17,7 +17,9 @@ use nucleo::{
     pattern::{CaseMatching as NucleoCaseMatching, Normalization as NucleoNormalization},
 };
 
-use crate::{Injector, MatchStatus, Render};
+#[cfg(feature = "preview")]
+use crate::session::ItemRef;
+use crate::{Injector, MatchStatus, Render, session::ItemId};
 
 pub(crate) struct MatchEngine<T, R> {
     /// The internal matcher engine.
@@ -32,7 +34,6 @@ pub(crate) struct MatchEngine<T, R> {
     prompt: String,
     case_matching: NucleoCaseMatching,
     normalization: NucleoNormalization,
-    #[cfg(feature = "preview")]
     generation: u32,
     #[cfg(feature = "preview")]
     match_revision: u64,
@@ -74,7 +75,6 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
             prompt: String::with_capacity(32),
             needs_tick,
             nucleo_is_running: false,
-            #[cfg(feature = "preview")]
             generation: 0,
             #[cfg(feature = "preview")]
             match_revision: 0,
@@ -89,19 +89,22 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
         self.match_revision
     }
 
-    #[cfg(feature = "preview")]
-    pub fn item_id(&self, index: u32) -> crate::preview::ItemId {
-        crate::preview::ItemId {
+    pub fn generation(&self) -> u32 {
+        self.generation
+    }
+
+    pub fn item_id(&self, index: u32) -> ItemId {
+        ItemId {
             generation: self.generation,
             index,
         }
     }
 
     #[cfg(feature = "preview")]
-    pub fn item_ref(&self, index: u32) -> Option<crate::preview::ItemRef<'_, T>> {
+    pub fn item_ref(&self, index: u32) -> Option<ItemRef<'_, T>> {
         self.snapshot()
             .get_item(index)
-            .map(|item| crate::preview::ItemRef::new(self.item_id(index), item.data))
+            .map(|item| ItemRef::new(self.item_id(index), item.data))
     }
 
     pub fn renderer(&self) -> &R {
@@ -129,13 +132,10 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
 
     /// Clear all of the items and restart the match engine.
     pub fn restart(&mut self) {
-        #[cfg(feature = "preview")]
-        {
-            self.generation = self
-                .generation
-                .checked_add(1)
-                .expect("picker item generation exhausted");
-        }
+        self.generation = self
+            .generation
+            .checked_add(1)
+            .expect("picker item generation exhausted");
         self.nucleo.restart(true);
         self.needs_tick.store(true, Ordering::Relaxed);
     }

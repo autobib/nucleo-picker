@@ -202,6 +202,8 @@
 //! }
 //! ```
 
+mod context;
+mod item;
 mod picker_ref;
 mod run;
 #[cfg(test)]
@@ -211,6 +213,8 @@ use std::io::{self, BufWriter, IsTerminal};
 
 use crossterm::event::KeyEvent;
 
+pub(crate) use context::Context;
+pub use item::{ItemId, ItemRef};
 pub use picker_ref::PickerRef;
 
 #[cfg(doc)]
@@ -233,7 +237,8 @@ mod sealed {
     use super::*;
 
     pub(crate) trait State<T>: Sized {
-        type ItemQueue: for<'a> crate::match_list::ItemQueue<Output<'a, T> = <Self as Interface<T>>::Output<'a>>
+        type Queued: Default
+            + for<'a> crate::match_list::Queued<Output<'a, T> = <Self as Interface<T>>::Output<'a>>
         where
             T: Send + Sync + 'static,
             Self: Interface<T>;
@@ -267,7 +272,7 @@ mod sealed {
                 #[cfg(feature = "preview")]
                 &core.preview_config,
             );
-            core.pick_impl::<_, _, Self::ItemQueue, _>(event_source, terminal, preview)
+            core.pick_impl::<_, _, Self::Queued, _>(event_source, terminal, preview)
         }
     }
 }
@@ -391,7 +396,7 @@ impl<T: Send + Sync + 'static> Interface<T> for Single {
 }
 
 impl<T: Send + Sync + 'static> sealed::State<T> for Single {
-    type ItemQueue = ();
+    type Queued = ();
     type Preview<'a> = NoPreview;
 
     #[inline]
@@ -414,7 +419,7 @@ impl<T: Send + Sync + 'static> Interface<T> for Multi {
 }
 
 impl<T: Send + Sync + 'static> sealed::State<T> for Multi {
-    type ItemQueue = SelectedIndices;
+    type Queued = SelectedIndices;
     type Preview<'a> = NoPreview;
 
     #[inline]
@@ -439,7 +444,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> Interface<T> for WithPreview<Singl
 
 #[cfg(feature = "preview")]
 impl<T: Send + Sync + 'static, P: Preview<T>> sealed::State<T> for WithPreview<Single, P> {
-    type ItemQueue = ();
+    type Queued = ();
     type Preview<'a>
         = PreviewPane<T, &'a mut P>
     where
@@ -467,7 +472,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> Interface<T> for WithPreview<Multi
 
 #[cfg(feature = "preview")]
 impl<T: Send + Sync + 'static, P: Preview<T>> sealed::State<T> for WithPreview<Multi, P> {
-    type ItemQueue = SelectedIndices;
+    type Queued = SelectedIndices;
     type Preview<'a>
         = PreviewPane<T, &'a mut P>
     where
