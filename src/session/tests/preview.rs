@@ -223,8 +223,28 @@ fn interleaved_navigation_and_scrolling_target_the_buffered_item() {
             .core
             .pick_impl::<_, _, (), _>(events, &mut TestTerminal::default(), &mut session)
             .unwrap();
-        assert_eq!(session.test_cache().peek(&0).unwrap().scroll_position, 3);
-        assert_eq!(session.test_cache().peek(&1).unwrap().scroll_position, 7);
+        assert_eq!(
+            session
+                .test_cache()
+                .peek(&0)
+                .unwrap()
+                .buffer()
+                .unwrap()
+                .offset()
+                .1,
+            3
+        );
+        assert_eq!(
+            session
+                .test_cache()
+                .peek(&1)
+                .unwrap()
+                .buffer()
+                .unwrap()
+                .offset()
+                .1,
+            7
+        );
         assert_eq!(session.test_previewer().requested, ["beta", "alpha"]);
     }
 }
@@ -303,7 +323,17 @@ fn scrolling_a_filtered_match_uses_its_item_id() {
         .core
         .pick_impl::<_, _, (), _>(events, &mut TestTerminal::default(), &mut session)
         .unwrap();
-    assert_eq!(session.test_cache().peek(&1).unwrap().scroll_position, 8);
+    assert_eq!(
+        session
+            .test_cache()
+            .peek(&1)
+            .unwrap()
+            .buffer()
+            .unwrap()
+            .offset()
+            .1,
+        8
+    );
     assert!(!session.test_cache().contains(&0));
 }
 
@@ -326,7 +356,16 @@ fn scrolling_a_missing_preview_does_not_request_it() {
         .pick_impl::<_, _, (), _>(events, &mut TestTerminal::default(), &mut session)
         .unwrap();
     assert_eq!(session.test_previewer().requested, ["alpha"]);
-    assert_eq!(session.test_cache().peek(&0).unwrap().scroll_position, 0);
+    assert_eq!(
+        session
+            .test_cache()
+            .peek(&0)
+            .unwrap()
+            .buffer()
+            .unwrap()
+            .offset(),
+        (0, 0)
+    );
     assert!(!session.test_cache().contains(&1));
 }
 
@@ -347,7 +386,7 @@ fn scrolling_pending_previews_is_ignored_by_the_loop() {
         .core
         .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
         .unwrap();
-    assert_eq!(session.test_cache().peek(&0).unwrap().scroll_position, 0);
+    assert!(session.test_cache().peek(&0).unwrap().buffer().is_none());
     assert_eq!(session.test_previewer().requested, ["alpha"]);
     assert_eq!(terminal.changed, [false]);
 }
@@ -399,7 +438,17 @@ fn idle_frames_collect_completed_previews_and_enable_scrolling() {
         let status = status.try_recv().unwrap();
         assert_eq!((status.width, status.height), size);
         assert_eq!(terminal.changed, [false, true, true, false]);
-        assert_eq!(session.test_cache().peek(&0).unwrap().scroll_position, 1);
+        assert_eq!(
+            session
+                .test_cache()
+                .peek(&0)
+                .unwrap()
+                .buffer()
+                .unwrap()
+                .offset()
+                .1,
+            1
+        );
         assert_eq!(session.test_previewer().requested, ["alpha"]);
 
         let output = String::from_utf8(terminal.output).unwrap();
@@ -487,7 +536,17 @@ fn scroll_changes_are_reported_without_redrawing_the_match_list() {
         .core
         .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
         .unwrap();
-    assert_eq!(session.test_cache().peek(&0).unwrap().scroll_position, 8);
+    assert_eq!(
+        session
+            .test_cache()
+            .peek(&0)
+            .unwrap()
+            .buffer()
+            .unwrap()
+            .offset()
+            .1,
+        8
+    );
     assert_eq!(terminal.changed, [true]);
 
     let output = String::from_utf8(terminal.output).unwrap();
@@ -505,7 +564,13 @@ fn resizing_the_pane_preserves_focus_and_reclamps_the_offset() {
         ..TestPreviewer::default()
     });
     update(&mut session, &mut picker);
-    session.test_cache().get_mut(&0).unwrap().scroll_position = 25;
+    session
+        .test_cache()
+        .get_mut(&0)
+        .unwrap()
+        .buffer_mut()
+        .unwrap()
+        .set_offset(0, 25);
     let mut terminal = TestTerminal {
         sizes: VecDeque::from([(5, 10), (20, 10), (5, 10), (20, 10)]),
         ..TestTerminal::default()
@@ -523,7 +588,17 @@ fn resizing_the_pane_preserves_focus_and_reclamps_the_offset() {
         .core
         .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
         .unwrap();
-    assert_eq!(session.test_cache().peek(&0).unwrap().scroll_position, 22);
+    assert_eq!(
+        session
+            .test_cache()
+            .peek(&0)
+            .unwrap()
+            .buffer()
+            .unwrap()
+            .offset()
+            .1,
+        22
+    );
     assert_eq!(session.test_previewer().focused, [Some("alpha")]);
     assert_eq!(session.test_previewer().requested, ["alpha"]);
 }
@@ -551,7 +626,17 @@ fn resizing_reclamps_the_offset_and_changes_page_height() {
         .core
         .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
         .unwrap();
-    assert_eq!(session.test_cache().peek(&0).unwrap().scroll_position, 6);
+    assert_eq!(
+        session
+            .test_cache()
+            .peek(&0)
+            .unwrap()
+            .buffer()
+            .unwrap()
+            .offset()
+            .1,
+        6
+    );
 }
 
 #[test]
@@ -571,7 +656,17 @@ fn initial_layout_resizes_retained_preview_state() {
         &(),
     );
     session.handle(PreviewEvent::Down(usize::MAX), Some(0));
-    assert_eq!(session.test_cache().peek(&0).unwrap().scroll_position, 26);
+    assert_eq!(
+        session
+            .test_cache()
+            .peek(&0)
+            .unwrap()
+            .buffer()
+            .unwrap()
+            .offset()
+            .1,
+        26
+    );
 
     picker
         .core
@@ -581,7 +676,17 @@ fn initial_layout_resizes_retained_preview_state() {
             &mut session,
         )
         .unwrap();
-    assert_eq!(session.test_cache().peek(&0).unwrap().scroll_position, 22);
+    assert_eq!(
+        session
+            .test_cache()
+            .peek(&0)
+            .unwrap()
+            .buffer()
+            .unwrap()
+            .offset()
+            .1,
+        22
+    );
 }
 
 #[test]
@@ -621,7 +726,17 @@ fn resizing_clamps_cached_previews_before_they_are_revisited() {
         .core
         .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
         .unwrap();
-    assert_eq!(session.test_cache().peek(&0).unwrap().scroll_position, 18);
+    assert_eq!(
+        session
+            .test_cache()
+            .peek(&0)
+            .unwrap()
+            .buffer()
+            .unwrap()
+            .offset()
+            .1,
+        18
+    );
     assert_eq!(session.test_previewer().requested, ["alpha", "beta"]);
 }
 
@@ -644,7 +759,17 @@ fn scrolling_down_down_up_at_the_bottom_moves_up_one_line() {
         .core
         .pick_impl::<_, _, (), _>(events, &mut TestTerminal::default(), &mut session)
         .unwrap();
-    assert_eq!(session.test_cache().peek(&0).unwrap().scroll_position, 21);
+    assert_eq!(
+        session
+            .test_cache()
+            .peek(&0)
+            .unwrap()
+            .buffer()
+            .unwrap()
+            .offset()
+            .1,
+        21
+    );
 }
 
 #[test]
@@ -669,7 +794,16 @@ fn zero_sized_panes_ignore_scrolling() {
             .core
             .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
             .unwrap();
-        assert_eq!(session.test_cache().peek(&0).unwrap().scroll_position, 0);
+        assert_eq!(
+            session
+                .test_cache()
+                .peek(&0)
+                .unwrap()
+                .buffer()
+                .unwrap()
+                .offset(),
+            (0, 0)
+        );
         assert_eq!(session.test_previewer().focused, [Some("alpha")]);
         assert_eq!(session.test_previewer().requested, ["alpha"]);
         assert_eq!(terminal.changed, [false]);

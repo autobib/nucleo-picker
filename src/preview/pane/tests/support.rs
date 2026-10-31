@@ -121,6 +121,7 @@ impl Preview<&'static str> for TestPreviewer {
         assert!(!timeout.is_zero());
         let item = request.item();
         self.prefetched.push(item);
+        assert_eq!(request.buffer.offset(), (0, 0));
         assert_eq!(request.buffer.lines().len(), 1);
         assert_eq!(request.buffer.line(0).unwrap().as_str(), "");
         assert!(!request.buffer.is_err());
@@ -169,6 +170,7 @@ impl Preview<&'static str> for TestPreviewer {
         assert_eq!(self.focused_ids.last(), Some(&Some(request.id())));
         self.requested.push(item);
         self.ids.push(request.id());
+        assert_eq!(request.buffer.offset(), (0, 0));
         assert_eq!(request.buffer.lines().len(), 1);
         assert_eq!(request.buffer.line(0).unwrap().as_str(), "");
         assert!(!request.buffer.is_err());

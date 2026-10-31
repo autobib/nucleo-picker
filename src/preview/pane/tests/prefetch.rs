@@ -243,12 +243,15 @@ fn prefetch_preserves_main_cache_recency_and_scroll() {
     }
     session.run_frame(Some(0), &picker.core.engine, deadline());
     assert!(session.previewer.prefetched.is_empty());
-    assert_eq!(session.cache.peek(&1).unwrap().scroll_position, 7);
+    assert_eq!(
+        session.cache.peek(&1).unwrap().buffer().unwrap().offset().1,
+        7
+    );
     for rank in [3, 2, 1] {
         session.run_frame(Some(rank), &picker.core.engine, Instant::now());
     }
     assert_eq!(session.previewer.requested, ["b", "c", "a", "d", "b"]);
-    assert_eq!(session.cached().unwrap().scroll_position, 0);
+    assert_eq!(session.cached().unwrap().buffer().unwrap().offset(), (0, 0));
 }
 
 #[test]
@@ -537,7 +540,10 @@ fn prefetch_eviction_and_focus_promotion_reuse_buffers() {
         Some(&promoted)
     );
     assert_eq!(session.cache.len(), 1);
-    assert_eq!(session.cache.peek(&4).unwrap().scroll_position, 0);
+    assert_eq!(
+        session.cache.peek(&4).unwrap().buffer().unwrap().offset(),
+        (0, 0)
+    );
 }
 
 #[test]

@@ -339,6 +339,10 @@ pub trait Preview<T> {
     ///
     /// Each request is made *at most once per frame*, and moreover *only if the frame has
     /// additional time after rendering*.
+    #[allow(
+        clippy::result_large_err,
+        reason = "declined prefetches return their reusable buffer without allocating"
+    )]
     fn prefetch(
         &mut self,
         request: PreviewRequest<'_, T>,

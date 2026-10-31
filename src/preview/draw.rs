@@ -3,8 +3,9 @@ use std::{io, iter::once};
 use crossterm::style::{Color, ContentStyle};
 
 use super::{
-    BoundaryChars,
+    BoundaryChars, PreviewBuffer,
     cache::{Cached, RequestState},
+    scroll,
 };
 use crate::{
     rect::Rect,
@@ -22,17 +23,22 @@ pub(super) fn draw<D: Rect>(
     chars: BoundaryChars,
     ellipsis: char,
 ) -> io::Result<()> {
-    let number_width = preview.map_or(0, |cached| cached.number_width(rect.width().get() - 2));
-    let horizontal_position = preview.map_or(0, |cached| cached.horizontal_position);
     let pending = preview.is_some_and(|cached| {
         matches!(
             cached.state,
             Some(RequestState::Pending(_) | RequestState::Active(_) | RequestState::Retry(_))
         )
     });
-    let preview = preview.and_then(|cached| match &cached.state {
-        Some(RequestState::Ready(buffer)) => Some((buffer, cached.scroll_position)),
-        _ => None,
+    let preview = preview.and_then(Cached::buffer);
+    let number_width = preview.map_or(0, |buffer| {
+        scroll::number_width(buffer, rect.width().get() - 2)
+    });
+    let (horizontal_position, _) = preview.map_or((0, 0), PreviewBuffer::offset);
+    let preview = preview.map(|buffer| {
+        (
+            buffer,
+            scroll::visible_rows(buffer, rect.height().get() - 2).start,
+        )
     });
     let is_err = preview.is_some_and(|(buffer, _)| buffer.is_err());
     let border_style = ContentStyle {

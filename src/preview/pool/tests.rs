@@ -116,6 +116,10 @@ fn wait_until(mut ready: impl FnMut() -> bool) {
     }
 }
 
+#[allow(
+    clippy::result_large_err,
+    reason = "both outcomes return the original buffer for reuse assertions"
+)]
 fn completed(pending: PendingPreview) -> Result<PreviewBuffer, PreviewBuffer> {
     let mut reader = Some(pending.reader);
     let mut result = None;

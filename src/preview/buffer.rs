@@ -109,6 +109,7 @@ pub struct PreviewBuffer {
     styles: Vec<StyleSpan>,
     is_err: bool,
     line_numbers: bool,
+    offset: (usize, usize),
 }
 
 #[derive(Debug, Default)]
@@ -154,13 +155,14 @@ impl PreviewBuffer {
             styles: Vec::new(),
             is_err: false,
             line_numbers: false,
+            offset: (0, 0),
         }
     }
 
     /// Clear this buffer, retaining the underlying allocations.
     ///
-    /// This removes all lines and styles (leaving a single empty line), resets the error flag, and
-    /// sets the line-number preference to `false`.
+    /// This removes all lines and styles (leaving a single empty line), resets the error flag,
+    /// sets the line-number preference to `false`, and sets the row and column offset to zero.
     pub fn clear(&mut self) {
         self.text.clear();
         self.lines.clear();
@@ -168,6 +170,25 @@ impl PreviewBuffer {
         self.active_line = LineIndex::default();
         self.is_err = false;
         self.line_numbers = false;
+        self.offset = (0, 0);
+    }
+
+    /// Returns the current viewport column and row offset.
+    ///
+    /// Both offsets are zero-based. The column refers to terminal display cells.
+    pub fn offset(&self) -> (usize, usize) {
+        self.offset
+    }
+
+    /// Set the viewport offset.
+    ///
+    /// This sets the coordinates of the top-left position of the preview buffer. The column
+    /// refers to the horizontal offset in terms of terminal display cells.
+    ///
+    /// This method does not automatically clamp the offset, so the offset may correspond to a
+    /// position which does not contain any preview buffer contents.
+    pub fn set_offset(&mut self, column: usize, row: usize) {
+        self.offset = (column, row);
     }
 
     /// Set the failure status of the buffer.
@@ -185,10 +206,6 @@ impl PreviewBuffer {
     /// The default is `false` (do not display line numbers). Line numbers are displayed in a column
     /// on the left side of the preview pane and are automatically hidden if the preview pane has less
     /// than two columns for content.
-    ///
-    /// Note that this is only a default value and the line numbers for individual panes will still
-    /// be toggled while the previewer is running with
-    /// [`PreviewEvent::ToggleLineNumbers`](super::PreviewEvent::ToggleLineNumbers).
     pub fn set_line_numbers(&mut self, enabled: bool) {
         self.line_numbers = enabled;
     }

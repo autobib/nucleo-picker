@@ -472,6 +472,8 @@ fn indexed_lines_and_skipping_access_only_their_styles() {
 #[test]
 fn clear_reuses_all_allocations() {
     let mut buffer = PreviewBuffer::new();
+    assert_eq!(buffer.offset(), (0, 0));
+    buffer.set_offset(usize::MAX, usize::MAX);
     let style = ContentStyle::new().green();
     buffer.push_styled_str("first", style);
     buffer.newline();
@@ -480,6 +482,7 @@ fn clear_reuses_all_allocations() {
     buffer.push_styled_str("third", style);
     buffer.is_err = true;
     buffer.set_line_numbers(true);
+    assert_eq!(buffer.offset(), (usize::MAX, usize::MAX));
     let capacities = (
         buffer.text.capacity(),
         buffer.lines.capacity(),
@@ -499,6 +502,7 @@ fn clear_reuses_all_allocations() {
     assert!(buffer.styles.is_empty());
     assert!(!buffer.is_err);
     assert!(!buffer.line_numbers());
+    assert_eq!(buffer.offset(), (0, 0));
     assert_eq!(
         capacities,
         (

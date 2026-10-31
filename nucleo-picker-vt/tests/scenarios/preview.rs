@@ -754,7 +754,7 @@ fn boundary_chars() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn line_number_preferences_and_overrides() -> Result<(), Box<dyn Error>> {
+fn line_number_settings() -> Result<(), Box<dyn Error>> {
     let check = |sr: &mut ScenarioRunner, enabled: bool| -> Result<(), Box<dyn Error>> {
         let contents = if enabled {
             ["1 ab", "2 cd"]
@@ -765,7 +765,7 @@ fn line_number_preferences_and_overrides() -> Result<(), Box<dyn Error>> {
         Ok(())
     };
     let mut sr = start_with(
-        "line_number_preferences_and_overrides",
+        "line_number_settings",
         vec!["off", "on"],
         PickerOptions::new(),
         SyncPreviewer(|item: &String, buffer: &mut PreviewBuffer| {
@@ -782,9 +782,7 @@ fn line_number_preferences_and_overrides() -> Result<(), Box<dyn Error>> {
         check(&mut sr, base)?;
         sr.send(Event::Preview(PreviewEvent::ToggleLineNumbers))?;
         check(&mut sr, !base)?;
-        sr.send(Event::Preview(PreviewEvent::SetLineNumbers(None)))?;
-        check(&mut sr, base)?;
-        sr.send(Event::Preview(PreviewEvent::SetLineNumbers(Some(!base))))?;
+        sr.send(Event::Preview(PreviewEvent::SetLineNumbers(!base)))?;
         check(&mut sr, !base)?;
     }
     sr.send(Event::MatchList(MatchListEvent::Down(1)))?;

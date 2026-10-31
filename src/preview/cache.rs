@@ -6,9 +6,6 @@ use super::{
 /// A single entry in the preview cache.
 #[derive(Default)]
 pub(crate) struct Cached {
-    pub scroll_position: usize,
-    pub horizontal_position: usize,
-    pub line_numbers_override: Option<bool>,
     pub state: Option<RequestState>,
 }
 
@@ -19,27 +16,18 @@ impl Cached {
             .map_or_else(PreviewBuffer::new, RequestState::into_buffer)
     }
 
-    pub fn number_width(&self, width: u16) -> u16 {
-        let Some(RequestState::Ready(buffer)) = &self.state else {
-            return 0;
-        };
-        if !self.line_numbers() {
-            return 0;
-        }
-        let number_width = buffer.lines().len().ilog10() as u16 + 2;
-        if number_width < width.saturating_sub(1) {
-            number_width
-        } else {
-            0
+    pub fn buffer(&self) -> Option<&PreviewBuffer> {
+        match &self.state {
+            Some(RequestState::Ready(buffer)) => Some(buffer),
+            _ => None,
         }
     }
 
-    pub fn line_numbers(&self) -> bool {
-        self.line_numbers_override
-            .unwrap_or_else(|| match &self.state {
-                Some(RequestState::Ready(buffer)) => buffer.line_numbers(),
-                _ => false,
-            })
+    pub fn buffer_mut(&mut self) -> Option<&mut PreviewBuffer> {
+        match &mut self.state {
+            Some(RequestState::Ready(buffer)) => Some(buffer),
+            _ => None,
+        }
     }
 }
 

@@ -14,8 +14,13 @@ fn cache_tracks_item_identity_and_preserves_scroll_state() {
     let mut session = preview_pane(TestPreviewer::default());
     update(&mut session, &mut picker);
     let alpha = selected_item(&picker).unwrap();
-    session.cache.get_mut(&alpha).unwrap().scroll_position = 7;
-    session.cache.get_mut(&alpha).unwrap().horizontal_position = 12;
+    session
+        .cache
+        .get_mut(&alpha)
+        .unwrap()
+        .buffer_mut()
+        .unwrap()
+        .set_offset(12, 7);
 
     picker.update_query("beta");
     settle(&mut picker);
@@ -45,11 +50,10 @@ fn cache_tracks_item_identity_and_preserves_scroll_state() {
         [Some("alpha"), Some("beta"), Some("alpha")]
     );
     let cached = session.cache.peek(&alpha).unwrap();
-    assert_eq!(cached.scroll_position, 7);
-    assert_eq!(cached.horizontal_position, 12);
     let Some(RequestState::Ready(buffer)) = &cached.state else {
         panic!("expected cached ready preview");
     };
+    assert_eq!(buffer.offset(), (12, 7));
     assert_eq!(buffer.line(0).unwrap().as_str(), "alpha");
 }
 
@@ -139,12 +143,10 @@ fn refresh_reuses_the_buffer_and_resets_display_settings() {
     });
     session.update(Some(0), &picker.core.engine, Instant::now());
     let cached = session.cache.get_mut(&0).unwrap();
-    cached.scroll_position = 8;
-    cached.horizontal_position = 7;
-    cached.line_numbers_override = Some(true);
     let Some(RequestState::Ready(buffer)) = &mut cached.state else {
         panic!("expected ready preview");
     };
+    buffer.set_offset(7, 8);
     buffer.set_err(true);
     buffer.set_line_numbers(true);
     let allocation = buffer.line(0).unwrap().as_str().as_ptr();
@@ -158,12 +160,10 @@ fn refresh_reuses_the_buffer_and_resets_display_settings() {
     assert!(session.update(Some(0), &picker.core.engine, Instant::now()));
     assert!(!session.update(Some(0), &picker.core.engine, Instant::now()));
     let cached = session.cached().unwrap();
-    assert_eq!(cached.scroll_position, 0);
-    assert_eq!(cached.horizontal_position, 0);
-    assert_eq!(cached.line_numbers_override, None);
     let Some(RequestState::Ready(buffer)) = &cached.state else {
         panic!("expected refreshed preview");
     };
+    assert_eq!(buffer.offset(), (0, 0));
     assert_eq!(buffer.lines().len(), 4);
     assert!(!buffer.is_err());
     assert!(!buffer.line_numbers());
@@ -214,11 +214,20 @@ fn refresh_only_invalidates_the_selected_cached_preview() {
     assert!(!session.pending_redraw);
     assert_eq!(session.cache.len(), 2);
     assert_eq!(session.previewer.requested, ["alpha", "beta"]);
-    session.cache.peek_mut(&1).unwrap().scroll_position = 7;
+    session
+        .cache
+        .peek_mut(&1)
+        .unwrap()
+        .buffer_mut()
+        .unwrap()
+        .set_offset(0, 7);
     session.handle(PreviewEvent::Refresh, Some(0));
     assert!(!session.update(Some(1), &picker.core.engine, Instant::now()));
     assert_eq!(session.previewer.requested, ["alpha", "beta"]);
-    assert_eq!(session.cache.peek(&1).unwrap().scroll_position, 7);
+    assert_eq!(
+        session.cache.peek(&1).unwrap().buffer().unwrap().offset().1,
+        7
+    );
     for idx in [0, 1] {
         session.update(Some(idx), &picker.core.engine, Instant::now());
     }
@@ -269,7 +278,10 @@ fn cache_evicts_the_least_recently_visited_item() {
 
     session.update(Some(1), &picker.core.engine, Instant::now());
     assert_eq!(session.previewer.requested.len(), capacity + 2);
-    assert_eq!(session.cache.peek(&1).unwrap().scroll_position, 0);
+    assert_eq!(
+        session.cache.peek(&1).unwrap().buffer().unwrap().offset(),
+        (0, 0)
+    );
 }
 
 #[test]
@@ -284,13 +296,22 @@ fn unbounded_cache_retains_previews_and_scroll_state() {
     let picker = picker(std::iter::repeat_n("item", item_count));
     for idx in 0..item_count as u32 {
         session.update(Some(idx), &picker.core.engine, Instant::now());
-        session.cache.get_mut(&idx).unwrap().scroll_position = idx as usize + 1;
+        session
+            .cache
+            .get_mut(&idx)
+            .unwrap()
+            .buffer_mut()
+            .unwrap()
+            .set_offset(0, idx as usize + 1);
     }
     assert_eq!(session.cache.len(), item_count);
 
     for idx in 0..item_count as u32 {
         session.update(Some(idx), &picker.core.engine, Instant::now());
-        assert_eq!(session.cached().unwrap().scroll_position, idx as usize + 1);
+        assert_eq!(
+            session.cached().unwrap().buffer().unwrap().offset().1,
+            idx as usize + 1
+        );
     }
     assert_eq!(session.previewer.requested.len(), item_count);
 }
@@ -309,12 +330,10 @@ fn evicted_ready_and_retry_buffers_are_reused_and_scroll_is_reset() {
     let picker = picker(["alpha", "beta"]);
     session.update(Some(0), &picker.core.engine, Instant::now());
     let cached = session.cache.get_mut(&0).unwrap();
-    cached.scroll_position = 7;
-    cached.horizontal_position = 12;
-    cached.line_numbers_override = Some(true);
     let Some(RequestState::Ready(buffer)) = &mut cached.state else {
         panic!("expected ready preview");
     };
+    buffer.set_offset(12, 7);
     buffer.push_text("\nprevious contents\n");
     buffer.set_err(true);
     buffer.set_line_numbers(true);
@@ -330,19 +349,9 @@ fn evicted_ready_and_retry_buffers_are_reused_and_scroll_is_reset() {
             Some(&allocation)
         );
         assert_eq!(session.cache.len(), 1);
-        assert_eq!(session.cache.peek(&selection).unwrap().scroll_position, 0);
-        assert_eq!(
-            session.cache.peek(&selection).unwrap().horizontal_position,
-            0
-        );
-        assert_eq!(
-            session
-                .cache
-                .peek(&selection)
-                .unwrap()
-                .line_numbers_override,
-            None
-        );
+        let buffer = session.cache.peek(&selection).unwrap().buffer().unwrap();
+        assert_eq!(buffer.offset(), (0, 0));
+        assert!(!buffer.line_numbers());
         assert!(!session.update(Some(selection), &picker.core.engine, Instant::now()));
     }
     assert_eq!(
@@ -448,7 +457,6 @@ fn active_previews_survive_revisits_and_complete_once() {
     });
     session.update(Some(0), &picker.core.engine, Instant::now());
     let active = session.previewer.queued.pop().unwrap().start().unwrap();
-    session.cache.get_mut(&0).unwrap().scroll_position = 3;
     session.hide();
     session.update(Some(0), &picker.core.engine, Instant::now());
     for selection in [Some(1), None, None, Some(0), Some(0)] {
@@ -463,7 +471,6 @@ fn active_previews_survive_revisits_and_complete_once() {
     assert!(session.update(Some(0), &picker.core.engine, Instant::now()));
     assert!(!session.update(Some(0), &picker.core.engine, Instant::now()));
     let cached = session.cache.peek(&0).unwrap();
-    assert_eq!(cached.scroll_position, 3);
     let Some(RequestState::Ready(buffer)) = &cached.state else {
         panic!("expected completed preview");
     };
@@ -568,13 +575,11 @@ fn dropped_queued_and_active_requests_are_retried() {
         } else {
             drop(queued);
         }
-        session.cache.get_mut(&0).unwrap().scroll_position = 3;
         assert!(!session.update(Some(0), &picker.core.engine, Instant::now()));
         assert!(!session.update(Some(0), &picker.core.engine, Instant::now()));
         assert_eq!(session.previewer.requested, ["alpha", "alpha"]);
         assert_eq!(session.previewer.focused, [Some("alpha")]);
         assert_eq!(session.previewer.ids[0], session.previewer.ids[1]);
-        assert_eq!(session.cache.peek(&0).unwrap().scroll_position, 3);
         let Some(RequestState::Pending(pending)) = &session.cache.peek(&0).unwrap().state else {
             panic!("expected replacement request");
         };
@@ -604,15 +609,13 @@ fn immediately_dropped_requests_are_submitted_at_most_once_per_update() {
 }
 
 #[test]
-fn promotion_and_retry_clear_and_reuse_buffers_without_resetting_scroll() {
+fn promotion_and_retry_reuse_buffers() {
     for dropped in [false, true] {
         let picker = picker(["alpha"]);
         let mut session = preview_pane(TestPreviewer::default());
         let mut buffer = PreviewBuffer::new();
         buffer.push_str("previous contents");
-        buffer.newline();
-        buffer.set_err(true);
-        buffer.set_line_numbers(true);
+        buffer.clear();
         let allocation = buffer.line(0).unwrap().as_str().as_ptr();
         let (pending, queued) = PreviewRequest {
             buffer,
@@ -630,9 +633,6 @@ fn promotion_and_retry_clear_and_reuse_buffers_without_resetting_scroll() {
         session.cache.put(
             0,
             Cached {
-                scroll_position: 3,
-                horizontal_position: 0,
-                line_numbers_override: Some(true),
                 state: Some(RequestState::Pending(pending)),
             },
         );
@@ -641,9 +641,6 @@ fn promotion_and_retry_clear_and_reuse_buffers_without_resetting_scroll() {
             assert!(queued.is_cancelled());
         }
         let cached = session.cache.peek(&0).unwrap();
-        assert_eq!(cached.scroll_position, 3);
-        assert_eq!(cached.line_numbers_override, Some(true));
-        assert!(cached.line_numbers());
         let Some(RequestState::Ready(buffer)) = &cached.state else {
             panic!("expected ready preview");
         };
@@ -651,6 +648,7 @@ fn promotion_and_retry_clear_and_reuse_buffers_without_resetting_scroll() {
         assert_eq!(buffer.line(0).unwrap().as_str().as_ptr(), allocation);
         assert_eq!(buffer.lines().len(), 1);
         assert!(!buffer.is_err());
+        assert!(!buffer.line_numbers());
     }
 }
 
@@ -723,6 +721,48 @@ fn restart_with_a_reused_item_id_and_pending_preview_reports_one_change() {
 }
 
 #[test]
+fn pending_previews_ignore_scrolling_even_after_publication() {
+    let picker = picker(["alpha"]);
+    let mut session = preview_pane(TestPreviewer {
+        defer: true,
+        ..TestPreviewer::default()
+    });
+    let area = Area {
+        width: 22,
+        height: 10,
+        ..Area::default()
+    };
+    session.resize_area(area);
+    session.update(Some(0), &picker.core.engine, Instant::now());
+    session.handle(PreviewEvent::Down(1), Some(0));
+    session.handle(PreviewEvent::Right(1), Some(0));
+    let active = session.previewer.queued.pop().unwrap().start().unwrap();
+    session.handle(PreviewEvent::PageDown(1), Some(0));
+    let mut buffer = PreviewBuffer::new();
+    for _ in 0..30 {
+        buffer.push_line("abcdefghijklmnopqrstuvwxyz");
+    }
+    assert!(active.publish(&mut buffer).is_ok());
+    for event in [
+        PreviewEvent::Right(usize::MAX),
+        PreviewEvent::PageUp(1),
+        PreviewEvent::AlignLeft,
+        PreviewEvent::AlignRight,
+        PreviewEvent::AlignTop,
+        PreviewEvent::AlignBottom,
+    ] {
+        session.handle(event, Some(0));
+    }
+    session.resize_area(area);
+    assert!(matches!(
+        session.cache.peek(&0).unwrap().state,
+        Some(RequestState::Pending(_))
+    ));
+    session.update(Some(0), &picker.core.engine, Instant::now());
+    assert_eq!(session.cached().unwrap().buffer().unwrap().offset(), (0, 0));
+}
+
+#[test]
 fn scrolling_accumulates_changes_without_advancing_request_priority() {
     let picker = picker(["alpha", "beta"]);
     let mut session = preview_pane(TestPreviewer {
@@ -740,7 +780,10 @@ fn scrolling_accumulates_changes_without_advancing_request_priority() {
     for event in [PreviewEvent::Down(1), PreviewEvent::Up(0)] {
         session.handle_event(Some(0), event);
     }
-    assert_eq!(session.cache.peek(&0).unwrap().scroll_position, 1);
+    assert_eq!(
+        session.cache.peek(&0).unwrap().buffer().unwrap().offset().1,
+        1
+    );
     assert!(session.update(Some(0), &picker.core.engine, Instant::now()));
     assert!(!session.update(Some(0), &picker.core.engine, Instant::now()));
     assert_eq!(session.epoch, epoch);
@@ -854,7 +897,7 @@ fn an_empty_match_list_does_not_request_previews() {
 }
 
 #[test]
-fn line_number_events_resolve_preferences_and_only_redraw_on_changes() {
+fn line_number_events_only_redraw_on_changes() {
     for base in [false, true] {
         let picker = picker(["alpha"]);
         let mut session = preview_pane(TestPreviewer {
@@ -862,25 +905,28 @@ fn line_number_events_resolve_preferences_and_only_redraw_on_changes() {
             ..TestPreviewer::default()
         });
         assert!(session.update(Some(0), &picker.core.engine, Instant::now()));
-        assert_eq!(session.cached().unwrap().line_numbers(), base);
+        assert_eq!(
+            session.cached().unwrap().buffer().unwrap().line_numbers(),
+            base
+        );
         assert!(session.area.is_empty());
         for (event, expected, changed) in [
-            (PreviewEvent::SetLineNumbers(Some(base)), base, false),
+            (PreviewEvent::SetLineNumbers(base), base, false),
             (PreviewEvent::ToggleLineNumbers, !base, true),
             (PreviewEvent::ToggleLineNumbers, base, true),
-            (PreviewEvent::SetLineNumbers(None), base, false),
-            (PreviewEvent::SetLineNumbers(Some(!base)), !base, true),
-            (PreviewEvent::SetLineNumbers(None), base, true),
+            (PreviewEvent::SetLineNumbers(!base), !base, true),
         ] {
             session.handle(event, Some(0));
-            assert_eq!(session.cached().unwrap().line_numbers(), expected);
+            assert_eq!(
+                session.cached().unwrap().buffer().unwrap().line_numbers(),
+                expected
+            );
             assert_eq!(
                 session.update(Some(0), &picker.core.engine, Instant::now()),
                 changed
             );
             assert!(!session.update(Some(0), &picker.core.engine, Instant::now()));
         }
-        assert_eq!(session.cached().unwrap().line_numbers_override, None);
         assert_eq!(session.previewer.requested, ["alpha"]);
     }
 }
@@ -900,12 +946,15 @@ fn horizontal_events_follow_layout_and_only_redraw_when_the_offset_changes() {
         (PreviewEvent::Right(1), 6, false),
         (PreviewEvent::ToggleLineNumbers, 6, true),
         (PreviewEvent::Right(usize::MAX), 8, true),
-        (PreviewEvent::SetLineNumbers(Some(false)), 8, true),
+        (PreviewEvent::SetLineNumbers(false), 8, true),
         (PreviewEvent::Right(1), 8, false),
         (PreviewEvent::Left(1), 7, true),
     ] {
         session.handle(event, Some(0));
-        assert_eq!(session.cached().unwrap().horizontal_position, expected);
+        assert_eq!(
+            session.cached().unwrap().buffer().unwrap().offset().0,
+            expected
+        );
         assert_eq!(
             session.update(Some(0), &picker.core.engine, Instant::now()),
             changed
@@ -919,7 +968,7 @@ fn horizontal_events_follow_layout_and_only_redraw_when_the_offset_changes() {
             ..Area::default()
         });
         session.handle(PreviewEvent::Right(1), Some(0));
-        assert_eq!(session.cached().unwrap().horizontal_position, 7);
+        assert_eq!(session.cached().unwrap().buffer().unwrap().offset().0, 7);
         assert!(!session.update(Some(0), &picker.core.engine, Instant::now()));
     }
     session.handle(PreviewEvent::Right(1), Some(1));
@@ -929,29 +978,31 @@ fn horizontal_events_follow_layout_and_only_redraw_when_the_offset_changes() {
     assert_eq!(session.previewer.requested, ["abcdefghijklmnop"]);
     session.restart();
     assert!(session.update(Some(0), &picker.core.engine, Instant::now()));
-    assert_eq!(session.cached().unwrap().horizontal_position, 0);
+    assert_eq!(session.cached().unwrap().buffer().unwrap().offset().0, 0);
 }
 
 #[test]
-fn line_number_overrides_follow_cached_item_identity_and_reset_on_restart() {
+fn line_numbers_follow_cached_item_identity_and_reset_on_restart() {
     let picker = picker(["alpha", "beta"]);
     let mut session = preview_pane(TestPreviewer::default());
     session.update(Some(0), &picker.core.engine, Instant::now());
     for selected in [None, Some(1)] {
         session.handle(PreviewEvent::ToggleLineNumbers, selected);
-        session.handle(PreviewEvent::SetLineNumbers(Some(true)), selected);
+        session.handle(PreviewEvent::SetLineNumbers(true), selected);
     }
     assert!(!session.pending_redraw);
     assert_eq!(session.cache.len(), 1);
-    assert_eq!(session.cached().unwrap().line_numbers_override, None);
+    assert!(!session.cached().unwrap().buffer().unwrap().line_numbers());
     session.handle(PreviewEvent::ToggleLineNumbers, Some(0));
     for selected in [1, 0] {
         session.update(Some(selected), &picker.core.engine, Instant::now());
-        assert_eq!(session.cached().unwrap().line_numbers(), selected == 0);
+        assert_eq!(
+            session.cached().unwrap().buffer().unwrap().line_numbers(),
+            selected == 0
+        );
     }
     assert_eq!(session.previewer.requested, ["alpha", "beta"]);
     session.restart();
     session.update(Some(0), &picker.core.engine, Instant::now());
-    assert_eq!(session.cached().unwrap().line_numbers_override, None);
-    assert!(!session.cached().unwrap().line_numbers());
+    assert!(!session.cached().unwrap().buffer().unwrap().line_numbers());
 }

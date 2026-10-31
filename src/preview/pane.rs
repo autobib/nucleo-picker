@@ -2,7 +2,7 @@ use super::{
     BoundaryChars, ItemId, ItemRef, Preview, PreviewBuffer, PreviewConfig, PreviewEvent,
     cache::{Cached, RequestState},
     request::PreviewRequest,
-    scroll::PreviewMovement,
+    scroll::{self, PreviewMovement},
 };
 use crate::{
     PickerChars,
@@ -262,13 +262,9 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewPane<T, P> {
                     continue;
                 }
             };
-            if let Some((evicted_idx, evicted)) = prefetch.cache.push(
-                idx,
-                Cached {
-                    state: Some(state),
-                    ..Cached::default()
-                },
-            ) && evicted_idx != idx
+            if let Some((evicted_idx, evicted)) =
+                prefetch.cache.push(idx, Cached { state: Some(state) })
+                && evicted_idx != idx
             {
                 self.spare = evicted.into_buffer();
             }
@@ -295,9 +291,6 @@ impl<T, P: Preview<T>> PreviewPane<T, P> {
         // even if the preview is not ready yet
         if matches!(event, PreviewEvent::Refresh) {
             self.pending_redraw |= self.last_item == idx;
-            cached.scroll_position = 0;
-            cached.horizontal_position = 0;
-            cached.line_numbers_override = None;
             cached.state = cached
                 .state
                 .take()
@@ -306,21 +299,21 @@ impl<T, P: Preview<T>> PreviewPane<T, P> {
         }
 
         // then check: is the preview ready? if not, nothing to do
-        if !matches!(cached.state, Some(RequestState::Ready(_))) {
+        let Some(buffer) = cached.buffer_mut() else {
             return;
-        }
+        };
 
         // handle other movement events
         let movement = match event {
             PreviewEvent::ToggleLineNumbers => {
-                cached.line_numbers_override = Some(!cached.line_numbers());
+                buffer.set_line_numbers(!buffer.line_numbers());
                 self.pending_redraw = true;
                 return;
             }
             PreviewEvent::SetLineNumbers(enabled) => {
-                let previous = cached.line_numbers();
-                cached.line_numbers_override = enabled;
-                self.pending_redraw |= previous != cached.line_numbers();
+                let previous = buffer.line_numbers();
+                buffer.set_line_numbers(enabled);
+                self.pending_redraw |= previous != enabled;
                 return;
             }
             PreviewEvent::Left(columns) => PreviewMovement::Left(columns),
@@ -336,7 +329,8 @@ impl<T, P: Preview<T>> PreviewPane<T, P> {
             PreviewEvent::Refresh => return,
         };
         if !self.area.is_empty() {
-            self.pending_redraw |= cached.scroll(
+            self.pending_redraw |= scroll::scroll(
+                buffer,
                 movement,
                 (
                     self.area.width.saturating_sub(2),
@@ -354,7 +348,9 @@ impl<T, P: Preview<T>> PreviewPane<T, P> {
             area.height.saturating_sub(2)
         };
         for (_, cached) in self.cache.iter_mut() {
-            cached.resize(height);
+            if let Some(buffer) = cached.buffer_mut() {
+                scroll::resize(buffer, height);
+            }
         }
     }
 
