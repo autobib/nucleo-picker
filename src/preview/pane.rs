@@ -21,16 +21,22 @@ use std::{
 const PREFETCH_CHECKS_PER_FRAME: usize = 4;
 
 pub(crate) struct PreviewPane<T, P: Preview<T>> {
+    state: PreviewState,
+    previewer: P,
+    item: PhantomData<fn() -> T>,
+    boundary_chars: BoundaryChars,
+    ellipsis: char,
+}
+
+struct PreviewState {
     // fields drop in declaration order: cancel requests *before* dropping the
     // previewer so that it may join its workers if desired
     cache: LruCache<u32, Cached>,
     prefetch: Option<Prefetch>,
-    previewer: P,
     spare: PreviewBuffer,
     last_item: Option<u32>,
     // Unlike last_item, focused is cleared while the pane is hidden.
     focused: Option<u32>,
-    item: PhantomData<fn() -> T>,
     // state to preserve scroll and restart invalidation and return redraw state with
     // `update`
     pending_redraw: bool,
@@ -39,17 +45,32 @@ pub(crate) struct PreviewPane<T, P: Preview<T>> {
     // resubmission when the cursor has not moved
     epoch: u64,
     area: Area,
-    boundary_chars: BoundaryChars,
-    ellipsis: char,
 }
 
 impl<T, P: Preview<T>> PreviewPane<T, P> {
     pub(crate) fn new(config: &PreviewConfig, chars: &PickerChars, previewer: P) -> Self {
-        let prefetch_limit = previewer.prefetch_limit();
         Self {
-            cache: config
-                .cache_size
-                .map_or_else(LruCache::unbounded, new_cache),
+            state: PreviewState::new(config.cache_size, previewer.prefetch_limit()),
+            previewer,
+            item: PhantomData,
+            boundary_chars: config.boundary_chars,
+            ellipsis: chars.ellipsis,
+        }
+    }
+}
+
+impl<T, P: Preview<T>> Drop for PreviewPane<T, P> {
+    fn drop(&mut self) {
+        if !std::thread::panicking() {
+            self.state.end(&mut self.previewer);
+        }
+    }
+}
+
+impl PreviewState {
+    fn new(cache_size: Option<NonZero<usize>>, prefetch_limit: usize) -> Self {
+        Self {
+            cache: cache_size.map_or_else(LruCache::unbounded, new_cache),
             prefetch: NonZero::new(prefetch_limit.saturating_mul(2)).map(|capacity| Prefetch {
                 cache: new_cache(capacity),
                 count: prefetch_limit,
@@ -57,50 +78,55 @@ impl<T, P: Preview<T>> PreviewPane<T, P> {
                 next: 0,
                 queued: None,
             }),
-            previewer,
             spare: PreviewBuffer::new(),
             last_item: None,
             focused: None,
-            item: PhantomData,
             pending_redraw: false,
             epoch: 0,
             area: Area::default(),
-            boundary_chars: config.boundary_chars,
-            ellipsis: chars.ellipsis,
         }
     }
 
-    #[cfg(test)]
     fn cached(&self) -> Option<&Cached> {
         self.last_item.and_then(|idx| self.cache.peek(&idx))
     }
 
-    fn set_focus(&mut self, item: Option<ItemRef<'_, T>>) {
+    fn set_focus<T, P: Preview<T>>(&mut self, previewer: &mut P, item: Option<ItemRef<'_, T>>) {
         let focused = item.map(|item| item.id().index);
         if self.focused != focused {
             self.focused = focused;
             if !std::thread::panicking() {
-                self.previewer.focus_changed(item);
+                previewer.focus_changed(item);
             }
         }
     }
-}
 
-impl<T, P: Preview<T>> Drop for PreviewPane<T, P> {
-    fn drop(&mut self) {
+    fn end<T, P: Preview<T>>(&mut self, previewer: &mut P) {
         self.cache.clear();
         if let Some(prefetch) = &mut self.prefetch {
             prefetch.cache.clear();
         }
-        self.set_focus(None);
+        self.set_focus(previewer, None);
     }
-}
 
-impl<T: Send + Sync + 'static, P: Preview<T>> PreviewPane<T, P> {
+    fn update<T: Send + Sync + 'static, R, P: Preview<T>>(
+        &mut self,
+        previewer: &mut P,
+        selected_rank: Option<u32>,
+        engine: &MatchEngine<T, R>,
+        deadline: Instant,
+    ) -> bool {
+        let selected = selected_rank.map(|rank| engine.idx_from_match(rank));
+        self.update_current(previewer, selected, engine, deadline);
+        self.sync_prefetch(selected_rank, engine.match_revision());
+        std::mem::take(&mut self.pending_redraw)
+    }
+
     /// Update the current preview by polling and resubmitting requests and keeping track if a
     /// redraw is required.
-    fn update_current<R>(
+    fn update_current<T: Send + Sync + 'static, R, P: Preview<T>>(
         &mut self,
+        previewer: &mut P,
         selected: Option<u32>,
         engine: &MatchEngine<T, R>,
         deadline: Instant,
@@ -109,7 +135,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewPane<T, P> {
         if self.focused != selected {
             self.epoch = self.epoch.wrapping_add(1);
         }
-        self.set_focus(selected.map(|idx| engine.item_ref(idx).unwrap()));
+        self.set_focus(previewer, selected.map(|idx| engine.item_ref(idx).unwrap()));
         if self.last_item != selected {
             self.last_item = selected;
             self.pending_redraw = true;
@@ -147,7 +173,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewPane<T, P> {
         };
         let state = match state {
             RequestState::Retry(buffer) => submit(
-                &mut self.previewer,
+                previewer,
                 snapshot,
                 engine.item_id(idx),
                 buffer,
@@ -178,7 +204,12 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewPane<T, P> {
         }
     }
 
-    fn update_prefetch<R>(&mut self, engine: &MatchEngine<T, R>, deadline: Instant) {
+    fn update_prefetch<T: Send + Sync + 'static, R, P: Preview<T>>(
+        &mut self,
+        previewer: &mut P,
+        engine: &MatchEngine<T, R>,
+        deadline: Instant,
+    ) {
         let Some(prefetch) = &mut self.prefetch else {
             return;
         };
@@ -245,7 +276,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewPane<T, P> {
                 snapshot,
                 id: engine.item_id(idx),
             };
-            let state = match self.previewer.prefetch(request, budget) {
+            let state = match previewer.prefetch(request, budget) {
                 Ok(response) => {
                     let state = RequestState::from(response).poll();
                     if matches!(state, RequestState::Pending(_)) {
@@ -271,9 +302,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewPane<T, P> {
             return;
         }
     }
-}
 
-impl<T, P: Preview<T>> PreviewPane<T, P> {
     fn handle_event(&mut self, idx: Option<u32>, event: PreviewEvent) {
         let Some(cached) = idx.and_then(|idx| {
             self.cache.get_mut(&idx).or_else(|| {
@@ -303,7 +332,7 @@ impl<T, P: Preview<T>> PreviewPane<T, P> {
             return;
         };
 
-        // handle other movement events
+        // handle non-movement events
         let movement = match event {
             PreviewEvent::ToggleLineNumbers => {
                 buffer.set_line_numbers(!buffer.line_numbers());
@@ -328,6 +357,8 @@ impl<T, P: Preview<T>> PreviewPane<T, P> {
             PreviewEvent::AlignBottom => PreviewMovement::AlignBottom,
             PreviewEvent::Refresh => return,
         };
+
+        // handle movement events
         if !self.area.is_empty() {
             self.pending_redraw |= scroll::scroll(
                 buffer,
@@ -354,7 +385,7 @@ impl<T, P: Preview<T>> PreviewPane<T, P> {
         }
     }
 
-    fn restart_cache(&mut self) {
+    fn restart<T, P: Preview<T>>(&mut self, previewer: &mut P) {
         self.pending_redraw |= self.last_item.take().is_some();
         self.cache.clear();
         if let Some(prefetch) = &mut self.prefetch {
@@ -364,16 +395,22 @@ impl<T, P: Preview<T>> PreviewPane<T, P> {
         }
         self.spare = PreviewBuffer::new();
         self.epoch = 0;
+        self.set_focus(previewer, None);
+        previewer.restart();
     }
 }
 
 impl<T, P: Preview<T>> Component<()> for PreviewPane<T, P> {
     fn resize(&mut self, area: Area, _engine: &()) {
-        self.resize_area(area);
+        self.state.resize_area(area);
     }
     fn draw<D: Rect>(&mut self, _engine: &(), rect: &mut D) -> io::Result<()> {
-        let preview = self.last_item.and_then(|idx| self.cache.peek(&idx));
-        super::draw::draw(rect, preview, self.boundary_chars, self.ellipsis)
+        super::draw::draw(
+            rect,
+            self.state.cached(),
+            self.boundary_chars,
+            self.ellipsis,
+        )
     }
 }
 
@@ -381,7 +418,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewComponent<T> for PreviewPan
     const ENABLED: bool = true;
 
     fn handle(&mut self, event: PreviewEvent, selected_id: Option<u32>) {
-        self.handle_event(selected_id, event);
+        self.state.handle_event(selected_id, event);
     }
 
     fn update<R>(
@@ -390,24 +427,21 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewComponent<T> for PreviewPan
         engine: &MatchEngine<T, R>,
         deadline: Instant,
     ) -> bool {
-        let selected = selected_rank.map(|rank| engine.idx_from_match(rank));
-        self.update_current(selected, engine, deadline);
-        self.sync_prefetch(selected_rank, engine.match_revision());
-        std::mem::take(&mut self.pending_redraw)
+        self.state
+            .update(&mut self.previewer, selected_rank, engine, deadline)
     }
 
     fn prefetch<R>(&mut self, engine: &MatchEngine<T, R>, deadline: Instant) {
-        self.update_prefetch(engine, deadline);
+        self.state
+            .update_prefetch(&mut self.previewer, engine, deadline);
     }
 
     fn hide(&mut self) {
-        self.set_focus(None);
+        self.state.set_focus(&mut self.previewer, None);
     }
 
     fn restart(&mut self) {
-        self.restart_cache();
-        self.set_focus(None);
-        self.previewer.restart();
+        self.state.restart(&mut self.previewer);
     }
 }
 
@@ -466,7 +500,8 @@ impl Prefetch {
         let before = rank;
         let after = total - rank - 1;
         let paired = before.min(after);
-        // Interleave both sides until the nearer boundary, then use only the remaining side.
+        // interleave until hitting then boundary and then only use the
+        // remaining direction
         Some(if next < 2 * paired {
             let distance = next / 2 + 1;
             if next.is_multiple_of(2) {

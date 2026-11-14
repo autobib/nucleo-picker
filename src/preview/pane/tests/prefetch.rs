@@ -20,7 +20,7 @@ fn allocation(cached: &Cached) -> *const u8 {
 fn zero_disables_prefetch_without_allocating_its_cache() {
     let picker = picker(["a", "b", "c"]);
     let mut session = pane(0);
-    assert!(session.prefetch.is_none());
+    assert!(session.state.prefetch.is_none());
     for rank in [0, 1, 2, 1, 0] {
         session.run_frame(Some(rank), &picker.core.engine, deadline());
     }
@@ -47,7 +47,7 @@ fn prefetch_limit_is_sampled_once_per_session_including_across_restarts() {
     drop(session);
     assert_eq!(previewer.prefetched, ["b", "b"]);
     let session = preview_pane(&mut previewer as &mut dyn Preview<&'static str>);
-    assert!(session.prefetch.is_none());
+    assert!(session.state.prefetch.is_none());
 }
 
 #[test]
@@ -159,7 +159,7 @@ fn focusing_prefetched_items_reuses_started_work_and_retries_unfinished_requests
             "stage={stage:?}, detour={detour}"
         );
         assert_eq!(session.previewer.requested, expected);
-        assert!(!session.prefetch.as_ref().unwrap().cache.contains(&1));
+        assert!(!session.state.prefetch.as_ref().unwrap().cache.contains(&1));
     }
 }
 
@@ -230,7 +230,7 @@ fn prefetch_preserves_main_cache_recency_and_scroll() {
             ..TestPreviewer::default()
         },
     );
-    session.resize_area(Area {
+    session.state.resize_area(Area {
         width: 12,
         height: 5,
         ..Area::default()
@@ -244,14 +244,25 @@ fn prefetch_preserves_main_cache_recency_and_scroll() {
     session.run_frame(Some(0), &picker.core.engine, deadline());
     assert!(session.previewer.prefetched.is_empty());
     assert_eq!(
-        session.cache.peek(&1).unwrap().buffer().unwrap().offset().1,
+        session
+            .state
+            .cache
+            .peek(&1)
+            .unwrap()
+            .buffer()
+            .unwrap()
+            .offset()
+            .1,
         7
     );
     for rank in [3, 2, 1] {
         session.run_frame(Some(rank), &picker.core.engine, Instant::now());
     }
     assert_eq!(session.previewer.requested, ["b", "c", "a", "d", "b"]);
-    assert_eq!(session.cached().unwrap().buffer().unwrap().offset(), (0, 0));
+    assert_eq!(
+        session.state.cached().unwrap().buffer().unwrap().offset(),
+        (0, 0)
+    );
 }
 
 #[test]
@@ -286,7 +297,7 @@ fn rejected_prefetches_retry_after_match_changes() {
         session.run_frame(Some(0), &picker.core.engine, deadline());
     }
     assert_eq!(session.previewer.prefetched, ["b", "c", "d"]);
-    assert!(session.prefetch.as_ref().unwrap().cache.is_empty());
+    assert!(session.state.prefetch.as_ref().unwrap().cache.is_empty());
     session.previewer.prefetch_enabled = true;
     for _ in 0..3 {
         session.run_frame(Some(0), &picker.core.engine, deadline());
@@ -376,7 +387,7 @@ fn rejected_neighbours_consume_the_per_frame_check_budget() {
             (frame * checks).min(checks + 1)
         );
     }
-    assert!(session.prefetch.as_ref().unwrap().cache.is_empty());
+    assert!(session.state.prefetch.as_ref().unwrap().cache.is_empty());
 }
 
 #[test]
@@ -385,7 +396,7 @@ fn neighbour_cursor_visits_each_candidate_once_in_distance_order() {
         for rank in 0..total {
             for count in [1, 2, 4, usize::MAX] {
                 let mut session = pane(count);
-                let prefetch = session.prefetch.as_mut().unwrap();
+                let prefetch = session.state.prefetch.as_mut().unwrap();
                 let mut expected: Vec<_> = (0..total).filter(|&idx| idx != rank).collect();
                 expected.sort_unstable_by_key(|&idx| (idx.abs_diff(rank), idx < rank));
                 expected.truncate(count);
@@ -412,7 +423,7 @@ fn neighbour_cursor_handles_maximum_rank_and_count() {
         (last, [last - 1, last - 2, last - 3, last - 4]),
     ] {
         let mut session = pane(usize::MAX);
-        let prefetch = session.prefetch.as_mut().unwrap();
+        let prefetch = session.state.prefetch.as_mut().unwrap();
         for candidate in expected {
             assert_eq!(prefetch.next(rank, u32::MAX), Some(candidate));
         }
@@ -442,14 +453,14 @@ fn declined_buffers_are_reused_through_borrowed_previewers() {
     };
     let mut session = preview_pane(&mut previewer);
     session.run_frame(Some(0), &picker.core.engine, Instant::now());
-    session.spare.push_str("reusable buffer");
-    session.spare.set_err(true);
-    session.spare.set_line_numbers(true);
-    let pointer = session.spare.line(0).unwrap().as_str().as_ptr();
+    session.state.spare.push_str("reusable buffer");
+    session.state.spare.set_err(true);
+    session.state.spare.set_line_numbers(true);
+    let pointer = session.state.spare.line(0).unwrap().as_str().as_ptr();
     for _ in 0..2 {
         session.run_frame(Some(0), &picker.core.engine, deadline());
     }
-    assert!(session.prefetch.as_ref().unwrap().cache.is_empty());
+    assert!(session.state.prefetch.as_ref().unwrap().cache.is_empty());
     drop(session);
     assert!(!previewer.prefetch_allocations.is_empty());
     assert!(
@@ -480,7 +491,7 @@ fn default_prefetch_returns_the_original_buffer_without_rendering() {
     };
     assert_eq!(buffer.line(0).unwrap().as_str().as_ptr(), pointer);
     let session = preview_pane(&mut previewer);
-    assert!(session.prefetch.is_none());
+    assert!(session.state.prefetch.is_none());
 }
 
 #[test]
@@ -520,18 +531,30 @@ fn prefetch_eviction_and_focus_promotion_reuse_buffers() {
         },
     );
     session.run_frame(Some(0), &picker.core.engine, deadline());
-    let first = allocation(session.prefetch.as_ref().unwrap().cache.peek(&1).unwrap());
+    let first = allocation(
+        session
+            .state
+            .prefetch
+            .as_ref()
+            .unwrap()
+            .cache
+            .peek(&1)
+            .unwrap(),
+    );
     for rank in [3, 6] {
         session.run_frame(Some(rank), &picker.core.engine, deadline());
     }
-    let cache = &session.prefetch.as_ref().unwrap().cache;
+    let cache = &session.state.prefetch.as_ref().unwrap().cache;
     assert_eq!(cache.len(), 2);
     assert!(!cache.contains(&1));
-    assert_eq!(session.spare.line(0).unwrap().as_str().as_ptr(), first);
+    assert_eq!(
+        session.state.spare.line(0).unwrap().as_str().as_ptr(),
+        first
+    );
     let promoted = allocation(cache.peek(&7).unwrap());
     session.run_frame(Some(7), &picker.core.engine, deadline());
-    assert_eq!(allocation(session.cache.peek(&7).unwrap()), promoted);
-    assert!(!session.prefetch.as_ref().unwrap().cache.contains(&7));
+    assert_eq!(allocation(session.state.cache.peek(&7).unwrap()), promoted);
+    assert!(!session.state.prefetch.as_ref().unwrap().cache.contains(&7));
     session.run_frame(Some(4), &picker.core.engine, deadline());
     assert_eq!(session.previewer.requested, ["a", "d", "g"]);
     assert_eq!(session.previewer.prefetched, ["b", "e", "h", "g", "f"]);
@@ -539,9 +562,16 @@ fn prefetch_eviction_and_focus_promotion_reuse_buffers() {
         session.previewer.prefetch_allocations.last(),
         Some(&promoted)
     );
-    assert_eq!(session.cache.len(), 1);
+    assert_eq!(session.state.cache.len(), 1);
     assert_eq!(
-        session.cache.peek(&4).unwrap().buffer().unwrap().offset(),
+        session
+            .state
+            .cache
+            .peek(&4)
+            .unwrap()
+            .buffer()
+            .unwrap()
+            .offset(),
         (0, 0)
     );
 }

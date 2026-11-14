@@ -101,7 +101,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewPane<T, P> {
 
 impl<T, P: Preview<T>> PreviewPane<T, P> {
     pub(crate) fn contents(&self) -> Vec<&str> {
-        let Some(RequestState::Ready(buffer)) = &self.cached().unwrap().state else {
+        let Some(RequestState::Ready(buffer)) = &self.state.cached().unwrap().state else {
             panic!("expected ready preview");
         };
         buffer.lines().map(|line| line.as_str()).collect()
@@ -264,7 +264,7 @@ pub(crate) fn update(
 #[cfg(feature = "unstable-backend")]
 impl<T, P: Preview<T>> PreviewPane<T, P> {
     pub(crate) fn test_cache(&mut self) -> &mut LruCache<u32, Cached> {
-        &mut self.cache
+        &mut self.state.cache
     }
 
     pub(crate) fn test_previewer(&mut self) -> &mut P {
