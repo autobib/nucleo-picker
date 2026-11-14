@@ -182,9 +182,15 @@ impl PreviewState {
             None => RequestState::Retry(std::mem::take(&mut self.spare)),
         };
         let state = match state {
-            RequestState::Retry(buffer) => {
-                submit(previewer, cx.snapshot, id, buffer, self.epoch, deadline).poll()
-            }
+            RequestState::Retry(buffer) => submit(
+                previewer,
+                cx.matches().snapshot,
+                id,
+                buffer,
+                self.epoch,
+                deadline,
+            )
+            .poll(),
             state => state,
         };
         self.pending_redraw |= matches!(state, RequestState::Ready(_));
@@ -220,7 +226,7 @@ impl PreviewState {
         let Some((rank, _)) = prefetch.cycle else {
             return;
         };
-        let matches = cx.match_ids();
+        let matches = cx.matches();
         let total = matches.len() as u32;
         let checks = PREFETCH_CHECKS_PER_FRAME
             .min(prefetch.window_len(total).saturating_sub(prefetch.next) as usize);
@@ -256,7 +262,7 @@ impl PreviewState {
                 return;
             }
             let candidate = prefetch.next(rank, total).unwrap();
-            let id = cx.match_ids().nth(candidate as usize).unwrap();
+            let id = matches.ids().nth(candidate as usize).unwrap();
             let idx = id.index;
             if self.cache.contains(&idx) {
                 continue;
@@ -278,7 +284,7 @@ impl PreviewState {
             let request = Request {
                 buffer,
                 epoch: self.epoch,
-                snapshot: cx.snapshot,
+                snapshot: matches.snapshot,
                 id,
             };
             let state = match previewer.prefetch(request, budget) {

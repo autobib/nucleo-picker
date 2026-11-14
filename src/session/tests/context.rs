@@ -30,7 +30,7 @@ fn context_tracks_rank_identity_and_match_publication() {
     let cx = cx.with_rank(Some(1));
     let hovered = cx.hovered().unwrap();
     assert_eq!(cx.rank(), Some(1));
-    assert_eq!(cx.match_ids().nth(1), Some(hovered.id()));
+    assert_eq!(cx.matches().ids().nth(1), Some(hovered.id()));
     assert_eq!(hovered.value(), &"delta");
     assert_eq!(hovered.id(), picker.core.engine.item_id(2));
     let published = cx.match_revision();
@@ -67,7 +67,7 @@ fn context_tracks_rank_identity_and_match_publication() {
     let cx = Context::new(&picker.core.engine);
     assert!(cx.match_revision() != before_restart);
     assert_eq!(cx.matches().len(), 0);
-    assert!(cx.item(old_id).is_none());
+    assert!(cx.matches().item(old_id).is_none());
     let restarted = cx.match_revision();
     picker.restart();
     assert!(Context::new(&picker.core.engine).match_revision() != restarted);
@@ -82,6 +82,34 @@ fn context_tracks_rank_identity_and_match_publication() {
     let cx = Context::new(&picker.core.engine).with_rank(Some(0));
     assert!(cx.hovered().is_none());
     assert_eq!(cx.rank(), None);
+}
+
+#[test]
+fn shared_matches_and_item_borrows_outlive_the_context() {
+    let mut picker = PickerOptions::new()
+        .sort_results(false)
+        .query("ta")
+        .picker(StrRenderer);
+    picker.push_batch(["alpha", "beta", "delta"].map(str::to_owned));
+    picker.filter().unwrap();
+
+    let (matches, hovered, mut items, mut ids) = {
+        let cx = Context::new(&picker.core.engine).with_rank(Some(1));
+        let matches = cx.matches();
+        (
+            matches,
+            cx.hovered().unwrap(),
+            matches.iter(),
+            matches.ids(),
+        )
+    };
+    let expected = picker.matches().get(1).unwrap();
+    assert_eq!(expected.value(), "delta");
+    assert_eq!(hovered.id(), expected.id());
+    assert_eq!(matches.get(1).unwrap().id(), expected.id());
+    assert_eq!(items.nth(1).unwrap().id(), expected.id());
+    assert_eq!(ids.nth(1), Some(expected.id()));
+    assert!(std::ptr::eq(hovered.value(), expected.value()));
 }
 
 struct Observation {
@@ -101,7 +129,7 @@ impl Observation {
             rank: cx.rank(),
             query: cx.query().to_owned(),
             revision: cx.match_revision(),
-            matches: cx.match_ids().collect(),
+            matches: cx.matches().ids().collect(),
             #[cfg(feature = "preview")]
             preview_size: cx.preview_size().map(|size| (size.width, size.height)),
         }
@@ -129,7 +157,7 @@ impl Queued for QueueProbe<'_> {
     ) -> Self::Output<'items, T> {
         self.0.push(Observation::new(cx));
         match target {
-            SelectionTarget::Hovered(id) => Some(cx.item(id).unwrap().value()),
+            SelectionTarget::Hovered(id) => Some(cx.matches().item(id).unwrap().value()),
             _ => None,
         }
     }
@@ -146,7 +174,7 @@ fn events_observe_buffered_navigation_and_only_submitted_queries() {
             .picker(StrRenderer);
         picker.push_batch(["alpha", "beta", "delta"]);
         picker.filter().unwrap();
-        let ids: Vec<_> = Context::new(&picker.core.engine).match_ids().collect();
+        let ids: Vec<_> = Context::new(&picker.core.engine).matches().ids().collect();
         let navigate = if reversed {
             MatchListEvent::Down(1)
         } else {
@@ -259,7 +287,7 @@ mod preview {
             .picker(StrRenderer);
         picker.push_batch(["alpha", "beta"]);
         picker.filter().unwrap();
-        let ids: Vec<_> = Context::new(&picker.core.engine).match_ids().collect();
+        let ids: Vec<_> = Context::new(&picker.core.engine).matches().ids().collect();
         let events = [
             Ok(Event::MatchList(MatchListEvent::Up(1))),
             Ok(Event::Preview(PreviewEvent::Refresh)),

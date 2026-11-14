@@ -147,8 +147,11 @@ fn restart_clears_queued_items_before_reusing_indices() {
     assert!(selected.into_iter().copied().eq(["replacement"]));
 
     let cx = Context::new(&picker.core.engine);
-    assert!(cx.item(original).is_none());
-    let replacement = cx.match_ids().next().unwrap();
+    assert!(cx.matches().item(original).is_none());
+    let replacement = cx.matches().ids().next().unwrap();
     assert_ne!(replacement, original);
-    assert_eq!(cx.item(replacement).unwrap().value(), &"replacement");
+    assert_eq!(
+        cx.matches().item(replacement).unwrap().value(),
+        &"replacement"
+    );
 }

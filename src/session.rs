@@ -204,6 +204,7 @@
 
 mod context;
 mod item;
+mod matches;
 mod picker_ref;
 mod run;
 #[cfg(test)]
@@ -219,6 +220,7 @@ use crossterm::event::KeyEvent;
 pub use crate::rect::Dimensions;
 pub use context::Context;
 pub use item::{ItemId, ItemRef, OwnedItem};
+pub use matches::Matches;
 pub use picker_ref::PickerRef;
 
 #[cfg(doc)]

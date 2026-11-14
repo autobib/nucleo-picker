@@ -89,9 +89,10 @@ use crate::{
     match_engine::MatchEngine,
     match_list::{MatchListConfig, MatchListState},
     prompt::{PromptConfig, PromptState},
+    session::Matches,
 };
 
-pub use crate::headless::{MatchStatus, Matches};
+pub use crate::headless::MatchStatus;
 pub use crate::injector::Injector;
 pub use crate::match_list::{Selection, SelectionIntoIter};
 #[cfg(feature = "preview")]
@@ -1419,7 +1420,7 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     ///
     /// let mut picker = PickerOptions::new().query("^blue$").picker(StrRenderer);
     /// picker.push_batch(["red", "blue", "green"]);
-    /// assert_eq!(picker.filter().unwrap().get(0), Some(&"blue"));
+    /// assert_eq!(picker.filter().unwrap().get(0).map(|item| item.value()), Some(&"blue"));
     ///
     /// picker.reset_query();
     /// assert_eq!(picker.filter().unwrap().len(), 3);
@@ -1436,7 +1437,7 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     /// let count = picker.filter().map(|matches| matches.len());
     /// let selected = match count {
     ///     Some(0) => None,
-    ///     Some(1) => picker.matches().get(0),
+    ///     Some(1) => picker.matches().get(0).map(|item| item.value()),
     ///     _ => picker.pick()?,
     /// };
     /// if let Some(item) = selected {
@@ -1479,9 +1480,7 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     #[must_use]
     #[inline]
     pub fn matches(&self) -> Matches<'_, T> {
-        Matches {
-            snapshot: self.core.engine.snapshot(),
-        }
+        Matches::new(&self.core.engine)
     }
 
     /// Returns an [`Observer`] containing up-to-date [`Injector`]s for this picker.

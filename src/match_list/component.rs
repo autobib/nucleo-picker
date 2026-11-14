@@ -49,7 +49,9 @@ impl<'a, Q: Queued> MatchList<'a, Q> {
     }
 
     pub fn restart<T: Send + Sync + 'static>(&mut self, cx: &Context<'_, T>) {
-        self.state.layout.restart(cx.snapshot, &self.state.config);
+        self.state
+            .layout
+            .restart(cx.matches().snapshot, &self.state.config);
         self.queued.on_queue(QueueEvent::Clear, cx);
         self.buffered_rank = 0;
         self.pending_redraw = true;
@@ -82,7 +84,7 @@ impl<'a, Q: Queued> MatchList<'a, Q> {
     fn toggle_hovered<T: Send + Sync + 'static>(&mut self, cx: &Context<'_, T>) -> bool {
         let changed = cx
             .matches()
-            .nth(self.buffered_rank as usize)
+            .get(self.buffered_rank as usize)
             .is_some_and(|item| self.queued.on_queue(QueueEvent::Toggle(item), cx));
         self.pending_redraw |= changed;
         changed
@@ -96,7 +98,7 @@ impl<'a, Q: Queued> MatchList<'a, Q> {
     ) {
         let start = self.buffered_rank as usize;
         let count = count.saturating_add(1);
-        let matches = cx.match_ids().enumerate();
+        let matches = cx.matches().ids().enumerate();
         if increasing {
             self.queue_items(cx, matches.skip(start).take(count));
         } else {
@@ -111,8 +113,8 @@ impl<'a, Q: Queued> MatchList<'a, Q> {
     ) {
         for (rank, id) in items {
             if !self.queued.is_queued(id) {
-                // SAFETY: queue_range supplies IDs from cx.match_ids(), whose snapshot stays borrowed.
-                let item = unsafe { cx.item_unchecked(id) };
+                // SAFETY: queue_range supplies IDs from cx.matches().ids(), whose snapshot stays borrowed.
+                let item = unsafe { cx.matches().item_unchecked(id) };
                 if !self.queued.on_queue(QueueEvent::Toggle(item), cx) {
                     break;
                 }
@@ -130,7 +132,7 @@ impl<'a, Q: Queued> MatchList<'a, Q> {
         self.buffered_rank = self
             .buffered_rank
             .saturating_add(as_u32(n))
-            .min(cx.snapshot.matched_item_count().saturating_sub(1));
+            .min(as_u32(cx.matches().len()).saturating_sub(1));
     }
 
     // Handle incoming events: buffer navigation events, but apply queue operations immediately.
@@ -171,7 +173,7 @@ impl<'a, Q: Queued> MatchList<'a, Q> {
                 self.pending_redraw |= self.queued.on_queue(QueueEvent::Matches, cx);
             }
             MatchListEvent::Unqueue => {
-                if let Some(id) = cx.match_ids().nth(self.buffered_rank as usize) {
+                if let Some(id) = cx.matches().ids().nth(self.buffered_rank as usize) {
                     self.pending_redraw |= self.queued.on_queue(QueueEvent::Remove(id), cx);
                 }
             }
@@ -298,7 +300,10 @@ mod tests {
                 let (start, last) = if increasing { (0, 1) } else { (3, 2) };
                 let mut queued = SelectedIndices::new(NonZero::new(2));
                 for index in [start, last] {
-                    let item = cx.item(picker.core.engine.item_id(index)).unwrap();
+                    let item = cx
+                        .matches()
+                        .item(picker.core.engine.item_id(index))
+                        .unwrap();
                     assert!(queued.on_queue(QueueEvent::Toggle(item), &cx));
                 }
                 let mut list =

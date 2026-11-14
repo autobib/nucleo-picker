@@ -340,7 +340,7 @@ fn open_input_can_fall_back_to_interactive_picking() {
     assert_eq!(count, None);
     let selected = match count {
         Some(0) => None,
-        Some(1) => picker.matches().get(0).copied(),
+        Some(1) => picker.matches().get(0).map(|item| *item.value()),
         _ => pick(&mut picker, [Event::Select]),
     };
     assert_eq!(selected, Some("alpha"));

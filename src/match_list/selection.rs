@@ -87,7 +87,7 @@ impl Queued for () {
             SelectionTarget::Hovered(id) => {
                 // SAFETY: the session captures id from this snapshot without ticking or restarting
                 // the matcher before output conversion.
-                let item = unsafe { cx.item_unchecked(id) };
+                let item = unsafe { cx.matches().item_unchecked(id) };
                 Some(item.value())
             }
         }
@@ -144,7 +144,7 @@ impl Queued for SelectedIndices {
                 let limit = self
                     .max_selection_count
                     .map_or(usize::MAX, |l| l.get() as usize);
-                for id in cx.match_ids() {
+                for id in cx.matches().ids() {
                     if self.inner.len() >= limit {
                         break;
                     }
@@ -175,7 +175,7 @@ impl Queued for SelectedIndices {
             SelectionTarget::Queued => {}
         }
         Selection {
-            snapshot: cx.snapshot,
+            snapshot: cx.matches().snapshot,
             queued: self,
         }
     }
@@ -379,8 +379,13 @@ mod tests {
         picker.push_batch(["zero", "one", "two", "three"]);
         picker.filter().unwrap();
         let cx = Context::new(&picker.core.engine);
-        let toggle =
-            |index| QueueEvent::Toggle(cx.item(picker.core.engine.item_id(index)).unwrap());
+        let toggle = |index| {
+            QueueEvent::Toggle(
+                cx.matches()
+                    .item(picker.core.engine.item_id(index))
+                    .unwrap(),
+            )
+        };
         let mut selection =
             SelectedIndices::new(NonZero::new(2)).on_select(SelectionTarget::Queued, &cx);
         assert!(selection.iter_selected_order().next().is_none());
