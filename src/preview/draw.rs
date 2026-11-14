@@ -2,11 +2,7 @@ use std::{io, iter::once};
 
 use crossterm::style::{Color, ContentStyle};
 
-use super::{
-    BoundaryChars, PreviewBuffer,
-    cache::{Cached, RequestState},
-    scroll,
-};
+use super::{BoundaryChars, PreviewBuffer, PreviewContent, scroll};
 use crate::{
     rect::Rect,
     util::{
@@ -17,19 +13,15 @@ use crate::{
 
 pub(super) fn draw<D: Rect>(
     rect: &mut D,
-    // None if there is no preview to draw (e.g., no matches);
-    // this is different than 'pending' which is internal to `Cached`
-    preview: Option<&Cached>,
+    preview: PreviewContent<'_>,
     chars: BoundaryChars,
     ellipsis: char,
 ) -> io::Result<()> {
-    let pending = preview.is_some_and(|cached| {
-        matches!(
-            cached.state,
-            Some(RequestState::Pending(_) | RequestState::Active(_) | RequestState::Retry(_))
-        )
-    });
-    let preview = preview.and_then(Cached::buffer);
+    let (preview, loading) = match preview {
+        PreviewContent::Empty => (None, false),
+        PreviewContent::Loading => (None, true),
+        PreviewContent::Ready(buffer) => (Some(buffer), false),
+    };
     let number_width = preview.map_or(0, |buffer| {
         scroll::number_width(buffer, rect.width().get() - 2)
     });
@@ -109,7 +101,7 @@ pub(super) fn draw<D: Rect>(
                 capacity,
                 ellipsis,
             )?
-        } else if pending && row == 1 {
+        } else if loading && row == 1 {
             let message = "Loading...";
             let capacity = width - 2;
             rect.set_foreground(Color::DarkGrey)?;

@@ -111,6 +111,16 @@ use request::{PreviewRequest, PreviewResponse};
 pub use scroll::PreviewEvent;
 pub use text::TextWriter;
 
+/// The outcome of rendering a preview pane.
+pub enum PreviewContent<'a> {
+    /// A preview pane with no contents.
+    Empty,
+    /// A preview pane containing a loading indicator.
+    Loading,
+    /// A rendered preview pane (including preview panes rendering errors).
+    Ready(&'a PreviewBuffer),
+}
+
 /// Preview boundary characters.
 ///
 /// This is the value used to set

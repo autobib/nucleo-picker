@@ -16,6 +16,7 @@ impl Cached {
             .map_or_else(PreviewBuffer::new, RequestState::into_buffer)
     }
 
+    #[cfg(test)]
     pub fn buffer(&self) -> Option<&PreviewBuffer> {
         match &self.state {
             Some(RequestState::Ready(buffer)) => Some(buffer),

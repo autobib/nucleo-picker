@@ -1,5 +1,6 @@
 use super::{
-    BoundaryChars, ItemId, ItemRef, Preview, PreviewBuffer, PreviewConfig, PreviewEvent,
+    BoundaryChars, ItemId, ItemRef, Preview, PreviewBuffer, PreviewConfig, PreviewContent,
+    PreviewEvent,
     cache::{Cached, RequestState},
     request::PreviewRequest,
     scroll::{self, PreviewMovement},
@@ -89,6 +90,16 @@ impl PreviewState {
 
     fn cached(&self) -> Option<&Cached> {
         self.last_item.and_then(|idx| self.cache.peek(&idx))
+    }
+
+    fn content(&self) -> PreviewContent<'_> {
+        match self.cached().and_then(|cached| cached.state.as_ref()) {
+            Some(RequestState::Ready(buffer)) => PreviewContent::Ready(buffer),
+            Some(RequestState::Pending(_) | RequestState::Active(_) | RequestState::Retry(_)) => {
+                PreviewContent::Loading
+            }
+            None => PreviewContent::Empty,
+        }
     }
 
     fn set_focus<T, P: Preview<T>>(&mut self, previewer: &mut P, item: Option<ItemRef<'_, T>>) {
@@ -407,7 +418,7 @@ impl<T, P: Preview<T>> Component<()> for PreviewPane<T, P> {
     fn draw<D: Rect>(&mut self, _engine: &(), rect: &mut D) -> io::Result<()> {
         super::draw::draw(
             rect,
-            self.state.cached(),
+            self.state.content(),
             self.boundary_chars,
             self.ellipsis,
         )
