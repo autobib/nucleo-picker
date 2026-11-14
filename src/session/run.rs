@@ -13,7 +13,7 @@ use crate::{
     event::{Event, EventSource, PickerStatus, RecvError},
     frame::{Frame, Redraw},
     match_engine::MatchEngine,
-    match_list::{MatchList, Queued},
+    match_list::{MatchList, QueueEvent, Queued},
     prompt::Prompt,
     status_line::StatusLine,
     terminal::session,
@@ -25,7 +25,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
         &mut self,
         mut event_source: E,
         writer: &mut W,
-        queued: Q,
+        mut queued: Q,
         mut preview: P,
     ) -> Result<Q::Output<'_, T>, PickError<E::AbortErr>>
     where
@@ -41,7 +41,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                 .update_items(engine.snapshot(), &self.list_state.config);
         }
         let mut prompt = Prompt::new(&mut self.prompt, &self.chars);
-        let mut list = MatchList::new(&mut self.list_state, &self.chars, queued);
+        let mut list = MatchList::new(&mut self.list_state, &self.chars);
         let mut status_line = StatusLine::new(&self.chars);
         let mut terminal = session(writer);
         terminal.init()?;
@@ -52,9 +52,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
         list.update(engine, initial.items_changed, false);
         status_line.update(
             initial,
-            list.queued()
-                .count()
-                .map(|count| (as_u32(count), list.queued().limit())),
+            queued.count().map(|count| (as_u32(count), queued.limit())),
             false,
         );
         #[cfg(feature = "preview")]
@@ -63,7 +61,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
         let preview_ratio = None;
         let mut frame = Frame::new(terminal.dimensions()?, self.reversed, preview_ratio);
         frame.resize(
-            engine,
+            &(&*engine, &queued),
             &mut prompt,
             &mut list,
             &mut status_line,
@@ -76,7 +74,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
             );
         }
         frame.draw(
-            engine,
+            &(&*engine, &queued),
             &mut prompt,
             &mut list,
             &mut status_line,
@@ -130,7 +128,11 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                 match event {
                     Event::Prompt(event) => prompt.handle(event),
                     Event::MatchList(event) => {
-                        list.handle(event, &context(engine, list.event_rank(engine), &frame));
+                        list.handle(
+                            event,
+                            &mut queued,
+                            &context(engine, list.event_rank(engine), &frame),
+                        );
                     }
                     Event::Layout(event) => frame.handle(event),
                     #[cfg(feature = "preview")]
@@ -159,9 +161,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                         let hovered = list
                             .event_rank(engine)
                             .map(|rank| engine.item_id(engine.idx_from_match(rank)));
-                        if list.queued().count().is_some_and(|count| count != 0)
-                            || hovered.is_some()
-                        {
+                        if queued.count().is_some_and(|count| count != 0) || hovered.is_some() {
                             break 'selection Ok(Exit::Selected(hovered));
                         }
                     }
@@ -170,7 +170,9 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                         Some(ref notifier) => {
                             preview.restart();
                             engine.restart();
-                            list.restart(&context(engine, None, &frame));
+                            let cx = context(engine, None, &frame);
+                            list.restart(&cx);
+                            queued.on_queue(QueueEvent::Clear, &cx);
                             let injector = engine.injector();
                             if notifier.push(injector).is_err() {
                                 break 'selection Err(PickError::Disconnected);
@@ -208,9 +210,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                 list: list.update(engine, status.items_changed, prompt_change.contents_changed),
                 status: status_line.update(
                     status,
-                    list.queued()
-                        .count()
-                        .map(|count| (as_u32(count), list.queued().limit())),
+                    queued.count().map(|count| (as_u32(count), queued.limit())),
                     background_frame,
                 ) && frame.status_enabled(),
                 preview: P::ENABLED
@@ -233,7 +233,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
             }
 
             let changed = frame.render(
-                engine,
+                &(&*engine, &queued),
                 &mut prompt,
                 &mut list,
                 &mut status_line,
@@ -257,7 +257,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                     frame_changed: changed,
                     rank: list.rank(engine),
                     item_count: status.item_count,
-                    selected_item_count: list.queued().count().map_or(0, as_u32),
+                    selected_item_count: queued.count().map_or(0, as_u32),
                     matched_item_count: status.matched_item_count,
                     dimensions: frame.dimensions(),
                     matching: status.matching,
@@ -283,7 +283,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
         // process and return the selection
         let exit = exit?;
         let cx = context(engine, list.rank(engine), &frame);
-        Ok(list.into_queue().on_select(exit, cx))
+        Ok(queued.on_select(exit, cx))
     }
 }
 

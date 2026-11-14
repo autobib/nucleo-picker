@@ -234,18 +234,12 @@ mod tests {
             picker.core.engine.snapshot(),
             &picker.core.list_state.config,
         );
-        let mut list = MatchList::new(
-            &mut picker.core.list_state,
-            &picker.core.chars,
-            SelectedIndices::default(),
-        );
-        let count = |list: &MatchList<'_, SelectedIndices>| {
-            list.queued()
-                .count()
-                .map(|count| (count as u32, list.queued().limit()))
-        };
+        let mut list = MatchList::new(&mut picker.core.list_state, &picker.core.chars);
+        let mut queued = SelectedIndices::default();
+        let count =
+            |queued: &SelectedIndices| queued.count().map(|count| (count as u32, queued.limit()));
         let mut status = StatusLine::new(&picker.core.chars);
-        assert!(status.update(picker.core.engine.update(5), count(&list), false));
+        assert!(status.update(picker.core.engine.update(5), count(&queued), false));
 
         use MatchListEvent::*;
         for (name, events, selected, changed) in [
@@ -265,17 +259,17 @@ mod tests {
             ),
         ] {
             for event in events.into_iter().flatten() {
-                list.handle(event, &Context::new(&picker.core.engine));
+                list.handle(event, &mut queued, &Context::new(&picker.core.engine));
             }
             list.flush(&picker.core.engine);
             let matching = picker.core.engine.update(5);
             assert!(list.update(&picker.core.engine, matching.items_changed, false));
             assert_eq!(
-                status.update(matching, count(&list), false),
+                status.update(matching, count(&queued), false),
                 changed,
                 "{name}"
             );
-            assert_eq!(list.queued().count(), Some(selected));
+            assert_eq!(queued.count(), Some(selected));
         }
 
         picker.core.engine.reparse("a");
@@ -285,10 +279,10 @@ mod tests {
                 break matching;
             }
         };
-        assert!(status.update(matching, count(&list), false));
+        assert!(status.update(matching, count(&queued), false));
         let values = status.previous.unwrap();
         assert_eq!((values.matched, values.total), (1, 2));
-        assert!(!status.update(matching, count(&list), false));
+        assert!(!status.update(matching, count(&queued), false));
     }
 
     #[test]

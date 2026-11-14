@@ -66,11 +66,11 @@ where
 {
     let mut picker = Picker::<String, _>::new(StrRenderer);
     let mut prompt = Prompt::new(&mut picker.core.prompt, &picker.core.chars);
-    let mut list = MatchList::new(&mut picker.core.list_state, &picker.core.chars, ());
+    let mut list = MatchList::new(&mut picker.core.list_state, &picker.core.chars);
     let mut status_line = StatusLine::new(&picker.core.chars);
     let mut frame = Frame::new(dimensions(size), false, V::ENABLED.then_some(0.5));
     frame.resize(
-        &picker.core.engine,
+        &(&picker.core.engine, &()),
         &mut prompt,
         &mut list,
         &mut status_line,
@@ -82,7 +82,7 @@ where
     };
     frame
         .draw(
-            &picker.core.engine,
+            &(&picker.core.engine, &()),
             &mut prompt,
             &mut list,
             &mut status_line,
