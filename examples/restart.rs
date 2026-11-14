@@ -4,7 +4,6 @@
 //! one of the options, or press `ctrl + r` to receive a new list of random integers.
 
 use std::{
-    convert::Infallible,
     io::{self, IsTerminal},
     process::exit,
     thread::spawn,
@@ -67,7 +66,7 @@ fn main() -> io::Result<()> {
             // we create the restart event on `ctrl + r`. since this invalidates existing
             // injectors, a new injector is immediately sent to the observer which we are watching
             // in the other thread
-            Some(Event::<Infallible>::Restart)
+            Some(Event::<!>::Restart)
         }
         e => keybind_single(e),
     });

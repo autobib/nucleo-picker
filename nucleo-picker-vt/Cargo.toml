@@ -2,6 +2,7 @@
 edition = "2024"
 name = "nucleo-picker-vt"
 publish = false
+rust-version = "1.100"
 version = "0.0.0"
 
 [features]

@@ -582,9 +582,7 @@ fn bounds_cancelled_backlog_and_drops_queued_work_on_shutdown() {
         pending
     });
 
-    let pending: Vec<_> = (0..64)
-        .map(|_| submit(&mut pool, &picker, 1, PreviewBuffer::new()))
-        .collect();
+    let pending = Vec::from_fn(64, |_| submit(&mut pool, &picker, 1, PreviewBuffer::new()));
     for _ in 0..1024 {
         submit(&mut pool, &picker, 2, PreviewBuffer::new())
             .reader

@@ -16,6 +16,7 @@ In short, this release:
 
 ### Changed
 
+- Minimum supported Rust version is now `1.100`.
 - Removal of deprecated matching engine APIs:
   - `nucleo_picker::nucleo` has been removed: the underlying matching engine is now an implementation detail only
   - `PickerOptions::config` (deprecated since 0.10.0) has been removed.

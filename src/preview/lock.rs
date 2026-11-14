@@ -56,7 +56,7 @@ impl<T> Inner<T> {
     // SAFETY: the caller must be the unique owner of the value in the state
     // machine and must arrange for this to be called exactly once.
     unsafe fn take_data(&self) -> T {
-        unsafe { (&mut *self.data.get()).take().unwrap_unchecked() }
+        unsafe { self.data.replace(None).unwrap_unchecked() }
     }
 }
 
@@ -288,7 +288,10 @@ impl<T> ActiveWriter<T> {
                 // SAFETY: Submitting excludes the reader from taking the slot.
                 // No user code runs before the state is changed to Complete.
                 unsafe {
-                    std::mem::swap((&mut *inner.data.get()).as_mut().unwrap_unchecked(), data);
+                    std::mem::swap(
+                        inner.data.as_mut_unchecked().as_mut().unwrap_unchecked(),
+                        data,
+                    );
                 }
                 inner.state.store(State::Complete, Ordering::Release);
                 true

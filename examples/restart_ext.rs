@@ -11,7 +11,6 @@
 //! only documentation here is for the changes relative to the `restart` example.
 
 use std::{
-    convert::Infallible,
     io::{self, IsTerminal},
     num::NonZero,
     process::exit,
@@ -113,7 +112,7 @@ fn main() -> io::Result<()> {
             modifiers: KeyModifiers::CONTROL,
             code: KeyCode::Char('r'),
             ..
-        } => Some(Event::<Infallible>::Restart),
+        } => Some(Event::<!>::Restart),
         e => keybind_multi(e),
     });
 

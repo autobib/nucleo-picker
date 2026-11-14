@@ -25,7 +25,6 @@
 mod bind;
 
 use std::{
-    convert::Infallible,
     io,
     marker::PhantomData,
     sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError},
@@ -193,7 +192,7 @@ pub use crate::{
 ///
 /// [`Injector`]: crate::Injector
 #[non_exhaustive]
-pub enum Event<A = Infallible> {
+pub enum Event<A = !> {
     /// Modify the prompt.
     Prompt(PromptEvent),
     /// Modify the list of matches.
@@ -488,7 +487,7 @@ impl<A> EventSource for Receiver<Event<A>> {
 ///     }
 /// }
 /// ```
-pub struct StdinReader<A = Infallible, F = fn(KeyEvent) -> Option<Event<A>>> {
+pub struct StdinReader<A = !, F = fn(KeyEvent) -> Option<Event<A>>> {
     keybind: F,
     _abort: PhantomData<A>,
 }
@@ -527,7 +526,7 @@ impl<A, F: FnMut(KeyEvent) -> Option<Event<A>>> EventSource for StdinReader<A, F
 ///
 /// The internal implementation is identical to the [`StdinReader`] struct, but instead of
 /// generating the events directly, sends them to the channel.
-pub struct StdinEventSender<A = Infallible, F = fn(KeyEvent) -> Option<Event<A>>> {
+pub struct StdinEventSender<A = !, F = fn(KeyEvent) -> Option<Event<A>>> {
     sender: Sender<Event<A>>,
     keybind: F,
 }

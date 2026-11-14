@@ -114,7 +114,7 @@ impl Frame {
     pub fn handle(&mut self, event: LayoutEvent) {
         match event {
             LayoutEvent::ToggleStatus => {
-                self.status_hidden = !self.status_hidden;
+                self.status_hidden.toggle();
                 self.layout();
                 // TODO: maybe limit redraws only to match list / status line instead
                 self.pending_resize = true;
@@ -122,7 +122,7 @@ impl Frame {
             #[cfg(feature = "preview")]
             LayoutEvent::TogglePreview => {
                 if self.preview_ratio.is_some() {
-                    self.preview_hidden = !self.preview_hidden;
+                    self.preview_hidden.toggle();
                     self.layout();
                     self.pending_resize = true;
                 }

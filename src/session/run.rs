@@ -1,6 +1,9 @@
 //! The internal generic pick implementation
 
-use std::time::{Duration, Instant};
+use std::{
+    mem::DropGuard,
+    time::{Duration, Instant},
+};
 
 use super::Context;
 use crate::{
@@ -12,7 +15,7 @@ use crate::{
     match_list::{MatchList, Queued, SelectionTarget},
     prompt::Prompt,
     status_line::StatusLine,
-    terminal::TerminalSession,
+    terminal::session,
     util::as_u32,
 };
 
@@ -39,7 +42,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
         let mut prompt = Prompt::new(&mut self.prompt, &self.chars);
         let mut list = MatchList::new(&mut self.list_state, &self.chars, queued);
         let mut status_line = StatusLine::new(&self.chars);
-        let mut terminal = TerminalSession::new(writer);
+        let mut terminal = session(writer);
         terminal.init()?;
 
         let mut frame_start = Instant::now();
@@ -74,7 +77,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
             &mut list,
             &mut status_line,
             &mut preview,
-            &mut terminal,
+            &mut **terminal,
             Redraw::full(),
         )?;
         if P::ENABLED && frame.preview_enabled() {
@@ -228,7 +231,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                 &mut list,
                 &mut status_line,
                 &mut preview,
-                &mut terminal,
+                &mut **terminal,
                 redraw,
             )?;
 
@@ -265,7 +268,9 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
         if prompt.update().contents_changed {
             engine.reparse(prompt.contents());
         }
-        terminal.finish()?;
+        let cleanup = terminal.cleanup();
+        DropGuard::dismiss(terminal);
+        cleanup?;
 
         // process and return the selection
         let selection = selection?;

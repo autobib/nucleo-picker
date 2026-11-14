@@ -1,4 +1,4 @@
-use std::{convert::Infallible, error::Error, time::Duration};
+use std::{error::Error, time::Duration};
 
 use crossterm::{
     event::{KeyCode, KeyEvent, KeyModifiers},
@@ -1168,7 +1168,7 @@ fn invalidating_the_current_preview_redraws_loading_and_new_contents() -> Result
 {
     for ch in ['r', 'R'] {
         assert!(
-            keybind_single_preview::<Infallible>(KeyEvent::new(
+            keybind_single_preview::<!>(KeyEvent::new(
                 KeyCode::Char(ch),
                 KeyModifiers::CONTROL | KeyModifiers::SHIFT,
             ))

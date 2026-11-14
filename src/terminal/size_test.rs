@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, convert::Infallible, io, time::Duration};
+use std::{collections::VecDeque, io, time::Duration};
 
 use crate::{
     Picker,
@@ -26,7 +26,7 @@ impl ScriptedEvents {
 }
 
 impl EventSource for ScriptedEvents {
-    type AbortErr = Infallible;
+    type AbortErr = !;
 
     fn try_recv(&mut self) -> Result<Event, RecvError> {
         Err(RecvError::Timeout)

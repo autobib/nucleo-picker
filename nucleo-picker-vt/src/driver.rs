@@ -419,7 +419,7 @@ mod tests {
 
     #[test]
     fn status_synchronizes_rapid_events_and_overwrites() -> Result<(), Box<dyn StdError>> {
-        let items = (0..24).map(|index| format!("item-{index:02}")).collect();
+        let items = Vec::from_fn(24, |index| format!("item-{index:02}"));
         let mut driver = Driver::start_with_options(items, PickerOptions::new());
         driver.wait_for_match_complete(WAIT, 24, 24)?;
         driver.send(Event::Prompt(PromptEvent::Insert('i')))?;

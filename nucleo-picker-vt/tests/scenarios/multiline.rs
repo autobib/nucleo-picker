@@ -8,15 +8,13 @@ use nucleo_picker::{
 use super::ScenarioRunner;
 
 fn multiline() -> Vec<String> {
-    (0..24)
-        .map(|index| match index % 3 {
-            0 => format!("item-{index:02}"),
-            1 => format!("item-{index:02}\n  detail-{index:02}-a"),
-            _ => format!(
-                "item-{index:02}\n  detail-{index:02}-a\n  detail-{index:02}-b\n  detail-{index:02}-c"
-            ),
-        })
-        .collect()
+    Vec::from_fn(24, |index| match index % 3 {
+        0 => format!("item-{index:02}"),
+        1 => format!("item-{index:02}\n  detail-{index:02}-a"),
+        _ => format!(
+            "item-{index:02}\n  detail-{index:02}-a\n  detail-{index:02}-b\n  detail-{index:02}-c"
+        ),
+    })
 }
 
 fn run_multiline_scenario_with_layout(

@@ -310,7 +310,7 @@ impl PreviewBuffer {
     pub fn push_styled_text(&mut self, text: &str, style: ContentStyle) {
         for chunk in text.split_inclusive('\n') {
             let (line, newline) = match chunk.strip_suffix('\n') {
-                Some(line) => (line.strip_suffix('\r').unwrap_or(line), true),
+                Some(line) => (line.trim_suffix('\r'), true),
                 None => (chunk, false),
             };
             let mut start = 0;
