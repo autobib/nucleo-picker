@@ -2,7 +2,7 @@ use std::fmt::{self, Write};
 
 use crossterm::style::{ContentStyle, Stylize};
 
-use crate::preview::{PreviewBuffer, TextWriter};
+use crate::preview::{PreviewBuffer, PreviewPane, TextWriter};
 
 #[test]
 fn writes_match_push_text_at_every_character_boundary() {
@@ -65,13 +65,12 @@ fn writer_lifecycle_appends_unstyled_text_and_preserves_settings() {
     let plain = ContentStyle::default();
     let red = ContentStyle::new().red();
     let blue = ContentStyle::new().blue();
-    let mut buffer = PreviewBuffer::new();
-    buffer.set_err(true);
-    buffer.set_line_numbers(true);
-    buffer.set_offset(3, 4);
+    let mut pane = PreviewPane::new().with_line_numbers(true).with_offset(3, 4);
+    pane.set_err(true);
+    let buffer = pane.buffer_mut();
     buffer.push_styled_str("prefix ", red);
     {
-        let mut writer = TextWriter::new(&mut buffer);
+        let mut writer = TextWriter::new(buffer);
         writeln!(writer, "{SplitCrlf}").unwrap();
         for ch in "é界e\u{301}👩‍💻\r\n\r\r\nlast\r".chars() {
             writer.write_char(ch).unwrap();
@@ -104,7 +103,7 @@ fn writer_lifecycle_appends_unstyled_text_and_preserves_settings() {
             .spans()
             .eq([plain.apply("reopened"), blue.apply(" suffix"),])
     );
-    assert!(buffer.is_err());
-    assert!(buffer.line_numbers());
-    assert_eq!(buffer.offset(), (3, 4));
+    assert!(pane.is_err());
+    assert!(pane.line_numbers());
+    assert_eq!(pane.offset(), (3, 4));
 }

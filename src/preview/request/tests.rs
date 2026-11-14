@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     Picker,
-    preview::{cache::RequestState, pane::tests::support::picker},
+    preview::{cache::RequestState, controller::tests::support::picker},
     render::StrRenderer,
 };
 use std::{
@@ -27,7 +27,10 @@ fn request<T: Send + Sync + 'static, R>(
 #[test]
 fn request_transitions_preserve_identity_and_publication() {
     let picker = picker(["alpha"]);
-    let request = request(&picker, 0);
+    let mut request = request(&picker, 0);
+    request.buffer.push_str("reusable request storage");
+    let reusable = request.buffer.line(0).unwrap().as_str().as_ptr();
+    request.buffer.clear();
     let item = request.item_ref();
     let id = item.id();
     assert_eq!(request.id(), id);
@@ -45,13 +48,27 @@ fn request_transitions_preserve_identity_and_publication() {
     assert!(std::ptr::eq(active.item_ref().value(), item.value()));
     let mut buffer = PreviewBuffer::new();
     buffer.push_str(active.item());
-    assert!(active.publish(&mut buffer).is_ok());
-    assert_eq!(buffer.lines().len(), 1);
-    assert_eq!(buffer.line(0).unwrap().as_str(), "");
-    let RequestState::Ready(buffer) = RequestState::Pending(pending).poll() else {
+    let allocation = buffer.line(0).unwrap().as_str().as_ptr();
+    let mut pane = buffer
+        .into_pane()
+        .with_offset(11, 23)
+        .with_line_numbers(true);
+    pane.set_err(true);
+    assert!(active.publish(&mut pane).is_ok());
+    assert_eq!(pane.buffer().lines().len(), 1);
+    assert_eq!(pane.buffer().line(0).unwrap().as_str(), "");
+    assert_eq!(pane.buffer().line(0).unwrap().as_str().as_ptr(), reusable);
+    assert_eq!(pane.offset(), (0, 0));
+    assert!(!pane.line_numbers());
+    assert!(!pane.is_err());
+    let RequestState::Ready(pane) = RequestState::Pending(pending).poll() else {
         panic!("expected published preview");
     };
-    assert_eq!(buffer.line(0).unwrap().as_str(), "alpha");
+    assert_eq!(pane.buffer().line(0).unwrap().as_str(), "alpha");
+    assert_eq!(pane.buffer().line(0).unwrap().as_str().as_ptr(), allocation);
+    assert_eq!(pane.offset(), (11, 23));
+    assert!(pane.line_numbers());
+    assert!(pane.is_err());
 }
 
 #[test]
@@ -67,31 +84,36 @@ fn failed_publication_preserves_item_id_and_buffer() {
         let active = queued.start().unwrap();
         let mut buffer = PreviewBuffer::new();
         buffer.push_text("alpha\npreview");
-        buffer.set_err(true);
-        buffer.set_line_numbers(true);
         let allocation = buffer.line(0).unwrap().as_str().as_ptr();
+        let mut pane = buffer
+            .into_pane()
+            .with_offset(17, 29)
+            .with_line_numbers(true);
+        pane.set_err(true);
         drop(RequestState::Pending(pending).into_buffer());
         assert!(active.is_cancelled());
         let cancelled = if publish_before_restart {
-            let cancelled = active.publish(&mut buffer).unwrap_err();
+            let cancelled = active.publish(&mut pane).unwrap_err();
             picker.restart();
             drop(picker);
             cancelled
         } else {
             picker.restart();
             drop(picker);
-            active.publish(&mut buffer).unwrap_err()
+            active.publish(&mut pane).unwrap_err()
         };
         assert_eq!(cancelled.id(), id);
         assert_eq!(cancelled.item_ref().id(), id);
         assert_eq!(cancelled.item(), "alpha");
         assert!(std::ptr::eq(cancelled.item_ref().value(), item));
+        assert_eq!(pane.offset(), (17, 29));
+        assert!(pane.line_numbers());
+        assert!(pane.is_err());
+        let buffer = pane.buffer();
         assert_eq!(buffer.lines().len(), 2);
         assert_eq!(buffer.line(0).unwrap().as_str(), "alpha");
         assert_eq!(buffer.line(0).unwrap().as_str().as_ptr(), allocation);
         assert_eq!(buffer.line(1).unwrap().as_str(), "preview");
-        assert!(buffer.is_err());
-        assert!(buffer.line_numbers());
     }
 }
 
@@ -103,7 +125,7 @@ fn ids_distinguish_duplicate_items_and_survive_appends() {
     let mut map = HashMap::from([(first, "first"), (second, "second")]);
     assert_eq!(map.len(), 2);
     picker.push_batch(["same"]);
-    crate::preview::pane::tests::support::settle(&mut picker);
+    crate::preview::controller::tests::support::settle(&mut picker);
     assert_eq!(map[&request(&picker, 0).id()], "first");
     assert_eq!(map[&request(&picker, 1).id()], "second");
     let third = request(&picker, 2).id();

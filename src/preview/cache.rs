@@ -1,5 +1,5 @@
 use super::{
-    PreviewBuffer, lock,
+    PreviewBuffer, PreviewPane, lock,
     request::{PendingPreview, PreviewResponse},
 };
 
@@ -17,16 +17,16 @@ impl Cached {
     }
 
     #[cfg(test)]
-    pub fn buffer(&self) -> Option<&PreviewBuffer> {
+    pub fn pane(&self) -> Option<&PreviewPane> {
         match &self.state {
-            Some(RequestState::Ready(buffer)) => Some(buffer),
+            Some(RequestState::Ready(pane)) => Some(pane),
             _ => None,
         }
     }
 
-    pub fn buffer_mut(&mut self) -> Option<&mut PreviewBuffer> {
+    pub fn pane_mut(&mut self) -> Option<&mut PreviewPane> {
         match &mut self.state {
-            Some(RequestState::Ready(buffer)) => Some(buffer),
+            Some(RequestState::Ready(pane)) => Some(pane),
             _ => None,
         }
     }
@@ -44,15 +44,18 @@ impl Drop for Cached {
 pub(crate) enum RequestState {
     Pending(PendingPreview),
     Active(PendingPreview),
-    Ready(PreviewBuffer),
+    Ready(PreviewPane),
     Retry(PreviewBuffer),
 }
 
 impl RequestState {
     pub fn into_buffer(self) -> PreviewBuffer {
         match self {
-            Self::Ready(buffer) | Self::Retry(buffer) => buffer,
-            Self::Pending(pending) | Self::Active(pending) => pending.reader.cancel_any(),
+            Self::Ready(pane) => pane.into_buffer(),
+            Self::Retry(buffer) => buffer,
+            Self::Pending(pending) | Self::Active(pending) => {
+                pending.reader.cancel_any().into_buffer()
+            }
         }
     }
 
@@ -63,10 +66,10 @@ impl RequestState {
         };
         let PendingPreview { epoch, reader } = pending;
         match reader.poll() {
-            lock::Poll::Ready(buffer) => Self::Ready(buffer),
+            lock::Poll::Ready(pane) => Self::Ready(pane),
             lock::Poll::Queued(reader) => Self::Pending(PendingPreview { reader, epoch }),
             lock::Poll::Active(reader) => Self::Active(PendingPreview { reader, epoch }),
-            lock::Poll::Dropped(buffer) => Self::Retry(buffer),
+            lock::Poll::Dropped(pane) => Self::Retry(pane.into_buffer()),
         }
     }
 
@@ -88,7 +91,7 @@ impl RequestState {
 impl From<PreviewResponse> for RequestState {
     fn from(response: PreviewResponse) -> Self {
         match response {
-            PreviewResponse::Ready(buffer) => Self::Ready(buffer),
+            PreviewResponse::Ready(pane) => Self::Ready(pane),
             PreviewResponse::Pending(pending) => Self::Pending(pending),
         }
     }
@@ -99,11 +102,11 @@ impl PendingPreview {
     fn reprioritize(self) -> RequestState {
         let Self { reader, epoch } = self;
         match reader.cancel_queued() {
-            lock::CancelQueued::Cancelled(buffer) | lock::CancelQueued::Dropped(buffer) => {
-                RequestState::Retry(buffer)
+            lock::CancelQueued::Cancelled(pane) | lock::CancelQueued::Dropped(pane) => {
+                RequestState::Retry(pane.into_buffer())
             }
             lock::CancelQueued::Active(reader) => RequestState::Active(Self { reader, epoch }),
-            lock::CancelQueued::Ready(buffer) => RequestState::Ready(buffer),
+            lock::CancelQueued::Ready(pane) => RequestState::Ready(pane),
         }
     }
 }

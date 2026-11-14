@@ -34,7 +34,7 @@ use ignore::{DirEntry, WalkBuilder, WalkState};
 use nucleo_picker::{
     PickerOptions, Render,
     preview::{
-        Preview, PreviewBuffer,
+        Preview, PreviewPane,
         request::{ActivePreviewRequest, PreviewRequest, PreviewResponse, QueuedPreviewRequest},
     },
 };
@@ -99,10 +99,11 @@ impl Preview<DirEntry> for FilePreview {
             _ => Some("[Not a regular file]"),
         };
         if let Some(label) = label {
-            let mut buffer = request.ready();
+            let mut pane = request.ready();
             // push the information label
-            buffer.push_styled_str(label, ContentStyle::new().dim().italic());
-            return PreviewResponse::Ready(buffer);
+            pane.buffer_mut()
+                .push_styled_str(label, ContentStyle::new().dim().italic());
+            return PreviewResponse::Ready(pane);
         }
         // defer file IO to the worker pool to not delay the frame render
         let (pending, request) = request.defer();
@@ -134,7 +135,7 @@ impl Drop for FilePreview {
 
 fn work(shared: &Shared) {
     let mut bytes = Vec::new();
-    let mut buffer = PreviewBuffer::new();
+    let mut pane = PreviewPane::new();
     loop {
         let job = {
             let mut jobs = shared.jobs.lock();
@@ -161,15 +162,15 @@ fn work(shared: &Shared) {
             continue;
         }
         // make sure to clear the buffer in case publication failed last time
-        buffer.clear();
-        let result = read_preview(&request, &mut bytes, &mut buffer);
+        pane.clear();
+        let result = read_preview(&request, &mut bytes, &mut pane);
         if let Err(err) = result {
             // the buffer might have been partially written by `read_preview`
-            buffer.clear();
-            buffer.set_err(true);
+            pane.clear();
+            pane.set_err(true);
             // use `push_text` here for untrusted content and error text since it will handle
             // newlines, control chars, etc. without corrupting the picker screen
-            buffer.push_text(&format!(
+            pane.push_text(&format!(
                 "Cannot preview {}:\n{err}",
                 request.item().path().display()
             ));
@@ -177,14 +178,14 @@ fn work(shared: &Shared) {
         // since publication can technically race with cancellation, we have to swap in our reusable
         // buffer, but we don't actually care if it succeeds or not. if it fails the picker will
         // manage retries automatically for us
-        let _ = request.publish(&mut buffer);
+        let _ = request.publish(&mut pane);
     }
 }
 
 fn read_preview(
     request: &ActivePreviewRequest<DirEntry>,
     bytes: &mut Vec<u8>,
-    buffer: &mut PreviewBuffer,
+    pane: &mut PreviewPane,
 ) -> io::Result<()> {
     let mut file = File::open(request.item().path())?;
     if !file.metadata()?.is_file() {
@@ -223,7 +224,8 @@ fn read_preview(
         Err(_) => None,
     };
     if let Some(text) = text.filter(|_| !prefix.contains(&0)) {
-        buffer.set_line_numbers(true);
+        pane.set_line_numbers(true);
+        let buffer = pane.buffer_mut();
         buffer.push_text(text);
         if truncated {
             buffer.newline();
@@ -233,7 +235,8 @@ fn read_preview(
             );
         }
     } else {
-        buffer.push_styled_str("[Binary file]", ContentStyle::new().dim().italic());
+        pane.buffer_mut()
+            .push_styled_str("[Binary file]", ContentStyle::new().dim().italic());
     }
     Ok(())
 }

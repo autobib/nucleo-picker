@@ -1,7 +1,7 @@
 use super::*;
 use crate::preview::SyncPreviewer;
 
-fn pane(count: usize) -> PreviewPane<&'static str, TestPreviewer> {
+fn pane(count: usize) -> PreviewController<&'static str, TestPreviewer> {
     preview_pane(TestPreviewer {
         prefetch_limit: count,
         prefetch_enabled: true,
@@ -10,7 +10,14 @@ fn pane(count: usize) -> PreviewPane<&'static str, TestPreviewer> {
 }
 
 fn allocation(cached: &Cached) -> *const u8 {
-    cached.buffer().unwrap().line(0).unwrap().as_str().as_ptr()
+    cached
+        .pane()
+        .unwrap()
+        .buffer()
+        .line(0)
+        .unwrap()
+        .as_str()
+        .as_ptr()
 }
 
 #[test]
@@ -178,7 +185,7 @@ fn refresh_before_hovering_invalidates_prefetched_results_and_requests() {
             assert!(active.is_cancelled());
             let mut buffer = PreviewBuffer::new();
             buffer.push_str("stale");
-            assert!(active.publish(&mut buffer).is_err());
+            assert!(active.publish(&mut buffer.into_pane()).is_err());
         }
 
         session.previewer.lines = 2;
@@ -214,7 +221,7 @@ fn declining_prefetch_preserves_queued_foreground_requests() {
 fn prefetch_preserves_main_cache_recency_and_scroll() {
     let picker = picker(["a", "b", "c", "d"]);
     let options = PickerOptions::new().preview_cache_size(NonZero::new(3));
-    let mut session = PreviewPane::new(
+    let mut session = PreviewController::new(
         &options.preview_config,
         &PickerChars::new(),
         TestPreviewer {
@@ -238,13 +245,13 @@ fn prefetch_preserves_main_cache_recency_and_scroll() {
     session.run_frame(Some(0), &picker.core.engine, deadline());
     assert!(session.previewer.prefetched.is_empty());
     let cached = session.state.cache.peek(&1).unwrap();
-    assert_eq!(cached.buffer().unwrap().offset().1, 7);
+    assert_eq!(cached.pane().unwrap().offset().1, 7);
     for rank in [3, 2, 1] {
         session.run_frame(Some(rank), &picker.core.engine, Instant::now());
     }
     assert_eq!(session.previewer.requested, ["b", "c", "a", "d", "b"]);
     assert_eq!(
-        session.state.cached().unwrap().buffer().unwrap().offset(),
+        session.state.cached().unwrap().pane().unwrap().offset(),
         (0, 0)
     );
 }
@@ -425,8 +432,6 @@ fn declined_buffers_are_reused_through_borrowed_previewers() {
     let mut session = preview_pane(&mut previewer);
     session.run_frame(Some(0), &picker.core.engine, Instant::now());
     session.state.spare.push_str("reusable buffer");
-    session.state.spare.set_err(true);
-    session.state.spare.set_line_numbers(true);
     let pointer = session.state.spare.line(0).unwrap().as_str().as_ptr();
     for _ in 0..2 {
         session.run_frame(Some(0), &picker.core.engine, deadline());
@@ -449,8 +454,7 @@ fn default_prefetch_returns_the_original_buffer_without_rendering() {
     buffer.push_str("reusable buffer");
     let pointer = buffer.line(0).unwrap().as_str().as_ptr();
     buffer.clear();
-    let mut previewer =
-        SyncPreviewer(|_: &&str, _: &mut PreviewBuffer| panic!("unexpected preview"));
+    let mut previewer = SyncPreviewer(|_: &&str, _: &mut PreviewPane| panic!("unexpected preview"));
     let request = PreviewRequest {
         buffer,
         epoch: 0,
@@ -492,7 +496,7 @@ fn filtering_replaces_neighbours_without_regenerating_the_current_preview() {
 fn prefetch_eviction_and_hovered_item_promotion_reuse_buffers() {
     let picker = picker(["a", "b", "c", "d", "e", "f", "g", "h"]);
     let options = PickerOptions::new().preview_cache_size(NonZero::new(1));
-    let mut session = PreviewPane::new(
+    let mut session = PreviewController::new(
         &options.preview_config,
         &PickerChars::new(),
         TestPreviewer {
@@ -527,7 +531,7 @@ fn prefetch_eviction_and_hovered_item_promotion_reuse_buffers() {
     );
     assert_eq!(session.state.cache.len(), 1);
     let cached = session.state.cache.peek(&4).unwrap();
-    assert_eq!(cached.buffer().unwrap().offset(), (0, 0));
+    assert_eq!(cached.pane().unwrap().offset(), (0, 0));
 }
 
 #[test]
@@ -544,6 +548,7 @@ fn eviction_cancels_active_prefetches() {
     assert!(!second.is_cancelled());
     let mut buffer = PreviewBuffer::new();
     buffer.push_str("cancelled result");
-    assert!(first.publish(&mut buffer).is_err());
-    assert_eq!(buffer.line(0).unwrap().as_str(), "cancelled result");
+    let mut pane = buffer.into_pane();
+    assert!(first.publish(&mut pane).is_err());
+    assert_eq!(pane.buffer().line(0).unwrap().as_str(), "cancelled result");
 }

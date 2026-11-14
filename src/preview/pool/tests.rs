@@ -40,14 +40,19 @@ impl PreviewWorker<&'static str> for Worker {
     fn preview(
         &mut self,
         item: &&'static str,
-        buffer: &mut PreviewBuffer,
+        pane: &mut PreviewPane,
         is_cancelled: impl Fn() -> bool,
     ) -> bool {
+        assert_eq!(pane.offset(), (0, 0));
+        assert!(!pane.line_numbers());
+        assert!(!pane.is_err());
+        pane.set_offset(3, 7);
+        pane.set_line_numbers(true);
+        pane.set_err(true);
+        let buffer = pane.buffer_mut();
         assert_eq!(buffer.lines().len(), 1);
         assert_eq!(buffer.line(0).unwrap().as_str(), "");
-        assert!(!buffer.is_err());
         buffer.push_str(item);
-        buffer.set_err(true);
         self.calls.set(self.calls.get() + 1);
         self.started
             .send(Started {
@@ -120,13 +125,13 @@ fn wait_until(mut ready: impl FnMut() -> bool) {
     clippy::result_large_err,
     reason = "both outcomes return the original buffer for reuse assertions"
 )]
-fn completed(pending: PendingPreview) -> Result<PreviewBuffer, PreviewBuffer> {
+fn completed(pending: PendingPreview) -> Result<PreviewPane, PreviewBuffer> {
     let mut reader = Some(pending.reader);
     let mut result = None;
     wait_until(|| {
         match reader.take().unwrap().poll() {
             Poll::Ready(buffer) => result = Some(Ok(buffer)),
-            Poll::Dropped(buffer) => result = Some(Err(buffer)),
+            Poll::Dropped(pane) => result = Some(Err(pane.into_buffer())),
             Poll::Queued(next) | Poll::Active(next) => reader = Some(next),
         }
         result.is_some()
@@ -135,7 +140,9 @@ fn completed(pending: PendingPreview) -> Result<PreviewBuffer, PreviewBuffer> {
 }
 
 fn ready(pending: PendingPreview) -> PreviewBuffer {
-    completed(pending).unwrap_or_else(|_| panic!("request was dropped"))
+    completed(pending)
+        .unwrap_or_else(|_| panic!("request was dropped"))
+        .into_buffer()
 }
 
 #[test]
@@ -147,6 +154,73 @@ fn from_workers_rejects_empty_input() {
 }
 
 #[test]
+fn synchronous_fast_path_preserves_presentation_and_clears_fallbacks_without_reallocating() {
+    let picker = picker();
+    for prefetch in [false, true] {
+        let (pool, started, release) = pool(2);
+        let mut pool = pool.with_sync_preview(|item, pane| {
+            assert_eq!(pane.offset(), (0, 0));
+            assert!(!pane.line_numbers());
+            assert!(!pane.is_err());
+            pane.set_offset(11, 23);
+            pane.set_line_numbers(true);
+            pane.set_err(true);
+            let buffer = pane.buffer_mut();
+            assert_eq!(buffer.lines().len(), 1);
+            assert_eq!(buffer.line(0).unwrap().as_str(), "");
+            buffer.push_text("synchronous\npreview");
+            *item == "first"
+        });
+        let mut buffer = PreviewBuffer::new();
+        buffer.push_str("reusable request storage");
+        let allocation = buffer.line(0).unwrap().as_str().as_ptr();
+        buffer.clear();
+        for index in 0..2 {
+            let request = PreviewRequest {
+                buffer,
+                epoch: 0,
+                snapshot: picker.core.engine.snapshot(),
+                id: picker.core.engine.item_id(index),
+            };
+            let response = if prefetch {
+                pool.prefetch(request, Duration::ZERO).unwrap()
+            } else {
+                pool.preview(request, Duration::ZERO)
+            };
+            let pane = if index == 0 {
+                let PreviewResponse::Ready(pane) = response else {
+                    panic!("synchronous preview was deferred");
+                };
+                assert!(started.try_recv().is_err());
+                assert_eq!(pane.offset(), (11, 23));
+                assert!(pane.line_numbers());
+                assert!(pane.is_err());
+                assert_eq!(pane.buffer().lines().len(), 2);
+                assert_eq!(pane.buffer().line(0).unwrap().as_str(), "synchronous");
+                assert_eq!(pane.buffer().line(1).unwrap().as_str(), "preview");
+                pane
+            } else {
+                let PreviewResponse::Pending(pending) = response else {
+                    panic!("incomplete synchronous preview was published");
+                };
+                assert_eq!(started.recv_timeout(WAIT).unwrap().item, "second");
+                let pane = pending.reader.cancel_any();
+                release.send(true).unwrap();
+                assert_eq!(pane.offset(), (0, 0));
+                assert!(!pane.line_numbers());
+                assert!(!pane.is_err());
+                assert_eq!(pane.buffer().lines().len(), 1);
+                assert_eq!(pane.buffer().line(0).unwrap().as_str(), "");
+                pane
+            };
+            assert_eq!(pane.buffer().line(0).unwrap().as_str().as_ptr(), allocation);
+            buffer = pane.into_buffer();
+            buffer.clear();
+        }
+    }
+}
+
+#[test]
 fn from_workers_runs_non_clone_send_only_workers_from_a_borrowed_iterator() {
     struct OwnedWorker(Worker);
 
@@ -154,10 +228,10 @@ fn from_workers_runs_non_clone_send_only_workers_from_a_borrowed_iterator() {
         fn preview(
             &mut self,
             item: &&'static str,
-            buffer: &mut PreviewBuffer,
+            pane: &mut PreviewPane,
             is_cancelled: impl Fn() -> bool,
         ) -> bool {
-            self.0.preview(item, buffer, is_cancelled)
+            self.0.preview(item, pane, is_cancelled)
         }
     }
 
@@ -214,12 +288,7 @@ fn from_worker_clones_on_the_caller_thread_and_moves_the_original() {
     }
 
     impl PreviewWorker<&'static str> for CountClones {
-        fn preview(
-            &mut self,
-            _: &&'static str,
-            _: &mut PreviewBuffer,
-            _: impl Fn() -> bool,
-        ) -> bool {
+        fn preview(&mut self, _: &&'static str, _: &mut PreviewPane, _: impl Fn() -> bool) -> bool {
             unreachable!();
         }
     }
@@ -286,7 +355,7 @@ fn default_workers_initialize_asynchronously_and_stay_on_their_threads() {
         fn preview(
             &mut self,
             item: &&'static str,
-            buffer: &mut PreviewBuffer,
+            pane: &mut PreviewPane,
             _: impl Fn() -> bool,
         ) -> bool {
             let control = CONTROL.get().unwrap();
@@ -300,7 +369,7 @@ fn default_workers_initialize_asynchronously_and_stay_on_their_threads() {
                 })
                 .unwrap();
             control.preview.recv_timeout(WAIT).unwrap();
-            buffer.push_str(item);
+            pane.buffer_mut().push_str(item);
             true
         }
     }
@@ -426,12 +495,7 @@ fn default_worker_panic_releases_requests_and_propagates_on_submission() {
     }
 
     impl PreviewWorker<&'static str> for PanickingDefault {
-        fn preview(
-            &mut self,
-            _: &&'static str,
-            _: &mut PreviewBuffer,
-            _: impl Fn() -> bool,
-        ) -> bool {
+        fn preview(&mut self, _: &&'static str, _: &mut PreviewPane, _: impl Fn() -> bool) -> bool {
             unreachable!();
         }
     }
@@ -469,12 +533,7 @@ fn shutdown_waits_for_default_initialization() {
     }
 
     impl PreviewWorker<&'static str> for WaitingDefault {
-        fn preview(
-            &mut self,
-            _: &&'static str,
-            _: &mut PreviewBuffer,
-            _: impl Fn() -> bool,
-        ) -> bool {
+        fn preview(&mut self, _: &&'static str, _: &mut PreviewPane, _: impl Fn() -> bool) -> bool {
             unreachable!();
         }
     }
@@ -499,14 +558,21 @@ fn incomplete_previews_are_dropped_and_scratch_buffers_are_cleared_and_reused() 
         fn preview(
             &mut self,
             item: &&'static str,
-            buffer: &mut PreviewBuffer,
+            pane: &mut PreviewPane,
             is_cancelled: impl Fn() -> bool,
         ) -> bool {
             assert!(!is_cancelled());
+            assert_eq!(pane.offset(), (0, 0));
+            assert!(!pane.line_numbers());
+            assert!(!pane.is_err());
+            if self.0.is_none() {
+                pane.set_offset(13, 31);
+                pane.set_line_numbers(true);
+                pane.set_err(true);
+            }
+            let buffer = pane.buffer_mut();
             assert_eq!(buffer.lines().len(), 1);
             assert_eq!(buffer.line(0).unwrap().as_str(), "");
-            assert!(!buffer.is_err());
-            assert!(!buffer.line_numbers());
             if let Some(allocation) = self.0 {
                 buffer.push_str(item);
                 assert_eq!(
@@ -516,8 +582,6 @@ fn incomplete_previews_are_dropped_and_scratch_buffers_are_cleared_and_reused() 
                 true
             } else {
                 buffer.push_text("incomplete\npreview");
-                buffer.set_err(true);
-                buffer.set_line_numbers(true);
                 self.0 = Some(buffer.line(0).unwrap().as_str().as_ptr() as usize);
                 false
             }
@@ -536,11 +600,13 @@ fn incomplete_previews_are_dropped_and_scratch_buffers_are_cleared_and_reused() 
     assert_eq!(buffer.line(0).unwrap().as_str().as_ptr(), allocation);
 
     let retry = submit(&mut pool, &picker, 0, buffer);
-    let buffer = ready(retry);
+    let pane = completed(retry).unwrap();
+    assert_eq!(pane.offset(), (0, 0));
+    assert!(!pane.line_numbers());
+    assert!(!pane.is_err());
+    let buffer = pane.buffer();
     assert_eq!(buffer.lines().len(), 1);
     assert_eq!(buffer.line(0).unwrap().as_str(), "first");
-    assert!(!buffer.is_err());
-    assert!(!buffer.line_numbers());
 }
 
 #[test]
@@ -562,7 +628,10 @@ fn reuses_worker_state_and_buffers_after_cancellation_and_publication() {
     assert_eq!(second_started.thread, first_started.thread);
     assert_eq!(second_started.call, 2);
     release.send(false).unwrap();
-    assert!(ready(second).is_err());
+    let pane = completed(second).unwrap();
+    assert!(pane.is_err());
+    assert_eq!(pane.offset(), (3, 7));
+    assert!(pane.line_numbers());
 
     let third = submit(&mut pool, &picker, 2, PreviewBuffer::new());
     let third_started = started.recv_timeout(WAIT).unwrap();

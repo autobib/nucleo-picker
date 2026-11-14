@@ -6,6 +6,8 @@ use std::ops::Range;
 use crossterm::style::{ContentStyle, StyledContent};
 use memchr::memchr;
 
+use super::PreviewPane;
+
 /// A buffer holding the contents of a single preview pane.
 ///
 /// This is an append-only buffer: to edit an existing buffer, one must [clear](Self::clear) the
@@ -107,9 +109,6 @@ pub struct PreviewBuffer {
     lines: Vec<LineIndex>,
     active_line: LineIndex,
     styles: Vec<StyleSpan>,
-    is_err: bool,
-    line_numbers: bool,
-    offset: (usize, usize),
 }
 
 #[derive(Debug, Default)]
@@ -153,66 +152,25 @@ impl PreviewBuffer {
                 styles: 0..0,
             },
             styles: Vec::new(),
-            is_err: false,
-            line_numbers: false,
-            offset: (0, 0),
         }
     }
 
-    /// Clear this buffer, retaining the underlying allocations.
+    /// Clear this buffer.
     ///
-    /// This removes all lines and styles (leaving a single empty line), resets the error flag,
-    /// sets the line-number preference to `false`, and sets the row and column offset to zero.
+    /// This removes all lines and styles (leaving a single empty line), but retains the underlying
+    /// allocations.
     pub fn clear(&mut self) {
         self.text.clear();
         self.lines.clear();
         self.styles.clear();
         self.active_line = LineIndex::default();
-        self.is_err = false;
-        self.line_numbers = false;
-        self.offset = (0, 0);
     }
 
-    /// Returns the current viewport column and row offset.
-    ///
-    /// Both offsets are zero-based. The column refers to terminal display cells.
-    pub fn offset(&self) -> (usize, usize) {
-        self.offset
-    }
-
-    /// Set the viewport offset.
-    ///
-    /// This sets the coordinates of the top-left position of the preview buffer. The column
-    /// refers to the horizontal offset in terms of terminal display cells.
-    ///
-    /// This method does not automatically clamp the offset, so the offset may correspond to a
-    /// position which does not contain any preview buffer contents.
-    pub fn set_offset(&mut self, column: usize, row: usize) {
-        self.offset = (column, row);
-    }
-
-    /// Set the failure status of the buffer.
-    pub fn set_err(&mut self, is_err: bool) {
-        self.is_err = is_err;
-    }
-
-    /// Get the failure status of the buffer.
-    pub fn is_err(&self) -> bool {
-        self.is_err
-    }
-
-    /// Enable or disable preview pane line-numbers.
-    ///
-    /// The default is `false` (do not display line numbers). Line numbers are displayed in a column
-    /// on the left side of the preview pane and are automatically hidden if the preview pane has less
-    /// than two columns for content.
-    pub fn set_line_numbers(&mut self, enabled: bool) {
-        self.line_numbers = enabled;
-    }
-
-    /// Returns the line-number display setting for this buffer.
-    pub fn line_numbers(&self) -> bool {
-        self.line_numbers
+    /// Convert into a preview pane with default offset, without line numbers, and with error flag
+    /// set to `false`.
+    #[must_use]
+    pub const fn into_pane(self) -> PreviewPane {
+        PreviewPane::from_buffer(self)
     }
 
     /// Append an unstyled segment to the current line in the buffer.

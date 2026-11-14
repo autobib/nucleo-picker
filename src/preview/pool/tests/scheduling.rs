@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     component::PreviewComponent,
-    preview::pane::{PreviewPane, tests::support},
+    preview::controller::{PreviewController, tests::support},
 };
 
 const QUIET: Duration = Duration::from_millis(50);
@@ -29,7 +29,7 @@ fn background_work_preserves_capacity_for_the_next_hovered_request() {
         let picker = support::picker(["first", "second", "third", "fourth"]);
         let (pool, started, release) = pool(2);
         let shared = Arc::clone(&pool.pool.shared);
-        let mut pane = PreviewPane::new(
+        let mut pane = PreviewController::new(
             &PickerOptions::new().preview_config,
             &crate::PickerChars::new(),
             pool.with_prefetch_limit(2),
@@ -73,7 +73,7 @@ fn reopening_the_pane_promotes_the_queued_hovered_item() {
         let picker = support::picker(["first", "second"]);
         let (pool, started, release) = pool(1);
         let shared = Arc::clone(&pool.pool.shared);
-        let mut pane = PreviewPane::new(
+        let mut pane = PreviewController::new(
             &PickerOptions::new().preview_config,
             &crate::PickerChars::new(),
             pool.with_prefetch_limit(prefetch),
@@ -136,16 +136,15 @@ fn synchronous_previews_demote_queued_work_and_preserve_the_reserved_worker() {
     let picker = support::picker(["first", "second", "queued", "sync"]);
     let (pool, started, release) = pool(2);
     let shared = Arc::clone(&pool.pool.shared);
-    let mut pane = support::preview_pane(pool.with_prefetch_limit(0).with_sync_preview(
-        |item, buffer| {
+    let mut pane =
+        support::preview_pane(pool.with_prefetch_limit(0).with_sync_preview(|item, pane| {
             if *item == "sync" {
-                buffer.push_str(item);
+                pane.buffer_mut().push_str(item);
                 true
             } else {
                 false
             }
-        },
-    ));
+        }));
     for rank in 0..2 {
         pane.run_frame(Some(rank), &picker.core.engine, support::deadline());
         started.recv_timeout(WAIT).unwrap();

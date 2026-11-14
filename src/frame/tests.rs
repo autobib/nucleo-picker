@@ -368,7 +368,7 @@ mod preview {
     use super::*;
     use crate::preview::{
         Preview, PreviewConfig,
-        pane::PreviewPane,
+        controller::PreviewController,
         request::{PreviewRequest, PreviewResponse},
     };
 
@@ -529,7 +529,7 @@ mod preview {
         render_with(
             redraw,
             size,
-            PreviewPane::new(
+            PreviewController::new(
                 &PreviewConfig::default(),
                 &crate::PickerChars::new(),
                 EmptyPreview,

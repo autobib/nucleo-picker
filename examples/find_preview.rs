@@ -32,7 +32,7 @@ use crossterm::style::{ContentStyle, Stylize};
 use ignore::{DirEntry, WalkBuilder, WalkState};
 use nucleo_picker::{
     PickerOptions, Render,
-    preview::{PoolPreviewer, PreviewBuffer, PreviewWorker},
+    preview::{PoolPreviewer, PreviewPane, PreviewWorker},
 };
 
 // maximum size of a preview
@@ -51,7 +51,7 @@ impl Render<DirEntry> for DirEntryRender {
 // The 'fast path' preview function: for certain file types (which can already be checked without
 // IO since it is available in the dir entry) we have nothing better to do so we can immediately
 // prepare the preview.
-fn preview_sync(entry: &DirEntry, buffer: &mut PreviewBuffer) -> bool {
+fn preview_sync(entry: &DirEntry, pane: &mut PreviewPane) -> bool {
     // entry metadata is already available in the dir entry so we can label non-files synchronously
     let label = match entry.file_type() {
         Some(kind) if kind.is_file() => None,
@@ -61,7 +61,8 @@ fn preview_sync(entry: &DirEntry, buffer: &mut PreviewBuffer) -> bool {
     };
     if let Some(label) = label {
         // push the information label
-        buffer.push_styled_str(label, ContentStyle::new().dim().italic());
+        pane.buffer_mut()
+            .push_styled_str(label, ContentStyle::new().dim().italic());
         return true;
     }
 
@@ -79,15 +80,15 @@ impl PreviewWorker<DirEntry> for FileWorker {
     fn preview(
         &mut self,
         entry: &DirEntry,
-        buffer: &mut PreviewBuffer,
+        pane: &mut PreviewPane,
         is_cancelled: impl Fn() -> bool,
     ) -> bool {
-        match read_preview(entry, &mut self.bytes, buffer, is_cancelled) {
+        match read_preview(entry, &mut self.bytes, pane, is_cancelled) {
             Ok(complete) => complete,
             Err(err) => {
-                buffer.clear();
-                buffer.set_err(true);
-                buffer.push_text(&format!(
+                pane.clear();
+                pane.set_err(true);
+                pane.push_text(&format!(
                     "Cannot preview {}:\n{err}",
                     entry.path().display()
                 ));
@@ -100,7 +101,7 @@ impl PreviewWorker<DirEntry> for FileWorker {
 fn read_preview(
     entry: &DirEntry,
     bytes: &mut Vec<u8>,
-    buffer: &mut PreviewBuffer,
+    pane: &mut PreviewPane,
     is_cancelled: impl Fn() -> bool,
 ) -> io::Result<bool> {
     let mut file = File::open(entry.path())?;
@@ -140,7 +141,8 @@ fn read_preview(
         Err(_) => None,
     };
     if let Some(text) = text.filter(|_| !prefix.contains(&0)) {
-        buffer.set_line_numbers(true);
+        pane.set_line_numbers(true);
+        let buffer = pane.buffer_mut();
         buffer.push_text(text);
         if truncated {
             buffer.newline();
@@ -150,7 +152,8 @@ fn read_preview(
             );
         }
     } else {
-        buffer.push_styled_str("[Binary file]", ContentStyle::new().dim().italic());
+        pane.buffer_mut()
+            .push_styled_str("[Binary file]", ContentStyle::new().dim().italic());
     }
     Ok(true)
 }

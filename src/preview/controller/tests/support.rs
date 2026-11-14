@@ -80,14 +80,14 @@ impl Stage {
 pub(crate) fn publish(request: ActivePreviewRequest<&'static str>) {
     let mut buffer = PreviewBuffer::new();
     buffer.push_str(request.item());
-    request.publish(&mut buffer).unwrap();
+    request.publish(&mut buffer.into_pane()).unwrap();
 }
 
 pub(crate) fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(5)
 }
 
-impl<T: Send + Sync + 'static, P: Preview<T>> PreviewPane<T, P> {
+impl<T: Send + Sync + 'static, P: Preview<T>> PreviewController<T, P> {
     pub(crate) fn run_frame<R>(
         &mut self,
         rank: Option<u32>,
@@ -120,12 +120,12 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewPane<T, P> {
     }
 }
 
-impl<T, P: Preview<T>> PreviewPane<T, P> {
+impl<T, P: Preview<T>> PreviewController<T, P> {
     pub(crate) fn contents(&self) -> Vec<&str> {
-        let Some(RequestState::Ready(buffer)) = &self.state.cached().unwrap().state else {
+        let Some(RequestState::Ready(pane)) = &self.state.cached().unwrap().state else {
             panic!("expected ready preview");
         };
-        buffer.lines().map(|line| line.as_str()).collect()
+        pane.buffer().lines().map(|line| line.as_str()).collect()
     }
 }
 
@@ -142,15 +142,12 @@ impl Preview<&'static str> for TestPreviewer {
         assert!(!timeout.is_zero());
         let item = request.item();
         self.prefetched.push(item);
-        assert_eq!(request.buffer.offset(), (0, 0));
         assert_eq!(request.buffer.lines().len(), 1);
         assert_eq!(request.buffer.line(0).unwrap().as_str(), "");
-        assert!(!request.buffer.is_err());
-        assert!(!request.buffer.line_numbers());
         self.prefetch_allocations
             .push(request.buffer.line(0).unwrap().as_str().as_ptr());
         if !self.prefetch_enabled {
-            return Err(request.ready());
+            return Err(request.ready().into_buffer());
         }
         if self.prefetch_defer {
             let (pending, queued) = request.defer();
@@ -159,9 +156,10 @@ impl Preview<&'static str> for TestPreviewer {
             }
             Ok(PreviewResponse::Pending(pending))
         } else {
-            let mut buffer = request.ready();
-            buffer.push_str(item);
-            Ok(PreviewResponse::Ready(buffer))
+            let mut pane = request.ready();
+            assert!(!pane.is_err());
+            pane.buffer_mut().push_str(item);
+            Ok(PreviewResponse::Ready(pane))
         }
     }
 
@@ -191,11 +189,8 @@ impl Preview<&'static str> for TestPreviewer {
         assert_eq!(self.hovered_ids.last(), Some(&Some(request.id())));
         self.requested.push(item);
         self.ids.push(request.id());
-        assert_eq!(request.buffer.offset(), (0, 0));
         assert_eq!(request.buffer.lines().len(), 1);
         assert_eq!(request.buffer.line(0).unwrap().as_str(), "");
-        assert!(!request.buffer.is_err());
-        assert!(!request.buffer.line_numbers());
         self.buffer_allocations
             .push(request.buffer.line(0).unwrap().as_str().as_ptr());
         if self.defer {
@@ -206,14 +201,15 @@ impl Preview<&'static str> for TestPreviewer {
             }
             PreviewResponse::Pending(pending)
         } else {
-            let mut buffer = request.ready();
-            buffer.set_line_numbers(self.line_numbers);
+            let mut pane = request.ready();
+            assert!(!pane.is_err());
+            let buffer = pane.buffer_mut();
             buffer.push_str(item);
             for _ in 1..self.lines {
                 buffer.newline();
                 buffer.push_str(item);
             }
-            PreviewResponse::Ready(buffer)
+            PreviewResponse::Ready(pane.with_line_numbers(self.line_numbers))
         }
     }
 }
@@ -262,8 +258,10 @@ pub(crate) fn hovered_index(picker: &Picker<&'static str, StrRenderer>) -> Optio
         .map(|n| picker.core.engine.idx_from_match(n))
 }
 
-pub(crate) fn preview_pane<P: Preview<&'static str>>(previewer: P) -> PreviewPane<&'static str, P> {
-    PreviewPane::new(
+pub(crate) fn preview_pane<P: Preview<&'static str>>(
+    previewer: P,
+) -> PreviewController<&'static str, P> {
+    PreviewController::new(
         &PreviewConfig::default(),
         &crate::PickerChars::new(),
         previewer,
@@ -271,7 +269,7 @@ pub(crate) fn preview_pane<P: Preview<&'static str>>(previewer: P) -> PreviewPan
 }
 
 pub(crate) fn update(
-    application: &mut PreviewPane<&'static str, TestPreviewer>,
+    application: &mut PreviewController<&'static str, TestPreviewer>,
     picker: &mut Picker<&'static str, StrRenderer>,
 ) -> bool {
     let rank = picker
@@ -283,7 +281,7 @@ pub(crate) fn update(
 }
 
 #[cfg(feature = "unstable-backend")]
-impl<T, P: Preview<T>> PreviewPane<T, P> {
+impl<T, P: Preview<T>> PreviewController<T, P> {
     pub(crate) fn test_cache(&mut self) -> &mut LruCache<u32, Cached> {
         &mut self.state.cache
     }

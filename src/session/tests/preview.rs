@@ -13,8 +13,8 @@ use crate::{
     error::PickError,
     event::{Event, EventSource, LayoutEvent, MatchListEvent, RecvError},
     preview::{
-        Preview, PreviewBuffer, PreviewEvent, SyncPreviewer,
-        pane::{PreviewPane, tests::support::*},
+        Preview, PreviewBuffer, PreviewEvent, PreviewPane, SyncPreviewer,
+        controller::{PreviewController, tests::support::*},
         request::{PreviewRequest, PreviewResponse, QueuedPreviewRequest},
     },
     rect::Area,
@@ -79,12 +79,15 @@ impl Terminal for TestTerminal {
     }
 }
 
-fn offset(session: &mut PreviewPane<&'static str, TestPreviewer>, idx: u32) -> (usize, usize) {
+fn offset(
+    session: &mut PreviewController<&'static str, TestPreviewer>,
+    idx: u32,
+) -> (usize, usize) {
     session
         .test_cache()
         .peek(&idx)
         .unwrap()
-        .buffer()
+        .pane()
         .unwrap()
         .offset()
 }
@@ -107,9 +110,9 @@ fn prefetch_follows_rendering_and_progresses_on_idle_frames() {
             _: Duration,
         ) -> PreviewResponse {
             let item = request.item();
-            let mut buffer = request.ready();
-            buffer.push_str(item);
-            PreviewResponse::Ready(buffer)
+            let mut pane = request.ready();
+            pane.buffer_mut().push_str(item);
+            PreviewResponse::Ready(pane)
         }
 
         fn prefetch(
@@ -348,7 +351,7 @@ fn pending_navigation_and_scrolling_wait_for_idle_completion() {
             .pick_impl(events, &mut terminal, (), &mut session)
             .unwrap();
         assert!(
-            session.test_cache().peek(&0).unwrap().buffer().is_none(),
+            session.test_cache().peek(&0).unwrap().pane().is_none(),
             "{size:?}"
         );
         assert!(!session.test_cache().contains(&1), "{size:?}");
@@ -370,7 +373,7 @@ fn pending_navigation_and_scrolling_wait_for_idle_completion() {
                         buffer.newline();
                     }
                     let active = queued.take().unwrap().start().unwrap();
-                    active.publish(&mut buffer).unwrap();
+                    active.publish(&mut buffer.into_pane()).unwrap();
                     Ok(Event::Status { id: 0 })
                 }
                 4 => Ok(Event::Preview(PreviewEvent::Down(1))),
@@ -408,7 +411,8 @@ fn redraw_checks_terminal_size_after_preview_generation() {
         size_override: Some(Rc::clone(&size)),
         ..TestTerminal::default()
     };
-    let previewer = SyncPreviewer(|item: &&str, buffer: &mut PreviewBuffer| {
+    let previewer = SyncPreviewer(|item: &&str, pane: &mut PreviewPane| {
+        let buffer = pane.buffer_mut();
         if *item == "beta" {
             size.set((30, 12));
         }

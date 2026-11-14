@@ -9,7 +9,7 @@ use std::{
 use nucleo_picker::{
     Picker,
     preview::{
-        ItemRef, Preview, PreviewBuffer, PreviewWorker,
+        ItemRef, Preview, PreviewPane, PreviewWorker,
         request::{PreviewRequest, PreviewResponse, QueuedPreviewRequest},
     },
     render::PathRenderer,
@@ -113,7 +113,7 @@ fn work<T: Send + Sync + 'static, W: PreviewWorker<T>>(shared: &Shared<T>, mut w
     // the actual worker thread
 
     // a buffer which we will re-use to avoid allocations
-    let mut buffer = PreviewBuffer::new();
+    let mut pane = PreviewPane::new();
 
     loop {
         // acquire new work
@@ -139,13 +139,13 @@ fn work<T: Send + Sync + 'static, W: PreviewWorker<T>>(shared: &Shared<T>, mut w
         if !request.is_cancelled() {
             // failed publication leaves the previous preview in the buffer, which
             // may have contents
-            buffer.clear();
+            pane.clear();
 
             // make cancellation available cooperatively to the worker and generate the preview
-            if worker.preview(request.item(), &mut buffer, || request.is_cancelled()) {
+            if worker.preview(request.item(), &mut pane, || request.is_cancelled()) {
                 // if the request was cancelled, publication will fail anyway, so we don't need to
                 // bother checking it ourself
-                let _ = request.publish(&mut buffer);
+                let _ = request.publish(&mut pane);
             }
         }
     }
@@ -158,15 +158,15 @@ impl PreviewWorker<PathBuf> for FileWorker {
     fn preview(
         &mut self,
         path: &PathBuf,
-        buffer: &mut PreviewBuffer,
+        pane: &mut PreviewPane,
         _is_cancelled: impl Fn() -> bool,
     ) -> bool {
         // don't do this for large files
         match fs::read_to_string(path) {
-            Ok(text) => buffer.push_text(&text),
+            Ok(text) => pane.push_text(&text),
             Err(error) => {
-                buffer.set_err(true);
-                buffer.push_text(&error.to_string());
+                pane.set_err(true);
+                pane.push_text(&error.to_string());
             }
         }
         true

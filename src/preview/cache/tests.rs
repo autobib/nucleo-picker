@@ -26,8 +26,8 @@ fn promotion_preserves_work_that_starts_after_polling() {
         panic!("expected active preview");
     };
     assert!(!active.is_cancelled());
-    let mut buffer = PreviewBuffer::new();
-    assert!(active.publish(&mut buffer).is_ok());
+    let buffer = PreviewBuffer::new();
+    assert!(active.publish(&mut buffer.into_pane()).is_ok());
     assert!(matches!(
         RequestState::Active(pending).poll(),
         RequestState::Ready(_)
@@ -39,11 +39,17 @@ fn promotion_collects_work_published_after_polling() {
     let (pending, queued) = polled_queued_request();
     let mut buffer = PreviewBuffer::new();
     buffer.push_str("completed");
-    assert!(queued.start().unwrap().publish(&mut buffer).is_ok());
-    let RequestState::Ready(buffer) = pending.reprioritize() else {
+    assert!(
+        queued
+            .start()
+            .unwrap()
+            .publish(&mut buffer.into_pane())
+            .is_ok()
+    );
+    let RequestState::Ready(pane) = pending.reprioritize() else {
         panic!("expected ready preview");
     };
-    assert_eq!(buffer.line(0).unwrap().as_str(), "completed");
+    assert_eq!(pane.buffer().line(0).unwrap().as_str(), "completed");
 }
 
 #[test]

@@ -59,10 +59,10 @@ impl Preview<Color> for ColorPreview {
             Color::Yellow => ContentStyle::new().on_yellow(),
             Color::Magenta => ContentStyle::new().on_magenta(),
         };
-        let mut buffer = request.ready();
-        let _ = writeln!(buffer.text_writer(), "Preview #{}", self.generated);
-        buffer.push_styled_text("        \n        \n        ", style);
-        PreviewResponse::Ready(buffer)
+        let mut pane = request.ready();
+        let _ = writeln!(pane.text_writer(), "Preview #{}", self.generated);
+        pane.push_styled_text("        \n        \n        ", style);
+        PreviewResponse::Ready(pane)
     }
 }
 

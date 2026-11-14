@@ -2,7 +2,7 @@ use std::{io, iter::once};
 
 use crossterm::style::{Color, ContentStyle};
 
-use super::{BoundaryChars, PreviewBuffer, PreviewContent, scroll};
+use super::{BoundaryChars, PreviewContent, PreviewPane};
 use crate::{
     rect::Rect,
     util::{
@@ -20,19 +20,17 @@ pub(super) fn draw<D: Rect>(
     let (preview, loading) = match preview {
         PreviewContent::Empty => (None, false),
         PreviewContent::Loading => (None, true),
-        PreviewContent::Ready(buffer) => (Some(buffer), false),
+        PreviewContent::Ready(pane) => (Some(pane), false),
     };
-    let number_width = preview.map_or(0, |buffer| {
-        scroll::number_width(buffer, rect.width().get() - 2)
-    });
-    let (horizontal_position, _) = preview.map_or((0, 0), PreviewBuffer::offset);
-    let preview = preview.map(|buffer| {
+    let number_width = preview.map_or(0, |pane| pane.number_width(rect.width().get() - 2));
+    let (horizontal_position, _) = preview.map_or((0, 0), PreviewPane::offset);
+    let is_err = preview.is_some_and(PreviewPane::is_err);
+    let preview = preview.map(|pane| {
         (
-            buffer,
-            scroll::visible_rows(buffer, rect.height().get() - 2).start,
+            pane.buffer(),
+            pane.visible_rows(rect.height().get() - 2).start,
         )
     });
-    let is_err = preview.is_some_and(|(buffer, _)| buffer.is_err());
     let border_style = ContentStyle {
         foreground_color: is_err.then_some(Color::DarkRed),
         ..ContentStyle::new()

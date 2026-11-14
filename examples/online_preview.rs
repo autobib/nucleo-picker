@@ -30,7 +30,7 @@ use nucleo_picker::{
     Injector, Picker, Render,
     error::PickError,
     event::{Event, StdinEventSender},
-    preview::{PoolPreviewer, PreviewBuffer, PreviewWorker},
+    preview::{PoolPreviewer, PreviewBuffer, PreviewPane, PreviewWorker},
 };
 use serde::Deserialize;
 
@@ -201,11 +201,11 @@ impl PreviewWorker<Page> for HttpWorker {
     fn preview(
         &mut self,
         page: &Page,
-        buffer: &mut PreviewBuffer,
+        pane: &mut PreviewPane,
         is_cancelled: impl Fn() -> bool,
     ) -> bool {
-        buffer.set_line_numbers(true);
-        match self.read_preview(page, buffer, is_cancelled) {
+        pane.set_line_numbers(true);
+        match self.read_preview(page, pane.buffer_mut(), is_cancelled) {
             Ok(complete) => complete,
             Err(error) => {
                 if error.is_fatal() {
@@ -219,9 +219,9 @@ impl PreviewWorker<Page> for HttpWorker {
                     }
                     false
                 } else {
-                    buffer.set_err(true);
+                    pane.set_err(true);
                     let _ = write!(
-                        buffer.text_writer(),
+                        pane.text_writer(),
                         "Cannot preview {BASE_URL}{}:\n{error}",
                         page.path
                     );

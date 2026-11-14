@@ -50,7 +50,7 @@
 //!
 //! The picker also coordinates pre-emptive ("prefetch") requests with the previewer. Prefetch
 //! cancellation logic is handled differently: requests are only retried when the match list or
-//! the hovered item changes. If a prefetched item becomes hovered (so a normal request is sent),
+//! the highlighted item changes. If a prefetched item becomes highlighted (so a normal request is sent),
 //! the prefetch request is cancelled if not yet active and upgraded to a normal request.
 //!
 //! ### Basic example
@@ -61,7 +61,7 @@
 //! ```
 //! use std::sync::mpsc::{Receiver, Sender};
 //! use nucleo_picker::preview::{
-//!     PreviewBuffer,
+//!     PreviewPane,
 //!     request::{PreviewRequest, PreviewResponse, QueuedPreviewRequest},
 //! };
 //!
@@ -78,15 +78,15 @@
 //! // Complete the queued preview requests (in a separate thread).
 //! fn complete(receiver: Receiver<QueuedPreviewRequest<String>>) {
 //!     // reusable scratch space for all requests
-//!     let mut buffer = PreviewBuffer::new();
+//!     let mut pane = PreviewPane::new();
 //!
 //!     while let Ok(queued) = receiver.recv() {
 //!         let Ok(request) = queued.start() else {
 //!             continue;
 //!         };
-//!         buffer.push_text(request.item());
-//!         if request.publish(&mut buffer).is_err() {
-//!             buffer.clear();
+//!         pane.buffer_mut().push_text(request.item());
+//!         if request.publish(&mut pane).is_err() {
+//!             pane.clear();
 //!         }
 //!     }
 //! }
@@ -94,10 +94,10 @@
 //!
 //! ## Buffer reuse
 //!
-//! The [`PreviewRequest`] internally contains a pre-cleared buffer that may be recycled from a
-//! previous preview pane. When publishing a buffer through [`ActivePreviewRequest::publish`], the
-//! worker should maintain a separate scratch buffer and swap it with the request buffer on
-//! publication. If publication succeeds, the buffer will be empty, but if it fails the buffer will
+//! The [`PreviewRequest`] internally contains a pre-cleared preview pane that may be recycled from a
+//! previous preview pane. When publishing a pane through [`ActivePreviewRequest::publish`], the
+//! worker should maintain a separate scratch pane and swap it with the request pane on
+//! publication. If publication succeeds, the pane will be empty, but if it fails the pane will
 //! have the original contents which the worker must clear manually.
 //!
 //! ## Previewing item and lifetimes
@@ -113,7 +113,7 @@ use nucleo::{DetachedItem, Snapshot};
 use std::fmt;
 
 use super::{
-    ItemRef, PreviewBuffer,
+    ItemRef, PreviewBuffer, PreviewPane,
     lock::{ActiveWriter, QueuedWriter, Reader, request},
 };
 
@@ -122,7 +122,7 @@ pub use super::ItemId;
 /// The outcome of a preview request.
 pub enum PreviewResponse {
     /// The preview could be generated immediately.
-    Ready(PreviewBuffer),
+    Ready(PreviewPane),
     /// Preview generation has been deferred.
     Pending(PendingPreview),
 }
@@ -144,7 +144,7 @@ pub struct PreviewRequest<'a, T> {
 ///
 /// See the [module-level documentation](crate::preview::request) for more detail.
 pub struct QueuedPreviewRequest<T> {
-    writer: QueuedWriter<PreviewBuffer>,
+    writer: QueuedWriter<PreviewPane>,
     item: DetachedItem<T>,
     id: ItemId,
 }
@@ -153,7 +153,7 @@ pub struct QueuedPreviewRequest<T> {
 ///
 /// See the [module-level documentation](crate::preview::request) for more detail.
 pub struct ActivePreviewRequest<T> {
-    writer: ActiveWriter<PreviewBuffer>,
+    writer: ActiveWriter<PreviewPane>,
     item: DetachedItem<T>,
     id: ItemId,
 }
@@ -172,12 +172,12 @@ pub struct CancelledPreviewRequest<T> {
 /// This is the type which should be returned to the picker if a [`Preview`](super::Preview)
 /// implementation wishes to defer preview generation.
 pub struct PendingPreview {
-    pub(super) reader: Reader<PreviewBuffer>,
+    pub(super) reader: Reader<PreviewPane>,
     pub(super) epoch: u64,
 }
 
 impl<'a, T: Send + Sync + 'static> PreviewRequest<'a, T> {
-    /// Declare that the preview is complete and obtain an internal buffer to return to the picker.
+    /// Declare that the preview is already complete and obtain a cleared preview pane to return to the picker.
     ///
     /// # Reducing allocations
     ///
@@ -185,8 +185,8 @@ impl<'a, T: Send + Sync + 'static> PreviewRequest<'a, T> {
     /// directly, ignoring the preview request. However, it is encouraged to re-use the
     /// [`PreviewBuffer`] obtained using this method since the buffer may be recycled from previous
     /// requests, decreasing allocation overhead.
-    pub fn ready(self) -> PreviewBuffer {
-        self.buffer
+    pub fn ready(self) -> PreviewPane {
+        self.buffer.into_pane()
     }
 
     /// Defer handling of the preview request.
@@ -203,7 +203,7 @@ impl<'a, T: Send + Sync + 'static> PreviewRequest<'a, T> {
         } = self;
         // SAFETY: the request index is initialized in this snapshot, whose borrow prevents restart.
         let item = unsafe { snapshot.get_detached_item_unchecked(id.index) };
-        let (reader, writer) = request(buffer);
+        let (reader, writer) = request(buffer.into_pane());
         (
             PendingPreview { reader, epoch },
             QueuedPreviewRequest { writer, item, id },
@@ -283,19 +283,19 @@ impl<T: Send + Sync + 'static> QueuedPreviewRequest<T> {
 }
 
 impl<T: Send + Sync + 'static> ActivePreviewRequest<T> {
-    /// Publish the preview.
+    /// Publish the preview pane.
     ///
-    /// Mutable access to the buffer internal to this request is not provided. Instead, the
-    /// previewer must prepare the preview in a separate preview buffer, and then call this
+    /// Mutable access to the pane internal to this request is not provided. Instead, the
+    /// previewer must prepare the preview in a separate preview pane, and then call this
     /// method.
     ///
-    /// If this method returns `Ok`, it means publication was successful and the buffer has been
-    /// swapped for a new empty buffer. The empty buffer should be reused to prepare the next
+    /// If this method returns `Ok`, it means publication was successful and the pane has been
+    /// swapped for a new empty pane. The empty pane should be reused to prepare the next
     /// request. If this method returns `Err`, it means that the request was cancelled, in which
-    /// case the buffer is unmodified.
-    pub fn publish(self, buffer: &mut PreviewBuffer) -> Result<(), CancelledPreviewRequest<T>> {
+    /// case the pane is unmodified.
+    pub fn publish(self, pane: &mut PreviewPane) -> Result<(), CancelledPreviewRequest<T>> {
         let Self { writer, item, id } = self;
-        if writer.publish(buffer) {
+        if writer.publish(pane) {
             Ok(())
         } else {
             Err(CancelledPreviewRequest { item, id })

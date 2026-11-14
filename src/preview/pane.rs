@@ -1,519 +1,356 @@
-use super::{
-    BoundaryChars, ItemId, ItemRef, Preview, PreviewBuffer, PreviewConfig, PreviewContent,
-    PreviewEvent,
-    cache::{Cached, RequestState},
-    request::PreviewRequest,
-    scroll::{self, PreviewMovement},
-};
+use std::ops::Range;
+
+use crossterm::style::ContentStyle;
+
+#[cfg(feature = "preview-ansi")]
+use super::AnsiWriter;
+use super::{PreviewBuffer, TextWriter};
 use crate::{
-    PickerChars,
-    component::{Component, PreviewComponent},
-    rect::{Area, Rect},
-    session::{Context, PreviewSize},
-};
-use lru::LruCache;
-use std::{
-    io,
-    marker::PhantomData,
-    num::NonZero,
-    time::{Duration, Instant},
+    session::PreviewSize,
+    util::unicode::{Processor, UnicodeProcessor},
 };
 
-const PREFETCH_CHECKS_PER_FRAME: usize = 4;
-
-pub(crate) struct PreviewPane<T, P: Preview<T>> {
-    state: PreviewState,
-    previewer: P,
-    item: PhantomData<fn() -> T>,
-    boundary_chars: BoundaryChars,
-    ellipsis: char,
+/// A fixed view into a preview buffer.
+///
+/// This is a wrapper type around a [preview buffer](PreviewBuffer); the internal buffer can be
+/// accessed with [`buffer`](Self::buffer) and [`buffer_mut`](Self::buffer_mut). Some methods are
+/// forwarded for convenience.
+///
+/// Essentially, it consists of the buffer itself, an offset (the coordinates of the top left corner),
+/// state concerning line numbers, and the error status. Most notably, this is an unsized view.
+/// Manipulating the view requires information about the size, provided when constructing a
+/// [viewport](Self::viewport).
+#[derive(Debug, Default)]
+pub struct PreviewPane {
+    buffer: PreviewBuffer,
+    offset: (usize, usize),
+    line_numbers: bool,
+    is_err: bool,
 }
 
-struct PreviewState {
-    // fields drop in declaration order: cancel requests *before* dropping the
-    // previewer so that it may join its workers if desired
-    cache: LruCache<u32, Cached>,
-    prefetch: Option<Prefetch>,
-    spare: PreviewBuffer,
-    last_item: Option<u32>,
-    // Unlike last_item, the hovered field is cleared while the pane is hidden.
-    hovered: Option<u32>,
-    // state to preserve scroll and restart invalidation and return redraw state with
-    // `update`
-    pending_redraw: bool,
-    // the epoch is advanced when the hovered item changes and is reset on restart. the epoch is passed to
-    // each preview request and then returned by the previewer. it is used to prevent repeated
-    // resubmission when the hovered item has not changed
-    epoch: u64,
-    area: Area,
+/// A mutable view adapter which binds a pane to a drawable surface.
+///
+/// Operations on this adapter mutate the underlying preview pane immediately.
+pub struct PreviewViewport<'a> {
+    pane: &'a mut PreviewPane,
+    size: PreviewSize,
 }
 
-impl<T, P: Preview<T>> PreviewPane<T, P> {
-    pub(crate) fn new(config: &PreviewConfig, chars: &PickerChars, previewer: P) -> Self {
+impl From<PreviewBuffer> for PreviewPane {
+    fn from(buffer: PreviewBuffer) -> Self {
+        Self::from_buffer(buffer)
+    }
+}
+
+impl PreviewPane {
+    /// Initialize an empty pane with no offset, line numbers disabled, and the error flag set to
+    /// `false`.
+    ///
+    /// This is the same as the [`Default`] implementation, but as a `const fn`.
+    pub const fn new() -> Self {
+        Self::from_buffer(PreviewBuffer::new())
+    }
+
+    pub(super) const fn from_buffer(buffer: PreviewBuffer) -> Self {
         Self {
-            state: PreviewState::new(config.cache_size, previewer.prefetch_limit()),
-            previewer,
-            item: PhantomData,
-            boundary_chars: config.boundary_chars,
-            ellipsis: chars.ellipsis,
-        }
-    }
-}
-
-impl<T, P: Preview<T>> Drop for PreviewPane<T, P> {
-    fn drop(&mut self) {
-        if !std::thread::panicking() {
-            self.state.end(&mut self.previewer);
-        }
-    }
-}
-
-impl PreviewState {
-    fn new(cache_size: Option<NonZero<usize>>, prefetch_limit: usize) -> Self {
-        Self {
-            cache: cache_size.map_or_else(LruCache::unbounded, new_cache),
-            prefetch: NonZero::new(prefetch_limit.saturating_mul(2)).map(|capacity| Prefetch {
-                cache: new_cache(capacity),
-                count: prefetch_limit,
-                cycle: None,
-                next: 0,
-                queued: None,
-            }),
-            spare: PreviewBuffer::new(),
-            last_item: None,
-            hovered: None,
-            pending_redraw: false,
-            epoch: 0,
-            area: Area::default(),
+            buffer,
+            offset: (0, 0),
+            line_numbers: false,
+            is_err: false,
         }
     }
 
-    fn cached(&self) -> Option<&Cached> {
-        self.last_item.and_then(|idx| self.cache.peek(&idx))
+    /// Get access to the internal content buffer.
+    pub fn buffer(&self) -> &PreviewBuffer {
+        &self.buffer
     }
 
-    fn content(&self) -> PreviewContent<'_> {
-        match self.cached().and_then(|cached| cached.state.as_ref()) {
-            Some(RequestState::Ready(buffer)) => PreviewContent::Ready(buffer),
-            Some(RequestState::Pending(_) | RequestState::Active(_) | RequestState::Retry(_)) => {
-                PreviewContent::Loading
-            }
-            None => PreviewContent::Empty,
-        }
+    /// Get mutable access to the internal content buffer.
+    ///
+    /// Note that editing or clearing the buffer preserves the remaining pane state, including the
+    /// error status and offset.
+    pub fn buffer_mut(&mut self) -> &mut PreviewBuffer {
+        &mut self.buffer
     }
 
-    fn set_hovered<T, P: Preview<T>>(&mut self, previewer: &mut P, item: Option<ItemRef<'_, T>>) {
-        let hovered = item.map(|item| item.id().index);
-        if self.hovered != hovered {
-            self.hovered = hovered;
-            if !std::thread::panicking() {
-                previewer.hover_changed(item);
-            }
-        }
+    /// Convert into the internal buffer, discarding additional state.
+    pub fn into_buffer(self) -> PreviewBuffer {
+        self.buffer
     }
 
-    fn end<T, P: Preview<T>>(&mut self, previewer: &mut P) {
-        self.cache.clear();
-        if let Some(prefetch) = &mut self.prefetch {
-            prefetch.cache.clear();
-        }
-        self.set_hovered(previewer, None);
+    /// Clear the buffer and restore all associated state to the default.
+    ///
+    /// The underlying allocation is retained for reuse.
+    pub fn clear(&mut self) {
+        self.buffer.clear();
+        self.offset = (0, 0);
+        self.line_numbers = false;
+        self.is_err = false;
     }
 
-    fn update<T: Send + Sync + 'static, P: Preview<T>>(
-        &mut self,
-        previewer: &mut P,
-        cx: &Context<'_, T>,
-        deadline: Instant,
-    ) -> bool {
-        self.update_current(previewer, cx, deadline);
-        self.sync_prefetch(cx.rank(), cx.match_revision());
-        std::mem::take(&mut self.pending_redraw)
+    /// Append unstyled text and process newlines and control characters automatically.
+    ///
+    /// This forwards directly to [`PreviewBuffer::push_text`]. Read those docs for more.
+    #[inline]
+    pub fn push_text(&mut self, text: &str) {
+        self.buffer.push_text(text);
     }
 
-    /// Update the current preview by polling and resubmitting requests and keeping track if a
-    /// redraw is required.
-    fn update_current<T: Send + Sync + 'static, P: Preview<T>>(
-        &mut self,
-        previewer: &mut P,
-        cx: &Context<'_, T>,
-        deadline: Instant,
-    ) {
-        let item = cx.hovered();
-        let hovered = item.map(|item| item.id().index);
-        if self.hovered != hovered {
-            self.epoch = self.epoch.wrapping_add(1);
-        }
-        self.set_hovered(previewer, item);
-        if self.last_item != hovered {
-            self.last_item = hovered;
-            self.pending_redraw = true;
-        }
-        let Some(item) = item else {
-            return;
-        };
-        let id = item.id();
-        let idx = id.index;
-
-        if !self.cache.contains(&idx) {
-            let cached = self
-                .prefetch
-                .as_mut()
-                .and_then(|prefetch| prefetch.cache.pop(&idx))
-                .unwrap_or_default();
-            if let Some((_, evicted)) = self.cache.push(idx, cached) {
-                self.spare = evicted.into_buffer();
-            }
-        }
-        let cached = self.cache.get_mut(&idx).unwrap();
-        if matches!(cached.state, Some(RequestState::Ready(_))) {
-            return;
-        }
-
-        // check the state:
-        //
-        // - if ready, we're done
-        // - if pending, check if the epoch is different. if so, reprioritize it by
-        //   cancelling and resubmitting
-        // - if the epoch is the same, or a worker is currently handing the request,
-        //   wait
-        // - if dropped, recover the buffer and resubmit
-        let state = match cached.state.take() {
-            Some(state) => state.poll().reprioritize(self.epoch),
-            None => RequestState::Retry(std::mem::take(&mut self.spare)),
-        };
-        let state = match state {
-            RequestState::Retry(buffer) => {
-                submit(previewer, cx.snapshot, id, buffer, self.epoch, deadline).poll()
-            }
-            state => state,
-        };
-        self.pending_redraw |= matches!(state, RequestState::Ready(_));
-        cached.state = Some(state);
+    /// Append styled text and process newlines and control characters automatically.
+    ///
+    /// This forwards directly to [`PreviewBuffer::push_styled_text`]. Read those docs for more.
+    #[inline]
+    pub fn push_styled_text(&mut self, text: &str, style: ContentStyle) {
+        self.buffer.push_styled_text(text, style);
     }
 
-    fn sync_prefetch(&mut self, rank: Option<u32>, revision: u64) {
-        let Some(prefetch) = &mut self.prefetch else {
-            return;
-        };
-        // a hovered prefetch was already moved to the main cache by update_current
-        let cycle = rank.map(|rank| (rank, revision));
-        if prefetch.cycle != cycle {
-            prefetch.cycle = cycle;
-            prefetch.next = 0;
-            if let Some(idx) = prefetch.queued.take()
-                && let Some(cached) = prefetch.cache.peek_mut(&idx)
-            {
-                cached.state = cached.state.take().map(RequestState::cancel_queued);
-            }
-        }
+    /// Returns a [`fmt::Write`](std::fmt::Write) adapter which defers writes to [`push_text`](Self::push_text).
+    ///
+    /// This forwards directly to [`PreviewBuffer::text_writer`]. Read those docs for more.
+    #[inline]
+    pub fn text_writer(&mut self) -> TextWriter<'_> {
+        self.buffer.text_writer()
     }
 
-    fn update_prefetch<T: Send + Sync + 'static, P: Preview<T>>(
-        &mut self,
-        previewer: &mut P,
-        cx: &Context<'_, T>,
-        deadline: Instant,
-    ) {
-        let Some(prefetch) = &mut self.prefetch else {
-            return;
-        };
-        let Some((rank, _)) = prefetch.cycle else {
-            return;
-        };
-        let matches = cx.match_ids();
-        let total = matches.len() as u32;
-        let checks = PREFETCH_CHECKS_PER_FRAME
-            .min(prefetch.window_len(total).saturating_sub(prefetch.next) as usize);
-        if checks == 0 {
-            return;
-        }
-        if !self
-            .hovered
-            .and_then(|idx| self.cache.peek(&idx))
-            .is_some_and(|cached| {
-                matches!(
-                    cached.state,
-                    Some(RequestState::Ready(_) | RequestState::Active(_))
-                )
-            })
-        {
-            return;
-        }
-
-        if let Some(idx) = prefetch.queued.take()
-            && let Some(cached) = prefetch.cache.peek_mut(&idx)
-        {
-            cached.state = cached.state.take().map(RequestState::poll);
-            if matches!(cached.state, Some(RequestState::Pending(_))) {
-                prefetch.queued = Some(idx);
-                return;
-            }
-        }
-
-        for _ in 0..checks {
-            let budget = deadline.saturating_duration_since(Instant::now());
-            if budget.is_zero() {
-                return;
-            }
-            let candidate = prefetch.next(rank, total).unwrap();
-            let id = cx.match_ids().nth(candidate as usize).unwrap();
-            let idx = id.index;
-            if self.cache.contains(&idx) {
-                continue;
-            }
-
-            let mut buffer = if let Some(cached) = prefetch.cache.get_mut(&idx) {
-                match cached.state.take().map(RequestState::poll) {
-                    Some(RequestState::Retry(buffer)) => buffer,
-                    None => std::mem::take(&mut self.spare),
-                    state => {
-                        cached.state = state;
-                        continue;
-                    }
-                }
-            } else {
-                std::mem::take(&mut self.spare)
-            };
-            buffer.clear();
-            let request = PreviewRequest {
-                buffer,
-                epoch: self.epoch,
-                snapshot: cx.snapshot,
-                id,
-            };
-            let state = match previewer.prefetch(request, budget) {
-                Ok(response) => {
-                    let state = RequestState::from(response).poll();
-                    if matches!(state, RequestState::Pending(_)) {
-                        prefetch.queued = Some(idx);
-                    }
-                    state
-                }
-                Err(buffer) => {
-                    if let Some(cached) = prefetch.cache.peek_mut(&idx) {
-                        cached.state = Some(RequestState::Retry(buffer));
-                    } else {
-                        self.spare = buffer;
-                    }
-                    continue;
-                }
-            };
-            if let Some((evicted_idx, evicted)) =
-                prefetch.cache.push(idx, Cached { state: Some(state) })
-                && evicted_idx != idx
-            {
-                self.spare = evicted.into_buffer();
-            }
-            return;
-        }
+    /// Write a stream of bytes with ANSI-encoded styling directly into this buffer.
+    ///
+    /// This forwards directly to [`PreviewBuffer::ansi_writer`]. Read those docs for more.
+    #[cfg(feature = "preview-ansi")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "preview-ansi")))]
+    #[inline]
+    pub fn ansi_writer(&mut self) -> AnsiWriter<'_> {
+        self.buffer.ansi_writer()
     }
 
-    fn handle_event(&mut self, idx: Option<u32>, event: PreviewEvent, size: PreviewSize) {
-        let Some(cached) = idx.and_then(|idx| {
-            self.cache.get_mut(&idx).or_else(|| {
-                if matches!(event, PreviewEvent::Refresh) {
-                    self.prefetch.as_mut()?.cache.peek_mut(&idx)
-                } else {
-                    None
-                }
-            })
-        }) else {
-            return;
-        };
-
-        // handle refresh first since we will refresh / cancel
-        // even if the preview is not ready yet
-        if matches!(event, PreviewEvent::Refresh) {
-            self.pending_redraw |= self.last_item == idx;
-            cached.state = cached
-                .state
-                .take()
-                .map(|state| RequestState::Retry(state.into_buffer()));
-            return;
-        }
-
-        // then check: is the preview ready? if not, nothing to do
-        let Some(buffer) = cached.buffer_mut() else {
-            return;
-        };
-
-        // handle non-movement events
-        let movement = match event {
-            PreviewEvent::ToggleLineNumbers => {
-                buffer.set_line_numbers(!buffer.line_numbers());
-                self.pending_redraw = true;
-                return;
-            }
-            PreviewEvent::SetLineNumbers(enabled) => {
-                let previous = buffer.line_numbers();
-                buffer.set_line_numbers(enabled);
-                self.pending_redraw |= previous != enabled;
-                return;
-            }
-            PreviewEvent::Left(columns) => PreviewMovement::Left(columns),
-            PreviewEvent::Right(columns) => PreviewMovement::Right(columns),
-            PreviewEvent::AlignLeft => PreviewMovement::AlignLeft,
-            PreviewEvent::AlignRight => PreviewMovement::AlignRight,
-            PreviewEvent::Up(lines) => PreviewMovement::Up(lines),
-            PreviewEvent::Down(lines) => PreviewMovement::Down(lines),
-            PreviewEvent::PageUp(pages) => PreviewMovement::PageUp(pages),
-            PreviewEvent::PageDown(pages) => PreviewMovement::PageDown(pages),
-            PreviewEvent::AlignTop => PreviewMovement::AlignTop,
-            PreviewEvent::AlignBottom => PreviewMovement::AlignBottom,
-            PreviewEvent::Refresh => return,
-        };
-
-        // handle movement events
-        self.pending_redraw |= scroll::scroll(buffer, movement, (size.width, size.height));
+    /// Set the failure status of the pane.
+    #[inline]
+    pub fn set_err(&mut self, is_err: bool) {
+        self.is_err = is_err;
     }
 
-    fn resize_area(&mut self, area: Area) {
-        self.area = area;
-        let height = if area.is_empty() {
+    /// Get the failure status of the pane.
+    #[inline]
+    pub fn is_err(&self) -> bool {
+        self.is_err
+    }
+
+    /// Returns the current viewport column and row offset.
+    ///
+    /// Both offsets are zero-based. The column refers to terminal display cells.
+    pub fn offset(&self) -> (usize, usize) {
+        self.offset
+    }
+
+    /// Set the viewport offset.
+    ///
+    /// This sets the coordinates of the top-left position of the preview buffer. The column
+    /// refers to the horizontal offset in terms of terminal display cells.
+    ///
+    /// This method does not automatically clamp the offset, so the offset may correspond to a
+    /// position which does not contain any preview buffer contents.
+    pub fn set_offset(&mut self, column: usize, row: usize) {
+        self.offset = (column, row);
+    }
+
+    /// Set the offset manually.
+    ///
+    /// Note that the provided offset is not clamped to be in range. The caller should check that the offset
+    /// is in range or the preview may render in a strange way.
+    #[must_use]
+    pub fn with_offset(mut self, column: usize, row: usize) -> Self {
+        self.set_offset(column, row);
+        self
+    }
+
+    /// Returns a mutable viewport used for manipulating the preview pane.
+    ///
+    /// This method exists since preview navigation depends on the size of the viewport. For
+    /// instance, the preview pane will not scroll beyond the bottom of the page or beyond the end
+    /// of the longest visible line. These computations depend on knowledge of the dimensions.
+    #[must_use]
+    pub fn viewport(&mut self, size: PreviewSize) -> PreviewViewport<'_> {
+        PreviewViewport { pane: self, size }
+    }
+
+    /// Enable or disable preview pane line-numbers.
+    ///
+    /// The default is `false` (do not display line numbers). Line numbers are displayed in a column
+    /// on the left side of the preview pane and are automatically hidden if the preview pane has less
+    /// than two columns for content.
+    pub fn set_line_numbers(&mut self, enabled: bool) {
+        self.line_numbers = enabled;
+    }
+
+    /// Toggle line-number visibility.
+    pub fn toggle_line_numbers(&mut self) {
+        self.line_numbers.toggle();
+    }
+
+    /// Returns the line-number display setting for this pane.
+    pub fn line_numbers(&self) -> bool {
+        self.line_numbers
+    }
+
+    /// A consuming equivalent of [`set_line_numbers`](Self::set_line_numbers).
+    #[must_use]
+    pub fn with_line_numbers(mut self, enabled: bool) -> Self {
+        self.set_line_numbers(enabled);
+        self
+    }
+
+    pub(super) fn visible_rows(&self, height: u16) -> Range<usize> {
+        let height = usize::from(height);
+        let lines = self.buffer().lines().len();
+        let (_, row) = self.offset();
+        let start = row.min(lines.saturating_sub(height));
+        start..start.saturating_add(height).min(lines)
+    }
+
+    pub(super) fn number_width(&self, width: u16) -> u16 {
+        if !self.line_numbers() {
+            return 0;
+        }
+        let number_width = self.buffer().lines().len().ilog10() as u16 + 2;
+        if number_width < width.saturating_sub(1) {
+            number_width
+        } else {
             0
-        } else {
-            area.height.saturating_sub(2)
-        };
-        for (_, cached) in self.cache.iter_mut() {
-            if let Some(buffer) = cached.buffer_mut() {
-                scroll::resize(buffer, height);
-            }
         }
     }
+}
 
-    fn restart<T, P: Preview<T>>(&mut self, previewer: &mut P) {
-        self.pending_redraw |= self.last_item.take().is_some();
-        self.cache.clear();
-        if let Some(prefetch) = &mut self.prefetch {
-            prefetch.cache.clear();
-            prefetch.cycle = None;
-            prefetch.queued = None;
+impl PreviewViewport<'_> {
+    /// Scroll the visible row upwards, saturating at row zero and preserving the column position.
+    pub fn up(&mut self, lines: usize) -> &mut Self {
+        self.clamp_vertical();
+        self.pane.offset.1 = self.pane.offset.1.saturating_sub(lines);
+        self
+    }
+
+    /// Scroll the visible row downwards, saturating at the end of the preview buffer and preserving the column position.
+    ///
+    /// This will scroll downwards until the bottom of the buffer hits the bottom of the viewport.
+    /// In particular, if the buffer is sufficiently large, there will be no blank lines remaining
+    /// at the bottom of the rendered pane.
+    pub fn down(&mut self, lines: usize) -> &mut Self {
+        self.pane.offset.1 = self
+            .pane
+            .offset
+            .1
+            .saturating_add(lines)
+            .min(self.vertical_limit());
+        self
+    }
+
+    /// Srcoll the viewport left by `columns` many display cells, saturating at column 0.
+    ///
+    /// The internal row is unchanged.
+    pub fn left(&mut self, columns: usize) -> &mut Self {
+        self.pane.offset.0 = self.pane.offset.0.saturating_sub(columns);
+        self
+    }
+
+    /// Scroll the viewport right by `columns` many display cells, saturating at the longest
+    /// visible row.
+    ///
+    /// The scroll will be saturated so that the longest visible row terminates at the right end
+    /// of the viewport. If the viewport is already past the longest visible row, this will do
+    /// nothing.
+    pub fn right(&mut self, columns: usize) -> &mut Self {
+        let column = self.pane.offset.0;
+        let target = column.saturating_add(columns);
+        if target != column {
+            let limit = self.horizontal_limit::<UnicodeProcessor>(target);
+            // Vertical scrolling and layout changes can leave the offset past the local limit.
+            self.pane.offset.0 = column.max(limit);
         }
-        self.spare = PreviewBuffer::new();
-        self.epoch = 0;
-        self.set_hovered(previewer, None);
-        previewer.restart();
-    }
-}
-
-impl<T, P: Preview<T>> Component<()> for PreviewPane<T, P> {
-    fn resize(&mut self, area: Area, _engine: &()) {
-        self.state.resize_area(area);
-    }
-    fn draw<D: Rect>(&mut self, _engine: &(), rect: &mut D) -> io::Result<()> {
-        super::draw::draw(
-            rect,
-            self.state.content(),
-            self.boundary_chars,
-            self.ellipsis,
-        )
-    }
-}
-
-impl<T: Send + Sync + 'static, P: Preview<T>> PreviewComponent<T> for PreviewPane<T, P> {
-    const ENABLED: bool = true;
-
-    fn handle(&mut self, event: PreviewEvent, cx: &Context<'_, T>) {
-        let Some(size) = cx.preview_size() else {
-            return;
-        };
-        self.state
-            .handle_event(cx.hovered().map(|item| item.id().index), event, size);
+        self
     }
 
-    fn update(&mut self, cx: &Context<'_, T>, deadline: Instant) -> bool {
-        self.state.update(&mut self.previewer, cx, deadline)
+    /// Scroll the viewport up by a `pages` many frames with the same saturation logic as `up`.
+    pub fn page_up(&mut self, pages: usize) -> &mut Self {
+        let lines = pages.saturating_mul(usize::from(self.size.height));
+        self.up(lines)
     }
 
-    fn prefetch(&mut self, cx: &Context<'_, T>, deadline: Instant) {
-        self.state
-            .update_prefetch(&mut self.previewer, cx, deadline);
+    /// Scroll the viewport down by a `pages` many frames with the same saturation logic as `down`.
+    pub fn page_down(&mut self, pages: usize) -> &mut Self {
+        let lines = pages.saturating_mul(usize::from(self.size.height));
+        self.down(lines)
     }
 
-    fn hide(&mut self) {
-        self.state.set_hovered(&mut self.previewer, None);
+    /// Align the viewport to row zero, preserving the column.
+    pub fn align_top(&mut self) -> &mut Self {
+        self.pane.offset.1 = 0;
+        self
     }
 
-    fn restart(&mut self) {
-        self.state.restart(&mut self.previewer);
-    }
-}
-
-fn new_cache(capacity: NonZero<usize>) -> LruCache<u32, Cached> {
-    if capacity.get() <= 256 {
-        LruCache::new(capacity)
-    } else {
-        LruCache::sparse(capacity)
-    }
-}
-
-fn submit<T: Send + Sync + 'static, P: Preview<T>>(
-    previewer: &mut P,
-    snapshot: &nucleo::Snapshot<T>,
-    id: ItemId,
-    mut buffer: PreviewBuffer,
-    epoch: u64,
-    deadline: Instant,
-) -> RequestState {
-    buffer.clear();
-    let request = PreviewRequest {
-        buffer,
-        epoch,
-        snapshot,
-        id,
-    };
-    previewer.preview(request, timeout(deadline)).into()
-}
-
-fn timeout(deadline: Instant) -> Duration {
-    deadline
-        .saturating_duration_since(Instant::now())
-        .max(Duration::from_millis(2))
-}
-
-struct Prefetch {
-    cache: LruCache<u32, Cached>,
-    count: usize,
-    cycle: Option<(u32, u64)>,
-    next: u32,
-    queued: Option<u32>,
-}
-
-impl Prefetch {
-    fn window_len(&self, total: u32) -> u32 {
-        self.count.min(total.saturating_sub(1) as usize) as u32
+    /// Align the bottom of the viewport to the final row, preserving the column.
+    ///
+    /// If the viewport is large, the buffer will remain at row zero (so there will be blank lines
+    /// at the bottom).
+    pub fn align_bottom(&mut self) -> &mut Self {
+        self.pane.offset.1 = self.vertical_limit();
+        self
     }
 
-    fn next(&mut self, rank: u32, total: u32) -> Option<u32> {
-        if self.next >= self.window_len(total) {
-            return None;
+    /// Align the viewport to the left.
+    pub fn align_left(&mut self) -> &mut Self {
+        self.pane.offset.0 = 0;
+        self
+    }
+
+    /// Align the right edge of the longest line to the right edge of the viewport.
+    ///
+    /// In particular, unlike [`right`](Self::right), this may cause the viewport to actually move
+    /// left.
+    pub fn align_right(&mut self) -> &mut Self {
+        self.pane.offset.0 = self.horizontal_limit::<UnicodeProcessor>(usize::MAX);
+        self
+    }
+
+    /// Clamp the row offset, preserving the column.
+    ///
+    /// Similarly to [`align_bottom`](Self::align_bottom), if the viewport has more lines than the buffer, there will
+    /// be trailing blank lines.
+    pub fn clamp_vertical(&mut self) -> &mut Self {
+        self.pane.offset.1 = self.pane.offset.1.min(self.vertical_limit());
+        self
+    }
+
+    /// Clamp the row offset followed by the column offset.
+    pub fn clamp(&mut self) -> &mut Self {
+        self.clamp_vertical();
+        let column = self.pane.offset.0;
+        if column != 0 {
+            self.pane.offset.0 = self.horizontal_limit::<UnicodeProcessor>(column);
         }
-        let next = self.next;
-        self.next += 1;
+        self
+    }
 
-        let before = rank;
-        let after = total - rank - 1;
-        let paired = before.min(after);
-        // interleave until hitting then boundary and then only use the
-        // remaining direction
-        Some(if next < 2 * paired {
-            let distance = next / 2 + 1;
-            if next.is_multiple_of(2) {
-                rank + distance
-            } else {
-                rank - distance
+    fn vertical_limit(&self) -> usize {
+        self.pane
+            .buffer()
+            .lines()
+            .len()
+            .saturating_sub(usize::from(self.size.height))
+    }
+
+    fn horizontal_limit<P: Processor>(&self, target: usize) -> usize {
+        let width = usize::from(self.size.width - self.pane.number_width(self.size.width));
+        let measure_up_to = target.saturating_add(width);
+        let mut maximum = 0;
+        for index in self.pane.visible_rows(self.size.height) {
+            let line = self.pane.buffer().line(index).unwrap();
+            let measured = P::width_up_to(line.as_str(), measure_up_to);
+            maximum = maximum.max(measured.saturating_sub(width));
+            if maximum >= target {
+                break;
             }
-        } else {
-            let distance = next - paired + 1;
-            if after > before {
-                rank + distance
-            } else {
-                rank - distance
-            }
-        })
+        }
+        maximum.min(target)
     }
 }
 
 #[cfg(test)]
-pub(crate) mod tests;
+mod tests;

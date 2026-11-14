@@ -40,7 +40,7 @@
 //! ```no_run
 //! use nucleo_picker::{
 //!     Multi, Picker,
-//!     preview::{PreviewBuffer, SyncPreviewer},
+//!     preview::{PreviewPane, SyncPreviewer},
 //!     render::StrRenderer,
 //! };
 //!
@@ -50,8 +50,8 @@
 //!
 //! // this is a bit of a silly previewer, which just previews the item
 //! // text itself, but it's enough for the example
-//! let previewer = SyncPreviewer(|color: &&str, buffer: &mut PreviewBuffer| {
-//!     buffer.push_text(color);
+//! let previewer = SyncPreviewer(|color: &&str, pane: &mut PreviewPane| {
+//!     pane.buffer_mut().push_text(color);
 //! });
 //!
 //! // run the picker with previews
@@ -91,12 +91,12 @@
 mod ansi;
 mod buffer;
 mod cache;
+pub(crate) mod controller;
 mod draw;
 mod lock;
-pub(crate) mod pane;
+mod pane;
 mod pool;
 pub mod request;
-mod scroll;
 mod text;
 
 use std::{num::NonZero, time::Duration};
@@ -106,10 +106,53 @@ pub use crate::session::{ItemId, ItemRef, WithPreview};
 #[cfg(feature = "preview-ansi")]
 pub use ansi::{AnsiState, AnsiWriter};
 pub use buffer::{PreviewBuffer, PreviewLine};
+pub use pane::{PreviewPane, PreviewViewport};
 pub use pool::{PoolPreviewer, PreviewWorker};
 use request::{PreviewRequest, PreviewResponse};
-pub use scroll::PreviewEvent;
 pub use text::TextWriter;
+
+/// Events which target the preview pane.
+#[derive(Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PreviewEvent {
+    /// Refresh the preview for the hovered item.
+    Refresh,
+    /// Scroll to the left by `n` columns.
+    Left(usize),
+    /// Scroll to the right by `n` columns.
+    Right(usize),
+    /// Align the preview window with the first column.
+    AlignLeft,
+    /// Align the right edge of the preview window with the longest currently visible row, or to
+    /// the first column if all of the rows fit.
+    ///
+    /// Note that this may result in a left movement if the preview pane is currently scrolled past
+    /// the final visible row. If you want to align to the right *without any possible left movement*,
+    /// use `PreviewEvent::Right(usize::MAX)`.
+    AlignRight,
+    /// Scroll towards the beginning of the buffer by `n` lines.
+    Up(usize),
+    /// Scroll towards the end of the buffer by `n` lines.
+    Down(usize),
+    /// Scroll towards the beginning of the buffer by `n` pages.
+    PageUp(usize),
+    /// Scroll towards the end of the buffer by `n` pages.
+    PageDown(usize),
+    /// Align the preview window to the first row, preserving the horizontal offset.
+    ///
+    /// This event has no default keybinding.
+    AlignTop,
+    /// Align the preview window to the final row, preserving the horizontal offset.
+    ///
+    /// This event has no default keybinding.
+    AlignBottom,
+    /// Toggle the presence of line numbers in an active preview pane.
+    ToggleLineNumbers,
+    /// Set visibility of line numbers in the active preview pane.
+    ///
+    /// This event has no default keybinding.
+    SetLineNumbers(bool),
+}
 
 /// The outcome of rendering a preview pane.
 pub enum PreviewContent<'a> {
@@ -118,7 +161,7 @@ pub enum PreviewContent<'a> {
     /// A preview pane containing a loading indicator.
     Loading,
     /// A rendered preview pane (including preview panes rendering errors).
-    Ready(&'a PreviewBuffer),
+    Ready(&'a PreviewPane),
 }
 
 /// Preview boundary characters.
@@ -276,15 +319,15 @@ impl Default for PreviewConfig {
 ///         _timeout: Duration,
 ///     ) -> PreviewResponse {
 ///         let item = request.item();
-///         let mut buffer = request.ready();
+///         let mut pane = request.ready();
 ///         match item {
-///             Ok(text) => buffer.push_text(text),
+///             Ok(text) => pane.push_text(text),
 ///             Err(message) => {
-///                 buffer.set_err(true);
-///                 buffer.push_text(message);
+///                 pane.set_err(true);
+///                 pane.push_text(message);
 ///             }
 ///         }
-///         PreviewResponse::Ready(buffer)
+///         PreviewResponse::Ready(pane)
 ///     }
 /// }
 /// ```
@@ -430,18 +473,18 @@ impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
 
 /// An infallible synchronous previewer.
 ///
-/// This struct wraps a `FnMut(&T, &mut PreviewBuffer)` closure which fills a cleared preview buffer. It is expected that the
+/// This struct wraps a `FnMut(&T, &mut PreviewPane)` closure which fills a cleared preview pane. It is expected that the
 /// function `F` will return *without delaying the frame* and *without any errors*. This can be
 /// convenient for previewing types `T` which already contain all of the data required
 /// for the preview.
 ///
-/// Note that the buffer is already cleared when it is passed to the closure.
+/// Note that the pane is already cleared when it is passed to the closure.
 ///
 /// ## Example
 ///
 /// ```no_run
 /// use std::borrow::Cow;
-/// use nucleo_picker::{Picker, preview::{PreviewBuffer, SyncPreviewer}};
+/// use nucleo_picker::{Picker, preview::{PreviewPane, SyncPreviewer}};
 ///
 /// struct Item {
 ///     name: &'static str,
@@ -458,8 +501,8 @@ impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
 ///     Item { name: "red", description: "RGB: 255, 0, 0" },
 ///     Item { name: "blue", description: "RGB: 0, 0, 255" },
 /// ]);
-/// let previewer = SyncPreviewer(|item: &Item, buffer: &mut PreviewBuffer| {
-///     buffer.push_text(item.description);
+/// let previewer = SyncPreviewer(|item: &Item, pane: &mut PreviewPane| {
+///     pane.buffer_mut().push_text(item.description);
 /// });
 /// let mut picker = picker.with_preview(previewer);
 /// if let Some(item) = picker.pick()? {
@@ -469,20 +512,20 @@ impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
 /// # }
 /// ```
 pub struct SyncPreviewer<F>(
-    /// The closure which populates the preview buffer.
+    /// The closure which populates the preview pane.
     pub F,
 );
 
 impl<T, F> Preview<T> for SyncPreviewer<F>
 where
     T: Send + Sync + 'static,
-    F: FnMut(&T, &mut PreviewBuffer),
+    F: FnMut(&T, &mut PreviewPane),
 {
     #[inline]
     fn preview(&mut self, request: PreviewRequest<'_, T>, _timeout: Duration) -> PreviewResponse {
         let item = request.item();
-        let mut buffer = request.ready();
-        (self.0)(item, &mut buffer);
-        PreviewResponse::Ready(buffer)
+        let mut pane = request.ready();
+        (self.0)(item, &mut pane);
+        PreviewResponse::Ready(pane)
     }
 }

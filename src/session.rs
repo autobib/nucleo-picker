@@ -81,12 +81,12 @@
 //! # fn main() -> std::io::Result<()> {
 //! # #[cfg(feature = "preview")]
 //! # {
-//! use nucleo_picker::{Picker, WithPreview, preview::{PreviewBuffer, SyncPreviewer}, render::StrRenderer};
+//! use nucleo_picker::{Picker, WithPreview, preview::{PreviewPane, SyncPreviewer}, render::StrRenderer};
 //!
 //! let mut picker = Picker::new(StrRenderer);
 //! picker.push_batch(["red", "blue", "green"]);
-//! let mut previewer = SyncPreviewer(|color: &&str, buffer: &mut PreviewBuffer| {
-//!     buffer.push_text(color);
+//! let mut previewer = SyncPreviewer(|color: &&str, pane: &mut PreviewPane| {
+//!     pane.buffer_mut().push_text(color);
 //! });
 //!
 //! let selected = picker
@@ -235,7 +235,7 @@ use crate::{
 #[cfg(feature = "preview")]
 use crate::{
     event::{keybind_multi_preview, keybind_single_preview},
-    preview::{Preview, PreviewConfig, pane::PreviewPane},
+    preview::{Preview, PreviewConfig, controller::PreviewController},
 };
 
 mod sealed {
@@ -498,7 +498,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> Interface<T> for WithPreview<Singl
 impl<T: Send + Sync + 'static, P: Preview<T>> sealed::State<T> for WithPreview<Single, P> {
     type Queued = ();
     type Preview<'a>
-        = PreviewPane<T, &'a mut P>
+        = PreviewController<T, &'a mut P>
     where
         Self: 'a;
 
@@ -513,7 +513,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> sealed::State<T> for WithPreview<S
         chars: &PickerChars,
         config: &PreviewConfig,
     ) -> Self::Preview<'a> {
-        PreviewPane::new(config, chars, &mut self.previewer)
+        PreviewController::new(config, chars, &mut self.previewer)
     }
 }
 
@@ -531,7 +531,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> Interface<T> for WithPreview<Multi
 impl<T: Send + Sync + 'static, P: Preview<T>> sealed::State<T> for WithPreview<Multi, P> {
     type Queued = SelectedIndices;
     type Preview<'a>
-        = PreviewPane<T, &'a mut P>
+        = PreviewController<T, &'a mut P>
     where
         Self: 'a;
 
@@ -546,7 +546,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> sealed::State<T> for WithPreview<M
         chars: &PickerChars,
         config: &PreviewConfig,
     ) -> Self::Preview<'a> {
-        PreviewPane::new(config, chars, &mut self.previewer)
+        PreviewController::new(config, chars, &mut self.previewer)
     }
 }
 

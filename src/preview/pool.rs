@@ -11,7 +11,7 @@ use std::{
 use parking_lot::{Condvar, Mutex};
 
 use super::{
-    ItemRef, Preview, PreviewBuffer,
+    ItemRef, Preview, PreviewBuffer, PreviewPane,
     request::{PreviewRequest, PreviewResponse, QueuedPreviewRequest},
 };
 
@@ -22,7 +22,7 @@ use super::{
 /// synchronization methods between workers. This trait is designed for use with a [`PoolPreviewer`];
 /// read those docs for more detail.
 pub trait PreviewWorker<T> {
-    /// Generate a preview in the provided buffer.
+    /// Generate a preview in the provided pane.
     ///
     /// The preview should be generated for the provided `item`. The worker may cooperatively check for
     /// early cancellation using the `is_cancelled` callback. This can be done to avoid unnecessary
@@ -31,7 +31,7 @@ pub trait PreviewWorker<T> {
     /// This method may safely block to generate the preview. If the worker wishes to abandon the
     /// preview request, for instance if cancellation is requested, it should return `false`. (If there
     /// is an error, the error should be [written into the buffer](super::Preview#handling-errors) rather than returning `false`.)
-    /// The buffer will be published only if this method returns `true`.
+    /// The pane will be published only if this method returns `true`.
     ///
     /// # Cancellation
     ///
@@ -50,7 +50,7 @@ pub trait PreviewWorker<T> {
     fn preview(
         &mut self,
         item: &T,
-        buffer: &mut PreviewBuffer,
+        pane: &mut PreviewPane,
         is_cancelled: impl Fn() -> bool,
     ) -> bool;
 }
@@ -99,7 +99,7 @@ pub trait PreviewWorker<T> {
 /// use std::{fs, num::NonZeroUsize, path::PathBuf};
 /// use nucleo_picker::{
 ///     Picker,
-///     preview::{PoolPreviewer, PreviewBuffer, PreviewWorker},
+///     preview::{PoolPreviewer, PreviewPane, PreviewWorker},
 ///     render::PathRenderer,
 /// };
 ///
@@ -110,14 +110,14 @@ pub trait PreviewWorker<T> {
 ///     fn preview(
 ///         &mut self,
 ///         path: &PathBuf,
-///         buffer: &mut PreviewBuffer,
+///         pane: &mut PreviewPane,
 ///         _is_cancelled: impl Fn() -> bool,
 ///     ) -> bool {
 ///         match fs::read_to_string(path) {
-///             Ok(text) => buffer.push_text(&text),
+///             Ok(text) => pane.push_text(&text),
 ///             Err(error) => {
-///                 buffer.set_err(true);
-///                 buffer.push_text(&error.to_string());
+///                 pane.set_err(true);
+///                 pane.push_text(&error.to_string());
 ///             }
 ///         }
 ///         true
@@ -142,7 +142,7 @@ pub trait PreviewWorker<T> {
 /// preview pool. The next call to `preview` will immediately propagate the panic. However, note
 /// that the picker can return between the panic and the next call to `preview`, so the panic
 /// might not be observed by the picker.
-pub struct PoolPreviewer<T, F = fn(&T, &mut PreviewBuffer) -> bool> {
+pub struct PoolPreviewer<T, F = fn(&T, &mut PreviewPane) -> bool> {
     pool: Pool<T>,
     sync_preview: Option<F>,
     prefetch_limit: usize,
@@ -197,7 +197,7 @@ impl<T, F> PoolPreviewer<T, F> {
     #[must_use]
     pub fn with_sync_preview<G>(self, preview: G) -> PoolPreviewer<T, G>
     where
-        G: FnMut(&T, &mut PreviewBuffer) -> bool,
+        G: FnMut(&T, &mut PreviewPane) -> bool,
     {
         PoolPreviewer {
             pool: self.pool,
@@ -370,25 +370,27 @@ impl<T: Send + Sync + 'static> Pool<T> {
 
 impl<T: Send + Sync + 'static, F> PoolPreviewer<T, F>
 where
-    F: FnMut(&T, &mut PreviewBuffer) -> bool,
+    F: FnMut(&T, &mut PreviewPane) -> bool,
 {
-    fn try_sync(&mut self, request: &mut PreviewRequest<'_, T>) -> bool {
+    fn try_sync(&mut self, request: &mut PreviewRequest<'_, T>) -> Option<PreviewPane> {
         if let Some(preview) = &mut self.sync_preview {
             if self.pool.is_closed() {
                 self.pool.resume_panic();
             }
-            if preview(request.item(), &mut request.buffer) {
-                return true;
+            let mut pane = std::mem::take(&mut request.buffer).into_pane();
+            if preview(request.item(), &mut pane) {
+                return Some(pane);
             }
+            request.buffer = pane.into_buffer();
             request.buffer.clear();
         }
-        false
+        None
     }
 }
 
 impl<T: Send + Sync + 'static, F> Preview<T> for PoolPreviewer<T, F>
 where
-    F: FnMut(&T, &mut PreviewBuffer) -> bool,
+    F: FnMut(&T, &mut PreviewPane) -> bool,
 {
     fn prefetch_limit(&self) -> usize {
         if self.pool.workers.len() > 1 {
@@ -404,10 +406,10 @@ where
         _timeout: Duration,
     ) -> Result<PreviewResponse, PreviewBuffer> {
         if self.prefetch_limit() == 0 {
-            return Err(request.ready());
+            return Err(request.buffer);
         }
-        if self.try_sync(&mut request) {
-            return Ok(PreviewResponse::Ready(request.ready()));
+        if let Some(pane) = self.try_sync(&mut request) {
+            return Ok(PreviewResponse::Ready(pane));
         }
         Ok(self.pool.submit(request, false))
     }
@@ -417,8 +419,8 @@ where
         mut request: PreviewRequest<'_, T>,
         _timeout: Duration,
     ) -> PreviewResponse {
-        if self.try_sync(&mut request) {
-            return PreviewResponse::Ready(request.ready());
+        if let Some(pane) = self.try_sync(&mut request) {
+            return PreviewResponse::Ready(pane);
         }
         self.pool.submit(request, true)
     }
@@ -452,7 +454,7 @@ impl<T> Drop for Pool<T> {
 }
 
 fn work<T: Send + Sync + 'static, W: PreviewWorker<T>>(shared: &Shared<T>, mut worker: W) {
-    let mut buffer = PreviewBuffer::new();
+    let mut pane = PreviewPane::new();
     shared.state.lock().idle_workers += 1;
     loop {
         let request = {
@@ -480,9 +482,9 @@ fn work<T: Send + Sync + 'static, W: PreviewWorker<T>>(shared: &Shared<T>, mut w
             }
         };
         if !request.is_cancelled() {
-            buffer.clear();
-            if worker.preview(request.item(), &mut buffer, || request.is_cancelled()) {
-                let _ = request.publish(&mut buffer);
+            pane.clear();
+            if worker.preview(request.item(), &mut pane, || request.is_cancelled()) {
+                let _ = request.publish(&mut pane);
             }
         }
         shared.state.lock().idle_workers += 1;

@@ -13,9 +13,6 @@ fn empty_buffers_and_clear_reuse_storage() {
         assert!(buffer.line(1).is_none());
         assert!(buffer.text.is_empty());
         assert!(buffer.styles.is_empty());
-        assert!(!buffer.is_err());
-        assert!(!buffer.line_numbers());
-        assert_eq!(buffer.offset(), (0, 0));
     }
 
     let style = ContentStyle::new().green();
@@ -37,10 +34,6 @@ fn empty_buffers_and_clear_reuse_storage() {
         buffer.clear();
         assert_empty(&buffer);
         buffer.push_styled_text("first\nsecond\nthird", style);
-        buffer.set_err(true);
-        buffer.set_line_numbers(true);
-        buffer.set_offset(usize::MAX, usize::MAX);
-        assert_eq!(buffer.offset(), (usize::MAX, usize::MAX));
         let capacities = (
             buffer.text.capacity(),
             buffer.lines.capacity(),
