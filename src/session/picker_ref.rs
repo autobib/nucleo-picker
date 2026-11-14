@@ -124,7 +124,8 @@ impl<'a, T, R, P> PickerRef<'a, T, R, WithPreview<Single, P>> {
     #[inline]
     pub fn multi(self) -> PickerRef<'a, T, R, WithPreview<Multi, P>> {
         let (picker, previewer) = self.into_parts();
-        picker.with_interface(WithPreview::new_multi(previewer))
+        let interface = picker.core.multi_defaults;
+        picker.with_interface(WithPreview::new(interface, previewer))
     }
 }
 

@@ -221,7 +221,7 @@ fn interleaved_navigation_and_scrolling_target_the_buffered_item() {
         ]));
         picker
             .core
-            .pick_impl::<_, _, (), _>(events, &mut TestTerminal::default(), &mut session)
+            .pick_impl(events, &mut TestTerminal::default(), (), &mut session)
             .unwrap();
         assert_eq!(
             session
@@ -266,7 +266,7 @@ fn batched_navigation_and_refresh_target_the_event_selection() {
     let mut terminal = TestTerminal::default();
     picker
         .core
-        .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
+        .pick_impl(events, &mut terminal, (), &mut session)
         .unwrap();
     assert_eq!(
         session.test_previewer().requested,
@@ -321,7 +321,7 @@ fn scrolling_a_filtered_match_uses_its_item_id() {
     ]));
     picker
         .core
-        .pick_impl::<_, _, (), _>(events, &mut TestTerminal::default(), &mut session)
+        .pick_impl(events, &mut TestTerminal::default(), (), &mut session)
         .unwrap();
     assert_eq!(
         session
@@ -353,7 +353,7 @@ fn scrolling_a_missing_preview_does_not_request_it() {
     ]));
     picker
         .core
-        .pick_impl::<_, _, (), _>(events, &mut TestTerminal::default(), &mut session)
+        .pick_impl(events, &mut TestTerminal::default(), (), &mut session)
         .unwrap();
     assert_eq!(session.test_previewer().requested, ["alpha"]);
     assert_eq!(
@@ -384,7 +384,7 @@ fn scrolling_pending_previews_is_ignored_by_the_loop() {
     ]));
     picker
         .core
-        .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
+        .pick_impl(events, &mut terminal, (), &mut session)
         .unwrap();
     assert!(session.test_cache().peek(&0).unwrap().buffer().is_none());
     assert_eq!(session.test_previewer().requested, ["alpha"]);
@@ -433,7 +433,7 @@ fn idle_frames_collect_completed_previews_and_enable_scrolling() {
         };
         picker
             .core
-            .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
+            .pick_impl(events, &mut terminal, (), &mut session)
             .unwrap();
         let status = status.try_recv().unwrap();
         assert_eq!((status.width, status.height), size);
@@ -511,7 +511,7 @@ fn batched_navigation_back_to_the_same_item_does_not_promote() {
     let mut terminal = TestTerminal::default();
     picker
         .core
-        .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
+        .pick_impl(events, &mut terminal, (), &mut session)
         .unwrap();
     assert_eq!(terminal.changed, [false]);
     assert_eq!(session.test_previewer().requested, ["alpha"]);
@@ -534,7 +534,7 @@ fn scroll_changes_are_reported_without_redrawing_the_match_list() {
     ]));
     picker
         .core
-        .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
+        .pick_impl(events, &mut terminal, (), &mut session)
         .unwrap();
     assert_eq!(
         session
@@ -586,7 +586,7 @@ fn resizing_the_pane_preserves_focus_and_reclamps_the_offset() {
     ]));
     picker
         .core
-        .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
+        .pick_impl(events, &mut terminal, (), &mut session)
         .unwrap();
     assert_eq!(
         session
@@ -624,7 +624,7 @@ fn resizing_reclamps_the_offset_and_changes_page_height() {
     ]));
     picker
         .core
-        .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
+        .pick_impl(events, &mut terminal, (), &mut session)
         .unwrap();
     assert_eq!(
         session
@@ -670,9 +670,10 @@ fn initial_layout_resizes_retained_preview_state() {
 
     picker
         .core
-        .pick_impl::<_, _, (), _>(
+        .pick_impl(
             Events(VecDeque::from([Ok(Event::Quit)])),
             &mut TestTerminal::default(),
+            (),
             &mut session,
         )
         .unwrap();
@@ -724,7 +725,7 @@ fn resizing_clamps_cached_previews_before_they_are_revisited() {
     };
     picker
         .core
-        .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
+        .pick_impl(events, &mut terminal, (), &mut session)
         .unwrap();
     assert_eq!(
         session
@@ -757,7 +758,7 @@ fn scrolling_down_down_up_at_the_bottom_moves_up_one_line() {
     ]));
     picker
         .core
-        .pick_impl::<_, _, (), _>(events, &mut TestTerminal::default(), &mut session)
+        .pick_impl(events, &mut TestTerminal::default(), (), &mut session)
         .unwrap();
     assert_eq!(
         session
@@ -792,7 +793,7 @@ fn zero_sized_panes_ignore_scrolling() {
         ]));
         picker
             .core
-            .pick_impl::<_, _, (), _>(events, &mut terminal, &mut session)
+            .pick_impl(events, &mut terminal, (), &mut session)
             .unwrap();
         assert_eq!(
             session

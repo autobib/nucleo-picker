@@ -82,7 +82,7 @@ fn pick(
     drop(sender);
     picker
         .core
-        .pick_impl::<_, _, (), _>(receiver, &mut TestTerminal::default(), NoPreview)
+        .pick_impl(receiver, &mut TestTerminal::default(), (), NoPreview)
         .unwrap()
         .copied()
 }
@@ -96,9 +96,10 @@ fn pick_multi<'a>(
         sender.send(event).unwrap();
     }
     drop(sender);
+    let queued = super::sealed::State::<&str>::make_queue(&picker.core.multi_defaults);
     picker
         .core
-        .pick_impl::<_, _, SelectedIndices, _>(receiver, &mut TestTerminal::default(), NoPreview)
+        .pick_impl(receiver, &mut TestTerminal::default(), queued, NoPreview)
         .unwrap()
 }
 
@@ -161,9 +162,10 @@ fn queued_items_survive_filtering_and_are_discarded_on_quit() {
             });
             let selected = picker
                 .core
-                .pick_impl::<_, _, SelectedIndices, _>(
+                .pick_impl(
                     events,
                     &mut TestTerminal::default(),
+                    SelectedIndices::default(),
                     NoPreview,
                 )
                 .unwrap();
@@ -209,13 +211,18 @@ fn restart_clears_queued_items_before_reusing_indices() {
     });
     let selected = picker
         .core
-        .pick_impl::<_, _, SelectedIndices, _>(events, &mut TestTerminal::default(), NoPreview)
+        .pick_impl(
+            events,
+            &mut TestTerminal::default(),
+            SelectedIndices::default(),
+            NoPreview,
+        )
         .unwrap();
     assert!(selected.into_iter().copied().eq(["replacement"]));
 
-    let cx = super::Context::new(&picker.core.engine, None);
+    let cx = super::Context::new(&picker.core.engine);
     assert!(cx.item(original).is_none());
-    let replacement = cx.matches().next().unwrap();
+    let replacement = cx.match_ids().next().unwrap();
     assert_ne!(replacement, original);
     assert_eq!(cx.item(replacement).unwrap().value(), &"replacement");
 }
@@ -330,7 +337,7 @@ fn reused_picker_matches_the_query_saved_on_exit() {
     });
     let selected = picker
         .core
-        .pick_impl::<_, _, (), _>(receiver, &mut TestTerminal::default(), NoPreview)
+        .pick_impl(receiver, &mut TestTerminal::default(), (), NoPreview)
         .unwrap()
         .copied();
     input.join().unwrap();
@@ -367,7 +374,7 @@ fn busy_events_do_not_starve_frames_or_status() {
 
         picker
             .core
-            .pick_impl::<_, _, (), _>(events, &mut terminal, NoPreview)
+            .pick_impl(events, &mut terminal, (), NoPreview)
             .unwrap();
 
         assert!(terminal.first_frame.is_some());
@@ -408,7 +415,7 @@ fn status_changed_accumulates_between_responses() {
 
     picker
         .core
-        .pick_impl::<_, _, (), _>(events, &mut TestTerminal::default(), NoPreview)
+        .pick_impl(events, &mut TestTerminal::default(), (), NoPreview)
         .unwrap();
 
     assert_eq!(
@@ -434,9 +441,10 @@ fn status_changed_resets_when_an_unread_response_is_produced() {
 
     picker
         .core
-        .pick_impl::<_, _, (), _>(
+        .pick_impl(
             TestEvents(|_| script.next().unwrap()),
             &mut TestTerminal::default(),
+            (),
             NoPreview,
         )
         .unwrap();
@@ -471,7 +479,7 @@ fn slow_render_leaves_time_to_drain() {
 
     picker
         .core
-        .pick_impl::<_, _, (), _>(events, &mut terminal, NoPreview)
+        .pick_impl(events, &mut terminal, (), NoPreview)
         .unwrap();
 
     assert!(
@@ -499,7 +507,7 @@ fn drain_reserve_does_not_wait_for_more_events() {
 
     picker
         .core
-        .pick_impl::<_, _, (), _>(events, &mut TestTerminal::default(), NoPreview)
+        .pick_impl(events, &mut TestTerminal::default(), (), NoPreview)
         .unwrap();
 
     assert_eq!(status.try_recv().unwrap().id, 9);
@@ -511,7 +519,12 @@ fn headless_updates_rebuild_layout_when_reentering_the_picker() {
         let mut terminal = TestTerminal::default();
         picker
             .core
-            .pick_impl::<_, _, (), _>(TestEvents(|_| Ok(Event::Quit)), &mut terminal, NoPreview)
+            .pick_impl(
+                TestEvents(|_| Ok(Event::Quit)),
+                &mut terminal,
+                (),
+                NoPreview,
+            )
             .unwrap();
         terminal.output
     }

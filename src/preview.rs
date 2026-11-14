@@ -62,7 +62,7 @@
 //!
 //! // run the picker without previews and with multiple selections
 //! // without consuming the original picker or previewer
-//! for color in picker.as_interface(Multi).pick()? {
+//! for color in picker.as_interface(Multi::new()).pick()? {
 //!     println!("{color}");
 //! }
 //! # Ok(())

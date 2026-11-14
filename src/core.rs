@@ -3,15 +3,15 @@ use std::{num::NonZero, time::Duration};
 #[cfg(feature = "preview")]
 use crate::preview::PreviewConfig;
 use crate::{
-    Injector, Picker, PickerChars, PickerRef, event::PickerStatus, match_engine::MatchEngine,
-    match_list::MatchListState, observer::Notifier, prompt::PromptState,
+    Injector, Multi, Picker, PickerChars, PickerRef, event::PickerStatus,
+    match_engine::MatchEngine, match_list::MatchListState, observer::Notifier, prompt::PromptState,
 };
 
 pub struct PickerCore<T, R> {
     pub(crate) engine: MatchEngine<T, R>,
     pub(crate) list_state: MatchListState,
     pub(crate) chars: PickerChars,
-    pub(crate) max_selection_count: Option<NonZero<u32>>,
+    pub(crate) multi_defaults: Multi,
     pub(crate) prompt: PromptState,
     #[cfg(feature = "preview")]
     pub(crate) preview_config: PreviewConfig,

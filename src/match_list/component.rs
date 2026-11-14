@@ -87,11 +87,7 @@ impl<'a, Q: Queued> MatchList<'a, Q> {
         let changed = cx
             .matches()
             .nth(self.buffered_selection as usize)
-            .is_some_and(|id| {
-                // SAFETY: id comes from this context's borrowed snapshot of matches.
-                let item = unsafe { cx.item_unchecked(id) };
-                self.queued.on_queue(QueueEvent::Toggle(item), cx)
-            });
+            .is_some_and(|item| self.queued.on_queue(QueueEvent::Toggle(item), cx));
         self.pending_redraw |= changed;
         changed
     }
@@ -104,7 +100,7 @@ impl<'a, Q: Queued> MatchList<'a, Q> {
     ) {
         let start = self.buffered_selection as usize;
         let count = count.saturating_add(1);
-        let matches = cx.matches().enumerate();
+        let matches = cx.match_ids().enumerate();
         if increasing {
             self.queue_items(cx, matches.skip(start).take(count));
         } else {
@@ -119,7 +115,7 @@ impl<'a, Q: Queued> MatchList<'a, Q> {
     ) {
         for (rank, id) in items {
             if !self.queued.is_queued(id) {
-                // SAFETY: queue_range supplies IDs from cx.matches(), whose snapshot stays borrowed.
+                // SAFETY: queue_range supplies IDs from cx.match_ids(), whose snapshot stays borrowed.
                 let item = unsafe { cx.item_unchecked(id) };
                 if !self.queued.on_queue(QueueEvent::Toggle(item), cx) {
                     break;
@@ -179,7 +175,7 @@ impl<'a, Q: Queued> MatchList<'a, Q> {
                 self.pending_redraw |= self.queued.on_queue(QueueEvent::Matches, cx);
             }
             MatchListEvent::Unqueue => {
-                if let Some(id) = cx.matches().nth(self.buffered_selection as usize) {
+                if let Some(id) = cx.match_ids().nth(self.buffered_selection as usize) {
                     self.pending_redraw |= self.queued.on_queue(QueueEvent::Remove(id), cx);
                 }
             }
@@ -256,10 +252,7 @@ mod tests {
             &picker.core.chars,
             SelectedIndices::default(),
         );
-        list.handle(
-            MatchListEvent::Up(1),
-            &Context::new(&picker.core.engine, None),
-        );
+        list.handle(MatchListEvent::Up(1), &Context::new(&picker.core.engine));
         let redraw = update(&mut list, &mut picker.core.engine);
         assert!(redraw);
         assert_eq!(list.queued().count(), Some(0));
@@ -275,7 +268,7 @@ mod tests {
         );
         list.handle(
             MatchListEvent::ToggleDown(0),
-            &Context::new(&picker.core.engine, None),
+            &Context::new(&picker.core.engine),
         );
         assert_eq!(list.queued().count(), Some(1));
         let redraw = update(&mut list, &mut picker.core.engine);
@@ -292,26 +285,24 @@ mod tests {
             let mut list = MatchList::new(
                 &mut picker.core.list_state,
                 &picker.core.chars,
-                SelectedIndices::default(),
+                SelectedIndices::new(NonZero::new(1)),
             );
             let toggle = if reversed {
                 MatchListEvent::ToggleDown
             } else {
                 MatchListEvent::ToggleUp
             };
-            let limit = NonZero::new(1);
-
-            list.handle(toggle(1), &Context::new(&picker.core.engine, limit));
+            list.handle(toggle(1), &Context::new(&picker.core.engine));
             assert_eq!(list.event_selection(&picker.core.engine), Some(1));
             assert_eq!(list.queued().count(), Some(1));
             assert!(update(&mut list, &mut picker.core.engine));
 
-            list.handle(toggle(1), &Context::new(&picker.core.engine, limit));
+            list.handle(toggle(1), &Context::new(&picker.core.engine));
             assert_eq!(list.event_selection(&picker.core.engine), Some(1));
             assert_eq!(list.queued().count(), Some(1));
             assert!(!update(&mut list, &mut picker.core.engine));
 
-            let cx = Context::new(&picker.core.engine, limit);
+            let cx = Context::new(&picker.core.engine);
             list.handle(MatchListEvent::Reset, &cx);
             list.handle(toggle(2), &cx);
             assert_eq!(list.event_selection(&picker.core.engine), Some(2));
@@ -327,9 +318,9 @@ mod tests {
             for increasing in [false, true] {
                 let mut picker = picker();
                 picker.core.list_state.config.reversed = reversed;
-                let cx = Context::new(&picker.core.engine, NonZero::new(2));
+                let cx = Context::new(&picker.core.engine);
                 let (start, last) = if increasing { (0, 1) } else { (3, 2) };
-                let mut queued = SelectedIndices::default();
+                let mut queued = SelectedIndices::new(NonZero::new(2));
                 for index in [start, last] {
                     let item = cx.item(picker.core.engine.item_id(index)).unwrap();
                     assert!(queued.on_queue(QueueEvent::Toggle(item), &cx));
@@ -365,7 +356,7 @@ mod tests {
         for reversed in [false, true] {
             let mut picker = picker();
             picker.core.list_state.config.reversed = reversed;
-            let cx = Context::new(&picker.core.engine, None);
+            let cx = Context::new(&picker.core.engine);
             let mut list = MatchList::new(&mut picker.core.list_state, &picker.core.chars, ());
             let navigate = if reversed {
                 MatchListEvent::Down(1)
@@ -384,7 +375,7 @@ mod tests {
             ] {
                 list.handle(event, &cx);
                 assert_eq!(list.event_selection(&picker.core.engine), Some(1));
-                assert_eq!(list.queued().count(), None);
+                assert!(list.queued().count().is_none());
             }
         }
     }

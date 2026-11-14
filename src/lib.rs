@@ -428,7 +428,7 @@ pub struct PickerOptions {
     config: nc::Config,
     query: String,
     threads: Option<NonZero<usize>>,
-    max_selection_count: Option<NonZero<u32>>,
+    multi_defaults: Multi,
     interval: Duration,
     background_frame_interval: Duration,
     chars: PickerChars,
@@ -459,7 +459,7 @@ impl PickerOptions {
             config: nc::Config::DEFAULT,
             query: String::new(),
             threads: None,
-            max_selection_count: None,
+            multi_defaults: Multi::new(),
             interval: Duration::from_millis(15),
             background_frame_interval: Duration::from_millis(60),
             chars: PickerChars::new(),
@@ -522,7 +522,7 @@ impl PickerOptions {
             interval: self.interval,
             background_frame_frequency,
             chars: self.chars,
-            max_selection_count: self.max_selection_count,
+            multi_defaults: self.multi_defaults,
             reversed,
             restart_notifier: None,
             status_notifier: None,
@@ -578,16 +578,17 @@ impl PickerOptions {
     /// If `None`, no bound is applied; otherwise, use the provided bound. This is a `u32` since
     /// the picker cannot hold more than [`u32::MAX`] items.
     ///
-    /// This bound is only relevant when allowing [multiple selections](Picker#multiple-selections)
-    /// and has no impact on single selection mode. The returned [`Selection`] will contain at
-    /// most `maximum` items. The picker will not allow the selection of additional items if the maximum
-    /// is reached.
-    ///
     /// The default is `None`.
+    //
+    // TODO: fix this doc; oudated. detail propagation to the Multi interface
+    // This bound is only relevant when allowing [multiple selections](Picker#multiple-selections)
+    // and has no impact on single selection mode. The returned [`Selection`] will contain at
+    // most `maximum` items. The picker will not allow the selection of additional items if the maximum
+    // is reached.
     #[must_use]
     #[inline]
     pub const fn max_selection_count(mut self, maximum: Option<NonZero<u32>>) -> Self {
-        self.max_selection_count = maximum;
+        self.multi_defaults = self.multi_defaults.max_selection_count(maximum);
         self
     }
 
@@ -1174,7 +1175,8 @@ impl<T, R> Picker<T, R> {
     #[must_use]
     #[inline]
     pub fn multi(self) -> Picker<T, R, Multi> {
-        self.core.with_interface(Multi)
+        let interface = self.core.multi_defaults;
+        self.core.with_interface(interface)
     }
 
     /// Mutably borrow this picker as a multi-selection picker.
@@ -1184,7 +1186,7 @@ impl<T, R> Picker<T, R> {
     #[must_use]
     #[inline]
     pub fn as_multi(&mut self) -> PickerRef<'_, T, R, Multi> {
-        self.core.as_interface(Multi)
+        self.core.as_interface(self.core.multi_defaults)
     }
 
     /// Get a picker variant which also generates previews.
@@ -1195,7 +1197,8 @@ impl<T, R> Picker<T, R> {
     #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     #[inline]
     pub fn with_preview<P>(self, previewer: P) -> Picker<T, R, WithPreview<Single, P>> {
-        self.core.with_interface(WithPreview::new_single(previewer))
+        self.core
+            .with_interface(WithPreview::new(self.interface, previewer))
     }
 }
 
@@ -1222,7 +1225,8 @@ impl<T, R> Picker<T, R, Multi> {
     #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     #[inline]
     pub fn with_preview<P>(self, previewer: P) -> Picker<T, R, WithPreview<Multi, P>> {
-        self.core.with_interface(WithPreview::new_multi(previewer))
+        self.core
+            .with_interface(WithPreview::new(self.interface, previewer))
     }
 }
 
@@ -1250,17 +1254,17 @@ impl<T, R, P> Picker<T, R, WithPreview<Single, P>> {
     #[inline]
     pub fn multi(self) -> Picker<T, R, WithPreview<Multi, P>> {
         let (picker, previewer) = self.into_parts();
-        picker
-            .core
-            .with_interface(WithPreview::new_multi(previewer))
+        picker.multi().with_preview(previewer)
     }
 
     /// Mutably borrow this picker as a multi-selection picker with item previews.
     #[must_use]
     #[inline]
     pub fn as_multi(&mut self) -> PickerRef<'_, T, R, WithPreview<Multi, &mut P>> {
-        self.core
-            .as_interface(WithPreview::new_multi(&mut self.interface.previewer))
+        self.core.as_interface(WithPreview::new(
+            self.core.multi_defaults,
+            &mut self.interface.previewer,
+        ))
     }
 }
 

@@ -4,6 +4,7 @@ use std::{
         btree_map::{self, Entry},
     },
     iter::FusedIterator,
+    num::NonZero,
 };
 
 use nucleo as nc;
@@ -35,12 +36,20 @@ pub(crate) trait Queued: Sized {
         false
     }
 
-    /// The number of queued items.
+    /// The current number of queued items.
     ///
-    /// `None` means queing is disabled entirely, whereas `Some(n)` indicates the number of queued
+    /// `None` means queueing is disabled entirely; `Some(n)` indicates the number of queued
     /// items.
     #[inline]
     fn count(&self) -> Option<usize> {
+        None
+    }
+
+    /// The queued item limit.
+    ///
+    /// This is used to render the marker in the status line.
+    #[inline]
+    fn limit(&self) -> Option<NonZero<u32>> {
         None
     }
 
@@ -98,6 +107,11 @@ impl Queued for SelectedIndices {
         Some(self.inner.len())
     }
 
+    #[inline]
+    fn limit(&self) -> Option<NonZero<u32>> {
+        self.max_selection_count
+    }
+
     fn on_queue<T: Send + Sync + 'static>(
         &mut self,
         event: QueueEvent<'_, T>,
@@ -112,7 +126,7 @@ impl Queued for SelectedIndices {
                         true
                     }
                     Entry::Vacant(entry) => {
-                        if cx
+                        if self
                             .max_selection_count
                             .is_none_or(|l| len < l.get() as usize)
                         {
@@ -127,10 +141,10 @@ impl Queued for SelectedIndices {
             QueueEvent::Remove(id) => self.inner.remove(&id).is_some(),
             QueueEvent::Matches => {
                 let len = self.inner.len();
-                let limit = cx
+                let limit = self
                     .max_selection_count
                     .map_or(usize::MAX, |l| l.get() as usize);
-                for id in cx.matches() {
+                for id in cx.match_ids() {
                     if self.inner.len() >= limit {
                         break;
                     }
@@ -171,9 +185,17 @@ impl Queued for SelectedIndices {
 pub(crate) struct SelectedIndices {
     inner: BTreeMap<ItemId, u64>,
     next_order: u64,
+    max_selection_count: Option<NonZero<u32>>,
 }
 
 impl SelectedIndices {
+    pub(crate) fn new(max_selection_count: Option<NonZero<u32>>) -> Self {
+        Self {
+            max_selection_count,
+            ..Self::default()
+        }
+    }
+
     fn insert(&mut self, id: ItemId) {
         if let Entry::Vacant(entry) = self.inner.entry(id) {
             entry.insert(Self::next_order(&mut self.next_order));
@@ -353,7 +375,7 @@ mod tests {
         let mut picker = crate::Picker::new(crate::render::StrRenderer);
         picker.push_batch(["zero", "one", "two", "three"]);
         while picker.core.engine.update(5).matching {}
-        let cx = Context::new(&picker.core.engine, None);
+        let cx = Context::new(&picker.core.engine);
         let toggle =
             |index| QueueEvent::Toggle(cx.item(picker.core.engine.item_id(index)).unwrap());
         let mut selection = SelectedIndices::default().on_select(SelectionTarget::Queued, &cx);
@@ -396,7 +418,7 @@ mod tests {
     }
 
     #[test]
-    fn bulk_queuing_preserves_existing_order_and_obeys_the_context_limit() {
+    fn bulk_queuing_preserves_existing_order_and_obeys_the_queue_limit() {
         let mut picker = crate::PickerOptions::new()
             .sort_results(false)
             .reverse_items(true)
@@ -405,13 +427,13 @@ mod tests {
         picker.filter().unwrap();
 
         let selected = {
-            let mut queued = SelectedIndices::default();
-            let cx = Context::new(&picker.core.engine, NonZero::new(1));
+            let mut queued = SelectedIndices::new(NonZero::new(1));
+            let cx = Context::new(&picker.core.engine);
             let one = cx.item(picker.core.engine.item_id(1)).unwrap();
             assert!(queued.on_queue(QueueEvent::Toggle(one), &cx));
             assert!(!queued.on_queue(QueueEvent::Matches, &cx));
 
-            let cx = Context::new(&picker.core.engine, NonZero::new(3));
+            queued.max_selection_count = NonZero::new(3);
             assert!(queued.on_queue(QueueEvent::Matches, &cx));
             assert!(!queued.on_queue(QueueEvent::Matches, &cx));
             assert_eq!(queued.count(), Some(3));

@@ -271,15 +271,15 @@ mod tests {
             &picker.core.chars,
             SelectedIndices::default(),
         );
-        let count =
-            |list: &MatchList<'_, SelectedIndices>| list.queued().count().map(|n| (n as u32, None));
+        let count = |list: &MatchList<'_, SelectedIndices>| {
+            list.queued()
+                .count()
+                .map(|count| (count as u32, list.queued().limit()))
+        };
         let mut status = StatusLine::new(&picker.core.chars);
         assert!(status.update(picker.core.engine.update(5), count(&list), false));
 
-        list.handle(
-            MatchListEvent::Up(1),
-            &Context::new(&picker.core.engine, None),
-        );
+        list.handle(MatchListEvent::Up(1), &Context::new(&picker.core.engine));
         list.flush(&picker.core.engine);
         let matching = picker.core.engine.update(5);
         assert!(list.update(&picker.core.engine, matching.items_changed, false));
@@ -287,11 +287,11 @@ mod tests {
 
         list.handle(
             MatchListEvent::ToggleDown(0),
-            &Context::new(&picker.core.engine, None),
+            &Context::new(&picker.core.engine),
         );
         list.handle(
             MatchListEvent::ToggleDown(0),
-            &Context::new(&picker.core.engine, None),
+            &Context::new(&picker.core.engine),
         );
         list.flush(&picker.core.engine);
         let matching = picker.core.engine.update(5);
@@ -301,7 +301,7 @@ mod tests {
 
         list.handle(
             MatchListEvent::ToggleDown(0),
-            &Context::new(&picker.core.engine, None),
+            &Context::new(&picker.core.engine),
         );
         list.flush(&picker.core.engine);
         let matching = picker.core.engine.update(5);
@@ -311,15 +311,12 @@ mod tests {
 
         list.handle(
             MatchListEvent::UnqueueAll,
-            &Context::new(&picker.core.engine, None),
+            &Context::new(&picker.core.engine),
         );
-        list.handle(
-            MatchListEvent::Down(1),
-            &Context::new(&picker.core.engine, None),
-        );
+        list.handle(MatchListEvent::Down(1), &Context::new(&picker.core.engine));
         list.handle(
             MatchListEvent::ToggleDown(0),
-            &Context::new(&picker.core.engine, None),
+            &Context::new(&picker.core.engine),
         );
         list.flush(&picker.core.engine);
         let matching = picker.core.engine.update(5);

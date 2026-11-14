@@ -53,3 +53,25 @@ impl<'a, T> ItemRef<'a, T> {
         self.value
     }
 }
+
+/// An opaque handle to an item in the picker.
+///
+/// This item persists independently of the picker, including across restart. Holding this handle
+/// will prevent the underlying item pool from being deallocated.
+pub struct OwnedItem<T> {
+    id: ItemId,
+    item: nucleo::DetachedItem<T>,
+}
+
+impl<T: Send + Sync + 'static> OwnedItem<T> {
+    #[inline]
+    pub(super) fn new(id: ItemId, item: nucleo::DetachedItem<T>) -> Self {
+        Self { id, item }
+    }
+
+    /// Returns a reference to the item.
+    #[inline]
+    pub fn item_ref(&self) -> ItemRef<'_, T> {
+        ItemRef::new(self.id, self.item.item().data)
+    }
+}

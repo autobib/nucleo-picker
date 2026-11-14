@@ -209,12 +209,15 @@ mod run;
 #[cfg(test)]
 mod tests;
 
-use std::io::{self, BufWriter, IsTerminal};
+use std::{
+    io::{self, BufWriter, IsTerminal},
+    num::NonZero,
+};
 
 use crossterm::event::KeyEvent;
 
-pub(crate) use context::Context;
-pub use item::{ItemId, ItemRef};
+pub use context::Context;
+pub use item::{ItemId, ItemRef, OwnedItem};
 pub use picker_ref::PickerRef;
 
 #[cfg(doc)]
@@ -237,8 +240,7 @@ mod sealed {
     use super::*;
 
     pub(crate) trait State<T>: Sized {
-        type Queued: Default
-            + for<'a> crate::match_list::Queued<Output<'a, T> = <Self as Interface<T>>::Output<'a>>
+        type Queued: for<'a> crate::match_list::Queued<Output<'a, T> = <Self as Interface<T>>::Output<'a>>
         where
             T: Send + Sync + 'static,
             Self: Interface<T>;
@@ -246,6 +248,11 @@ mod sealed {
         type Preview<'a>: PreviewComponent<T>
         where
             Self: 'a;
+
+        fn make_queue(&self) -> Self::Queued
+        where
+            T: Send + Sync + 'static,
+            Self: Interface<T>;
 
         fn make_preview<'a>(
             &'a mut self,
@@ -267,12 +274,13 @@ mod sealed {
             E: EventSource,
             W: Terminal,
         {
+            let queued = self.make_queue();
             let preview = self.make_preview(
                 &core.chars,
                 #[cfg(feature = "preview")]
                 &core.preview_config,
             );
-            core.pick_impl::<_, _, Self::Queued, _>(event_source, terminal, preview)
+            core.pick_impl(event_source, terminal, queued, preview)
         }
     }
 }
@@ -316,8 +324,35 @@ pub struct Single;
 
 /// The multiple-selection picker interface.
 ///
+/// Initialize using [`Multi::new`] or the [`Default`] implementation.
+///
 /// Read the [module-level docs](self) or the [interface docs](Interface) for more details.
-pub struct Multi;
+#[derive(Clone, Copy, Default)]
+pub struct Multi {
+    max_selection_count: Option<NonZero<u32>>,
+}
+
+impl Multi {
+    /// Initialize a new multi-selection interface with no bound on the number of selections.
+    #[must_use]
+    #[inline]
+    pub const fn new() -> Self {
+        Self {
+            max_selection_count: None,
+        }
+    }
+
+    /// The maximum number of items that can be selected in the picker.
+    ///
+    /// If `None`, no bound is applied; otherwise, use the provided bound. This is a `u32` since
+    /// the picker cannot hold more than [`u32::MAX`] items.
+    #[must_use]
+    #[inline]
+    pub const fn max_selection_count(mut self, maximum: Option<NonZero<u32>>) -> Self {
+        self.max_selection_count = maximum;
+        self
+    }
+}
 
 /// The picker [interface](Interface) which displays item previews.
 ///
@@ -361,15 +396,25 @@ pub struct WithPreview<I, P> {
 }
 
 #[cfg(feature = "preview")]
+impl<I, P> WithPreview<I, P> {
+    /// Wrap an interface with a new interface that generates previews.
+    #[must_use]
+    #[inline]
+    pub fn new(interface: I, previewer: P) -> Self {
+        Self {
+            interface,
+            previewer,
+        }
+    }
+}
+
+#[cfg(feature = "preview")]
 impl<P> WithPreview<Single, P> {
     /// Initialize a new preview interface in single-selection mode.
     #[must_use]
     #[inline]
     pub fn new_single(previewer: P) -> Self {
-        Self {
-            interface: Single,
-            previewer,
-        }
+        Self::new(Single, previewer)
     }
 }
 
@@ -379,10 +424,7 @@ impl<P> WithPreview<Multi, P> {
     #[must_use]
     #[inline]
     pub fn new_multi(previewer: P) -> Self {
-        Self {
-            interface: Multi,
-            previewer,
-        }
+        Self::new(Multi::new(), previewer)
     }
 }
 
@@ -398,6 +440,9 @@ impl<T: Send + Sync + 'static> Interface<T> for Single {
 impl<T: Send + Sync + 'static> sealed::State<T> for Single {
     type Queued = ();
     type Preview<'a> = NoPreview;
+
+    #[inline]
+    fn make_queue(&self) -> Self::Queued {}
 
     #[inline]
     fn make_preview<'a>(
@@ -421,6 +466,11 @@ impl<T: Send + Sync + 'static> Interface<T> for Multi {
 impl<T: Send + Sync + 'static> sealed::State<T> for Multi {
     type Queued = SelectedIndices;
     type Preview<'a> = NoPreview;
+
+    #[inline]
+    fn make_queue(&self) -> Self::Queued {
+        SelectedIndices::new(self.max_selection_count)
+    }
 
     #[inline]
     fn make_preview<'a>(
@@ -451,6 +501,11 @@ impl<T: Send + Sync + 'static, P: Preview<T>> sealed::State<T> for WithPreview<S
         Self: 'a;
 
     #[inline]
+    fn make_queue(&self) -> Self::Queued {
+        sealed::State::<T>::make_queue(&self.interface);
+    }
+
+    #[inline]
     fn make_preview<'a>(
         &'a mut self,
         chars: &PickerChars,
@@ -477,6 +532,11 @@ impl<T: Send + Sync + 'static, P: Preview<T>> sealed::State<T> for WithPreview<M
         = PreviewPane<T, &'a mut P>
     where
         Self: 'a;
+
+    #[inline]
+    fn make_queue(&self) -> Self::Queued {
+        sealed::State::<T>::make_queue(&self.interface)
+    }
 
     #[inline]
     fn make_preview<'a>(
