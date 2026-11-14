@@ -294,7 +294,11 @@ fn context<'items, T: Send + Sync + 'static, R>(
 ) -> Context<'items, T> {
     let cx = Context::new(engine).with_rank(rank);
     #[cfg(feature = "preview")]
-    let cx = cx.with_preview(frame.preview_enabled().then_some(frame.preview_size()));
+    let cx = cx.with_preview(
+        frame
+            .preview_enabled()
+            .then_some(frame.preview_dimensions()),
+    );
     #[cfg(not(feature = "preview"))]
     let _ = frame;
     cx

@@ -123,9 +123,14 @@ impl<'a, T, R, P> PickerRef<'a, T, R, WithPreview<Single, P>> {
     #[must_use]
     #[inline]
     pub fn multi(self) -> PickerRef<'a, T, R, WithPreview<Multi, P>> {
-        let (picker, previewer) = self.into_parts();
-        let interface = picker.core.multi_defaults;
-        picker.with_interface(WithPreview::new(interface, previewer))
+        PickerRef {
+            interface: WithPreview {
+                interface: self.core.multi_defaults,
+                previewer: self.interface.previewer,
+                cache_size: self.interface.cache_size,
+            },
+            core: self.core,
+        }
     }
 }
 
@@ -136,8 +141,14 @@ impl<'a, T, R, P> PickerRef<'a, T, R, WithPreview<Multi, P>> {
     #[must_use]
     #[inline]
     pub fn single(self) -> PickerRef<'a, T, R, WithPreview<Single, P>> {
-        let (picker, previewer) = self.into_parts();
-        picker.with_interface(WithPreview::new_single(previewer))
+        PickerRef {
+            core: self.core,
+            interface: WithPreview {
+                interface: Single,
+                previewer: self.interface.previewer,
+                cache_size: self.interface.cache_size,
+            },
+        }
     }
 }
 

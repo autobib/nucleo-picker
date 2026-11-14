@@ -48,9 +48,14 @@ struct PreviewState {
 }
 
 impl<T, P: Preview<T>> PreviewController<T, P> {
-    pub(crate) fn new(config: &PreviewConfig, chars: &PickerChars, previewer: P) -> Self {
+    pub(crate) fn new(
+        config: &PreviewConfig,
+        chars: &PickerChars,
+        cache_size: Option<NonZero<usize>>,
+        previewer: P,
+    ) -> Self {
         Self {
-            state: PreviewState::new(config.cache_size, previewer.prefetch_limit()),
+            state: PreviewState::new(cache_size, previewer.prefetch_limit()),
             previewer,
             item: PhantomData,
             boundary_chars: config.boundary_chars,
@@ -413,7 +418,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewComponent<T> for PreviewCon
     const ENABLED: bool = true;
 
     fn handle(&mut self, event: PreviewEvent, cx: &Context<'_, T>) {
-        let Some(size) = cx.preview_size() else {
+        let Some(size) = cx.preview_dimensions() else {
             return;
         };
         self.state

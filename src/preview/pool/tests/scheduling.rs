@@ -1,7 +1,10 @@
 use super::*;
 use crate::{
     component::PreviewComponent,
-    preview::controller::{PreviewController, tests::support},
+    preview::{
+        DEFAULT_CACHE_SIZE,
+        controller::{PreviewController, tests::support},
+    },
 };
 
 const QUIET: Duration = Duration::from_millis(50);
@@ -32,6 +35,7 @@ fn background_work_preserves_capacity_for_the_next_hovered_request() {
         let mut pane = PreviewController::new(
             &PickerOptions::new().preview_config,
             &crate::PickerChars::new(),
+            DEFAULT_CACHE_SIZE,
             pool.with_prefetch_limit(2),
         );
         pane.run_frame(Some(0), &picker.core.engine, support::deadline());
@@ -76,6 +80,7 @@ fn reopening_the_pane_promotes_the_queued_hovered_item() {
         let mut pane = PreviewController::new(
             &PickerOptions::new().preview_config,
             &crate::PickerChars::new(),
+            DEFAULT_CACHE_SIZE,
             pool.with_prefetch_limit(prefetch),
         );
         pane.run_frame(Some(0), &picker.core.engine, support::deadline());

@@ -80,7 +80,7 @@ use nucleo::{
 };
 use observer::Observer;
 #[cfg(feature = "preview")]
-use preview::{BoundaryChars, PreviewConfig};
+use preview::{BoundaryChars, DEFAULT_CACHE_SIZE, PreviewConfig};
 
 use crate::{
     core::PickerCore,
@@ -439,6 +439,8 @@ pub struct PickerOptions {
     prompt_config: PromptConfig,
     #[cfg(feature = "preview")]
     preview_config: PreviewConfig,
+    #[cfg(feature = "preview")]
+    preview_cache_size: Option<NonZero<usize>>,
     sort_results: bool,
     reverse_items: bool,
 }
@@ -470,6 +472,8 @@ impl PickerOptions {
             prompt_config: PromptConfig::new(),
             #[cfg(feature = "preview")]
             preview_config: PreviewConfig::new(),
+            #[cfg(feature = "preview")]
+            preview_cache_size: DEFAULT_CACHE_SIZE,
             sort_results: true,
             reverse_items: false,
         }
@@ -520,6 +524,8 @@ impl PickerOptions {
             prompt,
             #[cfg(feature = "preview")]
             preview_config: self.preview_config,
+            #[cfg(feature = "preview")]
+            preview_cache_size: self.preview_cache_size,
             interval: self.interval,
             background_frame_frequency,
             chars: self.chars,
@@ -853,7 +859,7 @@ impl PickerOptions {
     #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     #[must_use]
     #[inline]
-    pub const fn preview_size(mut self, ratio: f64) -> Self {
+    pub const fn preview_dimensions(mut self, ratio: f64) -> Self {
         let valid = ratio >= 0.0 && ratio <= 1.0;
         debug_assert!(valid, "preview ratio must be in 0..=1");
         self.preview_config.ratio = if valid { ratio } else { 0.5 };
@@ -886,11 +892,12 @@ impl PickerOptions {
     /// For fast (synchronous-only) previewers, setting a cache size of 1 can be useful to reduce
     /// allocations. Note however that the cache is also used to store scroll state, so a cache size
     /// of 1 will lose the scroll position every time the hovered item changes.
+    // TODO: Fix this doc; construction default for convenience Picker::with_preview calls; explicitly supplied WithPreview adapters use their own cache_size setting.
     #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     #[must_use]
     #[inline]
     pub const fn preview_cache_size(mut self, size: Option<NonZero<usize>>) -> Self {
-        self.preview_config.cache_size = size;
+        self.preview_cache_size = size;
         self
     }
 }
@@ -1206,8 +1213,9 @@ impl<T, R> Picker<T, R> {
     #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     #[inline]
     pub fn with_preview<P>(self, previewer: P) -> Picker<T, R, WithPreview<Single, P>> {
-        self.core
-            .with_interface(WithPreview::new(self.interface, previewer))
+        let interface =
+            WithPreview::new(self.interface, previewer).cache_size(self.core.preview_cache_size);
+        self.core.with_interface(interface)
     }
 }
 
@@ -1234,8 +1242,9 @@ impl<T, R> Picker<T, R, Multi> {
     #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     #[inline]
     pub fn with_preview<P>(self, previewer: P) -> Picker<T, R, WithPreview<Multi, P>> {
-        self.core
-            .with_interface(WithPreview::new(self.interface, previewer))
+        let interface =
+            WithPreview::new(self.interface, previewer).cache_size(self.core.preview_cache_size);
+        self.core.with_interface(interface)
     }
 }
 
@@ -1262,18 +1271,23 @@ impl<T, R, P> Picker<T, R, WithPreview<Single, P>> {
     #[must_use]
     #[inline]
     pub fn multi(self) -> Picker<T, R, WithPreview<Multi, P>> {
-        let (picker, previewer) = self.into_parts();
-        picker.multi().with_preview(previewer)
+        let interface = WithPreview {
+            interface: self.core.multi_defaults,
+            previewer: self.interface.previewer,
+            cache_size: self.interface.cache_size,
+        };
+        self.core.with_interface(interface)
     }
 
     /// Mutably borrow this picker as a multi-selection picker with item previews.
     #[must_use]
     #[inline]
     pub fn as_multi(&mut self) -> PickerRef<'_, T, R, WithPreview<Multi, &mut P>> {
-        self.core.as_interface(WithPreview::new(
-            self.core.multi_defaults,
-            &mut self.interface.previewer,
-        ))
+        self.core.as_interface(WithPreview {
+            interface: self.core.multi_defaults,
+            previewer: &mut self.interface.previewer,
+            cache_size: self.interface.cache_size,
+        })
     }
 }
 
@@ -1284,18 +1298,22 @@ impl<T, R, P> Picker<T, R, WithPreview<Multi, P>> {
     #[must_use]
     #[inline]
     pub fn single(self) -> Picker<T, R, WithPreview<Single, P>> {
-        let (picker, previewer) = self.into_parts();
-        picker
-            .core
-            .with_interface(WithPreview::new_single(previewer))
+        self.core.with_interface(WithPreview {
+            interface: Single,
+            previewer: self.interface.previewer,
+            cache_size: self.interface.cache_size,
+        })
     }
 
     /// Mutably borrow this picker as a single-selection picker with item previews.
     #[must_use]
     #[inline]
     pub fn as_single(&mut self) -> PickerRef<'_, T, R, WithPreview<Single, &mut P>> {
-        self.core
-            .as_interface(WithPreview::new_single(&mut self.interface.previewer))
+        self.core.as_interface(WithPreview {
+            interface: Single,
+            previewer: &mut self.interface.previewer,
+            cache_size: self.interface.cache_size,
+        })
     }
 }
 

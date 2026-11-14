@@ -372,7 +372,7 @@ fn preview_ratios_round_clamp_and_survive_resizing() {
 mod preview {
     use super::*;
     use crate::preview::{
-        Preview, PreviewConfig,
+        DEFAULT_CACHE_SIZE, Preview, PreviewConfig,
         controller::PreviewController,
         request::{Request, Response},
     };
@@ -533,6 +533,7 @@ mod preview {
             PreviewController::new(
                 &PreviewConfig::default(),
                 &crate::PickerChars::new(),
+                DEFAULT_CACHE_SIZE,
                 EmptyPreview,
             ),
         )

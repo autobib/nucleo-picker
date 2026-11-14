@@ -79,7 +79,7 @@ pub(crate) struct Frame {
     status: Area,
     preview: Area,
     #[cfg(feature = "preview")]
-    preview_size: Dimensions,
+    preview_dimensions: Dimensions,
 }
 
 impl Frame {
@@ -99,7 +99,7 @@ impl Frame {
             status: Area::default(),
             preview: Area::default(),
             #[cfg(feature = "preview")]
-            preview_size: Dimensions::default(),
+            preview_dimensions: Dimensions::default(),
         };
         frame.layout();
         frame
@@ -115,8 +115,8 @@ impl Frame {
     }
 
     #[cfg(feature = "preview")]
-    pub fn preview_size(&self) -> Dimensions {
-        self.preview_size
+    pub fn preview_dimensions(&self) -> Dimensions {
+        self.preview_dimensions
     }
 
     pub fn status_enabled(&self) -> bool {
@@ -257,7 +257,7 @@ impl Frame {
         preview.resize(self.preview, &());
         #[cfg(feature = "preview")]
         {
-            self.preview_size = interior_dimensions(self.preview);
+            self.preview_dimensions = interior_dimensions(self.preview);
         }
         self.pending_resize = false;
     }

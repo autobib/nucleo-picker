@@ -1,10 +1,7 @@
 use super::*;
-use crate::{
-    PickerOptions,
-    preview::{
-        Pane, SyncPreviewer,
-        request::{QueuedRequest, Response},
-    },
+use crate::preview::{
+    DEFAULT_CACHE_SIZE, Pane, SyncPreviewer,
+    request::{QueuedRequest, Response},
 };
 
 mod prefetch;
@@ -212,13 +209,10 @@ fn cleared_hovered_item_is_not_reported_again_on_restart_or_drop() {
 #[test]
 fn refresh_and_eviction_reuse_buffers_and_reset_display_settings() {
     let picker = picker(["alpha", "beta"]);
-    let config = PreviewConfig {
-        cache_size: NonZero::new(1),
-        ..PreviewConfig::default()
-    };
     let mut session = PreviewController::new(
-        &config,
+        &PreviewConfig::default(),
         &PickerChars::new(),
+        NonZero::new(1),
         TestPreviewer {
             lines: 20,
             ..TestPreviewer::default()
@@ -306,13 +300,10 @@ fn refresh_only_invalidates_the_target_without_resubmitting_queued_work() {
 
 #[test]
 fn cache_evicts_the_least_recently_visited_item() {
-    let config = PreviewConfig {
-        cache_size: std::num::NonZero::new(3),
-        ..PreviewConfig::default()
-    };
     let mut session = PreviewController::new(
-        &config,
+        &PreviewConfig::default(),
         &crate::PickerChars::new(),
+        NonZero::new(3),
         TestPreviewer::default(),
     );
     let capacity = session.state.cache.cap().get();
@@ -337,13 +328,13 @@ fn cache_evicts_the_least_recently_visited_item() {
 
 #[test]
 fn unbounded_cache_retains_previews_and_scroll_state() {
-    let options = PickerOptions::new().preview_cache_size(None);
     let mut session = PreviewController::new(
-        &options.preview_config,
+        &PreviewConfig::default(),
         &crate::PickerChars::new(),
+        None,
         TestPreviewer::default(),
     );
-    let item_count = PreviewConfig::default().cache_size.unwrap().get() + 1;
+    let item_count = DEFAULT_CACHE_SIZE.unwrap().get() + 1;
     let picker = picker(std::iter::repeat_n("item", item_count));
     for idx in 0..item_count as u32 {
         session.update_at(Some(idx), &picker.core.engine, Instant::now());
@@ -368,13 +359,10 @@ fn refresh_and_eviction_cancel_requests_and_reuse_returned_buffers() {
         .into_iter()
         .flat_map(|stage| [(stage, false), (stage, true)])
     {
-        let config = PreviewConfig {
-            cache_size: std::num::NonZero::new(1),
-            ..PreviewConfig::default()
-        };
         let mut session = PreviewController::new(
-            &config,
+            &PreviewConfig::default(),
             &crate::PickerChars::new(),
+            NonZero::new(1),
             TestPreviewer::default(),
         );
         let picker = picker(["alpha", "beta"]);

@@ -236,7 +236,7 @@ use crate::{
 #[cfg(feature = "preview")]
 use crate::{
     event::{keybind_multi_preview, keybind_single_preview},
-    preview::{Preview, PreviewConfig, controller::PreviewController},
+    preview::{DEFAULT_CACHE_SIZE, Preview, PreviewConfig, controller::PreviewController},
 };
 
 mod sealed {
@@ -373,7 +373,7 @@ impl Multi {
 ///
 /// ## Standard cache
 ///
-/// The picker stores generated previews along with scroll position in an LRU cache. This means that
+/// This interface stores generated previews along with scroll position in an LRU cache. This means that
 /// the internal previewer may not be called to generate the preview pane if previewing already
 /// succeeded earlier. The cache is cleared when processing a [restart event](Event::Restart).
 /// See the [`Preview`] docs for more detail.
@@ -396,6 +396,7 @@ impl Multi {
 pub struct WithPreview<I, P> {
     pub(crate) interface: I,
     pub(crate) previewer: P,
+    pub(crate) cache_size: Option<NonZero<usize>>,
 }
 
 #[cfg(feature = "preview")]
@@ -407,7 +408,20 @@ impl<I, P> WithPreview<I, P> {
         Self {
             interface,
             previewer,
+            cache_size: DEFAULT_CACHE_SIZE,
         }
+    }
+
+    /// Set the cache capacity of the main preview cache.
+    ///
+    /// The default value if this struct is newly created is `128`, but if this interface was constructed
+    /// from picker, the default value given to [`PickerOptions::preview_cache_size`](crate::PickerOptions::preview_cache_size)
+    /// is used as the default instead.
+    #[must_use]
+    #[inline]
+    pub const fn cache_size(mut self, size: Option<NonZero<usize>>) -> Self {
+        self.cache_size = size;
+        self
     }
 }
 
@@ -514,7 +528,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> sealed::State<T> for WithPreview<S
         chars: &PickerChars,
         config: &PreviewConfig,
     ) -> Self::Preview<'a> {
-        PreviewController::new(config, chars, &mut self.previewer)
+        PreviewController::new(config, chars, self.cache_size, &mut self.previewer)
     }
 }
 
@@ -547,7 +561,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> sealed::State<T> for WithPreview<M
         chars: &PickerChars,
         config: &PreviewConfig,
     ) -> Self::Preview<'a> {
-        PreviewController::new(config, chars, &mut self.previewer)
+        PreviewController::new(config, chars, self.cache_size, &mut self.previewer)
     }
 }
 

@@ -3,7 +3,7 @@ use crate::{
     Picker, PickerOptions,
     match_engine::MatchEngine,
     preview::{
-        ItemId, ItemRef,
+        DEFAULT_CACHE_SIZE, ItemId, ItemRef,
         request::{ActiveRequest, QueuedRequest, Response},
     },
     render::StrRenderer,
@@ -260,6 +260,7 @@ pub(crate) fn preview_pane<P: Preview<&'static str>>(
     PreviewController::new(
         &PreviewConfig::default(),
         &crate::PickerChars::new(),
+        DEFAULT_CACHE_SIZE,
         previewer,
     )
 }

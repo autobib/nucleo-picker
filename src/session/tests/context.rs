@@ -19,7 +19,7 @@ fn context_tracks_rank_identity_and_match_publication() {
     let cx = Context::new(&picker.core.engine);
     assert_eq!(cx.query(), "ta");
     #[cfg(feature = "preview")]
-    assert!(cx.preview_size().is_none());
+    assert!(cx.preview_dimensions().is_none());
     let revision = cx.match_revision();
     picker.push_batch(["alpha", "beta", "delta"]);
     assert!(Context::new(&picker.core.engine).match_revision() == revision);
@@ -119,7 +119,7 @@ struct Observation {
     revision: u64,
     matches: Vec<ItemId>,
     #[cfg(feature = "preview")]
-    preview_size: Option<(u16, u16)>,
+    preview_dimensions: Option<(u16, u16)>,
 }
 
 impl Observation {
@@ -131,7 +131,9 @@ impl Observation {
             revision: cx.match_revision(),
             matches: cx.matches().ids().collect(),
             #[cfg(feature = "preview")]
-            preview_size: cx.preview_size().map(|size| (size.width, size.height)),
+            preview_dimensions: cx
+                .preview_dimensions()
+                .map(|size| (size.width, size.height)),
         }
     }
 }
@@ -212,7 +214,7 @@ fn events_observe_buffered_navigation_and_only_submitted_queries() {
             assert_eq!(observation.matches, ids);
             assert!(observation.revision == observations[0].revision);
             #[cfg(feature = "preview")]
-            assert_eq!(observation.preview_size, None);
+            assert_eq!(observation.preview_dimensions, None);
         }
         assert_eq!(picker.query(), "absent");
         assert_eq!(picker.filter().unwrap().len(), 0);
@@ -242,7 +244,7 @@ mod preview {
         fn observe<T: Send + Sync + 'static>(&mut self, phase: &'static str, cx: &Context<'_, T>) {
             let observation = Observation::new(cx);
             assert_eq!(
-                observation.preview_size,
+                observation.preview_dimensions,
                 Some((self.size.width, self.size.height))
             );
             self.observations.push((phase, observation));
@@ -336,12 +338,12 @@ mod preview {
             assert_eq!(*phase, expected_phase);
             assert_eq!(observation.rank, Some(rank));
             assert_eq!(observation.hovered, Some(ids[rank as usize]));
-            assert_eq!(observation.preview_size, Some(size));
+            assert_eq!(observation.preview_dimensions, Some(size));
             assert!(observation.revision == previews[0].1.revision);
         }
         assert_eq!(queued.len(), 4);
         for (observation, size) in queued.iter().zip([None, None, Some((0, 0)), Some((10, 6))]) {
-            assert_eq!(observation.preview_size, size);
+            assert_eq!(observation.preview_dimensions, size);
             assert_eq!(observation.hovered, Some(ids[1]));
         }
         assert_eq!(terminal.size_reads, 4);
@@ -370,7 +372,7 @@ mod preview {
                 .unwrap();
             assert_eq!(previews.len(), 2);
             for (_, observation) in previews {
-                assert_eq!(observation.preview_size, Some((0, 0)));
+                assert_eq!(observation.preview_dimensions, Some((0, 0)));
                 assert_eq!(observation.hovered, None);
                 assert_eq!(observation.rank, None);
             }

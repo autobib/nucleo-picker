@@ -220,10 +220,10 @@ fn declining_prefetch_preserves_queued_foreground_requests() {
 #[test]
 fn prefetch_preserves_main_cache_recency_and_scroll() {
     let picker = picker(["a", "b", "c", "d"]);
-    let options = PickerOptions::new().preview_cache_size(NonZero::new(3));
     let mut session = PreviewController::new(
-        &options.preview_config,
+        &PreviewConfig::default(),
         &PickerChars::new(),
+        NonZero::new(3),
         TestPreviewer {
             prefetch_limit: 1,
             prefetch_enabled: true,
@@ -495,10 +495,10 @@ fn filtering_replaces_neighbours_without_regenerating_the_current_preview() {
 #[test]
 fn prefetch_eviction_and_hovered_item_promotion_reuse_buffers() {
     let picker = picker(["a", "b", "c", "d", "e", "f", "g", "h"]);
-    let options = PickerOptions::new().preview_cache_size(NonZero::new(1));
     let mut session = PreviewController::new(
-        &options.preview_config,
+        &PreviewConfig::default(),
         &PickerChars::new(),
+        NonZero::new(1),
         TestPreviewer {
             prefetch_limit: 1,
             prefetch_enabled: true,

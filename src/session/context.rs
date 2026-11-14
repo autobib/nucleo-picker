@@ -12,7 +12,7 @@ pub struct Context<'items, T> {
     match_revision: u64,
     rank: Option<u32>,
     #[cfg(feature = "preview")]
-    preview_size: Option<Dimensions>,
+    preview_dimensions: Option<Dimensions>,
 }
 
 impl<'items, T: Send + Sync + 'static> Context<'items, T> {
@@ -24,7 +24,7 @@ impl<'items, T: Send + Sync + 'static> Context<'items, T> {
             match_revision: engine.match_revision(),
             rank: None,
             #[cfg(feature = "preview")]
-            preview_size: None,
+            preview_dimensions: None,
         }
     }
 
@@ -35,7 +35,7 @@ impl<'items, T: Send + Sync + 'static> Context<'items, T> {
 
     #[cfg(feature = "preview")]
     pub(crate) fn with_preview(mut self, size: Option<Dimensions>) -> Self {
-        self.preview_size = size;
+        self.preview_dimensions = size;
         self
     }
 
@@ -64,8 +64,8 @@ impl<'items, T: Send + Sync + 'static> Context<'items, T> {
     /// otherwise not enabled.
     #[cfg(feature = "preview")]
     #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
-    pub fn preview_size(&self) -> Option<Dimensions> {
-        self.preview_size
+    pub fn preview_dimensions(&self) -> Option<Dimensions> {
+        self.preview_dimensions
     }
 
     /// Return a view of the currently matching items in the picker.

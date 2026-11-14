@@ -15,6 +15,8 @@ pub struct PickerCore<T, R> {
     pub(crate) prompt: PromptState,
     #[cfg(feature = "preview")]
     pub(crate) preview_config: PreviewConfig,
+    #[cfg(feature = "preview")]
+    pub(crate) preview_cache_size: Option<NonZero<usize>>,
     pub(crate) interval: Duration,
     pub(crate) background_frame_frequency: NonZero<usize>,
     pub(crate) reversed: bool,

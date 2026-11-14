@@ -236,11 +236,12 @@ impl Default for BoundaryChars {
     }
 }
 
+pub(crate) const DEFAULT_CACHE_SIZE: Option<NonZero<usize>> = NonZero::new(128);
+
 /// Internal preview configuration.
 #[derive(Debug, Clone)]
 pub(crate) struct PreviewConfig {
     pub ratio: f64,
-    pub cache_size: Option<NonZero<usize>>,
     pub boundary_chars: BoundaryChars,
 }
 
@@ -248,7 +249,6 @@ impl PreviewConfig {
     pub const fn new() -> Self {
         Self {
             ratio: 0.5,
-            cache_size: NonZero::new(128),
             boundary_chars: BoundaryChars::new(),
         }
     }
