@@ -215,11 +215,7 @@ impl<T: Send + Sync + 'static, R: crate::Render<T>, Q: Queued> Component<MatchEn
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        Picker,
-        match_list::{SelectedIndices, SelectionTarget},
-        render::StrRenderer,
-    };
+    use crate::{Picker, match_list::SelectedIndices, render::StrRenderer, session::Exit};
     use std::num::NonZero;
 
     fn picker() -> Picker<&'static str, StrRenderer> {
@@ -324,7 +320,7 @@ mod tests {
                 list.handle(queue(usize::MAX), &cx);
                 assert_eq!(list.event_rank(&picker.core.engine), Some(last));
                 assert_eq!(list.queued().count(), Some(2));
-                let selected = list.into_queue().on_select(SelectionTarget::Queued, &cx);
+                let selected = list.into_queue().on_select(Exit::Selected(None), cx);
                 let expected = if increasing { ["a", "b"] } else { ["d", "c"] };
                 assert!(selected.iter_selected_order().copied().eq(expected));
             }

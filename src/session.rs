@@ -320,6 +320,17 @@ pub trait Interface<T>: sealed::State<T> {
     fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>>;
 }
 
+/// The status on successful session exit.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Exit {
+    /// The session quit without making a selection.
+    Quit,
+    /// The session quit and made a selection. `None` indicates that the selection only includes
+    /// queued items, and `Some(ItemId)` indicates that the selection also includes the given
+    /// identifier.
+    Selected(Option<ItemId>),
+}
+
 /// The single-selection picker interface.
 ///
 /// Read the [module-level docs](self) or the [interface docs](Interface) for more details.

@@ -9,7 +9,7 @@ use std::{
 
 use nucleo as nc;
 
-use crate::session::{Context, ItemId, ItemRef};
+use crate::session::{Context, Exit, ItemId, ItemRef};
 
 pub(crate) enum QueueEvent<'a, T> {
     /// Toggle a single item.
@@ -20,12 +20,6 @@ pub(crate) enum QueueEvent<'a, T> {
     Matches,
     /// Clear the queue.
     Clear,
-}
-
-pub(crate) enum SelectionTarget {
-    None,
-    Hovered(ItemId),
-    Queued,
 }
 
 pub(crate) trait Queued: Sized {
@@ -68,8 +62,8 @@ pub(crate) trait Queued: Sized {
     /// Generate the output on completion.
     fn on_select<'items, T: Send + Sync + 'static>(
         self,
-        target: SelectionTarget,
-        cx: &Context<'items, T>,
+        exit: Exit,
+        cx: Context<'items, T>,
     ) -> Self::Output<'items, T>;
 }
 
@@ -79,12 +73,12 @@ impl Queued for () {
     #[inline]
     fn on_select<'items, T: Send + Sync + 'static>(
         self,
-        target: SelectionTarget,
-        cx: &Context<'items, T>,
+        exit: Exit,
+        cx: Context<'items, T>,
     ) -> Self::Output<'items, T> {
-        match target {
-            SelectionTarget::None | SelectionTarget::Queued => None,
-            SelectionTarget::Hovered(id) => {
+        match exit {
+            Exit::Quit | Exit::Selected(None) => None,
+            Exit::Selected(Some(id)) => {
                 // SAFETY: the session captures id from this snapshot without ticking or restarting
                 // the matcher before output conversion.
                 let item = unsafe { cx.matches().item_unchecked(id) };
@@ -163,16 +157,13 @@ impl Queued for SelectedIndices {
     #[inline]
     fn on_select<'items, T: Send + Sync + 'static>(
         mut self,
-        target: SelectionTarget,
-        cx: &Context<'items, T>,
+        exit: Exit,
+        cx: Context<'items, T>,
     ) -> Self::Output<'items, T> {
-        match target {
-            SelectionTarget::None => self.inner.clear(),
-            SelectionTarget::Hovered(id) => {
-                self.inner.clear();
-                self.insert(id);
-            }
-            SelectionTarget::Queued => {}
+        match exit {
+            Exit::Quit => self.inner.clear(),
+            Exit::Selected(Some(id)) if self.inner.is_empty() => self.insert(id),
+            Exit::Selected(_) => {}
         }
         Selection {
             snapshot: cx.matches().snapshot,
@@ -386,8 +377,8 @@ mod tests {
                     .unwrap(),
             )
         };
-        let mut selection =
-            SelectedIndices::new(NonZero::new(2)).on_select(SelectionTarget::Queued, &cx);
+        let mut selection = SelectedIndices::new(NonZero::new(2))
+            .on_select(Exit::Selected(None), Context::new(&picker.core.engine));
         assert!(selection.iter_selected_order().next().is_none());
 
         for (index, expected) in [

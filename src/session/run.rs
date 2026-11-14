@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use super::Context;
+use super::{Context, Exit};
 use crate::{
     PickerCore, Render, Terminal,
     component::PreviewComponent,
@@ -13,7 +13,7 @@ use crate::{
     event::{Event, EventSource, PickerStatus, RecvError},
     frame::{Frame, Redraw},
     match_engine::MatchEngine,
-    match_list::{MatchList, Queued, SelectionTarget},
+    match_list::{MatchList, Queued},
     prompt::Prompt,
     status_line::StatusLine,
     terminal::session,
@@ -94,7 +94,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
         let mut frame_number = 0_u64;
         let mut handle_status = None;
         let mut changed_since_status = true;
-        let selection = 'selection: loop {
+        let exit = 'selection: loop {
             // whether the preview was enabled on the previous frame
             let preview_was_enabled = frame.preview_enabled();
             let mut force_redraw = false;
@@ -148,21 +148,21 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                         }
                     }
                     Event::Redraw => force_redraw = true,
-                    Event::Quit => break 'selection Ok(SelectionTarget::None),
+                    Event::Quit => break 'selection Ok(Exit::Quit),
                     Event::QuitPromptEmpty => {
                         prompt.flush();
                         if prompt.contents().is_empty() {
-                            break 'selection Ok(SelectionTarget::None);
+                            break 'selection Ok(Exit::Quit);
                         }
                     }
                     Event::Select => {
-                        if list.queued().count().is_some_and(|count| count != 0) {
-                            break 'selection Ok(SelectionTarget::Queued);
-                        }
-                        if let Some(n) = list.event_rank(engine) {
-                            break 'selection Ok(SelectionTarget::Hovered(
-                                engine.item_id(engine.idx_from_match(n)),
-                            ));
+                        let hovered = list
+                            .event_rank(engine)
+                            .map(|rank| engine.item_id(engine.idx_from_match(rank)));
+                        if list.queued().count().is_some_and(|count| count != 0)
+                            || hovered.is_some()
+                        {
+                            break 'selection Ok(Exit::Selected(hovered));
                         }
                     }
                     Event::Status { id } => handle_status = Some(id),
@@ -281,9 +281,9 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
         cleanup?;
 
         // process and return the selection
-        let selection = selection?;
+        let exit = exit?;
         let cx = context(engine, list.rank(engine), &frame);
-        Ok(list.into_queue().on_select(selection, &cx))
+        Ok(list.into_queue().on_select(exit, cx))
     }
 }
 

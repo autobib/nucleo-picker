@@ -31,7 +31,7 @@ mod unicode;
 mod tests;
 
 pub(crate) use component::MatchList;
-pub(crate) use selection::{QueueEvent, Queued, SelectedIndices, SelectionTarget};
+pub(crate) use selection::{QueueEvent, Queued, SelectedIndices};
 pub use selection::{Selection, SelectionIntoIter};
 pub(crate) use state::MatchListState;
 

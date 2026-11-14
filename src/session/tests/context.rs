@@ -5,9 +5,9 @@ use crate::{
     PickerOptions,
     component::NoPreview,
     event::{Event, MatchListEvent, PromptEvent},
-    match_list::{QueueEvent, Queued, SelectionTarget},
+    match_list::{QueueEvent, Queued, SelectedIndices, SelectionIntoIter},
     render::StrRenderer,
-    session::{Context, ItemId},
+    session::{Context, Exit, ItemId},
 };
 
 #[test]
@@ -138,29 +138,65 @@ impl Observation {
     }
 }
 
-struct QueueProbe<'a>(&'a mut Vec<Observation>);
+struct QueueOutput<'items, T> {
+    queued: SelectedIndices,
+    exit: Exit,
+    cx: Context<'items, T>,
+}
+
+impl<'items, T: Send + Sync + 'static> IntoIterator for QueueOutput<'items, T> {
+    type Item = &'items T;
+    type IntoIter = SelectionIntoIter<'items, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.queued.on_select(self.exit, self.cx).into_iter()
+    }
+}
+
+struct QueueProbe<'a> {
+    observations: &'a mut Vec<Observation>,
+    queued: SelectedIndices,
+}
+
+impl<'a> QueueProbe<'a> {
+    fn new(observations: &'a mut Vec<Observation>) -> Self {
+        Self {
+            observations,
+            queued: SelectedIndices::default(),
+        }
+    }
+}
 
 impl Queued for QueueProbe<'_> {
-    type Output<'items, T: Send + Sync + 'static> = Option<&'items T>;
+    type Output<'items, T: Send + Sync + 'static> = QueueOutput<'items, T>;
+
+    fn is_queued(&self, id: ItemId) -> bool {
+        self.queued.is_queued(id)
+    }
+
+    fn count(&self) -> Option<usize> {
+        self.queued.count()
+    }
 
     fn on_queue<T: Send + Sync + 'static>(
         &mut self,
-        _: QueueEvent<'_, T>,
+        event: QueueEvent<'_, T>,
         cx: &Context<'_, T>,
     ) -> bool {
-        self.0.push(Observation::new(cx));
-        false
+        self.observations.push(Observation::new(cx));
+        self.queued.on_queue(event, cx)
     }
 
     fn on_select<'items, T: Send + Sync + 'static>(
         self,
-        target: SelectionTarget,
-        cx: &Context<'items, T>,
+        exit: Exit,
+        cx: Context<'items, T>,
     ) -> Self::Output<'items, T> {
-        self.0.push(Observation::new(cx));
-        match target {
-            SelectionTarget::Hovered(id) => Some(cx.matches().item(id).unwrap().value()),
-            _ => None,
+        self.observations.push(Observation::new(&cx));
+        QueueOutput {
+            queued: self.queued,
+            exit,
+            cx,
         }
     }
 }
@@ -197,11 +233,12 @@ fn events_observe_buffered_navigation_and_only_submitted_queries() {
             .pick_impl(
                 TestEvents(|_| Ok(events.next().unwrap())),
                 &mut TestTerminal::default(),
-                QueueProbe(&mut observations),
+                QueueProbe::new(&mut observations),
                 NoPreview,
             )
             .unwrap();
-        assert_eq!(selected, Some(&"delta"));
+        assert_eq!(selected.exit, Exit::Selected(Some(ids[1])));
+        assert!(selected.into_iter().copied().eq(["delta"]));
         assert_eq!(observations.len(), 3);
         for (observation, rank, query) in [
             (&observations[0], 0, "ta"),
@@ -218,6 +255,93 @@ fn events_observe_buffered_navigation_and_only_submitted_queries() {
         }
         assert_eq!(picker.query(), "absent");
         assert_eq!(picker.filter().unwrap().len(), 0);
+    }
+}
+
+#[test]
+fn queued_selection_retains_the_buffered_hover_and_exit_context() {
+    for reversed in [false, true] {
+        let mut picker = PickerOptions::new()
+            .sort_results(false)
+            .query("ta")
+            .reversed(reversed)
+            .frame_interval(Duration::from_secs(5))
+            .picker(StrRenderer);
+        picker.push_batch(["alpha", "beta", "delta"]);
+        picker.filter().unwrap();
+        let ids: Vec<_> = picker.matches().ids().collect();
+        let revision = Context::new(&picker.core.engine).match_revision();
+        let toggle = if reversed {
+            MatchListEvent::ToggleDown(1)
+        } else {
+            MatchListEvent::ToggleUp(1)
+        };
+        let output = {
+            let mut observations = Vec::new();
+            let mut events = [
+                Event::MatchList(toggle),
+                Event::Prompt(PromptEvent::Reset("absent".to_owned())),
+                Event::Select,
+            ]
+            .into_iter();
+            picker
+                .core
+                .pick_impl(
+                    TestEvents(|_| Ok(events.next().unwrap())),
+                    &mut TestTerminal::default(),
+                    QueueProbe::new(&mut observations),
+                    NoPreview,
+                )
+                .unwrap()
+        };
+
+        assert_eq!(output.exit, Exit::Selected(Some(ids[1])));
+        assert_eq!(output.cx.hovered().unwrap().id(), ids[1]);
+        assert_eq!(output.cx.rank(), Some(1));
+        assert_eq!(output.cx.query(), "absent");
+        assert_eq!(output.cx.match_revision(), revision);
+        assert!(output.cx.matches().ids().eq(ids));
+        assert!(output.into_iter().copied().eq(["beta"]));
+        assert_eq!(picker.query(), "absent");
+        assert!(picker.filter().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn selection_without_a_hovered_item_requires_queued_items() {
+    for has_queued in [false, true] {
+        let mut picker = PickerOptions::new().query("absent").picker(StrRenderer);
+        picker.push_batch(["alpha"]);
+        picker.filter().unwrap();
+        let mut observations = Vec::new();
+        let mut probe = QueueProbe::new(&mut observations);
+        if has_queued {
+            let cx = Context::new(&picker.core.engine);
+            let item = cx.matches().item(picker.core.engine.item_id(0)).unwrap();
+            assert!(probe.on_queue(QueueEvent::Toggle(item), &cx));
+        }
+        let mut events = [Event::Select, Event::Quit].into_iter();
+        let output = picker
+            .core
+            .pick_impl(
+                TestEvents(|_| Ok(events.next().unwrap())),
+                &mut TestTerminal::default(),
+                probe,
+                NoPreview,
+            )
+            .unwrap();
+
+        assert!(output.cx.hovered().is_none());
+        assert_eq!(output.cx.rank(), None);
+        assert_eq!(output.cx.query(), "absent");
+        assert!(output.cx.matches().is_empty());
+        if has_queued {
+            assert_eq!(output.exit, Exit::Selected(None));
+            assert!(output.into_iter().copied().eq(["alpha"]));
+        } else {
+            assert_eq!(output.exit, Exit::Quit);
+            assert_eq!(output.into_iter().len(), 0);
+        }
     }
 }
 
@@ -314,7 +438,7 @@ mod preview {
             .pick_impl(
                 frame_events(events),
                 &mut terminal,
-                QueueProbe(&mut queued),
+                QueueProbe::new(&mut queued),
                 PreviewProbe {
                     observations: &mut previews,
                     size: Dimensions::default(),
