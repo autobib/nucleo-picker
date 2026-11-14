@@ -7,7 +7,7 @@ use crate::util::unicode::{Processor, UnicodeProcessor};
 #[derive(Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PreviewEvent {
-    /// Refresh the selected preview.
+    /// Refresh the preview for the hovered item.
     Refresh,
     /// Scroll to the left by `n` columns.
     Left(usize),

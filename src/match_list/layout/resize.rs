@@ -35,8 +35,8 @@ pub fn smaller(
     // this is valid since the `previous.above` was already clamped
     let max_allowed_below = total_remaining - max_allowed_above;
 
-    // first, render below: note that this is guaranteed to render as much of the selection as
-    // possible since the selection size is unchanged, and we have first removed elements from
+    // first, render below: note that this is guaranteed to render as much of the hovered item as
+    // possible since the hovered item's size is unchanged, and we have first removed elements from
     // above as much as possible
     total_remaining -= sizes_below_incl.extend_unbounded(max_allowed_below);
 
@@ -54,8 +54,8 @@ pub fn larger_rev(
 ) {
     let new_size = total_remaining;
 
-    // since the selection may have not fit with the previous screen size, try again to render as
-    // much of the selection as possible
+    // since the hovered item may have not fit with the previous screen size, try again to render as
+    // much of the hovered item as possible
     total_remaining -= sizes_below_incl.extend_bounded(total_remaining - padding_top, 1);
 
     // then render into the new space above
@@ -77,20 +77,20 @@ pub fn smaller_rev(
     // the amount that the screen decreased by
     let screen_delta = previous.size - total_remaining;
 
-    // render as much of the selection as possible
-    let selection_size = sizes_below_incl.extend_bounded(total_remaining - padding_top, 1);
+    // render as much of the hovered item as possible
+    let hovered_size = sizes_below_incl.extend_bounded(total_remaining - padding_top, 1);
 
     // since the screen size changed, take the capacity from below, but do not exceed the bottom
-    // padding or the selection size; take the remaining capacity from above
+    // padding or the hovered item's size; take the remaining capacity from above
     let max_allowed_below = previous
         .below
         .saturating_sub(screen_delta)
         .max(padding_bottom + 1)
-        .max(selection_size);
+        .max(hovered_size);
     let max_allowed_above = total_remaining - max_allowed_below;
 
     // and then above
-    total_remaining -= selection_size;
+    total_remaining -= hovered_size;
     total_remaining -= sizes_above.extend_unbounded(max_allowed_above);
 
     // and then any of the remaining space below

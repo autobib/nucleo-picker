@@ -19,17 +19,17 @@ pub(super) trait ItemList {
     /// The total number items in the list.
     fn total(&self) -> u32;
 
-    /// An iterator over items below the cursor, iterating downwards.
-    fn lower(&self, cursor: u32) -> impl DoubleEndedIterator<Item = Self::Item<'_>>;
+    /// An iterator over items below the supplied rank, iterating downwards.
+    fn lower(&self, rank: u32) -> impl DoubleEndedIterator<Item = Self::Item<'_>>;
 
-    /// An iterator over items below and including the cursor, iterating downwards.
-    fn lower_inclusive(&self, cursor: u32) -> impl DoubleEndedIterator<Item = Self::Item<'_>>;
+    /// An iterator over items below and including the supplied rank, iterating downwards.
+    fn lower_inclusive(&self, rank: u32) -> impl DoubleEndedIterator<Item = Self::Item<'_>>;
 
-    /// An iterator over items above cursor, iterating upwards.
-    fn higher(&self, cursor: u32) -> impl DoubleEndedIterator<Item = Self::Item<'_>>;
+    /// An iterator over items above the supplied rank, iterating upwards.
+    fn higher(&self, rank: u32) -> impl DoubleEndedIterator<Item = Self::Item<'_>>;
 
-    /// An iterator over items above and including the cursor, iterating upwards.
-    fn higher_inclusive(&self, selection: u32) -> impl DoubleEndedIterator<Item = Self::Item<'_>>;
+    /// An iterator over items above and including the supplied rank, iterating upwards.
+    fn higher_inclusive(&self, rank: u32) -> impl DoubleEndedIterator<Item = Self::Item<'_>>;
 }
 
 /// An automatic extension trait for an [`ItemList`].
@@ -38,44 +38,44 @@ pub(super) trait ItemListExt: ItemList {
     /// into a [`Incremental`].
     fn sizes_lower<'a>(
         &self,
-        cursor: u32,
+        rank: u32,
         vec: &'a mut Vec<usize>,
     ) -> Incremental<&'a mut Vec<usize>, impl Iterator<Item = usize>> {
         vec.clear();
-        Incremental::new(vec, self.lower(cursor).map(|item| item.size()))
+        Incremental::new(vec, self.lower(rank).map(|item| item.size()))
     }
 
     /// Wrap the item sizes returned by [`lower_inclusive`](ItemList::lower_inclusive)
     /// into a [`Incremental`].
     fn sizes_lower_inclusive<'a>(
         &self,
-        cursor: u32,
+        rank: u32,
         vec: &'a mut Vec<usize>,
     ) -> Incremental<&'a mut Vec<usize>, impl Iterator<Item = usize>> {
         vec.clear();
-        Incremental::new(vec, self.lower_inclusive(cursor).map(|item| item.size()))
+        Incremental::new(vec, self.lower_inclusive(rank).map(|item| item.size()))
     }
 
     /// Wrap the item sizes returned by [`higher`](ItemList::higher)
     /// into an [`Incremental`].
     fn sizes_higher<'a>(
         &self,
-        cursor: u32,
+        rank: u32,
         vec: &'a mut Vec<usize>,
     ) -> Incremental<&'a mut Vec<usize>, impl Iterator<Item = usize>> {
         vec.clear();
-        Incremental::new(vec, self.higher(cursor).map(|item| item.size()))
+        Incremental::new(vec, self.higher(rank).map(|item| item.size()))
     }
 
     /// Wrap the item sizes returned by [`higher_inclusive`](ItemList::higher_inclusive)
     /// into an [`Incremental`].
     fn sizes_higher_inclusive<'a>(
         &self,
-        cursor: u32,
+        rank: u32,
         vec: &'a mut Vec<usize>,
     ) -> Incremental<&'a mut Vec<usize>, impl Iterator<Item = usize>> {
         vec.clear();
-        Incremental::new(vec, self.higher_inclusive(cursor).map(|item| item.size()))
+        Incremental::new(vec, self.higher_inclusive(rank).map(|item| item.size()))
     }
 }
 
@@ -101,24 +101,24 @@ impl<T: Send + Sync + 'static> ItemList for Snapshot<T> {
         self.matched_item_count()
     }
 
-    fn lower(&self, selection: u32) -> impl DoubleEndedIterator<Item = Self::Item<'_>> {
-        self.matched_items(..selection).rev()
+    fn lower(&self, rank: u32) -> impl DoubleEndedIterator<Item = Self::Item<'_>> {
+        self.matched_items(..rank).rev()
     }
 
-    fn lower_inclusive(&self, selection: u32) -> impl DoubleEndedIterator<Item = Self::Item<'_>> {
-        self.matched_items(..=selection).rev()
+    fn lower_inclusive(&self, rank: u32) -> impl DoubleEndedIterator<Item = Self::Item<'_>> {
+        self.matched_items(..=rank).rev()
     }
 
-    fn higher(&self, selection: u32) -> impl DoubleEndedIterator<Item = Self::Item<'_>> {
-        // we skip the first item rather than iterate on the range `selection + 1..` in case
-        // `selection + 1` is an invalid index in which case `matched_items` would panic
-        self.matched_items(selection..).skip(1)
+    fn higher(&self, rank: u32) -> impl DoubleEndedIterator<Item = Self::Item<'_>> {
+        // we skip the first item rather than iterate on the range `rank + 1..` in case
+        // `rank + 1` is an invalid index in which case `matched_items` would panic
+        self.matched_items(rank..).skip(1)
     }
 
-    fn higher_inclusive(&self, selection: u32) -> impl DoubleEndedIterator<Item = Self::Item<'_>> {
-        // we skip the first item rather than iterate on the range `selection + 1..` in case
-        // `selection + 1` is an invalid index in which case `matched_items` would panic
-        self.matched_items(selection..)
+    fn higher_inclusive(&self, rank: u32) -> impl DoubleEndedIterator<Item = Self::Item<'_>> {
+        // we skip the first item rather than iterate on the range `rank + 1..` in case
+        // `rank + 1` is an invalid index in which case `matched_items` would panic
+        self.matched_items(rank..)
     }
 }
 

@@ -63,7 +63,7 @@ fn neighbours_are_prefetched_in_priority_order_without_redrawing() {
     }
     assert_eq!(session.previewer.prefetched, ["d", "b", "e"]);
     assert_eq!(session.previewer.requested, ["c"]);
-    assert_eq!(session.previewer.focused, [Some("c")]);
+    assert_eq!(session.previewer.hovered, [Some("c")]);
     assert_eq!(session.contents(), ["c"]);
 }
 
@@ -77,7 +77,7 @@ fn queued_requests_gate_prefetch_but_active_requests_do_not() {
         session.run_frame(Some(2), &picker.core.engine, deadline());
     }
     assert!(session.previewer.prefetched.is_empty());
-    let focused = session.previewer.take_request("c").start().unwrap();
+    let hovered = session.previewer.take_request("c").start().unwrap();
 
     for _ in 0..3 {
         session.run_frame(Some(2), &picker.core.engine, deadline());
@@ -89,10 +89,10 @@ fn queued_requests_gate_prefetch_but_active_requests_do_not() {
     let second = session.previewer.take_request("b").start().unwrap();
     session.run_frame(Some(2), &picker.core.engine, deadline());
     assert_eq!(session.previewer.prefetched, ["d", "b", "e"]);
-    assert!(!focused.is_cancelled());
+    assert!(!hovered.is_cancelled());
     assert!(!first.is_cancelled());
     assert!(!second.is_cancelled());
-    publish(focused);
+    publish(hovered);
     publish(first);
     publish(second);
     publish(session.previewer.take_request("e").start().unwrap());
@@ -102,21 +102,21 @@ fn queued_requests_gate_prefetch_but_active_requests_do_not() {
 
 #[test]
 fn navigation_cancels_stale_prefetch_before_submitting_the_new_neighbour() {
-    for (selected, deferred) in [(None, false), (Some(2), false), (Some(2), true)] {
+    for (rank, deferred) in [(None, false), (Some(2), false), (Some(2), true)] {
         let picker = picker(["a", "b", "c", "d"]);
         let mut session = pane(1);
         session.previewer.prefetch_defer = true;
         session.run_frame(Some(0), &picker.core.engine, deadline());
         let outdated = session.previewer.take_request("b");
         session.previewer.defer = deferred;
-        session.update(selected, &picker.core.engine, Instant::now());
+        session.update_at(rank, &picker.core.engine, Instant::now());
         assert!(outdated.is_cancelled());
         assert_eq!(session.previewer.prefetched, ["b"]);
-        if selected.is_some() {
+        if rank.is_some() {
             if deferred {
                 publish(session.previewer.take_request("c").start().unwrap());
             }
-            session.run_frame(selected, &picker.core.engine, deadline());
+            session.run_frame(rank, &picker.core.engine, deadline());
             assert_eq!(session.previewer.prefetched, ["b", "d"]);
             assert!(!session.previewer.take_request("d").is_cancelled());
         }
@@ -124,7 +124,7 @@ fn navigation_cancels_stale_prefetch_before_submitting_the_new_neighbour() {
 }
 
 #[test]
-fn focusing_prefetched_items_reuses_started_work_and_retries_unfinished_requests() {
+fn hovering_prefetched_items_reuses_started_work_and_retries_unfinished_requests() {
     for (stage, detour) in Stage::ALL
         .into_iter()
         .flat_map(|stage| [(stage, false), (stage, true)])
@@ -164,7 +164,7 @@ fn focusing_prefetched_items_reuses_started_work_and_retries_unfinished_requests
 }
 
 #[test]
-fn refresh_before_focus_invalidates_prefetched_results_and_requests() {
+fn refresh_before_hovering_invalidates_prefetched_results_and_requests() {
     for stage in std::iter::once(None).chain(Stage::ALL.map(Some)) {
         let picker = picker(["a", "b"]);
         let mut session = pane(1);
@@ -174,7 +174,7 @@ fn refresh_before_focus_invalidates_prefetched_results_and_requests() {
             stage.prepare(session.previewer.take_request("b"))
         });
 
-        session.handle(PreviewEvent::Refresh, Some(1));
+        session.handle_at(PreviewEvent::Refresh, Some(1));
         assert_eq!(session.previewer.requested, ["a"]);
         if let Some(queued) = queued {
             assert!(queued.is_cancelled());
@@ -238,7 +238,7 @@ fn prefetch_preserves_main_cache_recency_and_scroll() {
     for rank in [1, 2, 0] {
         session.run_frame(Some(rank), &picker.core.engine, Instant::now());
         if rank == 1 {
-            session.handle(PreviewEvent::Down(7), Some(1));
+            session.handle_at(PreviewEvent::Down(7), Some(1));
         }
     }
     session.run_frame(Some(0), &picker.core.engine, deadline());
@@ -510,7 +510,7 @@ fn filtering_replaces_neighbours_without_regenerating_the_current_preview() {
             publish(session.previewer.take_request("alpine").start().unwrap());
         }
         assert_eq!(session.previewer.prefetched, ["beta", "alpine"]);
-        assert_eq!(session.previewer.focused, [Some("alpha")]);
+        assert_eq!(session.previewer.hovered, [Some("alpha")]);
         session.run_frame(Some(1), &picker.core.engine, Instant::now());
         assert_eq!(session.contents(), ["alpine"]);
         assert_eq!(session.previewer.requested, ["alpha"]);
@@ -518,7 +518,7 @@ fn filtering_replaces_neighbours_without_regenerating_the_current_preview() {
 }
 
 #[test]
-fn prefetch_eviction_and_focus_promotion_reuse_buffers() {
+fn prefetch_eviction_and_hovered_item_promotion_reuse_buffers() {
     let picker = picker(["a", "b", "c", "d", "e", "f", "g", "h"]);
     let options = PickerOptions::new().preview_cache_size(NonZero::new(1));
     let mut session = PreviewPane::new(
@@ -595,7 +595,7 @@ fn eviction_cancels_active_prefetches() {
 }
 
 #[test]
-fn restart_and_drop_cancel_prefetches_before_focus_callbacks() {
+fn restart_and_drop_cancel_prefetches_before_hovered_item_callbacks() {
     for restart in [false, true] {
         let picker = picker(["a", "b", "c"]);
         let mut previewer = TestPreviewer {
@@ -616,6 +616,6 @@ fn restart_and_drop_cancel_prefetches_before_focus_callbacks() {
         drop(session);
         assert!(active.is_cancelled());
         assert!(previewer.queued[0].is_cancelled());
-        assert_eq!(previewer.cancelled_on_blur, [true]);
+        assert_eq!(previewer.cancelled_on_clear, [true]);
     }
 }

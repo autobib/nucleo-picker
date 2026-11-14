@@ -189,7 +189,7 @@ fn pane_survives_updates_and_resizes() -> Result<(), Box<dyn Error>> {
         } else {
             MatchListEvent::Up(1)
         }))?;
-        assert_pane(&sr.checkpoint("selection")?, reversed, &["item-01 b…"]);
+        assert_pane(&sr.checkpoint("hover")?, reversed, &["item-01 b…"]);
 
         for (width, height) in [(5, 7), (23, 2), (1, 1)] {
             sr.set_dimensions(width, height)?;
@@ -440,9 +440,9 @@ fn hidden_previews_pause_new_requests_and_preserve_outstanding_work() -> Result<
         sr.checkpoint("hidden pending")?;
         let active = active.unwrap_or_else(|| queued.take().unwrap().start().unwrap());
         assert!(!active.is_cancelled());
-        for selection in [1, 2] {
+        for rank in [1, 2] {
             sr.send(Event::MatchList(MatchListEvent::Up(1)))?;
-            sr.wait_for(|status| status.selection == Some(selection))?;
+            sr.wait_for(|status| status.rank == Some(rank))?;
             assert!(receiver.try_recv().is_err());
         }
         let mut buffer = PreviewBuffer::new();
@@ -598,7 +598,7 @@ fn preview_and_matches_use_the_same_grapheme_widths() -> Result<(), Box<dyn Erro
     );
     sr.type_text("لا")?;
     sr.wait_for_match_complete(1, 1)?;
-    for (width, first, second, selected) in [
+    for (width, first, second, hovered) in [
         (12, "│لا  │", "│لاX │", "▌ لاX "),
         (10, "│لا │", "│لاX│", "▌ لاX"),
         (8, "│لا│", "│ل…│", "▌ ل…"),
@@ -608,11 +608,7 @@ fn preview_and_matches_use_the_same_grapheme_widths() -> Result<(), Box<dyn Erro
         let snapshot = sr.checkpoint(format!("width-{width}"))?;
         assert!(snapshot.text[1].ends_with(first), "{:?}", snapshot.text);
         assert!(snapshot.text[2].ends_with(second), "{:?}", snapshot.text);
-        assert!(
-            snapshot.text[2].starts_with(selected),
-            "{:?}",
-            snapshot.text
-        );
+        assert!(snapshot.text[2].starts_with(hovered), "{:?}", snapshot.text);
         assert!(snapshot.row_flags.iter().all(|row| !row.wrapped));
     }
     sr.send(Event::Quit)?;
@@ -1400,7 +1396,8 @@ fn error_previews_preserve_contents_and_scrolling() -> Result<(), Box<dyn Error>
 }
 
 #[test]
-fn pending_previews_distinguish_no_selection_and_publish_success() -> Result<(), Box<dyn Error>> {
+fn pending_previews_distinguish_no_hovered_item_and_publish_success() -> Result<(), Box<dyn Error>>
+{
     let (sender, receiver) = std::sync::mpsc::channel();
     let mut sr = start_with(
         "pending_success",

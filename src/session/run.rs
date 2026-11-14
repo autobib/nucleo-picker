@@ -12,6 +12,7 @@ use crate::{
     error::PickError,
     event::{Event, EventSource, PickerStatus, RecvError},
     frame::{Frame, Redraw},
+    match_engine::MatchEngine,
     match_list::{MatchList, Queued, SelectionTarget},
     prompt::Prompt,
     status_line::StatusLine,
@@ -69,7 +70,10 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
             &mut preview,
         );
         if P::ENABLED && frame.preview_enabled() {
-            preview.update(list.selection(engine), engine, frame_start + self.interval);
+            preview.update(
+                &context(engine, list.rank(engine), &frame),
+                frame_start + self.interval,
+            );
         }
         frame.draw(
             engine,
@@ -81,7 +85,10 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
             Redraw::full(),
         )?;
         if P::ENABLED && frame.preview_enabled() {
-            preview.prefetch(engine, frame_start + self.interval);
+            preview.prefetch(
+                &context(engine, list.rank(engine), &frame),
+                frame_start + self.interval,
+            );
         }
 
         let mut frame_number = 0_u64;
@@ -123,7 +130,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                 match event {
                     Event::Prompt(event) => prompt.handle(event),
                     Event::MatchList(event) => {
-                        list.handle(event, &Context::new(engine));
+                        list.handle(event, &context(engine, list.event_rank(engine), &frame));
                     }
                     Event::Layout(event) => frame.handle(event),
                     #[cfg(feature = "preview")]
@@ -136,11 +143,8 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                             // since that would bleed state from the frame logic everywhere
                             // which is a lot of complexity which is only required for
                             // unrealistically tiny terminals
-                            preview.handle(
-                                event,
-                                list.event_selection(engine)
-                                    .map(|n| engine.idx_from_match(n)),
-                            );
+                            preview
+                                .handle(event, &context(engine, list.event_rank(engine), &frame));
                         }
                     }
                     Event::Redraw => force_redraw = true,
@@ -155,8 +159,8 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                         if list.queued().count().is_some_and(|count| count != 0) {
                             break 'selection Ok(SelectionTarget::Queued);
                         }
-                        if let Some(n) = list.event_selection(engine) {
-                            break 'selection Ok(SelectionTarget::Current(
+                        if let Some(n) = list.event_rank(engine) {
+                            break 'selection Ok(SelectionTarget::Hovered(
                                 engine.item_id(engine.idx_from_match(n)),
                             ));
                         }
@@ -166,7 +170,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                         Some(ref notifier) => {
                             preview.restart();
                             engine.restart();
-                            list.restart(&Context::new(engine));
+                            list.restart(&context(engine, None, &frame));
                             let injector = engine.injector();
                             if notifier.push(injector).is_err() {
                                 break 'selection Err(PickError::Disconnected);
@@ -211,12 +215,15 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                 ) && frame.status_enabled(),
                 preview: P::ENABLED
                     && frame.preview_enabled()
-                    && preview.update(list.selection(engine), engine, frame_start + self.interval),
+                    && preview.update(
+                        &context(engine, list.rank(engine), &frame),
+                        frame_start + self.interval,
+                    ),
             };
 
             if P::ENABLED && preview_was_enabled && !frame.preview_enabled() {
                 // this is only used to process `hide` events within the previewer;
-                // currently this controls the 'focus_changed' event
+                // currently this controls the 'hover_changed' event
                 preview.hide();
             }
 
@@ -249,7 +256,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                     query: prompt.contents().to_owned(),
                     changed: std::mem::take(&mut changed_since_status),
                     frame_changed: changed,
-                    selection: list.selection(engine),
+                    rank: list.rank(engine),
                     item_count: status.item_count,
                     selected_item_count: list.queued().count().map_or(0, as_u32),
                     matched_item_count: status.matched_item_count,
@@ -260,7 +267,10 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                 });
             }
             if P::ENABLED && frame.preview_enabled() {
-                preview.prefetch(engine, frame_start + self.interval);
+                preview.prefetch(
+                    &context(engine, list.rank(engine), &frame),
+                    frame_start + self.interval,
+                );
             }
         };
 
@@ -274,8 +284,20 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
 
         // process and return the selection
         let selection = selection?;
-        Ok(list
-            .into_queue()
-            .on_select(selection, &Context::new(engine)))
+        let cx = context(engine, list.rank(engine), &frame);
+        Ok(list.into_queue().on_select(selection, &cx))
     }
+}
+
+fn context<'items, T: Send + Sync + 'static, R>(
+    engine: &'items MatchEngine<T, R>,
+    rank: Option<u32>,
+    frame: &Frame,
+) -> Context<'items, T> {
+    let cx = Context::new(engine).with_rank(rank);
+    #[cfg(feature = "preview")]
+    let cx = cx.with_preview(frame.preview_enabled().then_some(frame.preview_size()));
+    #[cfg(not(feature = "preview"))]
+    let _ = frame;
+    cx
 }

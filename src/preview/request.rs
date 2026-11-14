@@ -50,7 +50,7 @@
 //!
 //! The picker also coordinates pre-emptive ("prefetch") requests with the previewer. Prefetch
 //! cancellation logic is handled differently: requests are only retried when the match list or
-//! cursor changes. If a prefetched item which becomes highlighted (so a normal request is sent),
+//! the hovered item changes. If a prefetched item becomes hovered (so a normal request is sent),
 //! the prefetch request is cancelled if not yet active and upgraded to a normal request.
 //!
 //! ### Basic example

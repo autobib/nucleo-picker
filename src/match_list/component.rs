@@ -13,18 +13,18 @@ pub(crate) struct MatchList<'a, Q> {
     state: &'a mut MatchListState,
     chars: &'a PickerChars,
     queued: Q,
-    buffered_selection: u32,
+    buffered_rank: u32,
     pending_redraw: bool,
 }
 
 impl<'a, Q: Queued> MatchList<'a, Q> {
     pub fn new(state: &'a mut MatchListState, chars: &'a PickerChars, queued: Q) -> Self {
-        let buffered_selection = state.layout.selection;
+        let buffered_rank = state.layout.rank;
         Self {
             state,
             chars,
             queued,
-            buffered_selection,
+            buffered_rank,
             pending_redraw: false,
         }
     }
@@ -37,34 +37,30 @@ impl<'a, Q: Queued> MatchList<'a, Q> {
         self.queued
     }
 
-    pub fn event_selection<T: Send + Sync + 'static, R>(
+    pub fn event_rank<T: Send + Sync + 'static, R>(
         &self,
         engine: &MatchEngine<T, R>,
     ) -> Option<u32> {
-        (!engine.is_empty()).then_some(self.buffered_selection)
+        (!engine.is_empty()).then_some(self.buffered_rank)
     }
 
-    pub fn selection<T: Send + Sync + 'static, R>(
-        &self,
-        engine: &MatchEngine<T, R>,
-    ) -> Option<u32> {
-        self.state.layout.selection(engine.snapshot())
+    pub fn rank<T: Send + Sync + 'static, R>(&self, engine: &MatchEngine<T, R>) -> Option<u32> {
+        self.state.layout.rank(engine.snapshot())
     }
 
     pub fn restart<T: Send + Sync + 'static>(&mut self, cx: &Context<'_, T>) {
         self.state.layout.restart(cx.snapshot, &self.state.config);
         self.queued.on_queue(QueueEvent::Clear, cx);
-        self.buffered_selection = 0;
+        self.buffered_rank = 0;
         self.pending_redraw = true;
     }
 
     /// Commit buffered navigation movements to the match engine.
     pub fn flush<T: Send + Sync + 'static, R>(&mut self, engine: &MatchEngine<T, R>) {
-        self.pending_redraw |= self.state.layout.set_selection(
-            engine.snapshot(),
-            self.buffered_selection,
-            &self.state.config,
-        );
+        self.pending_redraw |=
+            self.state
+                .layout
+                .set_rank(engine.snapshot(), self.buffered_rank, &self.state.config);
     }
 
     pub fn update<T: Send + Sync + 'static, R>(
@@ -79,14 +75,14 @@ impl<'a, Q: Queued> MatchList<'a, Q> {
                 .update_items(engine.snapshot(), &self.state.config);
         }
         self.pending_redraw |= items_changed || query_changed;
-        self.buffered_selection = self.state.layout.selection;
+        self.buffered_rank = self.state.layout.rank;
         std::mem::take(&mut self.pending_redraw)
     }
 
-    fn toggle_selection<T: Send + Sync + 'static>(&mut self, cx: &Context<'_, T>) -> bool {
+    fn toggle_hovered<T: Send + Sync + 'static>(&mut self, cx: &Context<'_, T>) -> bool {
         let changed = cx
             .matches()
-            .nth(self.buffered_selection as usize)
+            .nth(self.buffered_rank as usize)
             .is_some_and(|item| self.queued.on_queue(QueueEvent::Toggle(item), cx));
         self.pending_redraw |= changed;
         changed
@@ -98,7 +94,7 @@ impl<'a, Q: Queued> MatchList<'a, Q> {
         count: usize,
         increasing: bool,
     ) {
-        let start = self.buffered_selection as usize;
+        let start = self.buffered_rank as usize;
         let count = count.saturating_add(1);
         let matches = cx.match_ids().enumerate();
         if increasing {
@@ -122,17 +118,17 @@ impl<'a, Q: Queued> MatchList<'a, Q> {
                 }
                 self.pending_redraw = true;
             }
-            self.buffered_selection = rank as u32;
+            self.buffered_rank = rank as u32;
         }
     }
 
     fn decr(&mut self, n: usize) {
-        self.buffered_selection = self.buffered_selection.saturating_sub(as_u32(n));
+        self.buffered_rank = self.buffered_rank.saturating_sub(as_u32(n));
     }
 
     fn incr<T: Send + Sync + 'static>(&mut self, cx: &Context<'_, T>, n: usize) {
-        self.buffered_selection = self
-            .buffered_selection
+        self.buffered_rank = self
+            .buffered_rank
             .saturating_add(as_u32(n))
             .min(cx.snapshot.matched_item_count().saturating_sub(1));
     }
@@ -150,7 +146,7 @@ impl<'a, Q: Queued> MatchList<'a, Q> {
                 }
             }
             MatchListEvent::ToggleUp(n) => {
-                if self.toggle_selection(cx) {
+                if self.toggle_hovered(cx) {
                     if self.state.config.reversed {
                         self.decr(n);
                     } else {
@@ -175,7 +171,7 @@ impl<'a, Q: Queued> MatchList<'a, Q> {
                 self.pending_redraw |= self.queued.on_queue(QueueEvent::Matches, cx);
             }
             MatchListEvent::Unqueue => {
-                if let Some(id) = cx.match_ids().nth(self.buffered_selection as usize) {
+                if let Some(id) = cx.match_ids().nth(self.buffered_rank as usize) {
                     self.pending_redraw |= self.queued.on_queue(QueueEvent::Remove(id), cx);
                 }
             }
@@ -183,7 +179,7 @@ impl<'a, Q: Queued> MatchList<'a, Q> {
                 self.pending_redraw |= self.queued.on_queue(QueueEvent::Clear, cx);
             }
             MatchListEvent::ToggleDown(n) => {
-                if self.toggle_selection(cx) {
+                if self.toggle_hovered(cx) {
                     if self.state.config.reversed {
                         self.incr(cx, n);
                     } else {
@@ -192,7 +188,7 @@ impl<'a, Q: Queued> MatchList<'a, Q> {
                 }
             }
             MatchListEvent::Reset => {
-                self.buffered_selection = 0;
+                self.buffered_rank = 0;
             }
         }
     }
@@ -245,7 +241,7 @@ mod tests {
     }
 
     #[test]
-    fn selection_changes_do_not_change_the_queue() {
+    fn hovered_item_changes_do_not_change_the_queue() {
         let mut picker = picker();
         let mut list = MatchList::new(
             &mut picker.core.list_state,
@@ -273,7 +269,7 @@ mod tests {
         assert_eq!(list.queued().count(), Some(1));
         let redraw = update(&mut list, &mut picker.core.engine);
         assert!(redraw);
-        assert_eq!(list.selection(&picker.core.engine), Some(0));
+        assert_eq!(list.rank(&picker.core.engine), Some(0));
         assert!(!update(&mut list, &mut picker.core.engine));
     }
 
@@ -293,19 +289,19 @@ mod tests {
                 MatchListEvent::ToggleUp
             };
             list.handle(toggle(1), &Context::new(&picker.core.engine));
-            assert_eq!(list.event_selection(&picker.core.engine), Some(1));
+            assert_eq!(list.event_rank(&picker.core.engine), Some(1));
             assert_eq!(list.queued().count(), Some(1));
             assert!(update(&mut list, &mut picker.core.engine));
 
             list.handle(toggle(1), &Context::new(&picker.core.engine));
-            assert_eq!(list.event_selection(&picker.core.engine), Some(1));
+            assert_eq!(list.event_rank(&picker.core.engine), Some(1));
             assert_eq!(list.queued().count(), Some(1));
             assert!(!update(&mut list, &mut picker.core.engine));
 
             let cx = Context::new(&picker.core.engine);
             list.handle(MatchListEvent::Reset, &cx);
             list.handle(toggle(2), &cx);
-            assert_eq!(list.event_selection(&picker.core.engine), Some(2));
+            assert_eq!(list.event_rank(&picker.core.engine), Some(2));
             assert_eq!(list.queued().count(), Some(0));
             assert!(update(&mut list, &mut picker.core.engine));
         }
@@ -339,9 +335,9 @@ mod tests {
                     MatchListEvent::QueueBelow
                 };
                 list.handle(queue(0), &cx);
-                assert_eq!(list.event_selection(&picker.core.engine), Some(start));
+                assert_eq!(list.event_rank(&picker.core.engine), Some(start));
                 list.handle(queue(usize::MAX), &cx);
-                assert_eq!(list.event_selection(&picker.core.engine), Some(last));
+                assert_eq!(list.event_rank(&picker.core.engine), Some(last));
                 assert_eq!(list.queued().count(), Some(2));
                 let selected = list.into_queue().on_select(SelectionTarget::Queued, &cx);
                 let expected = if increasing { ["a", "b"] } else { ["d", "c"] };
@@ -374,7 +370,7 @@ mod tests {
                 MatchListEvent::UnqueueAll,
             ] {
                 list.handle(event, &cx);
-                assert_eq!(list.event_selection(&picker.core.engine), Some(1));
+                assert_eq!(list.event_rank(&picker.core.engine), Some(1));
                 assert!(list.queued().count().is_none());
             }
         }

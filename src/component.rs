@@ -16,8 +16,8 @@
 use std::{io, time::Instant};
 
 use crate::{
-    match_engine::MatchEngine,
     rect::{Area, Position, Rect},
+    session::Context,
 };
 
 /// A single component in the frame.
@@ -42,16 +42,11 @@ pub(crate) trait PreviewComponent<T>: Component<()> {
 
     /// Handle a preview event
     #[cfg(feature = "preview")]
-    fn handle(&mut self, event: PreviewEvent, selected_id: Option<u32>);
+    fn handle(&mut self, event: PreviewEvent, cx: &Context<'_, T>);
 
-    fn update<R>(
-        &mut self,
-        selected_rank: Option<u32>,
-        engine: &MatchEngine<T, R>,
-        deadline: Instant,
-    ) -> bool;
+    fn update(&mut self, cx: &Context<'_, T>, deadline: Instant) -> bool;
 
-    fn prefetch<R>(&mut self, engine: &MatchEngine<T, R>, deadline: Instant);
+    fn prefetch(&mut self, cx: &Context<'_, T>, deadline: Instant);
 
     /// Do extra processing when a preview frame is hidden.
     fn hide(&mut self);
@@ -75,16 +70,11 @@ impl Component<()> for NoPreview {
 impl<T> PreviewComponent<T> for NoPreview {
     const ENABLED: bool = false;
     #[cfg(feature = "preview")]
-    fn handle(&mut self, _event: PreviewEvent, _selected_id: Option<u32>) {}
-    fn update<R>(
-        &mut self,
-        _selected_rank: Option<u32>,
-        _engine: &MatchEngine<T, R>,
-        _deadline: Instant,
-    ) -> bool {
+    fn handle(&mut self, _event: PreviewEvent, _cx: &Context<'_, T>) {}
+    fn update(&mut self, _cx: &Context<'_, T>, _deadline: Instant) -> bool {
         false
     }
-    fn prefetch<R>(&mut self, _engine: &MatchEngine<T, R>, _deadline: Instant) {}
+    fn prefetch(&mut self, _cx: &Context<'_, T>, _deadline: Instant) {}
     fn hide(&mut self) {}
     fn restart(&mut self) {}
 }
@@ -105,19 +95,14 @@ impl<E, C: Component<E>> Component<E> for &mut C {
 impl<T, C: PreviewComponent<T>> PreviewComponent<T> for &mut C {
     const ENABLED: bool = C::ENABLED;
     #[cfg(feature = "preview")]
-    fn handle(&mut self, event: PreviewEvent, selected_id: Option<u32>) {
-        (**self).handle(event, selected_id);
+    fn handle(&mut self, event: PreviewEvent, cx: &Context<'_, T>) {
+        (**self).handle(event, cx);
     }
-    fn update<R>(
-        &mut self,
-        selected_rank: Option<u32>,
-        engine: &MatchEngine<T, R>,
-        deadline: Instant,
-    ) -> bool {
-        (**self).update(selected_rank, engine, deadline)
+    fn update(&mut self, cx: &Context<'_, T>, deadline: Instant) -> bool {
+        (**self).update(cx, deadline)
     }
-    fn prefetch<R>(&mut self, engine: &MatchEngine<T, R>, deadline: Instant) {
-        (**self).prefetch(engine, deadline);
+    fn prefetch(&mut self, cx: &Context<'_, T>, deadline: Instant) {
+        (**self).prefetch(cx, deadline);
     }
     fn hide(&mut self) {
         (**self).hide();

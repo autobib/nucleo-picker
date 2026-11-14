@@ -54,7 +54,7 @@
 //! [`MatchListEvent::ToggleUp`](crate::event::MatchListEvent::ToggleUp) events. The default
 //! keybindings bind these to `⇥` and `shift + ⇥` respectively. In this case, an
 //! [`Event::Select`] is handled slightly differently: if there are no queued selections, this
-//! picks the highlighted item, but if there are queued selections, then only the queued selections
+//! picks the hovered item, but if there are queued selections, then only the queued selections
 //! are returned.
 //!
 //! If the picker [restarts while running](Event::Restart), the queued item list will be cleared
@@ -217,6 +217,8 @@ use std::{
 use crossterm::event::KeyEvent;
 
 pub use context::Context;
+#[cfg(feature = "preview")]
+pub use context::PreviewSize;
 pub use item::{ItemId, ItemRef, OwnedItem};
 pub use picker_ref::PickerRef;
 

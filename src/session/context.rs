@@ -1,10 +1,44 @@
 use super::{ItemId, ItemRef, OwnedItem};
 use crate::match_engine::MatchEngine;
 
-/// Read-only access to the internal item pool.
+/// Read-only access to picker context.
+// TODO: write more docs
 pub struct Context<'items, T> {
     pub(crate) snapshot: &'items nucleo::Snapshot<T>,
     generation: u32,
+    query: &'items str,
+    #[cfg(any(test, feature = "preview"))]
+    match_revision: u64,
+    rank: Option<u32>,
+    #[cfg(feature = "preview")]
+    preview_size: Option<PreviewSize>,
+}
+
+/// The size of the interior of the preview pane in terminal cells.
+///
+/// This is the dimension of the preview area, excluding borders.
+#[cfg(feature = "preview")]
+#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
+#[derive(Clone, Copy, Default)]
+pub struct PreviewSize {
+    /// The width of the preview area in terminal columns.
+    pub width: u16,
+    /// The height of the preview area in terminal columns.
+    pub height: u16,
+}
+
+#[cfg(feature = "preview")]
+impl PreviewSize {
+    pub(crate) fn from_area(area: crate::rect::Area) -> Self {
+        if area.is_empty() {
+            Self::default()
+        } else {
+            Self {
+                width: area.width.saturating_sub(2),
+                height: area.height.saturating_sub(2),
+            }
+        }
+    }
 }
 
 impl<'items, T: Send + Sync + 'static> Context<'items, T> {
@@ -12,7 +46,53 @@ impl<'items, T: Send + Sync + 'static> Context<'items, T> {
         Self {
             snapshot: engine.snapshot(),
             generation: engine.generation(),
+            query: engine.query(),
+            #[cfg(any(test, feature = "preview"))]
+            match_revision: engine.match_revision(),
+            rank: None,
+            #[cfg(feature = "preview")]
+            preview_size: None,
         }
+    }
+
+    pub(crate) fn with_rank(mut self, rank: Option<u32>) -> Self {
+        self.rank = rank.filter(|&rank| rank < self.snapshot.matched_item_count());
+        self
+    }
+
+    #[cfg(feature = "preview")]
+    pub(crate) fn with_preview(mut self, size: Option<PreviewSize>) -> Self {
+        self.preview_size = size;
+        self
+    }
+
+    /// Returns the hovered item, or none if the match list is empty.
+    pub fn hovered(&self) -> Option<ItemRef<'items, T>> {
+        self.matches().nth(self.rank? as usize)
+    }
+
+    /// Returns the rank of the hovered item, or none if the match list is empty.
+    pub fn rank(&self) -> Option<u32> {
+        self.rank
+    }
+
+    /// A token to track the snapshot generation.
+    #[cfg(any(test, feature = "preview"))]
+    pub(crate) fn match_revision(&self) -> u64 {
+        self.match_revision
+    }
+
+    /// The current query string.
+    pub fn query(&self) -> &str {
+        self.query
+    }
+
+    /// Returns the current size of the preview pane, or `None` if the preview pane is hidden or
+    /// otherwise not enabled.
+    #[cfg(feature = "preview")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
+    pub fn preview_size(&self) -> Option<PreviewSize> {
+        self.preview_size
     }
 
     /// Obtain the item corresponding to the given identifier.

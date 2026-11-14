@@ -24,7 +24,7 @@ pub(crate) enum QueueEvent<'a, T> {
 
 pub(crate) enum SelectionTarget {
     None,
-    Current(ItemId),
+    Hovered(ItemId),
     Queued,
 }
 
@@ -84,7 +84,7 @@ impl Queued for () {
     ) -> Self::Output<'items, T> {
         match target {
             SelectionTarget::None | SelectionTarget::Queued => None,
-            SelectionTarget::Current(id) => {
+            SelectionTarget::Hovered(id) => {
                 // SAFETY: the session captures id from this snapshot without ticking or restarting
                 // the matcher before output conversion.
                 let item = unsafe { cx.item_unchecked(id) };
@@ -168,7 +168,7 @@ impl Queued for SelectedIndices {
     ) -> Self::Output<'items, T> {
         match target {
             SelectionTarget::None => self.inner.clear(),
-            SelectionTarget::Current(id) => {
+            SelectionTarget::Hovered(id) => {
                 self.inner.clear();
                 self.insert(id);
             }

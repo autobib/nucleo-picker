@@ -233,7 +233,7 @@ impl Default for PreviewConfig {
 ///
 /// The picker will only request previews for items which are immediately required by the
 /// interface. In particular, requests should be handled in last-in first-out (LIFO) order. Since
-/// preview requests may become stale (for instance, if the highlighted item has moved many
+/// preview requests may become stale (for instance, if the hovered item has moved many
 /// times and there is backlog), the picker will re-prioritize preview requests by cancelling
 /// old requests and calling this method again.
 ///
@@ -312,8 +312,8 @@ pub trait Preview<T> {
 
     /// Configure the preview range for prefetch.
     ///
-    /// Prefetching requests previews for items which are not yet highlighted, but which the user
-    /// may highlight soon. This can greatly reduce perceived latency at the cost of unnecessary
+    /// Prefetching requests previews for items which are not yet hovered, but which the user
+    /// may hover soon. This can greatly reduce perceived latency at the cost of unnecessary
     /// preview generation.
     ///
     /// If this value is set to `0`, prefetch requests will never be made. The default value is `0`.
@@ -327,7 +327,7 @@ pub trait Preview<T> {
     ///
     /// Return `Ok` if the request can be handled, or return the unused buffer in the `Err` variant
     /// to decline this particular request. Any request can be safely declined; if the preview is
-    /// required for the current item, the request will be re-submitted to the usual
+    /// required for the hovered item, the request will be re-submitted to the usual
     /// [`preview`](Self::preview) method.
     ///
     /// Note that callers must override [`prefetch_limit`](Self::prefetch_limit) to a non-zero
@@ -340,7 +340,7 @@ pub trait Preview<T> {
     /// ## Prefetch call sequence
     ///
     /// Call a *cycle* a single pass over the [`prefetch_limit`](Self::prefetch_limit)-nearest items
-    /// in the match list. The cycle refreshes each time the cursor moves or the match list updates.
+    /// in the match list. The cycle refreshes each time the hovered item changes or the match list updates.
     /// For each item, once per cycle, its status is checked:
     ///
     /// 1. If the request was dropped or no previous request was made, it will be requested.
@@ -361,16 +361,16 @@ pub trait Preview<T> {
         Err(request.buffer)
     }
 
-    /// Handle changes to an active preview target.
+    /// Handle changes to the hovered item.
     ///
     /// This method is called whenever the preview pane changes to a new target. Unlike `preview`, this
     /// method is called even if the item is cached. The `None` target means that the preview is
-    /// hidden or that there are no matching items (so none is selected). This method is called
+    /// hidden or that there are no matching items (so none is hovered). This method is called
     /// before the `preview` method (if the `preview` method is called at all).
     ///
-    /// The initial focus state is `None`. When the picker quits, all pending preview requests are
-    /// cancelled followed by a final `focus_changed(None)` if there was an active preview pane at
-    /// the end. Note that `focus_changed` is not called when panicking.
+    /// The initial hover state is `None`. When the picker quits, all pending preview requests are
+    /// cancelled followed by a final `hover_changed(None)` if there was an active preview pane at
+    /// the end. Note that `hover_changed` is not called when panicking.
     ///
     /// This method runs on the picker thread and therefore must not block. If it blocks, the picker
     /// interface will lag.
@@ -380,14 +380,14 @@ pub trait Preview<T> {
     /// instance, this is the case for a [`PoolPreviewer`].
     ///
     /// The default implementation does nothing.
-    fn focus_changed(&mut self, _item: Option<ItemRef<'_, T>>) {}
+    fn hover_changed(&mut self, _item: Option<ItemRef<'_, T>>) {}
 
     /// Handle an interactive picker restart.
     ///
     /// This method is called when an interactive restart (that is,
     /// [`Event::Restart`](crate::event::Event::Restart)) is processed by the picker. Note that
     /// this method is called *after* clearing the preview cache, cancelling pending requests, and
-    /// the call to `focus_changed(None)` (if one was made since the focus was active before the
+    /// the call to `hover_changed(None)` (if one was made since there was a hovered item before the
     /// restart), and *before* restarting the underlying matching engine.
     ///
     /// This method runs on the picker thread and therefore must not block. If it blocks, the picker
@@ -399,8 +399,8 @@ pub trait Preview<T> {
 
 impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
     #[inline]
-    fn focus_changed(&mut self, item: Option<ItemRef<'_, T>>) {
-        (**self).focus_changed(item);
+    fn hover_changed(&mut self, item: Option<ItemRef<'_, T>>) {
+        (**self).hover_changed(item);
     }
 
     #[inline]

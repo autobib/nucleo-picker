@@ -213,7 +213,7 @@ pub enum Event<A = !> {
     Abort(A),
     /// Redraw the screen.
     Redraw,
-    /// Quit the picker by selecting either the queued selections or the highlighted item if no
+    /// Quit the picker by selecting either the queued selections or the hovered item if no
     /// selections are queued.
     Select,
     /// Request a status update from the picker.
@@ -236,8 +236,8 @@ pub struct PickerStatus {
     pub id: u64,
     /// The query string.
     pub query: String,
-    /// The index of the cursor in the ordered match list, or `None` if there are no matching items.
-    pub selection: Option<u32>,
+    /// The rank of the hovered item in the ordered match list, or `None` if there are no matching items.
+    pub rank: Option<u32>,
     /// The total number of items available to match against.
     pub item_count: u32,
     /// The number of items matching the query.

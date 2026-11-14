@@ -14,6 +14,9 @@ use crossterm::{
 };
 use std::io;
 
+#[cfg(feature = "preview")]
+use crate::session::PreviewSize;
+
 /// Events which modify the layout of the picker screen.
 #[derive(Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -75,6 +78,8 @@ pub(crate) struct Frame {
     list: Area,
     status: Area,
     preview: Area,
+    #[cfg(feature = "preview")]
+    preview_size: PreviewSize,
 }
 
 impl Frame {
@@ -93,6 +98,8 @@ impl Frame {
             list: Area::default(),
             status: Area::default(),
             preview: Area::default(),
+            #[cfg(feature = "preview")]
+            preview_size: PreviewSize::default(),
         };
         frame.layout();
         frame
@@ -105,6 +112,11 @@ impl Frame {
 
     pub fn preview_enabled(&self) -> bool {
         self.preview_ratio.is_some() && !self.preview_hidden
+    }
+
+    #[cfg(feature = "preview")]
+    pub fn preview_size(&self) -> PreviewSize {
+        self.preview_size
     }
 
     pub fn status_enabled(&self) -> bool {
@@ -243,6 +255,10 @@ impl Frame {
         list.resize(self.list, engine);
         status.resize(self.status, &());
         preview.resize(self.preview, &());
+        #[cfg(feature = "preview")]
+        {
+            self.preview_size = PreviewSize::from_area(self.preview);
+        }
         self.pending_resize = false;
     }
 

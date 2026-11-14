@@ -88,7 +88,7 @@ pub trait PreviewWorker<T> {
 /// ## Preview wrappers
 ///
 /// Some previewers may benefit from wrapping a [`PoolPreviewer`]. In this case, it is essential
-/// that the wrapper type focuses [`Preview::focus_changed`], since the [`PoolPreviewer`] uses this
+/// that the wrapper type forwards [`Preview::hover_changed`], since the [`PoolPreviewer`] uses this
 /// for scheduling to improve responsiveness.
 ///
 /// ## Example
@@ -423,13 +423,13 @@ where
         self.pool.submit(request, true)
     }
 
-    fn focus_changed(&mut self, item: Option<ItemRef<'_, T>>) {
-        let focused = item.map(|item| item.id());
+    fn hover_changed(&mut self, item: Option<ItemRef<'_, T>>) {
+        let hovered = item.map(|item| item.id());
         let background_capacity = 2 * (self.pool.workers.len() - 1);
         {
             let mut state = self.pool.shared.state.lock();
             if let Some(jobs) = &mut state.jobs
-                && let Some(request) = jobs.urgent.take_if(|request| Some(request.id()) != focused)
+                && let Some(request) = jobs.urgent.take_if(|request| Some(request.id()) != hovered)
             {
                 jobs.push_background(request, background_capacity);
             } else {

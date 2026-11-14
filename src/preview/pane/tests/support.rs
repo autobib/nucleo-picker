@@ -1,6 +1,7 @@
 use super::super::*;
 use crate::{
     Picker, PickerOptions,
+    match_engine::MatchEngine,
     preview::{
         ItemId, ItemRef,
         request::{ActivePreviewRequest, PreviewResponse, QueuedPreviewRequest},
@@ -10,9 +11,9 @@ use crate::{
 
 #[derive(Default)]
 pub(crate) struct TestPreviewer {
-    pub(crate) focused: Vec<Option<&'static str>>,
-    pub(crate) focused_ids: Vec<Option<ItemId>>,
-    pub(crate) cancelled_on_blur: Vec<bool>,
+    pub(crate) hovered: Vec<Option<&'static str>>,
+    pub(crate) hovered_ids: Vec<Option<ItemId>>,
+    pub(crate) cancelled_on_clear: Vec<bool>,
     pub(crate) requested: Vec<&'static str>,
     pub(crate) ids: Vec<ItemId>,
     pub(crate) buffer_allocations: Vec<*const u8>,
@@ -89,13 +90,33 @@ pub(crate) fn deadline() -> Instant {
 impl<T: Send + Sync + 'static, P: Preview<T>> PreviewPane<T, P> {
     pub(crate) fn run_frame<R>(
         &mut self,
-        selected_rank: Option<u32>,
+        rank: Option<u32>,
         engine: &MatchEngine<T, R>,
         deadline: Instant,
     ) -> bool {
-        let redraw = self.update(selected_rank, engine, deadline);
-        self.prefetch(engine, deadline);
+        let cx = Context::new(engine)
+            .with_rank(rank)
+            .with_preview(Some(PreviewSize::from_area(self.state.area)));
+        let redraw = self.update(&cx, deadline);
+        self.prefetch(&cx, deadline);
         redraw
+    }
+
+    pub(crate) fn update_at<R>(
+        &mut self,
+        rank: Option<u32>,
+        engine: &MatchEngine<T, R>,
+        deadline: Instant,
+    ) -> bool {
+        let cx = Context::new(engine)
+            .with_rank(rank)
+            .with_preview(Some(PreviewSize::from_area(self.state.area)));
+        self.update(&cx, deadline)
+    }
+
+    pub(crate) fn handle_at(&mut self, event: PreviewEvent, hovered: Option<u32>) {
+        self.state
+            .handle_event(hovered, event, PreviewSize::from_area(self.state.area));
     }
 }
 
@@ -144,18 +165,18 @@ impl Preview<&'static str> for TestPreviewer {
         }
     }
 
-    fn focus_changed(&mut self, item: Option<ItemRef<'_, &'static str>>) {
+    fn hover_changed(&mut self, item: Option<ItemRef<'_, &'static str>>) {
         if item.is_none() {
-            self.cancelled_on_blur
+            self.cancelled_on_clear
                 .push(self.queued.iter().all(QueuedPreviewRequest::is_cancelled));
         }
-        self.focused.push(item.map(|item| *item.value()));
-        self.focused_ids.push(item.map(|item| item.id()));
+        self.hovered.push(item.map(|item| *item.value()));
+        self.hovered_ids.push(item.map(|item| item.id()));
     }
 
     fn restart(&mut self) {
         assert!(self.queued.iter().all(QueuedPreviewRequest::is_cancelled));
-        assert!(self.focused.last().is_none_or(Option::is_none));
+        assert!(self.hovered.last().is_none_or(Option::is_none));
         self.restarts += 1;
     }
 
@@ -166,8 +187,8 @@ impl Preview<&'static str> for TestPreviewer {
     ) -> PreviewResponse {
         assert!(timeout >= Duration::from_millis(2));
         let item = request.item();
-        assert_eq!(self.focused.last(), Some(&Some(*item)));
-        assert_eq!(self.focused_ids.last(), Some(&Some(request.id())));
+        assert_eq!(self.hovered.last(), Some(&Some(*item)));
+        assert_eq!(self.hovered_ids.last(), Some(&Some(request.id())));
         self.requested.push(item);
         self.ids.push(request.id());
         assert_eq!(request.buffer.offset(), (0, 0));
@@ -232,12 +253,12 @@ pub(crate) fn picker(
     picker
 }
 
-pub(crate) fn selected_item(picker: &Picker<&'static str, StrRenderer>) -> Option<u32> {
+pub(crate) fn hovered_index(picker: &Picker<&'static str, StrRenderer>) -> Option<u32> {
     picker
         .core
         .list_state
         .layout
-        .selection(picker.core.engine.snapshot())
+        .rank(picker.core.engine.snapshot())
         .map(|n| picker.core.engine.idx_from_match(n))
 }
 
@@ -257,8 +278,8 @@ pub(crate) fn update(
         .core
         .list_state
         .layout
-        .selection(picker.core.engine.snapshot());
-    application.update(rank, &picker.core.engine, Instant::now())
+        .rank(picker.core.engine.snapshot());
+    application.update_at(rank, &picker.core.engine, Instant::now())
 }
 
 #[cfg(feature = "unstable-backend")]

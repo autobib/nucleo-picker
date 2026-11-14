@@ -17,7 +17,7 @@ use nucleo::{
     pattern::{CaseMatching as NucleoCaseMatching, Normalization as NucleoNormalization},
 };
 
-#[cfg(feature = "preview")]
+#[cfg(all(test, feature = "preview"))]
 use crate::session::ItemRef;
 use crate::{Injector, MatchStatus, Render, session::ItemId};
 
@@ -35,7 +35,7 @@ pub(crate) struct MatchEngine<T, R> {
     case_matching: NucleoCaseMatching,
     normalization: NucleoNormalization,
     generation: u32,
-    #[cfg(feature = "preview")]
+    #[cfg(any(test, feature = "preview"))]
     match_revision: u64,
 }
 
@@ -76,7 +76,7 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
             needs_tick,
             nucleo_is_running: false,
             generation: 0,
-            #[cfg(feature = "preview")]
+            #[cfg(any(test, feature = "preview"))]
             match_revision: 0,
         }
     }
@@ -84,9 +84,13 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
         self.nucleo.snapshot()
     }
 
-    #[cfg(feature = "preview")]
+    #[cfg(any(test, feature = "preview"))]
     pub fn match_revision(&self) -> u64 {
         self.match_revision
+    }
+
+    pub fn query(&self) -> &str {
+        &self.prompt
     }
 
     pub fn generation(&self) -> u32 {
@@ -100,7 +104,7 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
         }
     }
 
-    #[cfg(feature = "preview")]
+    #[cfg(all(test, feature = "preview"))]
     pub fn item_ref(&self, index: u32) -> Option<ItemRef<'_, T>> {
         self.snapshot()
             .get_item(index)
@@ -137,6 +141,10 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
             .checked_add(1)
             .expect("picker item generation exhausted");
         self.nucleo.restart(true);
+        #[cfg(any(test, feature = "preview"))]
+        {
+            self.match_revision = self.match_revision.wrapping_add(1);
+        }
         self.needs_tick.store(true, Ordering::Relaxed);
     }
 
@@ -165,7 +173,7 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
     }
 
     pub fn idx_from_match(&self, n: u32) -> u32 {
-        // SAFETY: callers use a selection clamped to this nonempty snapshot, with no intervening tick
+        // SAFETY: callers use a rank clamped to this nonempty snapshot, with no intervening tick
         // or restart that could invalidate the rank.
         unsafe {
             self.nucleo
@@ -189,7 +197,7 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
             self.needs_tick.store(false, Ordering::Relaxed);
             // Wait directly on the workers rather than gating ticks on their notifications.
             let status = self.nucleo.tick(u64::MAX);
-            #[cfg(feature = "preview")]
+            #[cfg(any(test, feature = "preview"))]
             if status.changed {
                 self.match_revision = self.match_revision.wrapping_add(1);
             }
@@ -211,7 +219,7 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
         }
         let items_changed = if self.needs_tick.swap(false, Ordering::Relaxed) {
             let status = self.nucleo.tick(millis);
-            #[cfg(feature = "preview")]
+            #[cfg(any(test, feature = "preview"))]
             if status.changed {
                 self.match_revision = self.match_revision.wrapping_add(1);
             }

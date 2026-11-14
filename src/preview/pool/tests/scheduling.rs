@@ -24,7 +24,7 @@ fn prefetch(
 }
 
 #[test]
-fn background_work_preserves_capacity_for_the_next_highlighted_request() {
+fn background_work_preserves_capacity_for_the_next_hovered_request() {
     for foreground in [false, true] {
         let picker = support::picker(["first", "second", "third", "fourth"]);
         let (pool, started, release) = pool(2);
@@ -68,7 +68,7 @@ fn background_work_preserves_capacity_for_the_next_highlighted_request() {
 }
 
 #[test]
-fn reopening_the_pane_promotes_the_queued_selection() {
+fn reopening_the_pane_promotes_the_queued_hovered_item() {
     for prefetch in [0, 4] {
         let picker = support::picker(["first", "second"]);
         let (pool, started, release) = pool(1);
@@ -97,8 +97,8 @@ fn reopening_the_pane_promotes_the_queued_selection() {
 }
 
 #[test]
-fn focus_changes_without_submission_demote_the_urgent_request() {
-    for focused in [None, Some(0)] {
+fn hovered_item_changes_without_submission_demote_the_urgent_request() {
+    for hovered in [None, Some(0)] {
         let picker = picker();
         let (mut pool, started, release) = pool(2);
         let first = submit(&mut pool, &picker, 0, PreviewBuffer::new());
@@ -107,7 +107,7 @@ fn focus_changes_without_submission_demote_the_urgent_request() {
         started.recv_timeout(WAIT).unwrap();
 
         let outdated = submit(&mut pool, &picker, 2, PreviewBuffer::new());
-        pool.focus_changed(focused.and_then(|idx| picker.core.engine.item_ref(idx)));
+        pool.hover_changed(hovered.and_then(|idx| picker.core.engine.item_ref(idx)));
         let background = prefetch(&mut pool, &picker, 3);
         release.send(false).unwrap();
         let early = started.recv_timeout(QUIET).ok();
@@ -197,12 +197,12 @@ fn a_single_worker_only_runs_current_demand_and_preserves_declined_buffers() {
     let first = submit(&mut pool, &picker, 0, buffer);
     started.recv_timeout(WAIT).unwrap();
     let outdated = submit(&mut pool, &picker, 1, PreviewBuffer::new());
-    let highlighted = submit(&mut pool, &picker, 2, PreviewBuffer::new());
+    let hovered = submit(&mut pool, &picker, 2, PreviewBuffer::new());
     release.send(false).unwrap();
     let next = started.recv_timeout(WAIT).unwrap();
     release.send(false).unwrap();
     ready(first);
-    ready(highlighted);
+    ready(hovered);
     let early = started.recv_timeout(QUIET).ok();
     release.send(false).unwrap();
     drop(pool);
@@ -241,7 +241,7 @@ fn disabling_pool_prefetch_preserves_buffers_and_foreground_work() {
 
 #[test]
 fn current_demand_precedes_lifo_background_work_and_cancelled_jobs_are_skipped() {
-    for cancel_highlighted in [false, true] {
+    for cancel_hovered in [false, true] {
         let picker = picker();
         let (mut pool, started, release) = pool(2);
         let first = submit(&mut pool, &picker, 0, PreviewBuffer::new());
@@ -251,18 +251,18 @@ fn current_demand_precedes_lifo_background_work_and_cancelled_jobs_are_skipped()
 
         let outdated = submit(&mut pool, &picker, 2, PreviewBuffer::new());
         let older_prefetch = prefetch(&mut pool, &picker, 3);
-        let mut highlighted = Some(submit(&mut pool, &picker, 0, PreviewBuffer::new()));
-        pool.focus_changed(picker.core.engine.item_ref(0));
+        let mut hovered = Some(submit(&mut pool, &picker, 0, PreviewBuffer::new()));
+        pool.hover_changed(picker.core.engine.item_ref(0));
         prefetch(&mut pool, &picker, 3).reader.cancel_any();
         let newer_prefetch = prefetch(&mut pool, &picker, 1);
         assert!(completed(older_prefetch).is_err());
-        if cancel_highlighted {
-            highlighted.take().unwrap().reader.cancel_any();
+        if cancel_hovered {
+            hovered.take().unwrap().reader.cancel_any();
         }
         for _ in 0..2 {
             release.send(false).unwrap();
         }
-        let expected = if cancel_highlighted {
+        let expected = if cancel_hovered {
             &["second", "third"][..]
         } else {
             &["first", "second", "third"][..]
@@ -274,7 +274,7 @@ fn current_demand_precedes_lifo_background_work_and_cancelled_jobs_are_skipped()
         }
         for pending in [first, second, outdated, newer_prefetch]
             .into_iter()
-            .chain(highlighted)
+            .chain(hovered)
         {
             ready(pending);
         }
@@ -305,13 +305,13 @@ fn initializing_workers_do_not_count_as_spare_capacity() {
 
     let background = prefetch(&mut pool, &picker, 0);
     let early = started.recv_timeout(QUIET).ok();
-    let highlighted = submit(&mut pool, &picker, 1, PreviewBuffer::new());
+    let hovered = submit(&mut pool, &picker, 1, PreviewBuffer::new());
     if early.is_some() {
         release.send(false).unwrap();
     }
     let next = started.recv_timeout(WAIT).unwrap();
     release.send(false).unwrap();
-    ready(highlighted);
+    ready(hovered);
     initialize.send(()).unwrap();
     release.send(false).unwrap();
     ready(background);

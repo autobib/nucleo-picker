@@ -77,11 +77,11 @@ impl MatchListTester {
         match lc {
             Action::Incr(incr) => {
                 self.layout
-                    .selection_incr(self.engine.snapshot(), incr, &self.config);
+                    .rank_incr(self.engine.snapshot(), incr, &self.config);
             }
             Action::Decr(decr) => {
                 self.layout
-                    .selection_decr(self.engine.snapshot(), decr, &self.config);
+                    .rank_decr(self.engine.snapshot(), decr, &self.config);
             }
             Action::Reset => {
                 self.layout.reset(self.engine.snapshot(), &self.config);
@@ -187,10 +187,10 @@ fn check_zero_height_navigation(reversed: bool) {
         ] {
             assert_eq!(
                 lt.layout
-                    .set_selection(lt.engine.snapshot(), requested, &lt.config),
+                    .set_rank(lt.engine.snapshot(), requested, &lt.config),
                 changed
             );
-            assert_eq!(lt.layout.selection(lt.engine.snapshot()), Some(expected));
+            assert_eq!(lt.layout.rank(lt.engine.snapshot()), Some(expected));
             assert_eq!(
                 lt.view(),
                 LayoutView {
@@ -201,9 +201,9 @@ fn check_zero_height_navigation(reversed: bool) {
         }
 
         assert_layout!(lt, Resize(1), &[1], &[]);
-        assert_eq!(lt.layout.selection(lt.engine.snapshot()), Some(1));
+        assert_eq!(lt.layout.rank(lt.engine.snapshot()), Some(1));
         assert_layout!(lt, Resize(3), &[1, 1], &[1]);
-        assert_eq!(lt.layout.selection(lt.engine.snapshot()), Some(1));
+        assert_eq!(lt.layout.rank(lt.engine.snapshot()), Some(1));
     }
 }
 
@@ -256,7 +256,7 @@ fn item_change() {
 }
 
 #[test]
-fn rev_incl_selection() {
+fn rev_incl_hovered_item() {
     let mut lt = MatchListTester::init_rev(5, 1);
     assert_layout!(
         lt,

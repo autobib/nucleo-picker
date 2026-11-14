@@ -156,7 +156,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
     #[inline]
     fn start_line<D: Rect>(
         rect: &mut D,
-        selected: bool,
+        hovered: bool,
         queued: bool,
         prefix_width: u16,
         highlight_line: bool,
@@ -166,13 +166,13 @@ impl<'a, P: Processor> Spanned<'a, P> {
             return Ok(());
         }
 
-        if selected {
-            // print the line as bold, and with a 'selection' marker
+        if hovered {
+            // print the line as bold, and with a 'hovered-item' marker
             rect.set_attribute(Attribute::Bold)?;
             if !highlight_line {
                 rect.set_background(Color::DarkGrey)?;
             }
-            rect.print_styled(chars.selection.magenta())?;
+            rect.print_styled(chars.hover.magenta())?;
         } else {
             // print a blank instead
             rect.print(" ")?;
@@ -186,7 +186,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
             }
         }
 
-        if selected && highlight_line {
+        if hovered && highlight_line {
             rect.set_background(Color::DarkGrey)?;
         }
 
@@ -210,24 +210,24 @@ impl<'a, P: Processor> Spanned<'a, P> {
     fn finish_line<D: Rect>(
         rect: &mut D,
         remaining: impl FnOnce() -> u16,
-        selected: bool,
+        hovered: bool,
         fill_highlight: bool,
     ) -> io::Result<()> {
         if fill_highlight {
             rect.spaces(remaining())?;
         }
-        if selected {
+        if hovered {
             rect.set_attribute(Attribute::Reset)?;
         }
         rect.next_line()
     }
 
-    /// Print into the rectangle with styling to match if the item is selected or not.
+    /// Print into the rectangle with styling to match if the item is hovered or not.
     #[inline]
     pub fn queue_print<D: Rect>(
         &self,
         rect: &mut D,
-        selected: bool,
+        hovered: bool,
         queued: bool,
         highlight_padding: u16,
         highlight_line: bool,
@@ -236,7 +236,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
         let width = rect.width().get();
         let prefix_width = width.min(2);
         let max_width = width.saturating_sub(prefix_width);
-        let fill_highlight = selected && highlight_line;
+        let fill_highlight = hovered && highlight_line;
 
         if self.max_line_bytes() <= max_width.saturating_sub(highlight_padding) as usize {
             // Fast path: all of the lines are short, so we can just render them without any Unicode width
@@ -252,7 +252,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
                 if !fill_highlight {
                     rect.clear_line()?;
                 }
-                Self::start_line(rect, selected, queued, prefix_width, highlight_line, chars)?;
+                Self::start_line(rect, hovered, queued, prefix_width, highlight_line, chars)?;
                 for span in line {
                     Self::print_span(rect, self.index_in(span), span.is_match)?;
                 }
@@ -267,7 +267,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
                     };
                     max_width.saturating_sub(printed_width as u16)
                 };
-                Self::finish_line(rect, remaining_capacity, selected, fill_highlight)?;
+                Self::finish_line(rect, remaining_capacity, hovered, fill_highlight)?;
             }
         } else {
             let offset = self.required_offset(max_width, highlight_padding);
@@ -276,10 +276,10 @@ impl<'a, P: Processor> Spanned<'a, P> {
                 if !fill_highlight {
                     rect.clear_line()?;
                 }
-                Self::start_line(rect, selected, queued, prefix_width, highlight_line, chars)?;
+                Self::start_line(rect, hovered, queued, prefix_width, highlight_line, chars)?;
                 let remaining_capacity =
                     self.queue_print_line(rect, line, offset, max_width, chars)?;
-                Self::finish_line(rect, || remaining_capacity, selected, fill_highlight)?;
+                Self::finish_line(rect, || remaining_capacity, hovered, fill_highlight)?;
             }
         }
         Ok(())

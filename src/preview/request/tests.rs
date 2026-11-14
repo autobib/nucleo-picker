@@ -32,9 +32,9 @@ fn request_transitions_preserve_identity_and_publication() {
     let id = item.id();
     assert_eq!(request.id(), id);
     assert!(std::ptr::eq(request.item(), item.value()));
-    let focused = picker.core.engine.item_ref(0).unwrap();
-    assert_eq!(focused.id(), id);
-    assert!(std::ptr::eq(focused.value(), item.value()));
+    let hovered = picker.core.engine.item_ref(0).unwrap();
+    assert_eq!(hovered.id(), id);
+    assert!(std::ptr::eq(hovered.value(), item.value()));
     let (pending, queued) = request.defer();
     assert_eq!(queued.id(), id);
     assert_eq!(queued.item_ref().id(), id);

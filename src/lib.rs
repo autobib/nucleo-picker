@@ -339,8 +339,8 @@ impl Normalization {
 pub(crate) struct PickerChars {
     /// The prompt indicator.
     pub prompt: char,
-    /// The marker for the currently selected item.
-    pub selection: char,
+    /// The marker for the hovered item.
+    pub hover: char,
     /// The marker for any queued items.
     pub queued: char,
     /// An indicator for truncated text.
@@ -359,7 +359,7 @@ impl PickerChars {
     pub const fn new() -> Self {
         Self {
             prompt: '>',
-            selection: '▌',
+            hover: '▌',
             queued: '┃',
             ellipsis: '…',
             separator: '─',
@@ -373,7 +373,7 @@ impl PickerChars {
     pub const fn ascii() -> Self {
         Self {
             prompt: '>',
-            selection: '>',
+            hover: '>',
             queued: '|',
             ellipsis: '.',
             separator: '-',
@@ -658,7 +658,7 @@ impl PickerOptions {
         self
     }
 
-    /// Whether to highlight the entire line, and not only the match text
+    /// Whether to highlight the entire hovered item, and not only the match text
     ///
     /// This can be useful for distinguishing multiline items from each other. The default is false.
     #[must_use]
@@ -676,7 +676,7 @@ impl PickerOptions {
         self
     }
 
-    /// How much space to leave around the selection when scrolling (defaults to `3`).
+    /// How much space to leave around the hovered item when scrolling (defaults to `3`).
     #[must_use]
     #[inline]
     pub const fn scroll_padding(mut self, size: u16) -> Self {
@@ -702,14 +702,22 @@ impl PickerOptions {
         self
     }
 
-    /// Set the character used to mark the currently selected item.
+    /// Set the character used to mark the hovered item.
     ///
     /// The default value is `'▌'`. The character must have Unicode width 1.
     #[must_use]
     #[inline]
-    pub const fn selection_indicator(mut self, selection: char) -> Self {
-        self.chars.selection = selection;
+    pub const fn hover_indicator(mut self, hover: char) -> Self {
+        self.chars.hover = hover;
         self
+    }
+
+    /// A deprecated alias for [`hover_indicator`](Self::hover_indicator).
+    #[deprecated(since = "0.13.0", note = "Use `hover_indicator` instead")]
+    #[must_use]
+    #[inline]
+    pub const fn selection_indicator(self, hover: char) -> Self {
+        self.hover_indicator(hover)
     }
 
     /// Set the character used to indicate items queued for selection
@@ -775,7 +783,7 @@ impl PickerOptions {
     /// # use nucleo_picker::PickerOptions;
     /// PickerOptions::new()
     ///     .prompt_indicator('>')
-    ///     .selection_indicator('>')
+    ///     .hover_indicator('>')
     ///     .queued_indicator('|')
     ///     .truncation_ellipsis('.')
     ///     .separator('-')
@@ -876,7 +884,7 @@ impl PickerOptions {
     ///
     /// For fast (synchronous-only) previewers, setting a cache size of 1 can be useful to reduce
     /// allocations. Note however that the cache is also used to store scroll state, so a cache size
-    /// of 1 will lose the scroll position every time the selection changes.
+    /// of 1 will lose the scroll position every time the hovered item changes.
     #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     #[must_use]
     #[inline]

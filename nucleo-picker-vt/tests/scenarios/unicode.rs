@@ -16,8 +16,8 @@ fn unicode_truncation_preserves_the_match_prefix() -> Result<(), Box<dyn Error>>
     );
     sr.set_dimensions(3, 3)?;
     sr.type_text("a")?;
-    let selected = sr.checkpoint("selected")?;
-    assert_eq!(selected.text[0], "▌ …");
+    let hovered = sr.checkpoint("hovered")?;
+    assert_eq!(hovered.text[0], "▌ …");
 
     sr.send(Event::MatchList(MatchListEvent::ToggleUp(1)))?;
     let queued = sr.checkpoint("queued")?;

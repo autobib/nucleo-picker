@@ -35,6 +35,7 @@ In short, this release:
   - There are also preview-specific bindings: `keybind_single_preview` and `keybind_multi_preview`
   - The interface exposes its keybindings with `Interface::keybind_default`.
 - The events `Event::QueueAbove` and `Event::QueueBelow` have been deprecated.
+- `PickerOptions::selection_indicator` has been renamed to `PickerOptions::hover_indicator`.
 
 ### Added
 
@@ -127,7 +128,7 @@ In short, this release:
 Happy new year!
 
 ### Changed
-- **Usage breaking** Default keybindings have been changed so that `shift + ⏎` now moves the selection down instead of selecting the item.
+- **Usage breaking** Default keybindings have been changed so that `shift + ⏎` now moves the hovered item down instead of selecting the item.
 - `RecvError` is no longer marked as non-exhaustive.
 - Removed `Render<T>` trait bounds except where strictly required.
 
@@ -136,8 +137,8 @@ Happy new year!
   - Added new events `MatchListEvent::{ToggleUp, ToggleDown, Queue, QueueMatches, Unqueue, UnqueueAll}` to manipulate the queued selection list in the picker.
   - Limit the number of selections with `PickerOptions::max_selection_count`.
 - Added new keyboard shortcuts for multi-selection mode:
-  - `shift + ⇥` toggles the item in the item queue and moves the cursor up.
-  - `⇥` toggles the item in the item queue and moves the cursor down.
+  - `shift + ⇥` toggles the hovered item in the item queue and moves the hover up.
+  - `⇥` toggles the hovered item in the item queue and moves the hover down.
   - `ctrl + -` clears the item queue
   - `ctrl + =` adds all matches to the queue
 - Added `keybind_no_multi` for keybindings without support for multiple selections, to be used when multiple selections are not required.
@@ -206,7 +207,7 @@ Happy new year!
   However, the corresponding `io::Error::other` message contents have now changed to respect the new error types.
 
 ### Added
-- Reset selection to beginning of match list `ctrl + 0`.
+- Move the highlight to beginning of match list `ctrl + 0`.
 - New `PickerOptions::frame_interval` option to customize the refresh rate of the picker.
 - Reversed rendering with `PickerOptions::reversed`
 - New `Picker::pick_with_io` and `Picker::pick_with_keybind` functions that allow much greater IO customization.

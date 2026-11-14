@@ -109,7 +109,7 @@ fn line_prefix_does_not_exceed_the_available_width() {
 fn render_ascii_line(
     rendered: &str,
     width: u16,
-    selected: bool,
+    hovered: bool,
     highlight_line: bool,
     clear_mode: ClearState,
 ) -> String {
@@ -131,7 +131,7 @@ fn render_ascii_line(
                 clear_mode,
             )
             .unwrap(),
-            selected,
+            hovered,
             false,
             0,
             highlight_line,

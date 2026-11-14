@@ -80,16 +80,16 @@ impl<T: Send + Sync + 'static> Preview<T> for SinglePreviewer<T> {
         PreviewResponse::Pending(pending)
     }
 
-    fn focus_changed(&mut self, item: Option<ItemRef<'_, T>>) {
-        // use focus notifications to pop an outdated request, so the worker
+    fn hover_changed(&mut self, item: Option<ItemRef<'_, T>>) {
+        // use hover-change notifications to pop an outdated request, so the worker
         // doesn't accidentally pick up an outdated request
-        let focused = item.map(|item| item.id());
+        let hovered = item.map(|item| item.id());
         let previous = self
             .shared
             .state
             .lock()
             .request
-            .take_if(|request| Some(request.id()) != focused);
+            .take_if(|request| Some(request.id()) != hovered);
         drop(previous);
     }
 }

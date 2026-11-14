@@ -4,17 +4,17 @@ use crate::{incremental::ExtendIncremental, util::as_usize};
 #[inline]
 pub fn incr(
     previous: LayoutState,
-    cursor: u32,
+    rank: u32,
     padding_top: u16,
     mut sizes_below_incl: impl ExtendIncremental,
     mut sizes_above: impl ExtendIncremental,
 ) {
     let mut total_remaining = previous.size;
 
-    // render new elements strictly above the previous selection
+    // render new elements strictly above the previously hovered item
     let new_size_above = sizes_below_incl.extend_bounded(
         total_remaining - padding_top,
-        as_usize(cursor - previous.selection),
+        as_usize(rank - previous.rank),
     );
     total_remaining -= new_size_above;
 
@@ -33,7 +33,7 @@ pub fn incr(
 #[inline]
 pub fn decr(
     previous: LayoutState,
-    cursor: u32,
+    rank: u32,
     padding_top: u16,
     padding_bottom: u16,
     mut sizes_below_incl: impl ExtendIncremental,
@@ -42,17 +42,16 @@ pub fn decr(
     let mut total_remaining = previous.size;
     let min_below = (padding_bottom + 1).min(previous.size);
 
-    // render as much of the selection as possible
-    let selection_rendered = sizes_below_incl.extend_bounded(total_remaining - padding_top, 1);
-    total_remaining -= selection_rendered;
+    // render as much of the hovered item as possible
+    let hovered_rendered = sizes_below_incl.extend_bounded(total_remaining - padding_top, 1);
+    total_remaining -= hovered_rendered;
 
     // also try to fill the bottom padding
     total_remaining -=
-        sizes_below_incl.extend_unbounded(min_below.saturating_sub(selection_rendered));
+        sizes_below_incl.extend_unbounded(min_below.saturating_sub(hovered_rendered));
 
-    // render above until we hit the previous selection
-    total_remaining -=
-        sizes_above.extend_bounded(total_remaining, as_usize(previous.selection - cursor));
+    // render above until we hit the previously hovered item
+    total_remaining -= sizes_above.extend_bounded(total_remaining, as_usize(previous.rank - rank));
 
     // truncate below to prevent the screen from scrolling unnecessarily
     let max_space_below = total_remaining - total_remaining.min(previous.above);
@@ -67,7 +66,7 @@ pub fn decr(
 #[inline]
 pub fn incr_rev(
     previous: LayoutState,
-    cursor: u32,
+    rank: u32,
     padding_top: u16,
     padding_bottom: u16,
     mut sizes_below_incl: impl ExtendIncremental,
@@ -76,15 +75,15 @@ pub fn incr_rev(
     let mut total_remaining = previous.size;
     let min_below = (padding_bottom + 1).min(previous.size);
 
-    // render as much of the selection as possible
-    let selection_rendered = sizes_below_incl.extend_bounded(total_remaining - padding_top, 1);
-    total_remaining -= selection_rendered;
+    // render as much of the hovered item as possible
+    let hovered_rendered = sizes_below_incl.extend_bounded(total_remaining - padding_top, 1);
+    total_remaining -= hovered_rendered;
 
-    // render above until we hit the previous selection, without also filling the bottom
+    // render above until we hit the previously hovered item, without also filling the bottom
     // padding
     let rendered_above = sizes_above.extend_bounded(
         total_remaining.min(previous.size - min_below),
-        as_usize(cursor - previous.selection),
+        as_usize(rank - previous.rank),
     );
     total_remaining -= rendered_above;
 
@@ -92,7 +91,7 @@ pub fn incr_rev(
     // amount of space the new items rendered below occupy, making sure to also reserve space
     // for the bottom padding
     let max_space_above =
-        previous.size - (rendered_above + selection_rendered.max(min_below)).max(previous.below);
+        previous.size - (rendered_above + hovered_rendered.max(min_below)).max(previous.below);
 
     // render above; note that `max_space_above <= total_remaining` since we only restrict the size
     // more
@@ -105,17 +104,17 @@ pub fn incr_rev(
 #[inline]
 pub fn decr_rev(
     previous: LayoutState,
-    cursor: u32,
+    rank: u32,
     padding_top: u16,
     mut sizes_below_incl: impl ExtendIncremental,
     mut sizes_above: impl ExtendIncremental,
 ) {
     let mut total_remaining = previous.size;
 
-    // render new elements strictly above the previous selection
+    // render new elements strictly above the previously hovered item
     let new_size_above = sizes_below_incl.extend_bounded(
         total_remaining - padding_top,
-        as_usize(previous.selection - cursor),
+        as_usize(previous.rank - rank),
     );
     total_remaining -= new_size_above;
 
