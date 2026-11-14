@@ -9,7 +9,7 @@ use std::{io, thread::spawn};
 
 use nucleo_picker::{
     PickerOptions, Render,
-    preview::{PreviewPane, SyncPreviewer},
+    preview::{Pane, SyncPreviewer},
 };
 use serde::{Deserialize, de::DeserializeSeed};
 use serde_json::Deserializer;
@@ -32,7 +32,7 @@ impl Render<Poem> for PoemRenderer {
 }
 
 fn main() -> io::Result<()> {
-    let previewer = SyncPreviewer(|poem: &Poem, pane: &mut PreviewPane| {
+    let previewer = SyncPreviewer(|poem: &Poem, pane: &mut Pane| {
         pane.set_line_numbers(true);
         let buffer = pane.buffer_mut();
         for (index, line) in poem.lines.iter().enumerate() {

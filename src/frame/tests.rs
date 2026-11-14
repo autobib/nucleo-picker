@@ -5,13 +5,14 @@ use crate::{
     match_list::MatchList,
     prompt::Prompt,
     render::StrRenderer,
+    session::Dimensions,
     status_line::StatusLine,
 };
 use std::io::{self, Write};
 #[derive(Default)]
 pub(super) struct TestTerminal {
     pub(super) output: Vec<u8>,
-    pub(super) size: (u16, u16),
+    pub(super) dimensions: Dimensions,
     pub(super) rendering: bool,
 }
 
@@ -35,8 +36,8 @@ impl Terminal for TestTerminal {
         Ok(())
     }
 
-    fn size(&mut self) -> io::Result<(u16, u16)> {
-        Ok(self.size)
+    fn dimensions(&mut self) -> io::Result<Dimensions> {
+        Ok(self.dimensions)
     }
 
     fn begin_render(&mut self) -> io::Result<()> {
@@ -52,6 +53,10 @@ impl Terminal for TestTerminal {
     }
 }
 
+fn dimensions((width, height): (u16, u16)) -> Dimensions {
+    Dimensions { width, height }
+}
+
 fn render_at_size(redraw: Redraw, size: (u16, u16)) -> String {
     render_with(redraw, size, NoPreview)
 }
@@ -63,7 +68,7 @@ where
     let mut prompt = Prompt::new(&mut picker.core.prompt, &picker.core.chars);
     let mut list = MatchList::new(&mut picker.core.list_state, &picker.core.chars, ());
     let mut status_line = StatusLine::new(&picker.core.chars);
-    let mut frame = Frame::new(size, false, V::ENABLED.then_some(0.5));
+    let mut frame = Frame::new(dimensions(size), false, V::ENABLED.then_some(0.5));
     frame.resize(
         &picker.core.engine,
         &mut prompt,
@@ -72,7 +77,7 @@ where
         &mut preview,
     );
     let mut terminal = TestTerminal {
-        size,
+        dimensions: dimensions(size),
         ..TestTerminal::default()
     };
     frame
@@ -220,12 +225,12 @@ fn render_applies_terminal_resize_to_all_components_before_drawing() {
         ((30, 0), 30, 0),
     ] {
         for ratio in [None, Some(0.5)] {
-            let mut frame = Frame::new((20, 4), false, ratio);
+            let mut frame = Frame::new(dimensions((20, 4)), false, ratio);
             assert_eq!(frame.list.width, if ratio.is_some() { 10 } else { 20 });
             let [mut prompt, mut list, mut status, mut preview] =
                 std::array::from_fn(|_| Tracked::default());
             let mut terminal = TestTerminal {
-                size,
+                dimensions: dimensions(size),
                 ..TestTerminal::default()
             };
             for redraw in [true, false] {
@@ -254,14 +259,14 @@ fn render_applies_terminal_resize_to_all_components_before_drawing() {
                 }
                 terminal.output.clear();
             }
-            assert_eq!(frame.dimensions(), size);
+            assert_eq!(frame.dimensions(), dimensions(size));
             let list_width = if ratio.is_some() { split_width } else { size.0 };
             assert_eq!(
                 (frame.list.width, frame.list.height),
                 (list_width, list_height)
             );
             assert_eq!(frame.preview.is_empty(), list_width == size.0);
-            assert!(!frame.update_size(size));
+            assert!(!frame.update_dimensions(dimensions(size)));
             for (component, area) in [
                 (prompt, frame.prompt),
                 (list, frame.list),
@@ -281,7 +286,7 @@ fn toggle_status_restores_layout_across_small_sizes_and_resizes() {
     for reversed in [false, true] {
         for ratio in [None, Some(0.4)] {
             for size in [(0, 0), (0, 5), (20, 1), (20, 2), (20, 5)] {
-                let mut frame = Frame::new(size, reversed, ratio);
+                let mut frame = Frame::new(dimensions(size), reversed, ratio);
                 let initial = [frame.prompt, frame.list, frame.status, frame.preview];
                 frame.handle(LayoutEvent::ToggleStatus);
                 assert!(!frame.status_enabled());
@@ -294,10 +299,10 @@ fn toggle_status_restores_layout_across_small_sizes_and_resizes() {
                 assert!(render_pending(&mut frame));
                 assert!(!render_pending(&mut frame));
 
-                frame.update_size((30, 8));
+                frame.update_dimensions(dimensions((30, 8)));
                 assert!(frame.status.is_empty());
                 assert_eq!(frame.list.height, 7);
-                frame.update_size(size);
+                frame.update_dimensions(dimensions(size));
                 frame.handle(LayoutEvent::ToggleStatus);
                 assert!(frame.status_enabled());
                 assert_eq!(
@@ -313,7 +318,7 @@ fn toggle_status_restores_layout_across_small_sizes_and_resizes() {
 
 fn render_pending(frame: &mut Frame) -> bool {
     let mut terminal = TestTerminal {
-        size: frame.dimensions(),
+        dimensions: frame.dimensions(),
         ..TestTerminal::default()
     };
     frame
@@ -344,14 +349,14 @@ fn preview_ratios_round_clamp_and_survive_resizing() {
         (u16::MAX, 1.0, u16::MAX - 3),
     ] {
         for reversed in [false, true] {
-            let mut frame = Frame::new((width, 5), reversed, Some(ratio));
+            let mut frame = Frame::new(dimensions((width, 5)), reversed, Some(ratio));
             assert_eq!(frame.preview.width, expected);
             assert_eq!(frame.preview.column, width - expected);
             assert_eq!(frame.prompt.width, width - expected);
             assert_eq!(frame.status.width, width - expected);
             assert_eq!(frame.list.width, width - expected);
             for size in [(20, 5), (6, 3), (5, 5), (101, 2), (0, 0), (width, 5)] {
-                frame.update_size(size);
+                frame.update_dimensions(dimensions(size));
                 assert_eq!(frame.preview_ratio, Some(ratio));
                 if size.0 < 6 || size.1 < 3 {
                     assert!(frame.preview.is_empty());
@@ -369,13 +374,13 @@ mod preview {
     use crate::preview::{
         Preview, PreviewConfig,
         controller::PreviewController,
-        request::{PreviewRequest, PreviewResponse},
+        request::{Request, Response},
     };
 
     #[test]
     fn toggle_preview_restores_the_adjusted_ratio_after_resizing() {
         for reversed in [false, true] {
-            let mut frame = Frame::new((25, 5), reversed, Some(0.4));
+            let mut frame = Frame::new(dimensions((25, 5)), reversed, Some(0.4));
             frame.handle(LayoutEvent::MoveDividerLeft(1));
             assert!(render_pending(&mut frame));
             let ratio = frame.preview_ratio;
@@ -394,7 +399,7 @@ mod preview {
             frame.handle(LayoutEvent::MoveDividerRight(1));
             assert!(!render_pending(&mut frame));
             assert_eq!(frame.preview_ratio, ratio);
-            assert!(frame.update_size((50, 5)));
+            assert!(frame.update_dimensions(dimensions((50, 5))));
             assert!(frame.preview.is_empty());
             assert_eq!(frame.list.width, 50);
 
@@ -410,19 +415,19 @@ mod preview {
     #[test]
     fn toggle_preview_remembers_visibility_when_the_terminal_is_too_small() {
         for size in [(0, 0), (5, 5), (25, 2)] {
-            let mut frame = Frame::new(size, false, Some(0.4));
+            let mut frame = Frame::new(dimensions(size), false, Some(0.4));
             assert!(frame.preview_enabled());
             assert!(frame.preview.is_empty());
             frame.handle(LayoutEvent::TogglePreview);
             assert!(!frame.preview_enabled());
-            frame.update_size((25, 5));
+            frame.update_dimensions(dimensions((25, 5)));
             assert!(frame.preview.is_empty());
 
-            frame.update_size(size);
+            frame.update_dimensions(dimensions(size));
             frame.handle(LayoutEvent::TogglePreview);
             assert!(frame.preview_enabled());
             assert!(frame.preview.is_empty());
-            frame.update_size((25, 5));
+            frame.update_dimensions(dimensions((25, 5)));
             assert_eq!(frame.preview.width, 10);
         }
     }
@@ -440,7 +445,7 @@ mod preview {
             (20, 0.0, left, right, 4),
             (20, 1.0, right, left, 16),
         ] {
-            let mut frame = Frame::new((width, 5), false, Some(ratio));
+            let mut frame = Frame::new(dimensions((width, 5)), false, Some(ratio));
             let initial = frame.preview.width;
             assert!(!render_pending(&mut frame));
             for _ in 0..20 {
@@ -458,19 +463,19 @@ mod preview {
             assert_eq!(frame.preview_ratio, ratio);
             frame.handle(forward(1));
             if width == 20 {
-                frame.update_size((100, 5));
+                frame.update_dimensions(dimensions((100, 5)));
                 assert_eq!(frame.preview.width, expected * 5);
             }
-            frame.update_size((5, 5));
+            frame.update_dimensions(dimensions((5, 5)));
             assert!(frame.preview.is_empty());
-            frame.update_size((width, 5));
+            frame.update_dimensions(dimensions((width, 5)));
             assert_eq!(frame.preview.width, expected);
         }
     }
 
     #[test]
     fn adjustments_saturate_and_reverse_in_order_at_the_limits() {
-        let mut frame = Frame::new((101, 5), false, Some(0.5));
+        let mut frame = Frame::new(dimensions((101, 5)), false, Some(0.5));
         frame.handle(LayoutEvent::MoveDividerLeft(u16::MAX));
         frame.handle(LayoutEvent::MoveDividerLeft(1));
         assert_eq!(frame.preview.width, 98);
@@ -504,7 +509,7 @@ mod preview {
             ((0, 0), Some(0.4), 1),
             ((101, 5), None, 1),
         ] {
-            let mut frame = Frame::new(size, false, ratio);
+            let mut frame = Frame::new(dimensions(size), false, ratio);
             frame.handle(if shift >= 0 {
                 LayoutEvent::MoveDividerLeft(shift as u16)
             } else {
@@ -517,12 +522,8 @@ mod preview {
 
     struct EmptyPreview;
     impl Preview<String> for EmptyPreview {
-        fn preview(
-            &mut self,
-            request: PreviewRequest<'_, String>,
-            _: std::time::Duration,
-        ) -> PreviewResponse {
-            PreviewResponse::Ready(request.ready())
+        fn preview(&mut self, request: Request<'_, String>, _: std::time::Duration) -> Response {
+            Response::Ready(request.ready())
         }
     }
     pub(super) fn render_preview(redraw: Redraw, size: (u16, u16)) -> String {
@@ -540,7 +541,7 @@ mod preview {
     fn preview_falls_back_to_full_width_when_its_interior_cannot_fit() {
         for size in [(0, 4), (1, 1), (5, 4), (20, 2), (20, 0)] {
             assert_eq!(
-                Frame::new(size, false, Some(0.5))
+                Frame::new(dimensions(size), false, Some(0.5))
                     .preview
                     .height
                     .saturating_sub(2),
@@ -552,7 +553,7 @@ mod preview {
             );
         }
         assert_eq!(
-            Frame::new((6, 3), false, Some(0.5))
+            Frame::new(dimensions((6, 3)), false, Some(0.5))
                 .preview
                 .height
                 .saturating_sub(2),

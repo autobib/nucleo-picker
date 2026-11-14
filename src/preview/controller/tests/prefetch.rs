@@ -183,7 +183,7 @@ fn refresh_before_hovering_invalidates_prefetched_results_and_requests() {
         }
         if let Some(active) = active {
             assert!(active.is_cancelled());
-            let mut buffer = PreviewBuffer::new();
+            let mut buffer = Buffer::new();
             buffer.push_str("stale");
             assert!(active.publish(&mut buffer.into_pane()).is_err());
         }
@@ -450,12 +450,12 @@ fn declined_buffers_are_reused_through_borrowed_previewers() {
 #[test]
 fn default_prefetch_returns_the_original_buffer_without_rendering() {
     let picker = picker(["a"]);
-    let mut buffer = PreviewBuffer::new();
+    let mut buffer = Buffer::new();
     buffer.push_str("reusable buffer");
     let pointer = buffer.line(0).unwrap().as_str().as_ptr();
     buffer.clear();
-    let mut previewer = SyncPreviewer(|_: &&str, _: &mut PreviewPane| panic!("unexpected preview"));
-    let request = PreviewRequest {
+    let mut previewer = SyncPreviewer(|_: &&str, _: &mut Pane| panic!("unexpected preview"));
+    let request = Request {
         buffer,
         epoch: 0,
         snapshot: picker.core.engine.snapshot(),
@@ -546,7 +546,7 @@ fn eviction_cancels_active_prefetches() {
     session.run_frame(Some(4), &picker.core.engine, deadline());
     assert!(first.is_cancelled());
     assert!(!second.is_cancelled());
-    let mut buffer = PreviewBuffer::new();
+    let mut buffer = Buffer::new();
     buffer.push_str("cancelled result");
     let mut pane = buffer.into_pane();
     assert!(first.publish(&mut pane).is_err());

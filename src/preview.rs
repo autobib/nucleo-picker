@@ -40,7 +40,7 @@
 //! ```no_run
 //! use nucleo_picker::{
 //!     Multi, Picker,
-//!     preview::{PreviewPane, SyncPreviewer},
+//!     preview::{Pane, SyncPreviewer},
 //!     render::StrRenderer,
 //! };
 //!
@@ -50,7 +50,7 @@
 //!
 //! // this is a bit of a silly previewer, which just previews the item
 //! // text itself, but it's enough for the example
-//! let previewer = SyncPreviewer(|color: &&str, pane: &mut PreviewPane| {
+//! let previewer = SyncPreviewer(|color: &&str, pane: &mut Pane| {
 //!     pane.buffer_mut().push_text(color);
 //! });
 //!
@@ -81,7 +81,7 @@
 //! ### Background preview example
 //!
 //! Here is a basic example of a previewer running in a background thread. This also uses the
-//! [`PreviewWorker`] trait, which is the same abstraction used by a [`PoolPreviewer`].
+//! [`Worker`] trait, which is the same abstraction used by a [`PoolPreviewer`].
 //!
 //! ```no_run
 #![doc = include_str!("../examples/preview_single.rs")]
@@ -101,14 +101,16 @@ mod text;
 
 use std::{num::NonZero, time::Duration};
 
+use crate::rect::{Area, Dimensions};
+
 #[doc(inline)]
 pub use crate::session::{ItemId, ItemRef, WithPreview};
 #[cfg(feature = "preview-ansi")]
 pub use ansi::{AnsiState, AnsiWriter};
-pub use buffer::{PreviewBuffer, PreviewLine};
-pub use pane::{PreviewPane, PreviewViewport};
-pub use pool::{PoolPreviewer, PreviewWorker};
-use request::{PreviewRequest, PreviewResponse};
+pub use buffer::{Buffer, Line};
+pub use pane::{Pane, Viewport};
+pub use pool::{PoolPreviewer, Worker};
+use request::{Request, Response};
 pub use text::TextWriter;
 
 /// Events which target the preview pane.
@@ -155,13 +157,24 @@ pub enum PreviewEvent {
 }
 
 /// The outcome of rendering a preview pane.
-pub enum PreviewContent<'a> {
+pub enum Content<'a> {
     /// A preview pane with no contents.
     Empty,
     /// A preview pane containing a loading indicator.
     Loading,
     /// A rendered preview pane (including preview panes rendering errors).
-    Ready(&'a PreviewPane),
+    Ready(&'a Pane),
+}
+
+pub(crate) fn interior_dimensions(area: Area) -> Dimensions {
+    if area.is_empty() {
+        Dimensions::default()
+    } else {
+        Dimensions {
+            width: area.width.saturating_sub(2),
+            height: area.height.saturating_sub(2),
+        }
+    }
 }
 
 /// Preview boundary characters.
@@ -269,7 +282,7 @@ impl Default for PreviewConfig {
 /// When the preview can be generated in time, this should be done to reduce overhead.
 /// For example, this is typically the case if the contents of the preview depend only on data
 /// stored inside the item `T`. However, if preview generation could take longer than the timeout,
-/// then preview generation should be deferred using [`PreviewRequest::defer`]. For example, the previewer
+/// then preview generation should be deferred using [`Request::defer`]. For example, the previewer
 /// may choose to process the queued request in a separate thread.
 ///
 /// ## Preview priority
@@ -307,7 +320,7 @@ impl Default for PreviewConfig {
 ///
 /// ```
 /// use std::time::Duration;
-/// use nucleo_picker::preview::{Preview, request::{PreviewRequest, PreviewResponse}};
+/// use nucleo_picker::preview::{Preview, request::{Request, Response}};
 ///
 /// type Item = Result<String, String>;
 /// struct ResultPreview;
@@ -315,9 +328,9 @@ impl Default for PreviewConfig {
 /// impl Preview<Item> for ResultPreview {
 ///     fn preview(
 ///         &mut self,
-///         request: PreviewRequest<'_, Item>,
+///         request: Request<'_, Item>,
 ///         _timeout: Duration,
-///     ) -> PreviewResponse {
+///     ) -> Response {
 ///         let item = request.item();
 ///         let mut pane = request.ready();
 ///         match item {
@@ -327,7 +340,7 @@ impl Default for PreviewConfig {
 ///                 pane.push_text(message);
 ///             }
 ///         }
-///         PreviewResponse::Ready(pane)
+///         Response::Ready(pane)
 ///     }
 /// }
 /// ```
@@ -347,11 +360,11 @@ impl Default for PreviewConfig {
 pub trait Preview<T> {
     /// Generate a preview.
     ///
-    /// The item to which the preview corresponds is available with [`PreviewRequest::item`]. The
+    /// The item to which the preview corresponds is available with [`Request::item`]. The
     /// [`Duration`] is a timeout suggested by the picker and depends on the current frame budget. It will always be at least 2ms. Exceeding the budget will cause the picker to lag.
     ///
     /// See the [trait-level docs](Preview) for more detail.
-    fn preview(&mut self, request: PreviewRequest<'_, T>, timeout: Duration) -> PreviewResponse;
+    fn preview(&mut self, request: Request<'_, T>, timeout: Duration) -> Response;
 
     /// Configure the preview range for prefetch.
     ///
@@ -398,9 +411,9 @@ pub trait Preview<T> {
     )]
     fn prefetch(
         &mut self,
-        request: PreviewRequest<'_, T>,
+        request: Request<'_, T>,
         _timeout: Duration,
-    ) -> Result<PreviewResponse, PreviewBuffer> {
+    ) -> Result<Response, Buffer> {
         Err(request.buffer)
     }
 
@@ -452,7 +465,7 @@ impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
     }
 
     #[inline]
-    fn preview(&mut self, request: PreviewRequest<'_, T>, timeout: Duration) -> PreviewResponse {
+    fn preview(&mut self, request: Request<'_, T>, timeout: Duration) -> Response {
         (*self).preview(request, timeout)
     }
 
@@ -462,18 +475,14 @@ impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
     }
 
     #[inline]
-    fn prefetch(
-        &mut self,
-        request: PreviewRequest<'_, T>,
-        timeout: Duration,
-    ) -> Result<PreviewResponse, PreviewBuffer> {
+    fn prefetch(&mut self, request: Request<'_, T>, timeout: Duration) -> Result<Response, Buffer> {
         (**self).prefetch(request, timeout)
     }
 }
 
 /// An infallible synchronous previewer.
 ///
-/// This struct wraps a `FnMut(&T, &mut PreviewPane)` closure which fills a cleared preview pane. It is expected that the
+/// This struct wraps a `FnMut(&T, &mut Pane)` closure which fills a cleared preview pane. It is expected that the
 /// function `F` will return *without delaying the frame* and *without any errors*. This can be
 /// convenient for previewing types `T` which already contain all of the data required
 /// for the preview.
@@ -484,7 +493,7 @@ impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
 ///
 /// ```no_run
 /// use std::borrow::Cow;
-/// use nucleo_picker::{Picker, preview::{PreviewPane, SyncPreviewer}};
+/// use nucleo_picker::{Picker, preview::{Pane, SyncPreviewer}};
 ///
 /// struct Item {
 ///     name: &'static str,
@@ -501,7 +510,7 @@ impl<T, P: Preview<T> + ?Sized> Preview<T> for &mut P {
 ///     Item { name: "red", description: "RGB: 255, 0, 0" },
 ///     Item { name: "blue", description: "RGB: 0, 0, 255" },
 /// ]);
-/// let previewer = SyncPreviewer(|item: &Item, pane: &mut PreviewPane| {
+/// let previewer = SyncPreviewer(|item: &Item, pane: &mut Pane| {
 ///     pane.buffer_mut().push_text(item.description);
 /// });
 /// let mut picker = picker.with_preview(previewer);
@@ -519,13 +528,13 @@ pub struct SyncPreviewer<F>(
 impl<T, F> Preview<T> for SyncPreviewer<F>
 where
     T: Send + Sync + 'static,
-    F: FnMut(&T, &mut PreviewPane),
+    F: FnMut(&T, &mut Pane),
 {
     #[inline]
-    fn preview(&mut self, request: PreviewRequest<'_, T>, _timeout: Duration) -> PreviewResponse {
+    fn preview(&mut self, request: Request<'_, T>, _timeout: Duration) -> Response {
         let item = request.item();
         let mut pane = request.ready();
         (self.0)(item, &mut pane);
-        PreviewResponse::Ready(pane)
+        Response::Ready(pane)
     }
 }

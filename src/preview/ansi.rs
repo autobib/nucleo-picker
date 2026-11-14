@@ -6,16 +6,16 @@ use std::io;
 use anstyle_parse::{Params, Parser, Perform};
 use crossterm::style::{Attribute, Color, ContentStyle};
 
-use super::PreviewBuffer;
+use super::Buffer;
 
 /// ANSI parser and style state.
 ///
 /// This struct holds the state required to parse an ANSI stream by keeping track of styles and ANSI
 /// codes split across byte blocks. This state is required for writing to a preview buffer with
-/// [`PreviewBuffer::push_ansi`].
+/// [`Buffer::push_ansi`].
 ///
 /// In most cases, you don't need to use this directly: an [`AnsiWriter`] (returned by
-/// [`PreviewBuffer::ansi_writer`]) implements [`io::Write`] and manages this state internally.
+/// [`Buffer::ansi_writer`]) implements [`io::Write`] and manages this state internally.
 #[cfg_attr(docsrs, doc(cfg(feature = "preview-ansi")))]
 #[derive(Debug, Default)]
 pub struct AnsiState {
@@ -35,22 +35,22 @@ impl AnsiState {
 
 /// Write an ANSI byte-stream directly into a preview buffer.
 ///
-/// The conventional way to construct this type is through [`PreviewBuffer::ansi_writer`]. This type
+/// The conventional way to construct this type is through [`Buffer::ansi_writer`]. This type
 /// implements [`io::Write`], and can be used to write an ANSI byte-stream directly into the
-/// underlying buffer. See the [`ansi_writer`](PreviewBuffer::ansi_writer) documentation for more
+/// underlying buffer. See the [`ansi_writer`](Buffer::ansi_writer) documentation for more
 /// details.
 #[cfg_attr(docsrs, doc(cfg(feature = "preview-ansi")))]
 #[derive(Debug)]
 pub struct AnsiWriter<'a> {
-    buffer: &'a mut PreviewBuffer,
+    buffer: &'a mut Buffer,
     state: AnsiState,
 }
 
 impl<'a> AnsiWriter<'a> {
     /// Initialize a new writer around the provided buffer.
     ///
-    /// Also see [`PreviewBuffer::ansi_writer`].
-    pub fn new(buffer: &'a mut PreviewBuffer) -> Self {
+    /// Also see [`Buffer::ansi_writer`].
+    pub fn new(buffer: &'a mut Buffer) -> Self {
         Self {
             buffer,
             state: AnsiState::new(),
@@ -63,7 +63,7 @@ impl<'a> AnsiWriter<'a> {
     }
 }
 
-impl PreviewBuffer {
+impl Buffer {
     /// Write a stream of bytes with ANSI-encoded styling directly into this buffer.
     ///
     /// It is assumed that the input stream is UTF-8 encoded by convention. Invalid UTF-8 is
@@ -101,9 +101,9 @@ impl PreviewBuffer {
     ///
     /// ```
     /// use std::io::Write;
-    /// use nucleo_picker::preview::PreviewBuffer;
+    /// use nucleo_picker::preview::Buffer;
     ///
-    /// let mut buffer = PreviewBuffer::new();
+    /// let mut buffer = Buffer::new();
     /// buffer.ansi_writer().write_all(b"\x1b[1;31merror\x1b[0m: missing file\n")?;
     /// assert_eq!(buffer.line(0).unwrap().as_str(), "error: missing file");
     /// # Ok::<(), std::io::Error>(())
@@ -153,7 +153,7 @@ impl io::Write for AnsiWriter<'_> {
 
 #[derive(Debug)]
 struct Sink<'a> {
-    buffer: &'a mut PreviewBuffer,
+    buffer: &'a mut Buffer,
     style: ContentStyle,
 }
 

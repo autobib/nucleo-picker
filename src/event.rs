@@ -48,6 +48,8 @@ pub use crate::{
     frame::LayoutEvent, match_list::MatchListEvent, observer::Observer, prompt::PromptEvent,
 };
 
+use crate::session::Dimensions;
+
 /// An event which controls the picker behaviour.
 ///
 /// The type parameter `A` is the application-defined error which can be used to propagate
@@ -244,10 +246,8 @@ pub struct PickerStatus {
     pub matched_item_count: u32,
     /// The number of items currently queued for selection.
     pub selected_item_count: u32,
-    /// The width of the picker screen.
-    pub width: u16,
-    /// The height of the picker screen.
-    pub height: u16,
+    /// The dimensions of the picker screen.
+    pub dimensions: Dimensions,
     /// Whether any frame required rendering since the previous status request.
     pub changed: bool,
     /// Whether the exact frame during which this status response required rendering.

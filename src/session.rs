@@ -81,11 +81,11 @@
 //! # fn main() -> std::io::Result<()> {
 //! # #[cfg(feature = "preview")]
 //! # {
-//! use nucleo_picker::{Picker, WithPreview, preview::{PreviewPane, SyncPreviewer}, render::StrRenderer};
+//! use nucleo_picker::{Picker, WithPreview, preview::{Pane, SyncPreviewer}, render::StrRenderer};
 //!
 //! let mut picker = Picker::new(StrRenderer);
 //! picker.push_batch(["red", "blue", "green"]);
-//! let mut previewer = SyncPreviewer(|color: &&str, pane: &mut PreviewPane| {
+//! let mut previewer = SyncPreviewer(|color: &&str, pane: &mut Pane| {
 //!     pane.buffer_mut().push_text(color);
 //! });
 //!
@@ -216,9 +216,8 @@ use std::{
 
 use crossterm::event::KeyEvent;
 
+pub use crate::rect::Dimensions;
 pub use context::Context;
-#[cfg(feature = "preview")]
-pub use context::PreviewSize;
 pub use item::{ItemId, ItemRef, OwnedItem};
 pub use picker_ref::PickerRef;
 

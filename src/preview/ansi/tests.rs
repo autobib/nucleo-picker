@@ -2,12 +2,12 @@ use std::io::{self, Write};
 
 use crossterm::style::{Attribute, ContentStyle, StyledContent, Stylize};
 
-use crate::preview::{AnsiState, AnsiWriter, PreviewBuffer};
+use crate::preview::{AnsiState, AnsiWriter, Buffer};
 
 use super::Color;
 
 fn assert_spans(input: std::fmt::Arguments<'_>, expected: &[StyledContent<&str>]) {
-    let mut buffer = PreviewBuffer::new();
+    let mut buffer = Buffer::new();
     buffer.ansi_writer().write_fmt(input).unwrap();
     assert_eq!(buffer.lines().len(), 1);
     assert!(
@@ -20,8 +20,8 @@ fn assert_spans(input: std::fmt::Arguments<'_>, expected: &[StyledContent<&str>]
 fn owned_and_caller_owned_streams_preserve_every_byte_boundary() {
     let input = "\x1b[1;31mé界e\u{301}👩‍💻\x1b[0m!\r\n\t\x1b[38;2;1;2;3mend".as_bytes();
     for chunk_size in 1..=input.len() {
-        let mut owned = PreviewBuffer::new();
-        let mut caller_owned = PreviewBuffer::new();
+        let mut owned = Buffer::new();
+        let mut caller_owned = Buffer::new();
         for buffer in [&mut owned, &mut caller_owned] {
             buffer.push_str("prefix ");
         }
@@ -109,7 +109,7 @@ fn attributes_replace_modes_and_reset_selectively_or_fully() {
         ],
     );
     for reset in ["0", "", ";"] {
-        let mut buffer = PreviewBuffer::new();
+        let mut buffer = Buffer::new();
         write!(
             buffer.ansi_writer(),
             "\x1b[1;2;3;4;5;7;8;9;31;44;58;5;42mstyled\x1b[{reset}mplain"
@@ -201,7 +201,7 @@ fn unsupported_and_malformed_sequences_do_not_leak_into_text_or_styles() {
         b"\x1b[0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0m",
     ];
     for &sequence in cases {
-        let mut buffer = PreviewBuffer::new();
+        let mut buffer = Buffer::new();
         {
             let mut writer = buffer.ansi_writer();
             writer.write_all(b"\x1b[1;31mbefore").unwrap();
@@ -230,7 +230,7 @@ fn controls_and_invalid_utf8_preserve_styles_across_lines() {
     ];
     let style = ContentStyle::new().with(Color::AnsiValue(2)).bold();
     for &(input, expected) in cases {
-        let mut buffer = PreviewBuffer::new();
+        let mut buffer = Buffer::new();
         {
             let mut writer = buffer.ansi_writer();
             writer.write_all(b"\x1b[1;32m").unwrap();
@@ -256,8 +256,8 @@ fn controls_and_invalid_utf8_preserve_styles_across_lines() {
 fn restarting_streams_resets_parser_and_style_but_clearing_only_resets_content() {
     let bold = ContentStyle::new().bold();
     for incomplete in [b"\x1b[".as_slice(), b"\xe7\x95", b"\x1b]0;title", b""] {
-        let mut owned = PreviewBuffer::new();
-        let mut caller_owned = PreviewBuffer::new();
+        let mut owned = Buffer::new();
+        let mut caller_owned = Buffer::new();
         let mut state = AnsiState::new();
         {
             let mut writer = owned.ansi_writer();
@@ -299,8 +299,7 @@ fn restarting_streams_resets_parser_and_style_but_clearing_only_resets_content()
 #[test]
 fn interleaved_streams_keep_independent_parser_and_style_state() {
     let inputs = ["\x1b[31m界\nred", "\x1b[1;34méblue"];
-    let mut streams =
-        std::array::from_fn::<_, 2, _>(|_| (PreviewBuffer::new(), AnsiState::default()));
+    let mut streams = std::array::from_fn::<_, 2, _>(|_| (Buffer::new(), AnsiState::default()));
     for i in 0..inputs.iter().map(|s| s.len()).max().unwrap() {
         for ((buffer, state), input) in streams.iter_mut().zip(inputs) {
             if let Some(byte) = input.as_bytes().get(i) {

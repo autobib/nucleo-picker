@@ -4,15 +4,15 @@ use crossterm::style::ContentStyle;
 
 #[cfg(feature = "preview-ansi")]
 use super::AnsiWriter;
-use super::{PreviewBuffer, TextWriter};
+use super::{Buffer, TextWriter};
 use crate::{
-    session::PreviewSize,
+    session::Dimensions,
     util::unicode::{Processor, UnicodeProcessor},
 };
 
 /// A fixed view into a preview buffer.
 ///
-/// This is a wrapper type around a [preview buffer](PreviewBuffer); the internal buffer can be
+/// This is a wrapper type around a [preview buffer](Buffer); the internal buffer can be
 /// accessed with [`buffer`](Self::buffer) and [`buffer_mut`](Self::buffer_mut). Some methods are
 /// forwarded for convenience.
 ///
@@ -21,8 +21,8 @@ use crate::{
 /// Manipulating the view requires information about the size, provided when constructing a
 /// [viewport](Self::viewport).
 #[derive(Debug, Default)]
-pub struct PreviewPane {
-    buffer: PreviewBuffer,
+pub struct Pane {
+    buffer: Buffer,
     offset: (usize, usize),
     line_numbers: bool,
     is_err: bool,
@@ -31,27 +31,27 @@ pub struct PreviewPane {
 /// A mutable view adapter which binds a pane to a drawable surface.
 ///
 /// Operations on this adapter mutate the underlying preview pane immediately.
-pub struct PreviewViewport<'a> {
-    pane: &'a mut PreviewPane,
-    size: PreviewSize,
+pub struct Viewport<'a> {
+    pane: &'a mut Pane,
+    size: Dimensions,
 }
 
-impl From<PreviewBuffer> for PreviewPane {
-    fn from(buffer: PreviewBuffer) -> Self {
+impl From<Buffer> for Pane {
+    fn from(buffer: Buffer) -> Self {
         Self::from_buffer(buffer)
     }
 }
 
-impl PreviewPane {
+impl Pane {
     /// Initialize an empty pane with no offset, line numbers disabled, and the error flag set to
     /// `false`.
     ///
     /// This is the same as the [`Default`] implementation, but as a `const fn`.
     pub const fn new() -> Self {
-        Self::from_buffer(PreviewBuffer::new())
+        Self::from_buffer(Buffer::new())
     }
 
-    pub(super) const fn from_buffer(buffer: PreviewBuffer) -> Self {
+    pub(super) const fn from_buffer(buffer: Buffer) -> Self {
         Self {
             buffer,
             offset: (0, 0),
@@ -61,7 +61,7 @@ impl PreviewPane {
     }
 
     /// Get access to the internal content buffer.
-    pub fn buffer(&self) -> &PreviewBuffer {
+    pub fn buffer(&self) -> &Buffer {
         &self.buffer
     }
 
@@ -69,12 +69,12 @@ impl PreviewPane {
     ///
     /// Note that editing or clearing the buffer preserves the remaining pane state, including the
     /// error status and offset.
-    pub fn buffer_mut(&mut self) -> &mut PreviewBuffer {
+    pub fn buffer_mut(&mut self) -> &mut Buffer {
         &mut self.buffer
     }
 
     /// Convert into the internal buffer, discarding additional state.
-    pub fn into_buffer(self) -> PreviewBuffer {
+    pub fn into_buffer(self) -> Buffer {
         self.buffer
     }
 
@@ -90,7 +90,7 @@ impl PreviewPane {
 
     /// Append unstyled text and process newlines and control characters automatically.
     ///
-    /// This forwards directly to [`PreviewBuffer::push_text`]. Read those docs for more.
+    /// This forwards directly to [`Buffer::push_text`]. Read those docs for more.
     #[inline]
     pub fn push_text(&mut self, text: &str) {
         self.buffer.push_text(text);
@@ -98,7 +98,7 @@ impl PreviewPane {
 
     /// Append styled text and process newlines and control characters automatically.
     ///
-    /// This forwards directly to [`PreviewBuffer::push_styled_text`]. Read those docs for more.
+    /// This forwards directly to [`Buffer::push_styled_text`]. Read those docs for more.
     #[inline]
     pub fn push_styled_text(&mut self, text: &str, style: ContentStyle) {
         self.buffer.push_styled_text(text, style);
@@ -106,7 +106,7 @@ impl PreviewPane {
 
     /// Returns a [`fmt::Write`](std::fmt::Write) adapter which defers writes to [`push_text`](Self::push_text).
     ///
-    /// This forwards directly to [`PreviewBuffer::text_writer`]. Read those docs for more.
+    /// This forwards directly to [`Buffer::text_writer`]. Read those docs for more.
     #[inline]
     pub fn text_writer(&mut self) -> TextWriter<'_> {
         self.buffer.text_writer()
@@ -114,7 +114,7 @@ impl PreviewPane {
 
     /// Write a stream of bytes with ANSI-encoded styling directly into this buffer.
     ///
-    /// This forwards directly to [`PreviewBuffer::ansi_writer`]. Read those docs for more.
+    /// This forwards directly to [`Buffer::ansi_writer`]. Read those docs for more.
     #[cfg(feature = "preview-ansi")]
     #[cfg_attr(docsrs, doc(cfg(feature = "preview-ansi")))]
     #[inline]
@@ -164,12 +164,15 @@ impl PreviewPane {
 
     /// Returns a mutable viewport used for manipulating the preview pane.
     ///
+    /// The provided dimensions should exclude the borders but include the space for the line-number
+    /// gutter (which is dynamically set by the pane anyway). Width and height zero are permitted.
+    ///
     /// This method exists since preview navigation depends on the size of the viewport. For
     /// instance, the preview pane will not scroll beyond the bottom of the page or beyond the end
     /// of the longest visible line. These computations depend on knowledge of the dimensions.
     #[must_use]
-    pub fn viewport(&mut self, size: PreviewSize) -> PreviewViewport<'_> {
-        PreviewViewport { pane: self, size }
+    pub fn viewport(&mut self, size: Dimensions) -> Viewport<'_> {
+        Viewport { pane: self, size }
     }
 
     /// Enable or disable preview pane line-numbers.
@@ -219,7 +222,7 @@ impl PreviewPane {
     }
 }
 
-impl PreviewViewport<'_> {
+impl Viewport<'_> {
     /// Scroll the visible row upwards, saturating at row zero and preserving the column position.
     pub fn up(&mut self, lines: usize) -> &mut Self {
         self.clamp_vertical();

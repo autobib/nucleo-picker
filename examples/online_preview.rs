@@ -30,7 +30,7 @@ use nucleo_picker::{
     Injector, Picker, Render,
     error::PickError,
     event::{Event, StdinEventSender},
-    preview::{PoolPreviewer, PreviewBuffer, PreviewPane, PreviewWorker},
+    preview::{Buffer, Pane, PoolPreviewer, Worker},
 };
 use serde::Deserialize;
 
@@ -197,13 +197,8 @@ struct HttpWorker {
     bytes: Vec<u8>,
 }
 
-impl PreviewWorker<Page> for HttpWorker {
-    fn preview(
-        &mut self,
-        page: &Page,
-        pane: &mut PreviewPane,
-        is_cancelled: impl Fn() -> bool,
-    ) -> bool {
+impl Worker<Page> for HttpWorker {
+    fn preview(&mut self, page: &Page, pane: &mut Pane, is_cancelled: impl Fn() -> bool) -> bool {
         pane.set_line_numbers(true);
         match self.read_preview(page, pane.buffer_mut(), is_cancelled) {
             Ok(complete) => complete,
@@ -236,7 +231,7 @@ impl HttpWorker {
     fn read_preview(
         &mut self,
         page: &Page,
-        buffer: &mut PreviewBuffer,
+        buffer: &mut Buffer,
         is_cancelled: impl Fn() -> bool,
     ) -> Result<bool, FetchError> {
         let cancelled = || is_cancelled() || self.stopped.load(Ordering::Relaxed);

@@ -2,11 +2,11 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use crossterm::style::{ContentStyle, Stylize};
 
-use super::PreviewBuffer;
+use super::Buffer;
 
 #[test]
 fn empty_buffers_and_clear_reuse_storage() {
-    fn assert_empty(buffer: &PreviewBuffer) {
+    fn assert_empty(buffer: &Buffer) {
         assert_eq!(buffer.lines().len(), 1);
         assert_eq!(buffer.line(0).unwrap().as_str(), "");
         assert_eq!(buffer.line(0).unwrap().spans().count(), 0);
@@ -16,7 +16,7 @@ fn empty_buffers_and_clear_reuse_storage() {
     }
 
     let style = ContentStyle::new().green();
-    for mut buffer in [PreviewBuffer::new(), PreviewBuffer::default()] {
+    for mut buffer in [Buffer::new(), Buffer::default()] {
         assert_eq!(buffer.text.capacity(), 0);
         assert_eq!(buffer.lines.capacity(), 0);
         assert_eq!(buffer.styles.capacity(), 0);
@@ -89,12 +89,12 @@ fn complete_text_and_explicit_lines_preserve_content_and_iteration() {
         Some(ContentStyle::new().green()),
     ] {
         for &(text, expected) in cases {
-            let mut complete = PreviewBuffer::new();
+            let mut complete = Buffer::new();
             match style {
                 Some(style) => complete.push_styled_text(text, style),
                 None => complete.push_text(text),
             }
-            let mut explicit = PreviewBuffer::new();
+            let mut explicit = Buffer::new();
             for (index, &line) in expected.iter().enumerate() {
                 if index > 0 {
                     explicit.newline();
@@ -151,7 +151,7 @@ fn appended_styles_merge_and_spans_borrow_text_with_default_gaps() {
     let plain = ContentStyle::default();
     let red = ContentStyle::new().red();
     let blue = ContentStyle::new().blue();
-    let mut buffer = PreviewBuffer::new();
+    let mut buffer = Buffer::new();
     buffer.push_str("prefix ");
     buffer.push_styled_str("é", red);
     buffer.push_styled_text(" first\r\n\n  界", red);
@@ -221,7 +221,7 @@ fn sanitization_preserves_line_boundaries_and_styles() {
     ];
     for style in [None, Some(red)] {
         for &(text, expected) in cases {
-            let mut buffer = PreviewBuffer::new();
+            let mut buffer = Buffer::new();
             match style {
                 Some(style) => buffer.push_styled_text(text, style),
                 None => buffer.push_text(text),
@@ -246,7 +246,7 @@ fn sanitization_preserves_line_boundaries_and_styles() {
         }
     }
     let blue = ContentStyle::new().blue();
-    let mut buffer = PreviewBuffer::new();
+    let mut buffer = Buffer::new();
     buffer.push_styled_str("prefix ", red);
     buffer.push_styled_text("\t\r", red);
     buffer.push_styled_text("\n\u{80}\u{9f}", blue);
@@ -259,7 +259,7 @@ fn sanitization_preserves_line_boundaries_and_styles() {
 #[test]
 fn line_helpers_finish_the_current_line() {
     let red = ContentStyle::new().red();
-    let mut buffer = PreviewBuffer::new();
+    let mut buffer = Buffer::new();
     buffer.push_line("");
     buffer.push_styled_str("prefix ", red);
     buffer.push_line("plain");
@@ -312,7 +312,7 @@ fn chunk_boundaries_do_not_change_lines_or_styles() {
     let style = ContentStyle::new().blue().bold();
 
     for boundary in (0..=text.len()).filter(|&index| text.is_char_boundary(index)) {
-        let mut buffer = PreviewBuffer::new();
+        let mut buffer = Buffer::new();
         buffer.push_styled_str(&text[..boundary], style);
         buffer.push_styled_str("", ContentStyle::new().red());
         buffer.push_str("");
@@ -337,7 +337,7 @@ fn chunk_boundaries_do_not_change_lines_or_styles() {
         assert_eq!(buffer.styles.len(), 2);
     }
 
-    let mut buffer = PreviewBuffer::new();
+    let mut buffer = Buffer::new();
     for ch in text.chars() {
         buffer.push_str(ch.encode_utf8(&mut [0; 4]));
     }
@@ -351,7 +351,7 @@ fn segment_writes_reject_line_breaks_without_mutation() {
     let red = ContentStyle::new().red();
     for style in [None, Some(ContentStyle::default()), Some(red)] {
         for populated in [false, true] {
-            let mut buffer = PreviewBuffer::new();
+            let mut buffer = Buffer::new();
             if populated {
                 buffer.push_styled_str("previous", red);
                 buffer.newline();
@@ -396,7 +396,7 @@ fn segment_writes_reject_line_breaks_without_mutation() {
 fn indexed_lines_and_skipping_access_only_their_styles() {
     let red = ContentStyle::new().red();
     let blue = ContentStyle::new().blue();
-    let mut buffer = PreviewBuffer::new();
+    let mut buffer = Buffer::new();
     for index in 0..1100 {
         buffer.push_str(&format!("{index}: "));
         buffer.push_styled_str("red", red);

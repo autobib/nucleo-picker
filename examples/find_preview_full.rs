@@ -34,8 +34,8 @@ use ignore::{DirEntry, WalkBuilder, WalkState};
 use nucleo_picker::{
     PickerOptions, Render,
     preview::{
-        Preview, PreviewPane,
-        request::{ActivePreviewRequest, PreviewRequest, PreviewResponse, QueuedPreviewRequest},
+        Pane, Preview,
+        request::{ActiveRequest, QueuedRequest, Request, Response},
     },
 };
 use parking_lot::{Condvar, Mutex};
@@ -57,7 +57,7 @@ impl Render<DirEntry> for DirEntryRender {
 
 struct Shared {
     // This is a LIFO queue for preview jobs. If this is `None`, the thread is closed
-    jobs: Mutex<Option<Vec<QueuedPreviewRequest<DirEntry>>>>,
+    jobs: Mutex<Option<Vec<QueuedRequest<DirEntry>>>>,
     available: Condvar,
 }
 
@@ -86,11 +86,7 @@ impl FilePreview {
 }
 
 impl Preview<DirEntry> for FilePreview {
-    fn preview(
-        &mut self,
-        request: PreviewRequest<'_, DirEntry>,
-        _timeout: Duration,
-    ) -> PreviewResponse {
+    fn preview(&mut self, request: Request<'_, DirEntry>, _timeout: Duration) -> Response {
         // entry metadata is already available in the dir entry so we can label non-files synchronously
         let label = match request.item().file_type() {
             Some(kind) if kind.is_file() => None,
@@ -103,7 +99,7 @@ impl Preview<DirEntry> for FilePreview {
             // push the information label
             pane.buffer_mut()
                 .push_styled_str(label, ContentStyle::new().dim().italic());
-            return PreviewResponse::Ready(pane);
+            return Response::Ready(pane);
         }
         // defer file IO to the worker pool to not delay the frame render
         let (pending, request) = request.defer();
@@ -116,7 +112,7 @@ impl Preview<DirEntry> for FilePreview {
             jobs.push(request);
         }
         self.shared.available.notify_one();
-        PreviewResponse::Pending(pending)
+        Response::Pending(pending)
     }
 }
 
@@ -135,7 +131,7 @@ impl Drop for FilePreview {
 
 fn work(shared: &Shared) {
     let mut bytes = Vec::new();
-    let mut pane = PreviewPane::new();
+    let mut pane = Pane::new();
     loop {
         let job = {
             let mut jobs = shared.jobs.lock();
@@ -183,9 +179,9 @@ fn work(shared: &Shared) {
 }
 
 fn read_preview(
-    request: &ActivePreviewRequest<DirEntry>,
+    request: &ActiveRequest<DirEntry>,
     bytes: &mut Vec<u8>,
-    pane: &mut PreviewPane,
+    pane: &mut Pane,
 ) -> io::Result<()> {
     let mut file = File::open(request.item().path())?;
     if !file.metadata()?.is_file() {

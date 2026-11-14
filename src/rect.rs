@@ -11,6 +11,15 @@ use crossterm::{
     terminal::{Clear, ClearType},
 };
 
+/// The dimensions of a rectangle in the terminal, measured in columns.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Dimensions {
+    /// The width of the rectangle in terminal columns.
+    pub width: u16,
+    /// The height of the rectangle in terminal columns.
+    pub height: u16,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Position {
     pub column: u16,

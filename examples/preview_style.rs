@@ -5,7 +5,7 @@ use nucleo_picker::{
     Picker, Render,
     preview::{
         Preview, WithPreview,
-        request::{PreviewRequest, PreviewResponse},
+        request::{Request, Response},
     },
 };
 
@@ -46,11 +46,7 @@ impl Preview<Color> for ColorPreview {
     // generate the preview with a color swatch
     // and with a header indicating the index at which
     // it was generated
-    fn preview(
-        &mut self,
-        request: PreviewRequest<'_, Color>,
-        _timeout: Duration,
-    ) -> PreviewResponse {
+    fn preview(&mut self, request: Request<'_, Color>, _timeout: Duration) -> Response {
         self.generated += 1;
         let style = match request.item() {
             Color::Red => ContentStyle::new().on_red(),
@@ -62,7 +58,7 @@ impl Preview<Color> for ColorPreview {
         let mut pane = request.ready();
         let _ = writeln!(pane.text_writer(), "Preview #{}", self.generated);
         pane.push_styled_text("        \n        \n        ", style);
-        PreviewResponse::Ready(pane)
+        Response::Ready(pane)
     }
 }
 

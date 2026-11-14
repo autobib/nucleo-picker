@@ -1,12 +1,12 @@
 use super::*;
-use crate::preview::request::{PreviewRequest, QueuedPreviewRequest};
+use crate::preview::request::{QueuedRequest, Request};
 
-fn polled_queued_request() -> (PendingPreview, QueuedPreviewRequest<&'static str>) {
+fn polled_queued_request() -> (Pending, QueuedRequest<&'static str>) {
     let mut picker = crate::Picker::new(crate::render::StrRenderer);
     picker.push_batch(["alpha"]);
     while picker.core.engine.update(5).matching {}
-    let (pending, queued) = PreviewRequest {
-        buffer: PreviewBuffer::new(),
+    let (pending, queued) = Request {
+        buffer: Buffer::new(),
         epoch: 1,
         snapshot: picker.core.engine.snapshot(),
         id: picker.core.engine.item_id(0),
@@ -26,7 +26,7 @@ fn promotion_preserves_work_that_starts_after_polling() {
         panic!("expected active preview");
     };
     assert!(!active.is_cancelled());
-    let buffer = PreviewBuffer::new();
+    let buffer = Buffer::new();
     assert!(active.publish(&mut buffer.into_pane()).is_ok());
     assert!(matches!(
         RequestState::Active(pending).poll(),
@@ -37,7 +37,7 @@ fn promotion_preserves_work_that_starts_after_polling() {
 #[test]
 fn promotion_collects_work_published_after_polling() {
     let (pending, queued) = polled_queued_request();
-    let mut buffer = PreviewBuffer::new();
+    let mut buffer = Buffer::new();
     buffer.push_str("completed");
     assert!(
         queued

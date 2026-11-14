@@ -4,7 +4,7 @@
 use crate::{
     Terminal,
     component::Component,
-    rect::{Area, ClearState, CrosstermRect, Rect},
+    rect::{Area, ClearState, CrosstermRect, Dimensions, Rect},
 };
 use crossterm::{
     QueueableCommand,
@@ -15,7 +15,7 @@ use crossterm::{
 use std::io;
 
 #[cfg(feature = "preview")]
-use crate::session::PreviewSize;
+use crate::preview::interior_dimensions;
 
 /// Events which modify the layout of the picker screen.
 #[derive(Debug, PartialEq, Eq)]
@@ -68,7 +68,7 @@ impl Redraw {
 ///
 /// The frame consists of sub-areas for the match list, prompt, status, and preview.
 pub(crate) struct Frame {
-    size: (u16, u16),
+    dimensions: Dimensions,
     reversed: bool,
     status_hidden: bool,
     preview_ratio: Option<f64>,
@@ -79,16 +79,16 @@ pub(crate) struct Frame {
     status: Area,
     preview: Area,
     #[cfg(feature = "preview")]
-    preview_size: PreviewSize,
+    preview_size: Dimensions,
 }
 
 impl Frame {
     /// initialize a new frame.
     ///
     /// `preview_ratio = None` means that the preview pane is not displayed at all
-    pub fn new(size: (u16, u16), reversed: bool, preview_ratio: Option<f64>) -> Self {
+    pub fn new(dimensions: Dimensions, reversed: bool, preview_ratio: Option<f64>) -> Self {
         let mut frame = Self {
-            size,
+            dimensions,
             reversed,
             status_hidden: false,
             preview_ratio,
@@ -99,15 +99,15 @@ impl Frame {
             status: Area::default(),
             preview: Area::default(),
             #[cfg(feature = "preview")]
-            preview_size: PreviewSize::default(),
+            preview_size: Dimensions::default(),
         };
         frame.layout();
         frame
     }
 
     /// The dimensions of the frame.
-    pub fn dimensions(&self) -> (u16, u16) {
-        self.size
+    pub fn dimensions(&self) -> Dimensions {
+        self.dimensions
     }
 
     pub fn preview_enabled(&self) -> bool {
@@ -115,7 +115,7 @@ impl Frame {
     }
 
     #[cfg(feature = "preview")]
-    pub fn preview_size(&self) -> PreviewSize {
+    pub fn preview_size(&self) -> Dimensions {
         self.preview_size
     }
 
@@ -152,11 +152,11 @@ impl Frame {
 
     /// Update the size of the frame, returning `true` if the frame size changed and a redraw is
     /// required.
-    fn update_size(&mut self, size: (u16, u16)) -> bool {
-        if size == self.size {
+    fn update_dimensions(&mut self, dimensions: Dimensions) -> bool {
+        if dimensions == self.dimensions {
             return false;
         }
-        self.size = size;
+        self.dimensions = dimensions;
         self.layout();
         true
     }
@@ -168,11 +168,11 @@ impl Frame {
         }
         let width = i32::from(self.preview.width)
             .saturating_add(columns)
-            .clamp(3, i32::from(self.size.0) - 3) as u16;
+            .clamp(3, i32::from(self.dimensions.width) - 3) as u16;
         if width == self.preview.width {
             return false;
         }
-        self.preview_ratio = Some(f64::from(width) / f64::from(self.size.0));
+        self.preview_ratio = Some(f64::from(width) / f64::from(self.dimensions.width));
         self.layout();
         true
     }
@@ -192,7 +192,7 @@ impl Frame {
         //    incrementally causes ratio rounding)
         // 7. Adjustments which do not result in a change (e.g. against a limit) do not adjust the
         //    ratio.
-        let (mut width, height) = self.size;
+        let Dimensions { mut width, height } = self.dimensions;
         self.preview = if let Some(ratio) = self.preview_ratio
             && !self.preview_hidden
             && width >= 6
@@ -257,7 +257,7 @@ impl Frame {
         preview.resize(self.preview, &());
         #[cfg(feature = "preview")]
         {
-            self.preview_size = PreviewSize::from_area(self.preview);
+            self.preview_size = interior_dimensions(self.preview);
         }
         self.pending_resize = false;
     }
@@ -288,7 +288,7 @@ impl Frame {
             // should have been propagated by a Redraw event
             return Ok(false);
         }
-        self.pending_resize |= self.update_size(writer.size()?);
+        self.pending_resize |= self.update_dimensions(writer.dimensions()?);
         if self.pending_resize {
             // resize immediately before drawing, so that the draw can take into account the new
             // size
@@ -318,7 +318,7 @@ impl Frame {
         V: Component<()>,
         W: Terminal,
     {
-        if self.size.0 == 0 || self.size.1 == 0 {
+        if self.dimensions.width == 0 || self.dimensions.height == 0 {
             return Ok(());
         }
         let clear = if redraw.prompt && redraw.list && redraw.status {

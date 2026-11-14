@@ -4,7 +4,7 @@ use crossterm::style::{ContentStyle, Stylize};
 #[test]
 fn conversion_and_content_edits_preserve_storage_and_separate_view_state() {
     let style = ContentStyle::new().red();
-    let mut buffer = PreviewBuffer::new();
+    let mut buffer = Buffer::new();
     buffer.push_styled_text("first\nsecond", style);
     let allocation = buffer.line(0).unwrap().as_str().as_ptr();
     let mut pane = buffer.into_pane();
@@ -49,15 +49,15 @@ fn conversion_and_content_edits_preserve_storage_and_separate_view_state() {
     assert_eq!(pane.buffer().line(0).unwrap().as_str().as_ptr(), allocation);
 }
 
-fn ready(lines: usize) -> PreviewPane {
-    let mut buffer = PreviewBuffer::new();
+fn ready(lines: usize) -> Pane {
+    let mut buffer = Buffer::new();
     for _ in 1..lines {
         buffer.newline();
     }
     buffer.into_pane()
 }
 
-fn text_preview(text: &str) -> PreviewPane {
+fn text_preview(text: &str) -> Pane {
     let mut buffer = ready(1);
     buffer.buffer_mut().push_text(text);
     buffer
@@ -68,7 +68,7 @@ fn vertical_alignment_and_clamping_preserve_columns() {
     for height in [1, 8, 23, 40] {
         let mut buffer = ready(23);
         buffer.set_offset(9, 3);
-        let size = PreviewSize { width: 20, height };
+        let size = Dimensions { width: 20, height };
         let bottom = 23_usize.saturating_sub(usize::from(height));
         for _ in 0..2 {
             buffer.viewport(size).align_bottom();
@@ -83,7 +83,7 @@ fn vertical_alignment_and_clamping_preserve_columns() {
     buffer.set_offset(9, usize::MAX);
     for (height, row) in [(8, 15), (12, 11), (4, 11), (30, 0)] {
         buffer
-            .viewport(PreviewSize { width: 20, height })
+            .viewport(Dimensions { width: 20, height })
             .clamp_vertical();
         assert_eq!(buffer.offset(), (9, row));
     }
@@ -92,7 +92,7 @@ fn vertical_alignment_and_clamping_preserve_columns() {
 #[test]
 fn viewport_chaining_and_clamping_use_current_rows() {
     let mut pane = text_preview("abcdefghijklmnop\nx\n\ne\u{301}界👩🏽‍💻abc");
-    let size = PreviewSize {
+    let size = Dimensions {
         width: 6,
         height: 1,
     };
@@ -131,7 +131,7 @@ fn horizontal_bounds_and_alignment_use_visible_columns_and_line_numbers() {
     let mut buffer = text_preview(
         "offscreen and much longer\ne\u{301}界👩🏽‍💻abc\n\nabcdef\noffscreen and much longer",
     );
-    let size = PreviewSize {
+    let size = Dimensions {
         width: 5,
         height: 3,
     };
@@ -175,15 +175,15 @@ fn horizontal_bounds_and_alignment_use_visible_columns_and_line_numbers() {
     buffer.viewport(size).align_right();
     assert_eq!(buffer.offset(), (3, 1));
     buffer
-        .viewport(PreviewSize { width: 12, ..size })
+        .viewport(Dimensions { width: 12, ..size })
         .align_right();
     assert_eq!(buffer.offset(), (0, 1));
     buffer.viewport(size).align_right();
     assert_eq!(buffer.offset(), (3, 1));
-    buffer.viewport(PreviewSize { height: 1, ..size }).down(1);
+    buffer.viewport(Dimensions { height: 1, ..size }).down(1);
     assert_eq!(buffer.offset(), (3, 2));
     buffer
-        .viewport(PreviewSize { height: 1, ..size })
+        .viewport(Dimensions { height: 1, ..size })
         .align_right();
     assert_eq!(buffer.offset(), (0, 2));
 
@@ -193,12 +193,12 @@ fn horizontal_bounds_and_alignment_use_visible_columns_and_line_numbers() {
     }
     buffer.set_offset(0, 1);
     buffer
-        .viewport(PreviewSize { width: 1, ..size })
+        .viewport(Dimensions { width: 1, ..size })
         .right(usize::MAX);
     assert_eq!(buffer.offset(), (7, 1));
     for text in ["", "abc", "abcde"] {
         let mut buffer = text_preview(text);
-        let size = PreviewSize { height: 1, ..size };
+        let size = Dimensions { height: 1, ..size };
         buffer.viewport(size).right(usize::MAX);
         assert_eq!(buffer.offset(), (0, 0));
         buffer.viewport(size).align_right();
@@ -213,13 +213,13 @@ fn zero_sized_geometry_handles_scrolling_and_alignment() {
     let mut buffer = text_preview("abcdefghijklmnop\nx\n\ny");
     for (width, height, right, aligned) in [(0, 1, 8, 16), (1, 0, 7, 0), (0, 0, 7, 0)] {
         buffer.set_offset(7, 0);
-        let size = PreviewSize { width, height };
+        let size = Dimensions { width, height };
         buffer.viewport(size).right(1);
         assert_eq!(buffer.offset(), (right, 0));
         buffer.viewport(size).align_right();
         assert_eq!(buffer.offset(), (aligned, 0));
     }
-    let size = PreviewSize::default();
+    let size = Dimensions::default();
     buffer.set_offset(7, 2);
     buffer.viewport(size).clamp_vertical();
     assert_eq!(buffer.offset(), (7, 2));
@@ -239,7 +239,7 @@ fn zero_sized_geometry_handles_scrolling_and_alignment() {
 #[test]
 fn vertical_scroll_and_clamping_preserve_horizontal_position() {
     let mut buffer = text_preview("abcdefghijklmnop\nx\n\nabcdefghijklmnop");
-    let size = PreviewSize {
+    let size = Dimensions {
         width: 6,
         height: 1,
     };
@@ -255,12 +255,12 @@ fn vertical_scroll_and_clamping_preserve_horizontal_position() {
     assert_eq!(buffer.offset(), (9, 2));
     buffer.viewport(size).up(usize::MAX);
     assert_eq!(buffer.offset(), (9, 0));
-    let size = PreviewSize { height: 3, ..size };
+    let size = Dimensions { height: 3, ..size };
     buffer.viewport(size).clamp_vertical();
     assert_eq!(buffer.offset(), (9, 0));
-    buffer.viewport(PreviewSize { width: 40, ..size }).right(1);
+    buffer.viewport(Dimensions { width: 40, ..size }).right(1);
     assert_eq!(buffer.offset(), (9, 0));
-    buffer.viewport(PreviewSize { width: 5, ..size }).right(1);
+    buffer.viewport(Dimensions { width: 5, ..size }).right(1);
     assert_eq!(buffer.offset(), (10, 0));
 }
 
@@ -268,7 +268,7 @@ fn vertical_scroll_and_clamping_preserve_horizontal_position() {
 fn horizontal_measurement_skips_offscreen_rows_and_hidden_suffixes() {
     use crate::util::unicode::tests::{CountingProcessor, MEASURED_BYTES};
 
-    let mut buffer = PreviewBuffer::new();
+    let mut buffer = Buffer::new();
     let long = "界".repeat(1_000_000);
     buffer.push_line(&long);
     buffer.push_line("abc");
@@ -278,7 +278,7 @@ fn horizontal_measurement_skips_offscreen_rows_and_hidden_suffixes() {
     let mut pane = buffer.into_pane();
 
     pane.set_offset(0, 1);
-    let viewport = pane.viewport(PreviewSize {
+    let viewport = pane.viewport(Dimensions {
         width: 5,
         height: 2,
     });
@@ -290,7 +290,7 @@ fn horizontal_measurement_skips_offscreen_rows_and_hidden_suffixes() {
     assert_eq!(MEASURED_BYTES.get(), 10);
 
     pane.set_offset(0, 3);
-    let viewport = pane.viewport(PreviewSize {
+    let viewport = pane.viewport(Dimensions {
         width: 20,
         height: 2,
     });
@@ -299,7 +299,7 @@ fn horizontal_measurement_skips_offscreen_rows_and_hidden_suffixes() {
     assert_eq!(MEASURED_BYTES.get(), 33);
 
     pane.set_offset(0, 1);
-    let viewport = pane.viewport(PreviewSize {
+    let viewport = pane.viewport(Dimensions {
         width: 20,
         height: 4,
     });

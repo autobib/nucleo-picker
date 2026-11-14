@@ -4,6 +4,7 @@ use crate::{
     Picker,
     event::{Event, EventSource, RecvError},
     render::StrRenderer,
+    session::Dimensions,
 };
 
 use super::Terminal;
@@ -46,9 +47,10 @@ impl Terminal for CountingTerminal {
         Ok(())
     }
 
-    fn size(&mut self) -> io::Result<(u16, u16)> {
+    fn dimensions(&mut self) -> io::Result<Dimensions> {
         self.size_calls += 1;
-        Ok(self.size)
+        let (width, height) = self.size;
+        Ok(Dimensions { width, height })
     }
 }
 

@@ -3,7 +3,7 @@ use std::{
     sync::mpsc,
 };
 
-use crate::{Picker, error::PickError, event::Event, render::StrRenderer};
+use crate::{Picker, error::PickError, event::Event, render::StrRenderer, session::Dimensions};
 
 use super::Terminal;
 
@@ -53,8 +53,11 @@ impl Terminal for TestTerminal {
         }
     }
 
-    fn size(&mut self) -> io::Result<(u16, u16)> {
-        Ok((20, 8))
+    fn dimensions(&mut self) -> io::Result<Dimensions> {
+        Ok(Dimensions {
+            width: 20,
+            height: 8,
+        })
     }
 }
 

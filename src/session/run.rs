@@ -61,7 +61,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
         let preview_ratio = P::ENABLED.then_some(self.preview_config.ratio);
         #[cfg(not(feature = "preview"))]
         let preview_ratio = None;
-        let mut frame = Frame::new(terminal.size()?, self.reversed, preview_ratio);
+        let mut frame = Frame::new(terminal.dimensions()?, self.reversed, preview_ratio);
         frame.resize(
             engine,
             &mut prompt,
@@ -250,7 +250,6 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
             if let Some(id) = handle_status.take()
                 && let Some(ref notifier) = self.status_notifier
             {
-                let (width, height) = frame.dimensions();
                 let _ = notifier.push(PickerStatus {
                     id,
                     query: prompt.contents().to_owned(),
@@ -260,8 +259,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                     item_count: status.item_count,
                     selected_item_count: list.queued().count().map_or(0, as_u32),
                     matched_item_count: status.matched_item_count,
-                    width,
-                    height,
+                    dimensions: frame.dimensions(),
                     matching: status.matching,
                     injecting: status.injecting,
                 });

@@ -200,14 +200,14 @@ mod preview {
         Picker,
         component::{Component, PreviewComponent},
         event::{LayoutEvent, RecvError},
-        preview::PreviewEvent,
+        preview::{PreviewEvent, interior_dimensions},
         rect::{Area, Rect},
-        session::{PreviewSize, tests::frame_events},
+        session::{Dimensions, tests::frame_events},
     };
 
     struct PreviewProbe<'a> {
         observations: &'a mut Vec<(&'static str, Observation)>,
-        size: PreviewSize,
+        size: Dimensions,
     }
 
     impl PreviewProbe<'_> {
@@ -223,7 +223,7 @@ mod preview {
 
     impl Component<()> for PreviewProbe<'_> {
         fn resize(&mut self, area: Area, _: &()) {
-            self.size = PreviewSize::from_area(area);
+            self.size = interior_dimensions(area);
         }
 
         fn draw<D: Rect>(&mut self, _: &(), _: &mut D) -> io::Result<()> {
@@ -287,7 +287,7 @@ mod preview {
                 QueueProbe(&mut queued),
                 PreviewProbe {
                     observations: &mut previews,
-                    size: PreviewSize::default(),
+                    size: Dimensions::default(),
                 },
             )
             .unwrap();
@@ -336,7 +336,7 @@ mod preview {
                     (),
                     PreviewProbe {
                         observations: &mut previews,
-                        size: PreviewSize::default(),
+                        size: Dimensions::default(),
                     },
                 )
                 .unwrap();

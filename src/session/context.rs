@@ -1,3 +1,5 @@
+#[cfg(feature = "preview")]
+use super::Dimensions;
 use super::{ItemId, ItemRef, OwnedItem};
 use crate::match_engine::MatchEngine;
 
@@ -11,34 +13,7 @@ pub struct Context<'items, T> {
     match_revision: u64,
     rank: Option<u32>,
     #[cfg(feature = "preview")]
-    preview_size: Option<PreviewSize>,
-}
-
-/// The size of the interior of the preview pane in terminal cells.
-///
-/// This is the dimension of the preview area, excluding borders.
-#[cfg(feature = "preview")]
-#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
-#[derive(Clone, Copy, Default)]
-pub struct PreviewSize {
-    /// The width of the preview area in terminal columns.
-    pub width: u16,
-    /// The height of the preview area in terminal columns.
-    pub height: u16,
-}
-
-#[cfg(feature = "preview")]
-impl PreviewSize {
-    pub(crate) fn from_area(area: crate::rect::Area) -> Self {
-        if area.is_empty() {
-            Self::default()
-        } else {
-            Self {
-                width: area.width.saturating_sub(2),
-                height: area.height.saturating_sub(2),
-            }
-        }
-    }
+    preview_size: Option<Dimensions>,
 }
 
 impl<'items, T: Send + Sync + 'static> Context<'items, T> {
@@ -61,7 +36,7 @@ impl<'items, T: Send + Sync + 'static> Context<'items, T> {
     }
 
     #[cfg(feature = "preview")]
-    pub(crate) fn with_preview(mut self, size: Option<PreviewSize>) -> Self {
+    pub(crate) fn with_preview(mut self, size: Option<Dimensions>) -> Self {
         self.preview_size = size;
         self
     }
@@ -87,11 +62,11 @@ impl<'items, T: Send + Sync + 'static> Context<'items, T> {
         self.query
     }
 
-    /// Returns the current size of the preview pane, or `None` if the preview pane is hidden or
+    /// Returns the dimensions of the preview pane, or `None` if the preview pane is hidden or
     /// otherwise not enabled.
     #[cfg(feature = "preview")]
     #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
-    pub fn preview_size(&self) -> Option<PreviewSize> {
+    pub fn preview_size(&self) -> Option<Dimensions> {
         self.preview_size
     }
 

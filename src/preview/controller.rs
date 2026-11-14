@@ -1,14 +1,14 @@
 use super::{
-    BoundaryChars, ItemId, ItemRef, Preview, PreviewBuffer, PreviewConfig, PreviewContent,
-    PreviewEvent,
+    BoundaryChars, Buffer, Content, ItemId, ItemRef, Preview, PreviewConfig, PreviewEvent,
     cache::{Cached, RequestState},
-    request::PreviewRequest,
+    interior_dimensions,
+    request::Request,
 };
 use crate::{
     PickerChars,
     component::{Component, PreviewComponent},
     rect::{Area, Rect},
-    session::{Context, PreviewSize},
+    session::{Context, Dimensions},
 };
 use lru::LruCache;
 use std::{
@@ -33,7 +33,7 @@ struct PreviewState {
     // previewer so that it may join its workers if desired
     cache: LruCache<u32, Cached>,
     prefetch: Option<Prefetch>,
-    spare: PreviewBuffer,
+    spare: Buffer,
     last_item: Option<u32>,
     // Unlike last_item, the hovered field is cleared while the pane is hidden.
     hovered: Option<u32>,
@@ -78,7 +78,7 @@ impl PreviewState {
                 next: 0,
                 queued: None,
             }),
-            spare: PreviewBuffer::new(),
+            spare: Buffer::new(),
             last_item: None,
             hovered: None,
             pending_redraw: false,
@@ -91,13 +91,13 @@ impl PreviewState {
         self.last_item.and_then(|idx| self.cache.peek(&idx))
     }
 
-    fn content(&self) -> PreviewContent<'_> {
+    fn content(&self) -> Content<'_> {
         match self.cached().and_then(|cached| cached.state.as_ref()) {
-            Some(RequestState::Ready(pane)) => PreviewContent::Ready(pane),
+            Some(RequestState::Ready(pane)) => Content::Ready(pane),
             Some(RequestState::Pending(_) | RequestState::Active(_) | RequestState::Retry(_)) => {
-                PreviewContent::Loading
+                Content::Loading
             }
-            None => PreviewContent::Empty,
+            None => Content::Empty,
         }
     }
 
@@ -275,7 +275,7 @@ impl PreviewState {
                 std::mem::take(&mut self.spare)
             };
             buffer.clear();
-            let request = PreviewRequest {
+            let request = Request {
                 buffer,
                 epoch: self.epoch,
                 snapshot: cx.snapshot,
@@ -308,7 +308,7 @@ impl PreviewState {
         }
     }
 
-    fn handle_event(&mut self, idx: Option<u32>, event: PreviewEvent, size: PreviewSize) {
+    fn handle_event(&mut self, idx: Option<u32>, event: PreviewEvent, size: Dimensions) {
         let Some(cached) = idx.and_then(|idx| {
             self.cache.get_mut(&idx).or_else(|| {
                 if matches!(event, PreviewEvent::Refresh) {
@@ -366,7 +366,7 @@ impl PreviewState {
 
     fn resize_area(&mut self, area: Area) {
         self.area = area;
-        let size = PreviewSize::from_area(area);
+        let size = interior_dimensions(area);
         for (_, cached) in self.cache.iter_mut() {
             if let Some(pane) = cached.pane_mut() {
                 pane.viewport(size).clamp_vertical();
@@ -382,7 +382,7 @@ impl PreviewState {
             prefetch.cycle = None;
             prefetch.queued = None;
         }
-        self.spare = PreviewBuffer::new();
+        self.spare = Buffer::new();
         self.epoch = 0;
         self.set_hovered(previewer, None);
         previewer.restart();
@@ -444,12 +444,12 @@ fn submit<T: Send + Sync + 'static, P: Preview<T>>(
     previewer: &mut P,
     snapshot: &nucleo::Snapshot<T>,
     id: ItemId,
-    mut buffer: PreviewBuffer,
+    mut buffer: Buffer,
     epoch: u64,
     deadline: Instant,
 ) -> RequestState {
     buffer.clear();
-    let request = PreviewRequest {
+    let request = Request {
         buffer,
         epoch,
         snapshot,

@@ -6,36 +6,36 @@
 //!
 //! ## Overview
 //!
-//! 1. The basic type is the [`PreviewRequest`]. This request is received when the preview method is
+//! 1. The basic type is the [`Request`]. This request is received when the preview method is
 //!    called. There are two options: handle the request immediately with
-//!    [`PreviewRequest::ready`], or handle the request later with [`PreviewRequest::defer`].
-//! 2. If you defer a request, you get a [`QueuedPreviewRequest`]. This represents a request which
-//!    you will work on later. When you are ready to process the request, call [`QueuedPreviewRequest::start`].
-//! 3. After starting work on a queued request, you get an [`ActivePreviewRequest`]. Publish the
-//!    preview buffer when finished with [`ActivePreviewRequest::publish`].
+//!    [`Request::ready`], or handle the request later with [`Request::defer`].
+//! 2. If you defer a request, you get a [`QueuedRequest`]. This represents a request which
+//!    you will work on later. When you are ready to process the request, call [`QueuedRequest::start`].
+//! 3. After starting work on a queued request, you get an [`ActiveRequest`]. Publish the
+//!    preview buffer when finished with [`ActiveRequest::publish`].
 //!
 //! ## Request coordination with the picker
 //!
-//! The [`PreviewRequest`] is sent by the picker when it calls the [`preview`](super::Preview::preview) method.
+//! The [`Request`] is sent by the picker when it calls the [`preview`](super::Preview::preview) method.
 //! This type represents a synchronous request for a preview. If the preview can be immediately
-//! satisfied, call [`PreviewRequest::ready`], fill the preview buffer, and return the preview buffer in
+//! satisfied, call [`Request::ready`], fill the preview buffer, and return the preview buffer in
 //! the response.
 //!
-//! If the preview cannot immediately be generated, call [`PreviewRequest::defer`]. This returns a
-//! [`QueuedPreviewRequest`] as well as a handle, to be returned to the picker, which is associated with
+//! If the preview cannot immediately be generated, call [`Request::defer`]. This returns a
+//! [`QueuedRequest`] as well as a handle, to be returned to the picker, which is associated with
 //! the queued request. The queued request should be sent to another thread to be completed
 //! asynchronously so that the picker can continue rendering the frame.
 //!
 //! A queued request may be cancelled at any time, and the underlying request can be re-submitted.
 //! The picker will do this in order to re-prioritize requests when there is a backlog of pending
 //! preview requests. When a request is cancelled, the various methods will return a
-//! [`CancelledPreviewRequest`].
+//! [`CancelledRequest`].
 //!
-//! When the queued request is ready to be handled, convert to an [`ActivePreviewRequest`] with the
-//! [`QueuedPreviewRequest::start`] method. This will prevent cancellation for re-prioritization:
+//! When the queued request is ready to be handled, convert to an [`ActiveRequest`] with the
+//! [`QueuedRequest::start`] method. This will prevent cancellation for re-prioritization:
 //! once this method is called, the picker will wait for this request to be satisfied without
 //! requesting it again (unless the request is dropped). Note that the preview request may still be cancelled
-//! if the preview is no longer required. When the preview itself is ready, call [`ActivePreviewRequest::publish`]
+//! if the preview is no longer required. When the preview itself is ready, call [`ActiveRequest::publish`]
 //! to make the preview available to the picker.
 //!
 //! When a queued request is very outdated, the picker will cancel the request regardless of its
@@ -61,24 +61,24 @@
 //! ```
 //! use std::sync::mpsc::{Receiver, Sender};
 //! use nucleo_picker::preview::{
-//!     PreviewPane,
-//!     request::{PreviewRequest, PreviewResponse, QueuedPreviewRequest},
+//!     Pane,
+//!     request::{QueuedRequest, Request, Response},
 //! };
 //!
 //! // Queue a request for completion.
 //! fn enqueue(
-//!     request: PreviewRequest<'_, String>,
-//!     worker: &Sender<QueuedPreviewRequest<String>>,
-//! ) -> PreviewResponse {
+//!     request: Request<'_, String>,
+//!     worker: &Sender<QueuedRequest<String>>,
+//! ) -> Response {
 //!     let (pending, queued) = request.defer();
 //!     worker.send(queued).expect("preview worker disconnected");
-//!     PreviewResponse::Pending(pending)
+//!     Response::Pending(pending)
 //! }
 //!
 //! // Complete the queued preview requests (in a separate thread).
-//! fn complete(receiver: Receiver<QueuedPreviewRequest<String>>) {
+//! fn complete(receiver: Receiver<QueuedRequest<String>>) {
 //!     // reusable scratch space for all requests
-//!     let mut pane = PreviewPane::new();
+//!     let mut pane = Pane::new();
 //!
 //!     while let Ok(queued) = receiver.recv() {
 //!         let Ok(request) = queued.start() else {
@@ -94,8 +94,8 @@
 //!
 //! ## Buffer reuse
 //!
-//! The [`PreviewRequest`] internally contains a pre-cleared preview pane that may be recycled from a
-//! previous preview pane. When publishing a pane through [`ActivePreviewRequest::publish`], the
+//! The [`Request`] internally contains a pre-cleared preview pane that may be recycled from a
+//! previous preview pane. When publishing a pane through [`ActiveRequest::publish`], the
 //! worker should maintain a separate scratch pane and swap it with the request pane on
 //! publication. If publication succeeds, the pane will be empty, but if it fails the pane will
 //! have the original contents which the worker must clear manually.
@@ -103,8 +103,8 @@
 //! ## Previewing item and lifetimes
 //!
 //! The item for which the preview was originally requested is always available using an associated
-//! `item` method; see [`PreviewRequest::item`], [`QueuedPreviewRequest::item`], and
-//! [`ActivePreviewRequest::item`]. Internally, the requests use atomic reference counting to
+//! `item` method; see [`Request::item`], [`QueuedRequest::item`], and
+//! [`ActiveRequest::item`]. Internally, the requests use atomic reference counting to
 //! hold on to the underlying item pool (shared with the picker) as long as any request is
 //! not dropped. This means that the items will remain in memory even if the picker shuts down,
 //! if there are any remaining requests which have not been dropped.
@@ -113,18 +113,18 @@ use nucleo::{DetachedItem, Snapshot};
 use std::fmt;
 
 use super::{
-    ItemRef, PreviewBuffer, PreviewPane,
+    Buffer, ItemRef, Pane,
     lock::{ActiveWriter, QueuedWriter, Reader, request},
 };
 
 pub use super::ItemId;
 
 /// The outcome of a preview request.
-pub enum PreviewResponse {
+pub enum Response {
     /// The preview could be generated immediately.
-    Ready(PreviewPane),
+    Ready(Pane),
     /// Preview generation has been deferred.
-    Pending(PendingPreview),
+    Pending(Pending),
 }
 
 /// A request to generate a preview.
@@ -133,8 +133,8 @@ pub enum PreviewResponse {
 /// the lifetime is no longer held.
 ///
 /// See the [module-level documentation](crate::preview::request) for more detail.
-pub struct PreviewRequest<'a, T> {
-    pub(super) buffer: PreviewBuffer,
+pub struct Request<'a, T> {
+    pub(super) buffer: Buffer,
     pub(super) epoch: u64,
     pub(super) snapshot: &'a Snapshot<T>,
     pub(super) id: ItemId,
@@ -143,8 +143,8 @@ pub struct PreviewRequest<'a, T> {
 /// A preview request waiting to be processed.
 ///
 /// See the [module-level documentation](crate::preview::request) for more detail.
-pub struct QueuedPreviewRequest<T> {
-    writer: QueuedWriter<PreviewPane>,
+pub struct QueuedRequest<T> {
+    writer: QueuedWriter<Pane>,
     item: DetachedItem<T>,
     id: ItemId,
 }
@@ -152,8 +152,8 @@ pub struct QueuedPreviewRequest<T> {
 /// A preview request that is currently being processed.
 ///
 /// See the [module-level documentation](crate::preview::request) for more detail.
-pub struct ActivePreviewRequest<T> {
-    writer: ActiveWriter<PreviewPane>,
+pub struct ActiveRequest<T> {
+    writer: ActiveWriter<Pane>,
     item: DetachedItem<T>,
     id: ItemId,
 }
@@ -162,7 +162,7 @@ pub struct ActivePreviewRequest<T> {
 ///
 /// This retains the original item and keeps the item pool alive until dropped. See the
 /// [module-level documentation](crate::preview::request) for more detail.
-pub struct CancelledPreviewRequest<T> {
+pub struct CancelledRequest<T> {
     item: DetachedItem<T>,
     id: ItemId,
 }
@@ -171,30 +171,30 @@ pub struct CancelledPreviewRequest<T> {
 ///
 /// This is the type which should be returned to the picker if a [`Preview`](super::Preview)
 /// implementation wishes to defer preview generation.
-pub struct PendingPreview {
-    pub(super) reader: Reader<PreviewPane>,
+pub struct Pending {
+    pub(super) reader: Reader<Pane>,
     pub(super) epoch: u64,
 }
 
-impl<'a, T: Send + Sync + 'static> PreviewRequest<'a, T> {
+impl<'a, T: Send + Sync + 'static> Request<'a, T> {
     /// Declare that the preview is already complete and obtain a cleared preview pane to return to the picker.
     ///
     /// # Reducing allocations
     ///
-    /// It is valid for the caller to allocate a new [`PreviewBuffer`] and return it
+    /// It is valid for the caller to allocate a new [`Buffer`] and return it
     /// directly, ignoring the preview request. However, it is encouraged to re-use the
-    /// [`PreviewBuffer`] obtained using this method since the buffer may be recycled from previous
+    /// [`Buffer`] obtained using this method since the buffer may be recycled from previous
     /// requests, decreasing allocation overhead.
-    pub fn ready(self) -> PreviewPane {
+    pub fn ready(self) -> Pane {
         self.buffer.into_pane()
     }
 
     /// Defer handling of the preview request.
     ///
-    /// The resulting [`PendingPreview`] will be notified when the preview request has been handled,
-    /// and it must be returned to the picker. The corresponding [`QueuedPreviewRequest`] is used to
+    /// The resulting [`Pending`] will be notified when the preview request has been handled,
+    /// and it must be returned to the picker. The corresponding [`QueuedRequest`] is used to
     /// complete the preview request when ready.
-    pub fn defer(self) -> (PendingPreview, QueuedPreviewRequest<T>) {
+    pub fn defer(self) -> (Pending, QueuedRequest<T>) {
         let Self {
             buffer,
             epoch,
@@ -205,8 +205,8 @@ impl<'a, T: Send + Sync + 'static> PreviewRequest<'a, T> {
         let item = unsafe { snapshot.get_detached_item_unchecked(id.index) };
         let (reader, writer) = request(buffer.into_pane());
         (
-            PendingPreview { reader, epoch },
-            QueuedPreviewRequest { writer, item, id },
+            Pending { reader, epoch },
+            QueuedRequest { writer, item, id },
         )
     }
 
@@ -229,7 +229,7 @@ impl<'a, T: Send + Sync + 'static> PreviewRequest<'a, T> {
     }
 }
 
-impl<T: Send + Sync + 'static> QueuedPreviewRequest<T> {
+impl<T: Send + Sync + 'static> QueuedRequest<T> {
     /// Declare that the previewer is ready to start generating the preview for this queued request.
     ///
     /// This method should be called when the request is actively being processed. Calling this
@@ -237,11 +237,11 @@ impl<T: Send + Sync + 'static> QueuedPreviewRequest<T> {
     /// order to increase priority.
     ///
     /// This method fails if the picker cancelled the request before it could start.
-    pub fn start(self) -> Result<ActivePreviewRequest<T>, CancelledPreviewRequest<T>> {
+    pub fn start(self) -> Result<ActiveRequest<T>, CancelledRequest<T>> {
         let Self { writer, item, id } = self;
         match writer.start() {
-            Some(writer) => Ok(ActivePreviewRequest { writer, item, id }),
-            None => Err(CancelledPreviewRequest { item, id }),
+            Some(writer) => Ok(ActiveRequest { writer, item, id }),
+            None => Err(CancelledRequest { item, id }),
         }
     }
 
@@ -282,7 +282,7 @@ impl<T: Send + Sync + 'static> QueuedPreviewRequest<T> {
     }
 }
 
-impl<T: Send + Sync + 'static> ActivePreviewRequest<T> {
+impl<T: Send + Sync + 'static> ActiveRequest<T> {
     /// Publish the preview pane.
     ///
     /// Mutable access to the pane internal to this request is not provided. Instead, the
@@ -293,12 +293,12 @@ impl<T: Send + Sync + 'static> ActivePreviewRequest<T> {
     /// swapped for a new empty pane. The empty pane should be reused to prepare the next
     /// request. If this method returns `Err`, it means that the request was cancelled, in which
     /// case the pane is unmodified.
-    pub fn publish(self, pane: &mut PreviewPane) -> Result<(), CancelledPreviewRequest<T>> {
+    pub fn publish(self, pane: &mut Pane) -> Result<(), CancelledRequest<T>> {
         let Self { writer, item, id } = self;
         if writer.publish(pane) {
             Ok(())
         } else {
-            Err(CancelledPreviewRequest { item, id })
+            Err(CancelledRequest { item, id })
         }
     }
 
@@ -335,7 +335,7 @@ impl<T: Send + Sync + 'static> ActivePreviewRequest<T> {
     }
 }
 
-impl<T: Send + Sync + 'static> CancelledPreviewRequest<T> {
+impl<T: Send + Sync + 'static> CancelledRequest<T> {
     /// Returns the item corresponding to this request.
     #[inline]
     pub fn item(&self) -> &T {
@@ -354,21 +354,21 @@ impl<T: Send + Sync + 'static> CancelledPreviewRequest<T> {
     }
 }
 
-impl<T> fmt::Debug for CancelledPreviewRequest<T> {
+impl<T> fmt::Debug for CancelledRequest<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("CancelledPreviewRequest")
+        f.debug_struct("CancelledRequest")
             .field("id", &self.id)
             .finish_non_exhaustive()
     }
 }
 
-impl<T> fmt::Display for CancelledPreviewRequest<T> {
+impl<T> fmt::Display for CancelledRequest<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("preview request was cancelled")
     }
 }
 
-impl<T> std::error::Error for CancelledPreviewRequest<T> {}
+impl<T> std::error::Error for CancelledRequest<T> {}
 
 #[cfg(test)]
 mod tests;

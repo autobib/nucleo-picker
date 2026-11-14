@@ -2,8 +2,8 @@ use super::*;
 use crate::{
     PickerOptions,
     preview::{
-        PreviewPane, SyncPreviewer,
-        request::{PreviewResponse, QueuedPreviewRequest},
+        Pane, SyncPreviewer,
+        request::{QueuedRequest, Response},
     },
 };
 
@@ -13,7 +13,7 @@ use support::*;
 
 #[test]
 fn synchronous_generation_preserves_initial_presentation_and_reuses_storage_on_refresh() {
-    fn fill(pane: &mut PreviewPane, item: &str) {
+    fn fill(pane: &mut Pane, item: &str) {
         assert_eq!(pane.offset(), (0, 0));
         assert!(!pane.line_numbers());
         assert_eq!(pane.buffer().lines().len(), 1);
@@ -26,15 +26,11 @@ fn synchronous_generation_preserves_initial_presentation_and_reuses_storage_on_r
     struct ReadyPreview;
 
     impl Preview<&'static str> for ReadyPreview {
-        fn preview(
-            &mut self,
-            request: PreviewRequest<'_, &'static str>,
-            _: Duration,
-        ) -> PreviewResponse {
+        fn preview(&mut self, request: Request<'_, &'static str>, _: Duration) -> Response {
             let item = request.item();
-            let mut pane: PreviewPane = request.ready();
+            let mut pane: Pane = request.ready();
             fill(&mut pane, item);
-            PreviewResponse::Ready(pane.with_offset(5, 17).with_line_numbers(true))
+            Response::Ready(pane.with_offset(5, 17).with_line_numbers(true))
         }
     }
 
@@ -51,7 +47,7 @@ fn synchronous_generation_preserves_initial_presentation_and_reuses_storage_on_r
         for _ in 0..2 {
             assert!(session.update_at(Some(0), &picker.core.engine, Instant::now()));
             assert!(!session.update_at(Some(0), &picker.core.engine, Instant::now()));
-            let PreviewContent::Ready(pane) = session.state.content() else {
+            let Content::Ready(pane) = session.state.content() else {
                 panic!("expected synchronous preview");
             };
             assert_eq!(pane.offset(), (5, 17));
@@ -66,7 +62,7 @@ fn synchronous_generation_preserves_initial_presentation_and_reuses_storage_on_r
     }
 
     check(ReadyPreview);
-    check(SyncPreviewer(|item: &&str, pane: &mut PreviewPane| {
+    check(SyncPreviewer(|item: &&str, pane: &mut Pane| {
         fill(pane, item);
         pane.set_offset(5, 17);
         pane.set_line_numbers(true);
@@ -92,7 +88,7 @@ fn preview_events_use_context_identity_and_interior_geometry() {
     );
     let cx = Context::new(&picker.core.engine)
         .with_rank(Some(0))
-        .with_preview(Some(PreviewSize {
+        .with_preview(Some(Dimensions {
             width: 4,
             height: 3,
         }));
@@ -388,7 +384,7 @@ fn refresh_and_eviction_cancel_requests_and_reuse_returned_buffers() {
         session.update_at(Some(0), &picker.core.engine, Instant::now());
         let request = session.previewer.take_request("alpha");
         let (queued, active) = if matches!(stage, Stage::Published) {
-            let mut pane = PreviewPane::new();
+            let mut pane = Pane::new();
             pane.buffer_mut().push_text("completed alpha\n");
             allocation = pane.buffer().line(0).unwrap().as_str().as_ptr();
             request.start().unwrap().publish(&mut pane).unwrap();
@@ -500,7 +496,7 @@ fn active_previews_survive_revisits_and_complete_once() {
     }
     assert!(!active.is_cancelled());
     assert_eq!(session.previewer.requested, ["alpha", "beta"]);
-    let mut pane = PreviewPane::new();
+    let mut pane = Pane::new();
     pane.buffer_mut().push_str("completed alpha");
     pane.set_err(true);
     assert!(active.publish(&mut pane).is_ok());
@@ -629,7 +625,7 @@ fn restart_preserves_invalidation_until_the_next_update() {
                     .previewer
                     .queued
                     .iter()
-                    .all(QueuedPreviewRequest::is_cancelled)
+                    .all(QueuedRequest::is_cancelled)
             );
             assert!(update(&mut session, &mut picker));
             assert!(!update(&mut session, &mut picker));
@@ -692,7 +688,7 @@ fn pending_previews_ignore_scrolling_even_after_publication() {
     session.handle_at(PreviewEvent::Right(1), Some(0));
     let active = session.previewer.queued.pop().unwrap().start().unwrap();
     session.handle_at(PreviewEvent::PageDown(1), Some(0));
-    let mut pane = PreviewPane::new();
+    let mut pane = Pane::new();
     for _ in 0..30 {
         pane.buffer_mut().push_line("abcdefghijklmnopqrstuvwxyz");
     }
@@ -728,7 +724,7 @@ fn lines_and_pages_saturate_in_order_and_preserve_columns() {
     });
     let cx = Context::new(&picker.core.engine)
         .with_rank(Some(0))
-        .with_preview(Some(PreviewSize {
+        .with_preview(Some(Dimensions {
             width: 20,
             height: 8,
         }));
@@ -795,7 +791,7 @@ fn zero_sized_panes_only_suppress_movement_at_zero_width() {
     for (width, height) in [(0, 1), (1, 0), (0, 0)] {
         let cx = Context::new(&picker.core.engine)
             .with_rank(Some(0))
-            .with_preview(Some(PreviewSize { width, height }));
+            .with_preview(Some(Dimensions { width, height }));
         for (event, offset) in [
             (PreviewEvent::Left(1), (6, 2)),
             (PreviewEvent::Right(1), (7, 2)),
@@ -913,7 +909,7 @@ fn restart_and_drop_cancel_foreground_and_prefetch_requests_before_callbacks() {
         }
         for active in [foreground, prefetched] {
             assert!(active.is_cancelled());
-            let mut pane = PreviewPane::new();
+            let mut pane = Pane::new();
             pane.buffer_mut().push_str("unused result");
             assert!(active.publish(&mut pane).is_err());
             assert_eq!(pane.buffer().line(0).unwrap().as_str(), "unused result");
@@ -969,19 +965,15 @@ fn owned_state_preserves_requests_until_end_or_drop() {
 #[test]
 fn session_cancels_requests_before_dropping_its_previewer() {
     struct PreviewerDrop<'a> {
-        queued: Option<QueuedPreviewRequest<&'static str>>,
+        queued: Option<QueuedRequest<&'static str>>,
         cancelled: &'a std::cell::Cell<bool>,
     }
 
     impl Preview<&'static str> for PreviewerDrop<'_> {
-        fn preview(
-            &mut self,
-            request: PreviewRequest<'_, &'static str>,
-            _: Duration,
-        ) -> PreviewResponse {
+        fn preview(&mut self, request: Request<'_, &'static str>, _: Duration) -> Response {
             let (pending, queued) = request.defer();
             self.queued = Some(queued);
-            PreviewResponse::Pending(pending)
+            Response::Pending(pending)
         }
     }
 
@@ -990,7 +982,7 @@ fn session_cancels_requests_before_dropping_its_previewer() {
             self.cancelled.set(
                 self.queued
                     .as_ref()
-                    .is_some_and(QueuedPreviewRequest::is_cancelled),
+                    .is_some_and(QueuedRequest::is_cancelled),
             );
         }
     }
@@ -1019,7 +1011,7 @@ fn line_number_events_preserve_raw_offsets_and_only_redraw_on_changes() {
     for (width, height) in [(0, 0), (0, 8), (20, 0), (20, 8)] {
         let cx = Context::new(&picker.core.engine)
             .with_rank(Some(0))
-            .with_preview(Some(PreviewSize { width, height }));
+            .with_preview(Some(Dimensions { width, height }));
         for base in [false, true] {
             let mut session = preview_pane(TestPreviewer {
                 line_numbers: base,

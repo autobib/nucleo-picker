@@ -2,7 +2,7 @@ use std::{io, iter::once};
 
 use crossterm::style::{Color, ContentStyle};
 
-use super::{BoundaryChars, PreviewContent, PreviewPane};
+use super::{BoundaryChars, Content, Pane};
 use crate::{
     rect::Rect,
     util::{
@@ -13,18 +13,18 @@ use crate::{
 
 pub(super) fn draw<D: Rect>(
     rect: &mut D,
-    preview: PreviewContent<'_>,
+    preview: Content<'_>,
     chars: BoundaryChars,
     ellipsis: char,
 ) -> io::Result<()> {
     let (preview, loading) = match preview {
-        PreviewContent::Empty => (None, false),
-        PreviewContent::Loading => (None, true),
-        PreviewContent::Ready(pane) => (Some(pane), false),
+        Content::Empty => (None, false),
+        Content::Loading => (None, true),
+        Content::Ready(pane) => (Some(pane), false),
     };
     let number_width = preview.map_or(0, |pane| pane.number_width(rect.width().get() - 2));
-    let (horizontal_position, _) = preview.map_or((0, 0), PreviewPane::offset);
-    let is_err = preview.is_some_and(PreviewPane::is_err);
+    let (horizontal_position, _) = preview.map_or((0, 0), Pane::offset);
+    let is_err = preview.is_some_and(Pane::is_err);
     let preview = preview.map(|pane| {
         (
             pane.buffer(),

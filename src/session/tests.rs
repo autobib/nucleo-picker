@@ -6,6 +6,7 @@ use std::{
 use crate::{
     Terminal,
     event::{Event, EventSource, RecvError},
+    session::Dimensions,
 };
 
 mod context;
@@ -44,9 +45,10 @@ impl Terminal for TestTerminal {
         Ok(())
     }
 
-    fn size(&mut self) -> io::Result<(u16, u16)> {
+    fn dimensions(&mut self) -> io::Result<Dimensions> {
         self.size_reads += 1;
-        Ok(self.size.unwrap_or((20, 8)))
+        let (width, height) = self.size.unwrap_or((20, 8));
+        Ok(Dimensions { width, height })
     }
 
     fn end_render(&mut self) -> io::Result<()> {

@@ -2,7 +2,7 @@ use std::fmt::{self, Write};
 
 use crossterm::style::{ContentStyle, Stylize};
 
-use crate::preview::{PreviewBuffer, PreviewPane, TextWriter};
+use crate::preview::{Buffer, Pane, TextWriter};
 
 #[test]
 fn writes_match_push_text_at_every_character_boundary() {
@@ -20,11 +20,11 @@ fn writes_match_push_text_at_every_character_boundary() {
         "é界e\u{301}👩‍💻\r\n\t\x1b[31mend\r",
         &controls,
     ] {
-        let mut expected = PreviewBuffer::new();
+        let mut expected = Buffer::new();
         expected.push_text(input);
         for first in (0..=input.len()).filter(|&i| input.is_char_boundary(i)) {
             for second in (first..=input.len()).filter(|&i| input.is_char_boundary(i)) {
-                let mut buffer = PreviewBuffer::new();
+                let mut buffer = Buffer::new();
                 {
                     let mut writer: TextWriter<'_> = buffer.text_writer();
                     for chunk in [&input[..first], &input[first..second], &input[second..]] {
@@ -65,7 +65,7 @@ fn writer_lifecycle_appends_unstyled_text_and_preserves_settings() {
     let plain = ContentStyle::default();
     let red = ContentStyle::new().red();
     let blue = ContentStyle::new().blue();
-    let mut pane = PreviewPane::new().with_line_numbers(true).with_offset(3, 4);
+    let mut pane = Pane::new().with_line_numbers(true).with_offset(3, 4);
     pane.set_err(true);
     let buffer = pane.buffer_mut();
     buffer.push_styled_str("prefix ", red);

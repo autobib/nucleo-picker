@@ -4,7 +4,7 @@ use crate::{
     match_engine::MatchEngine,
     preview::{
         ItemId, ItemRef,
-        request::{ActivePreviewRequest, PreviewResponse, QueuedPreviewRequest},
+        request::{ActiveRequest, QueuedRequest, Response},
     },
     render::StrRenderer,
 };
@@ -19,7 +19,7 @@ pub(crate) struct TestPreviewer {
     pub(crate) buffer_allocations: Vec<*const u8>,
     pub(crate) prefetched: Vec<&'static str>,
     pub(crate) prefetch_allocations: Vec<*const u8>,
-    pub(crate) queued: Vec<QueuedPreviewRequest<&'static str>>,
+    pub(crate) queued: Vec<QueuedRequest<&'static str>>,
     pub(crate) restarts: usize,
     pub(crate) defer: bool,
     pub(crate) prefetch_limit: usize,
@@ -31,7 +31,7 @@ pub(crate) struct TestPreviewer {
 }
 
 impl TestPreviewer {
-    pub(crate) fn take_request(&mut self, item: &str) -> QueuedPreviewRequest<&'static str> {
+    pub(crate) fn take_request(&mut self, item: &str) -> QueuedRequest<&'static str> {
         let index = self
             .queued
             .iter()
@@ -61,10 +61,10 @@ impl Stage {
 
     pub(crate) fn prepare(
         self,
-        request: QueuedPreviewRequest<&'static str>,
+        request: QueuedRequest<&'static str>,
     ) -> (
-        Option<QueuedPreviewRequest<&'static str>>,
-        Option<ActivePreviewRequest<&'static str>>,
+        Option<QueuedRequest<&'static str>>,
+        Option<ActiveRequest<&'static str>>,
     ) {
         match self {
             Self::Queued => return (Some(request), None),
@@ -77,8 +77,8 @@ impl Stage {
     }
 }
 
-pub(crate) fn publish(request: ActivePreviewRequest<&'static str>) {
-    let mut buffer = PreviewBuffer::new();
+pub(crate) fn publish(request: ActiveRequest<&'static str>) {
+    let mut buffer = Buffer::new();
     buffer.push_str(request.item());
     request.publish(&mut buffer.into_pane()).unwrap();
 }
@@ -96,7 +96,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewController<T, P> {
     ) -> bool {
         let cx = Context::new(engine)
             .with_rank(rank)
-            .with_preview(Some(PreviewSize::from_area(self.state.area)));
+            .with_preview(Some(interior_dimensions(self.state.area)));
         let redraw = self.update(&cx, deadline);
         self.prefetch(&cx, deadline);
         redraw
@@ -110,13 +110,13 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewController<T, P> {
     ) -> bool {
         let cx = Context::new(engine)
             .with_rank(rank)
-            .with_preview(Some(PreviewSize::from_area(self.state.area)));
+            .with_preview(Some(interior_dimensions(self.state.area)));
         self.update(&cx, deadline)
     }
 
     pub(crate) fn handle_at(&mut self, event: PreviewEvent, hovered: Option<u32>) {
         self.state
-            .handle_event(hovered, event, PreviewSize::from_area(self.state.area));
+            .handle_event(hovered, event, interior_dimensions(self.state.area));
     }
 }
 
@@ -136,9 +136,9 @@ impl Preview<&'static str> for TestPreviewer {
 
     fn prefetch(
         &mut self,
-        request: PreviewRequest<'_, &'static str>,
+        request: Request<'_, &'static str>,
         timeout: Duration,
-    ) -> Result<PreviewResponse, PreviewBuffer> {
+    ) -> Result<Response, Buffer> {
         assert!(!timeout.is_zero());
         let item = request.item();
         self.prefetched.push(item);
@@ -154,35 +154,31 @@ impl Preview<&'static str> for TestPreviewer {
             if !self.drop_requests {
                 self.queued.push(queued);
             }
-            Ok(PreviewResponse::Pending(pending))
+            Ok(Response::Pending(pending))
         } else {
             let mut pane = request.ready();
             assert!(!pane.is_err());
             pane.buffer_mut().push_str(item);
-            Ok(PreviewResponse::Ready(pane))
+            Ok(Response::Ready(pane))
         }
     }
 
     fn hover_changed(&mut self, item: Option<ItemRef<'_, &'static str>>) {
         if item.is_none() {
             self.cancelled_on_clear
-                .push(self.queued.iter().all(QueuedPreviewRequest::is_cancelled));
+                .push(self.queued.iter().all(QueuedRequest::is_cancelled));
         }
         self.hovered.push(item.map(|item| *item.value()));
         self.hovered_ids.push(item.map(|item| item.id()));
     }
 
     fn restart(&mut self) {
-        assert!(self.queued.iter().all(QueuedPreviewRequest::is_cancelled));
+        assert!(self.queued.iter().all(QueuedRequest::is_cancelled));
         assert!(self.hovered.last().is_none_or(Option::is_none));
         self.restarts += 1;
     }
 
-    fn preview(
-        &mut self,
-        request: PreviewRequest<'_, &'static str>,
-        timeout: Duration,
-    ) -> PreviewResponse {
+    fn preview(&mut self, request: Request<'_, &'static str>, timeout: Duration) -> Response {
         assert!(timeout >= Duration::from_millis(2));
         let item = request.item();
         assert_eq!(self.hovered.last(), Some(&Some(*item)));
@@ -199,7 +195,7 @@ impl Preview<&'static str> for TestPreviewer {
             if !self.drop_requests {
                 self.queued.push(queued);
             }
-            PreviewResponse::Pending(pending)
+            Response::Pending(pending)
         } else {
             let mut pane = request.ready();
             assert!(!pane.is_err());
@@ -209,7 +205,7 @@ impl Preview<&'static str> for TestPreviewer {
                 buffer.newline();
                 buffer.push_str(item);
             }
-            PreviewResponse::Ready(pane.with_line_numbers(self.line_numbers))
+            Response::Ready(pane.with_line_numbers(self.line_numbers))
         }
     }
 }

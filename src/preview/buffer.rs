@@ -6,7 +6,7 @@ use std::ops::Range;
 use crossterm::style::{ContentStyle, StyledContent};
 use memchr::memchr;
 
-use super::PreviewPane;
+use super::Pane;
 
 /// A buffer holding the contents of a single preview pane.
 ///
@@ -38,12 +38,12 @@ use super::PreviewPane;
 /// ```
 /// use std::collections::BTreeMap;
 /// use crossterm::style::{ContentStyle, Stylize};
-/// use nucleo_picker::preview::PreviewBuffer;
+/// use nucleo_picker::preview::Buffer;
 ///
 /// // In this example, `kind` and `citation_key` are strings which we know do not contain control
 /// // characters, but the field values may contain newlines or control characters.
 /// fn render_entry(
-///     buffer: &mut PreviewBuffer,
+///     buffer: &mut Buffer,
 ///     kind: &str,
 ///     citation_key: &str,
 ///     fields: &BTreeMap<&str, &str>,
@@ -79,7 +79,7 @@ use super::PreviewPane;
 ///     ("title", "A title which is very long and\n           contains an internal newline"),
 ///     ("year", "2025"),
 /// ]);
-/// let mut buffer = PreviewBuffer::new();
+/// let mut buffer = Buffer::new();
 /// render_entry(&mut buffer, "article", "key", &fields);
 /// // @article{key,
 /// //   author = {John Doe},
@@ -104,7 +104,7 @@ use super::PreviewPane;
 /// # );
 /// ```
 #[derive(Debug)]
-pub struct PreviewBuffer {
+pub struct Buffer {
     text: String,
     lines: Vec<LineIndex>,
     active_line: LineIndex,
@@ -128,18 +128,18 @@ struct StyleSpan {
 /// A line consists of the underlying text (excluding line breaks) as well
 /// as the style spans.
 #[derive(Clone, Copy, Debug)]
-pub struct PreviewLine<'a> {
+pub struct Line<'a> {
     text: &'a str,
     styles: &'a [StyleSpan],
 }
 
-impl Default for PreviewBuffer {
+impl Default for Buffer {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl PreviewBuffer {
+impl Buffer {
     /// Initialize a new buffer consisting of a single empty line.
     ///
     /// This is the same as the [`Default`] implementation, but as a const function.
@@ -169,8 +169,8 @@ impl PreviewBuffer {
     /// Convert into a preview pane with default offset, without line numbers, and with error flag
     /// set to `false`.
     #[must_use]
-    pub const fn into_pane(self) -> PreviewPane {
-        PreviewPane::from_buffer(self)
+    pub const fn into_pane(self) -> Pane {
+        Pane::from_buffer(self)
     }
 
     /// Append an unstyled segment to the current line in the buffer.
@@ -257,9 +257,9 @@ impl PreviewBuffer {
     ///
     /// ```
     /// use crossterm::style::{ContentStyle, Stylize};
-    /// use nucleo_picker::preview::PreviewBuffer;
+    /// use nucleo_picker::preview::Buffer;
     ///
-    /// let mut buffer = PreviewBuffer::new();
+    /// let mut buffer = Buffer::new();
     /// let style = ContentStyle::new().green();
     /// buffer.push_styled_text("a\r\nb\tc\n", style);
     /// assert!(buffer.lines().map(|line| line.as_str()).eq(["a", "b␉c", ""]));
@@ -334,7 +334,7 @@ impl PreviewBuffer {
     /// Get the `n`th line in the buffer as a string slice, excluding the newline and carriage
     /// return (if any).
     #[inline]
-    pub fn line(&self, index: usize) -> Option<PreviewLine<'_>> {
+    pub fn line(&self, index: usize) -> Option<Line<'_>> {
         let line = if index == self.lines.len() {
             &self.active_line
         } else {
@@ -345,19 +345,19 @@ impl PreviewBuffer {
 
     /// Iterate over all of the lines in this buffer.
     #[inline]
-    pub fn lines(&self) -> impl DoubleEndedIterator<Item = PreviewLine<'_>> + ExactSizeIterator {
+    pub fn lines(&self) -> impl DoubleEndedIterator<Item = Line<'_>> + ExactSizeIterator {
         // An index range preserves exact sizing and constant-time skips in both directions.
         (0..self.lines.len() + 1)
             .map(|index| self.line_view(self.lines.get(index).unwrap_or(&self.active_line)))
     }
 
     #[inline]
-    fn line_view(&self, line: &LineIndex) -> PreviewLine<'_> {
+    fn line_view(&self, line: &LineIndex) -> Line<'_> {
         // SAFETY: Both callers pass a line from this buffer. Its ranges are recorded from
         // buffer lengths and extended only after appending, so they remain ordered and in
         // bounds. Text endpoints are UTF-8 boundaries because only &str values are appended.
         unsafe {
-            PreviewLine {
+            Line {
                 text: self.text.get_unchecked(line.text.clone()),
                 styles: self.styles.get_unchecked(line.styles.clone()),
             }
@@ -365,7 +365,7 @@ impl PreviewBuffer {
     }
 }
 
-impl<'a> PreviewLine<'a> {
+impl<'a> Line<'a> {
     /// Returns the raw text of the current line.
     #[inline]
     pub fn as_str(&self) -> &'a str {

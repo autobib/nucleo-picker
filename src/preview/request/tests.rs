@@ -12,12 +12,9 @@ use std::{
     },
 };
 
-fn request<T: Send + Sync + 'static, R>(
-    picker: &Picker<T, R>,
-    index: u32,
-) -> PreviewRequest<'_, T> {
-    PreviewRequest {
-        buffer: PreviewBuffer::new(),
+fn request<T: Send + Sync + 'static, R>(picker: &Picker<T, R>, index: u32) -> Request<'_, T> {
+    Request {
+        buffer: Buffer::new(),
         epoch: 0,
         snapshot: picker.core.engine.snapshot(),
         id: picker.core.engine.item_id(index),
@@ -46,7 +43,7 @@ fn request_transitions_preserve_identity_and_publication() {
     assert_eq!(active.id(), id);
     assert_eq!(active.item_ref().id(), id);
     assert!(std::ptr::eq(active.item_ref().value(), item.value()));
-    let mut buffer = PreviewBuffer::new();
+    let mut buffer = Buffer::new();
     buffer.push_str(active.item());
     let allocation = buffer.line(0).unwrap().as_str().as_ptr();
     let mut pane = buffer
@@ -82,7 +79,7 @@ fn failed_publication_preserves_item_id_and_buffer() {
         let item = request.item() as *const String;
         let (pending, queued) = request.defer();
         let active = queued.start().unwrap();
-        let mut buffer = PreviewBuffer::new();
+        let mut buffer = Buffer::new();
         buffer.push_text("alpha\npreview");
         let allocation = buffer.line(0).unwrap().as_str().as_ptr();
         let mut pane = buffer

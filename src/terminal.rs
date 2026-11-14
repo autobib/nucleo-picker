@@ -11,6 +11,8 @@ use crossterm::{
     },
 };
 
+use crate::rect::Dimensions;
+
 #[cfg(all(test, feature = "unstable-backend"))]
 mod lifecycle_test;
 #[cfg(all(test, feature = "unstable-backend"))]
@@ -37,7 +39,7 @@ pub trait Terminal: Write {
     ///
     /// This method is only called immediately writes are required, and may not be called on each
     /// frame.
-    fn size(&mut self) -> io::Result<(u16, u16)>;
+    fn dimensions(&mut self) -> io::Result<Dimensions>;
 
     /// Begin rendering a frame.
     ///
@@ -109,8 +111,9 @@ impl<W: Write> Terminal for CrosstermTerminal<'_, W> {
     }
 
     #[inline]
-    fn size(&mut self) -> io::Result<(u16, u16)> {
-        size()
+    fn dimensions(&mut self) -> io::Result<Dimensions> {
+        let (width, height) = size()?;
+        Ok(Dimensions { width, height })
     }
 }
 

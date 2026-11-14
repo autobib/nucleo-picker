@@ -13,12 +13,13 @@ use crate::{
     error::PickError,
     event::{Event, EventSource, LayoutEvent, MatchListEvent, RecvError},
     preview::{
-        Preview, PreviewBuffer, PreviewEvent, PreviewPane, SyncPreviewer,
+        Buffer, Pane, Preview, PreviewEvent, SyncPreviewer,
         controller::{PreviewController, tests::support::*},
-        request::{PreviewRequest, PreviewResponse, QueuedPreviewRequest},
+        request::{QueuedRequest, Request, Response},
     },
     rect::Area,
     render::StrRenderer,
+    session::Dimensions,
 };
 
 #[derive(Default)]
@@ -63,14 +64,15 @@ impl Terminal for TestTerminal {
         Ok(())
     }
 
-    fn size(&mut self) -> io::Result<(u16, u16)> {
-        if let Some(size) = &self.size_override {
-            Ok(size.get())
+    fn dimensions(&mut self) -> io::Result<Dimensions> {
+        let (width, height) = if let Some(size) = &self.size_override {
+            size.get()
         } else if self.sizes.len() > 1 {
-            Ok(self.sizes.pop_front().unwrap())
+            self.sizes.pop_front().unwrap()
         } else {
-            Ok(self.sizes.front().copied().unwrap_or((20, 10)))
-        }
+            self.sizes.front().copied().unwrap_or((20, 10))
+        };
+        Ok(Dimensions { width, height })
     }
 
     fn end_frame(&mut self, changed: bool) -> io::Result<()> {
@@ -104,22 +106,18 @@ fn prefetch_follows_rendering_and_progresses_on_idle_frames() {
             3
         }
 
-        fn preview(
-            &mut self,
-            request: PreviewRequest<'_, &'static str>,
-            _: Duration,
-        ) -> PreviewResponse {
+        fn preview(&mut self, request: Request<'_, &'static str>, _: Duration) -> Response {
             let item = request.item();
             let mut pane = request.ready();
             pane.buffer_mut().push_str(item);
-            PreviewResponse::Ready(pane)
+            Response::Ready(pane)
         }
 
         fn prefetch(
             &mut self,
-            request: PreviewRequest<'_, &'static str>,
+            request: Request<'_, &'static str>,
             timeout: Duration,
-        ) -> Result<PreviewResponse, PreviewBuffer> {
+        ) -> Result<Response, Buffer> {
             self.prefetched
                 .push((*request.item(), self.render_count.get()));
             Ok(self.preview(request, timeout))
@@ -265,10 +263,7 @@ fn refresh_does_not_run_the_previewer_before_a_following_quit() {
                 .is_none()
         );
         assert_eq!(previewer.requested, ["alpha"], "defer={defer}");
-        let cancelled = previewer
-            .queued
-            .iter()
-            .all(QueuedPreviewRequest::is_cancelled);
+        let cancelled = previewer.queued.iter().all(QueuedRequest::is_cancelled);
         assert!(cancelled, "defer={defer}");
     }
 }
@@ -368,7 +363,7 @@ fn pending_navigation_and_scrolling_wait_for_idle_completion() {
             match step {
                 1 | 3 | 5 | 6 => Err(RecvError::Timeout),
                 2 => {
-                    let mut buffer = PreviewBuffer::new();
+                    let mut buffer = Buffer::new();
                     for _ in 1..30 {
                         buffer.newline();
                     }
@@ -389,7 +384,13 @@ fn pending_navigation_and_scrolling_wait_for_idle_completion() {
             .pick_impl(events, &mut terminal, (), &mut session)
             .unwrap();
         let status = status.try_recv().unwrap();
-        assert_eq!((status.width, status.height), size);
+        assert_eq!(
+            status.dimensions,
+            Dimensions {
+                width: size.0,
+                height: size.1
+            }
+        );
         assert_eq!(terminal.changed, [false, true, true, false], "{size:?}");
         assert_eq!(offset(&mut session, 0), (0, 1), "{size:?}");
         assert_eq!(session.test_previewer().requested, ["alpha"], "{size:?}");
@@ -411,7 +412,7 @@ fn redraw_checks_terminal_size_after_preview_generation() {
         size_override: Some(Rc::clone(&size)),
         ..TestTerminal::default()
     };
-    let previewer = SyncPreviewer(|item: &&str, pane: &mut PreviewPane| {
+    let previewer = SyncPreviewer(|item: &&str, pane: &mut Pane| {
         let buffer = pane.buffer_mut();
         if *item == "beta" {
             size.set((30, 12));
@@ -429,7 +430,13 @@ fn redraw_checks_terminal_size_after_preview_generation() {
         .pick_with_terminal_io(events, &mut terminal)
         .unwrap();
     let status = status.try_recv().unwrap();
-    assert_eq!((status.width, status.height), (30, 12));
+    assert_eq!(
+        status.dimensions,
+        Dimensions {
+            width: 30,
+            height: 12
+        }
+    );
 }
 
 #[test]
@@ -703,10 +710,7 @@ fn picker_exits_cancel_all_pending_requests() {
         assert_eq!(result.is_ok(), succeeds, "{case}");
         assert_eq!(terminal.cleanups, 1, "{case}");
         assert_eq!(previewer.queued.len(), 2, "{case}");
-        let cancelled = previewer
-            .queued
-            .iter()
-            .all(QueuedPreviewRequest::is_cancelled);
+        let cancelled = previewer.queued.iter().all(QueuedRequest::is_cancelled);
         assert!(cancelled, "{case}");
         let hovered = [Some("alpha"), Some("beta"), None];
         assert_eq!(previewer.hovered, hovered, "{case}");
@@ -903,10 +907,7 @@ fn hide_reveal_coalesces_navigation_and_only_resubmits_queued_previews() {
             );
             assert_eq!(previewer.cancelled_on_clear, [!defer; 4], "{case}");
         }
-        let cancelled = previewer
-            .queued
-            .iter()
-            .all(QueuedPreviewRequest::is_cancelled);
+        let cancelled = previewer.queued.iter().all(QueuedRequest::is_cancelled);
         assert!(cancelled, "{case}");
     }
 }

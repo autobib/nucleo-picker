@@ -32,7 +32,7 @@ use crossterm::style::{ContentStyle, Stylize};
 use ignore::{DirEntry, WalkBuilder, WalkState};
 use nucleo_picker::{
     PickerOptions, Render,
-    preview::{PoolPreviewer, PreviewPane, PreviewWorker},
+    preview::{Pane, PoolPreviewer, Worker},
 };
 
 // maximum size of a preview
@@ -51,7 +51,7 @@ impl Render<DirEntry> for DirEntryRender {
 // The 'fast path' preview function: for certain file types (which can already be checked without
 // IO since it is available in the dir entry) we have nothing better to do so we can immediately
 // prepare the preview.
-fn preview_sync(entry: &DirEntry, pane: &mut PreviewPane) -> bool {
+fn preview_sync(entry: &DirEntry, pane: &mut Pane) -> bool {
     // entry metadata is already available in the dir entry so we can label non-files synchronously
     let label = match entry.file_type() {
         Some(kind) if kind.is_file() => None,
@@ -76,11 +76,11 @@ struct FileWorker {
     bytes: Vec<u8>,
 }
 
-impl PreviewWorker<DirEntry> for FileWorker {
+impl Worker<DirEntry> for FileWorker {
     fn preview(
         &mut self,
         entry: &DirEntry,
-        pane: &mut PreviewPane,
+        pane: &mut Pane,
         is_cancelled: impl Fn() -> bool,
     ) -> bool {
         match read_preview(entry, &mut self.bytes, pane, is_cancelled) {
@@ -101,7 +101,7 @@ impl PreviewWorker<DirEntry> for FileWorker {
 fn read_preview(
     entry: &DirEntry,
     bytes: &mut Vec<u8>,
-    pane: &mut PreviewPane,
+    pane: &mut Pane,
     is_cancelled: impl Fn() -> bool,
 ) -> io::Result<bool> {
     let mut file = File::open(entry.path())?;
