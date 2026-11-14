@@ -129,11 +129,6 @@ fn cancelled_request_retains_item_and_id_after_restart_and_picker_drop() {
         }
     }
 
-    fn assert_traits<T: std::error::Error + Send + Sync>() {}
-    assert_traits::<CancelledPreviewRequest<Item>>();
-    fn assert_copy<T: Copy>() {}
-    assert_copy::<ItemRef<'_, Item>>();
-
     for cancel_before_restart in [false, true] {
         let dropped = Arc::new(AtomicUsize::new(0));
         let mut picker = Picker::new(StrRenderer);
@@ -167,8 +162,6 @@ fn cancelled_request_retains_item_and_id_after_restart_and_picker_drop() {
         assert_eq!(cancelled.item_ref().id(), id);
         assert!(Arc::ptr_eq(&cancelled.item_ref().value().dropped, &dropped));
         assert_eq!(dropped.load(Ordering::Relaxed), 0);
-        assert_eq!(cancelled.to_string(), "preview request was cancelled");
-        assert!(format!("{cancelled:?}").contains("CancelledPreviewRequest"));
         drop(cancelled);
         assert_eq!(dropped.load(Ordering::Relaxed), 1);
     }

@@ -371,81 +371,56 @@ mod tests {
     use std::num::NonZero;
 
     #[test]
-    fn selected_indices_track_insertion_order() {
-        let mut picker = crate::Picker::new(crate::render::StrRenderer);
-        picker.push_batch(["zero", "one", "two", "three"]);
-        while picker.core.engine.update(5).matching {}
-        let cx = Context::new(&picker.core.engine);
-        let toggle =
-            |index| QueueEvent::Toggle(cx.item(picker.core.engine.item_id(index)).unwrap());
-        let mut selection = SelectedIndices::default().on_select(SelectionTarget::Queued, &cx);
-        assert!(selection.iter_selected_order().next().is_none());
-
-        assert!(selection.queued.on_queue(toggle(3), &cx));
-        assert!(selection.queued.on_queue(toggle(1), &cx));
-        assert!(
-            selection
-                .iter_selected_order()
-                .copied()
-                .eq(["three", "one"])
-        );
-        assert!(selection.queued.on_queue(toggle(3), &cx));
-        assert!(selection.iter_selected_order().copied().eq(["one"]));
-        assert!(selection.queued.on_queue(toggle(3), &cx));
-        assert!(
-            selection
-                .iter_selected_order()
-                .copied()
-                .eq(["one", "three"])
-        );
-        assert!(selection.queued.on_queue(toggle(1), &cx));
-        assert!(selection.queued.on_queue(toggle(1), &cx));
-        assert!(
-            selection
-                .iter_selected_order()
-                .copied()
-                .eq(["three", "one"])
-        );
-
-        let mut items = selection.into_iter();
-        assert_eq!(items.len(), 2);
-        assert_eq!(items.next(), Some(&"one"));
-        assert_eq!(items.len(), 1);
-        assert_eq!(items.next_back(), Some(&"three"));
-        assert_eq!(items.size_hint(), (0, Some(0)));
-        assert_eq!(items.next(), None);
-        assert_eq!(items.next_back(), None);
-    }
-
-    #[test]
-    fn bulk_queuing_preserves_existing_order_and_obeys_the_queue_limit() {
+    fn queue_lifecycle_preserves_selection_order_and_obeys_the_limit() {
         let mut picker = crate::PickerOptions::new()
             .sort_results(false)
             .reverse_items(true)
             .picker(crate::render::StrRenderer);
         picker.push_batch(["zero", "one", "two", "three"]);
         picker.filter().unwrap();
+        let cx = Context::new(&picker.core.engine);
+        let toggle =
+            |index| QueueEvent::Toggle(cx.item(picker.core.engine.item_id(index)).unwrap());
+        let mut selection =
+            SelectedIndices::new(NonZero::new(2)).on_select(SelectionTarget::Queued, &cx);
+        assert!(selection.iter_selected_order().next().is_none());
 
-        let selected = {
-            let mut queued = SelectedIndices::new(NonZero::new(1));
-            let cx = Context::new(&picker.core.engine);
-            let one = cx.item(picker.core.engine.item_id(1)).unwrap();
-            assert!(queued.on_queue(QueueEvent::Toggle(one), &cx));
-            assert!(!queued.on_queue(QueueEvent::Matches, &cx));
+        for (index, expected) in [
+            (3, &["three"][..]),
+            (1, &["three", "one"]),
+            (3, &["one"]),
+            (3, &["one", "three"]),
+            (1, &["three"]),
+            (1, &["three", "one"]),
+            (3, &["one"]),
+        ] {
+            assert!(selection.queued.on_queue(toggle(index), &cx));
+            assert!(selection.iter_selected_order().eq(expected));
+        }
 
-            queued.max_selection_count = NonZero::new(3);
-            assert!(queued.on_queue(QueueEvent::Matches, &cx));
-            assert!(!queued.on_queue(QueueEvent::Matches, &cx));
-            assert_eq!(queued.count(), Some(3));
-            queued.on_select(SelectionTarget::Queued, &cx)
-        };
-
+        selection.queued.max_selection_count = NonZero::new(1);
+        assert!(!selection.queued.on_queue(QueueEvent::Matches, &cx));
+        selection.queued.max_selection_count = NonZero::new(3);
+        assert!(selection.queued.on_queue(QueueEvent::Matches, &cx));
+        assert!(!selection.queued.on_queue(QueueEvent::Matches, &cx));
+        assert_eq!(selection.queued.count(), Some(3));
         assert!(
-            selected
+            selection
                 .iter_selected_order()
                 .copied()
                 .eq(["one", "three", "two"])
         );
-        assert!(selected.into_iter().copied().eq(["one", "two", "three"]));
+        assert!(selection.iter().copied().eq(["one", "two", "three"]));
+
+        let mut items = selection.into_iter();
+        assert_eq!(items.len(), 3);
+        assert_eq!(items.next(), Some(&"one"));
+        assert_eq!(items.len(), 2);
+        assert_eq!(items.next_back(), Some(&"three"));
+        assert_eq!(items.len(), 1);
+        assert_eq!(items.next(), Some(&"two"));
+        assert_eq!(items.size_hint(), (0, Some(0)));
+        assert_eq!(items.next(), None);
+        assert_eq!(items.next_back(), None);
     }
 }

@@ -213,7 +213,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn clear_empties_shared_slot_and_preserves_connection() {
+    fn clear_tracks_shared_slot_and_connection_lifecycle() {
         let (notifier, observer) = occupied_channel(1);
         let other = observer.clone();
 
@@ -224,16 +224,12 @@ mod tests {
 
         notifier.push(2).unwrap();
         assert_eq!(other.try_recv(), Ok(2));
-    }
-
-    #[test]
-    fn clear_discards_buffered_message_after_disconnect() {
-        let (notifier, observer) = occupied_channel(1);
+        notifier.push(3).unwrap();
         drop(notifier);
 
         observer.clear();
-        assert_eq!(observer.try_recv(), Err(TryRecvError::Disconnected));
-        observer.clear();
+        assert_eq!(other.try_recv(), Err(TryRecvError::Disconnected));
+        other.clear();
         assert_eq!(observer.try_peek(), Err(TryRecvError::Disconnected));
     }
 

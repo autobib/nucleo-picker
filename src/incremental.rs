@@ -13,10 +13,6 @@ pub trait OrderedCollection {
     /// ## Safety
     /// Must be valid if and only if there was a previous call to `append`.
     unsafe fn last_appended(&mut self) -> &mut usize;
-
-    /// Get a slice corresponding to the current items.
-    #[cfg(test)]
-    fn slice(&self) -> &[usize];
 }
 
 impl OrderedCollection for &'_ mut Vec<usize> {
@@ -28,11 +24,6 @@ impl OrderedCollection for &'_ mut Vec<usize> {
         // SAFETY: `append` was previously called.
         unsafe { self.last_mut().unwrap_unchecked() }
     }
-
-    #[cfg(test)]
-    fn slice(&self) -> &[usize] {
-        self
-    }
 }
 
 impl OrderedCollection for Vec<usize> {
@@ -43,11 +34,6 @@ impl OrderedCollection for Vec<usize> {
     unsafe fn last_appended(&mut self) -> &mut usize {
         // SAFETY: `append` was previously called.
         unsafe { self.last_mut().unwrap_unchecked() }
-    }
-
-    #[cfg(test)]
-    fn slice(&self) -> &[usize] {
-        self
     }
 }
 
@@ -96,11 +82,6 @@ impl<C: OrderedCollection, I: Iterator<Item = usize>> Incremental<C, I> {
             vec,
             sizes: IncrementalIterator::new(sizes),
         }
-    }
-
-    #[cfg(test)]
-    pub fn view(&self) -> &[usize] {
-        self.vec.slice()
     }
 
     #[inline]
@@ -200,35 +181,24 @@ mod tests {
     fn test_incremental() {
         let mut vec = Vec::new();
         let mut incr = Incremental::new(&mut vec, [1, 6, 2, 3, 5, 3, 5].into_iter());
-
-        assert_eq!(incr.extend_bounded(5, 2), 5);
-        assert_eq!(incr.view(), &[1, 4]);
-
-        assert_eq!(incr.extend_bounded(2, 1), 2);
-        assert_eq!(incr.view(), &[1, 6]);
-
-        assert_eq!(incr.extend_bounded(1, 1), 1);
-        assert_eq!(incr.view(), &[1, 6, 1]);
-
-        assert_eq!(incr.extend_bounded(0, 1), 0);
-        assert_eq!(incr.view(), &[1, 6, 1]);
-
-        assert_eq!(incr.extend_bounded(10, 1), 4);
-        assert_eq!(incr.view(), &[1, 6, 2, 3]);
-
-        assert_eq!(incr.extend_bounded(2, 3), 2);
-        assert_eq!(incr.view(), &[1, 6, 2, 3, 2]);
-
-        assert_eq!(incr.extend_bounded(1, 2), 1);
-        assert_eq!(incr.view(), &[1, 6, 2, 3, 3]);
-
-        assert_eq!(incr.extend_bounded(1, 4), 1);
-        assert_eq!(incr.view(), &[1, 6, 2, 3, 4]);
-
-        assert_eq!(incr.extend_bounded(0, 0), 0);
-        assert_eq!(incr.view(), &[1, 6, 2, 3, 4]);
-
-        assert_eq!(incr.extend_bounded(100, 4), 9);
-        assert_eq!(incr.view(), &[1, 6, 2, 3, 5, 3, 5]);
+        for (size, steps, added, expected) in [
+            (5, 2, 5, &[1, 4][..]),
+            (2, 1, 2, &[1, 6]),
+            (1, 1, 1, &[1, 6, 1]),
+            (0, 1, 0, &[1, 6, 1]),
+            (10, 1, 4, &[1, 6, 2, 3]),
+            (2, 3, 2, &[1, 6, 2, 3, 2]),
+            (1, 2, 1, &[1, 6, 2, 3, 3]),
+            (1, 4, 1, &[1, 6, 2, 3, 4]),
+            (0, 0, 0, &[1, 6, 2, 3, 4]),
+            (100, 4, 9, &[1, 6, 2, 3, 5, 3, 5]),
+        ] {
+            assert_eq!(
+                incr.extend_bounded(size, steps),
+                added,
+                "size={size}, steps={steps}"
+            );
+            assert_eq!(incr.vec.as_slice(), expected);
+        }
     }
 }

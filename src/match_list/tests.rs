@@ -121,103 +121,76 @@ macro_rules! assert_layout {
 }
 
 #[test]
-fn basic() {
-    let mut lt = MatchListTester::init(6, 2);
-    assert_layout!(lt, Update(&["12\n34", "ab"]), &[2], &[1]);
-    assert_layout!(lt, Incr(1), &[1, 2], &[]);
-    assert_layout!(lt, Reset, &[2], &[1]);
-    assert_layout!(lt, Incr(1), &[1, 2], &[]);
-    assert_layout!(lt, Incr(1), &[1, 2], &[]);
-
-    let mut lt = MatchListTester::init_rev(6, 2);
-    assert_layout!(lt, Update(&["12\n34", "ab"]), &[2, 1], &[]);
-    assert_layout!(lt, Incr(1), &[1], &[2]);
-    assert_layout!(lt, Reset, &[2, 1], &[]);
-    assert_layout!(lt, Incr(1), &[1], &[2]);
-    assert_layout!(lt, Incr(1), &[1], &[2]);
-}
-
-#[test]
 fn size_and_item_edge_cases() {
-    let mut lt = MatchListTester::init(6, 2);
-    assert_layout!(lt, Incr(1), &[], &[]);
-    assert_layout!(lt, Decr(1), &[], &[]);
-    assert_layout!(lt, Update(&[]), &[], &[]);
-    assert_layout!(lt, Resize(0), &[], &[]);
-    assert_layout!(lt, Resize(1), &[], &[]);
-    assert_layout!(lt, Update(&["a"]), &[1], &[]);
-    assert_layout!(lt, Resize(0), &[], &[]);
-
-    let mut lt = MatchListTester::init_rev(6, 2);
-    assert_layout!(lt, Incr(1), &[], &[]);
-    assert_layout!(lt, Decr(1), &[], &[]);
-    assert_layout!(lt, Update(&[]), &[], &[]);
-    assert_layout!(lt, Resize(0), &[], &[]);
-    assert_layout!(lt, Resize(1), &[], &[]);
-    assert_layout!(lt, Update(&["a"]), &[1], &[]);
-    assert_layout!(lt, Resize(0), &[], &[]);
-}
-
-#[test]
-fn zero_height_navigation() {
-    check_zero_height_navigation(false);
-}
-
-#[test]
-fn zero_height_navigation_reversed() {
-    check_zero_height_navigation(true);
-}
-
-fn check_zero_height_navigation(reversed: bool) {
-    for initial_size in [0, 3] {
-        let mut lt = MatchListTester::init_inner(initial_size, 2, reversed);
-        lt.update(Update(&["a", "b", "c"]));
+    for reversed in [false, true] {
+        let mut lt = MatchListTester::init_inner(6, 2, reversed);
+        assert_layout!(lt, Incr(1), &[], &[]);
+        assert_layout!(lt, Decr(1), &[], &[]);
+        assert_layout!(lt, Update(&[]), &[], &[]);
         assert_layout!(lt, Resize(0), &[], &[]);
-
-        for (requested, expected, changed) in [
-            (1, 1, true),
-            (2, 2, true),
-            (1, 1, true),
-            (1, 1, false),
-            (u32::MAX, 2, true),
-            (u32::MAX, 2, false),
-            (0, 0, true),
-            (0, 0, false),
-            (1, 1, true),
-        ] {
-            assert_eq!(
-                lt.layout
-                    .set_rank(lt.engine.snapshot(), requested, &lt.config),
-                changed
-            );
-            assert_eq!(lt.layout.rank(lt.engine.snapshot()), Some(expected));
-            assert_eq!(
-                lt.view(),
-                LayoutView {
-                    below: &[],
-                    above: &[],
-                }
-            );
-        }
-
-        assert_layout!(lt, Resize(1), &[1], &[]);
-        assert_eq!(lt.layout.rank(lt.engine.snapshot()), Some(1));
-        assert_layout!(lt, Resize(3), &[1, 1], &[1]);
-        assert_eq!(lt.layout.rank(lt.engine.snapshot()), Some(1));
+        assert_layout!(lt, Resize(1), &[], &[]);
+        assert_layout!(lt, Update(&["a"]), &[1], &[]);
+        assert_layout!(lt, Resize(0), &[], &[]);
     }
 }
 
 #[test]
-fn small() {
-    let mut lt = MatchListTester::init(5, 1);
-    assert_layout!(lt, Update(&["12", "a\nb"]), &[1], &[2]);
-    assert_layout!(lt, Incr(1), &[2, 1], &[]);
-    assert_layout!(lt, Decr(1), &[1], &[2]);
+fn zero_height_navigation() {
+    for reversed in [false, true] {
+        for initial_size in [0, 3] {
+            let mut lt = MatchListTester::init_inner(initial_size, 2, reversed);
+            lt.update(Update(&["a", "b", "c"]));
+            assert_layout!(lt, Resize(0), &[], &[]);
 
-    let mut lt = MatchListTester::init_rev(5, 1);
-    assert_layout!(lt, Update(&["12", "a\nb"]), &[1, 2], &[]);
-    assert_layout!(lt, Incr(1), &[2], &[1]);
-    assert_layout!(lt, Decr(1), &[1, 2], &[]);
+            for (requested, expected, changed) in [
+                (1, 1, true),
+                (2, 2, true),
+                (1, 1, true),
+                (1, 1, false),
+                (u32::MAX, 2, true),
+                (u32::MAX, 2, false),
+                (0, 0, true),
+                (0, 0, false),
+                (1, 1, true),
+            ] {
+                assert_eq!(
+                    lt.layout
+                        .set_rank(lt.engine.snapshot(), requested, &lt.config),
+                    changed
+                );
+                assert_eq!(lt.layout.rank(lt.engine.snapshot()), Some(expected));
+                assert_eq!(
+                    lt.view(),
+                    LayoutView {
+                        below: &[],
+                        above: &[],
+                    }
+                );
+            }
+
+            assert_layout!(lt, Resize(1), &[1], &[]);
+            assert_eq!(lt.layout.rank(lt.engine.snapshot()), Some(1));
+            assert_layout!(lt, Resize(3), &[1, 1], &[1]);
+            assert_eq!(lt.layout.rank(lt.engine.snapshot()), Some(1));
+        }
+    }
+}
+
+#[test]
+fn short_lists_clamp_navigation_and_reset_in_both_orientations() {
+    for (reversed, below, above, next_below, next_above) in [
+        (false, &[1][..], &[2][..], &[2, 1][..], &[][..]),
+        (true, &[1, 2][..], &[][..], &[2][..], &[1][..]),
+    ] {
+        let mut lt = MatchListTester::init_inner(5, 1, reversed);
+        assert_layout!(lt, Update(&["12", "a\nb"]), below, above);
+        for action in [Incr(1), Incr(1)] {
+            assert_layout!(lt, action, next_below, next_above);
+        }
+        assert_layout!(lt, Reset, below, above);
+        assert_layout!(lt, Incr(1), next_below, next_above);
+        assert_layout!(lt, Decr(1), below, above);
+    }
 }
 
 #[test]

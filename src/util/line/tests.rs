@@ -99,24 +99,28 @@ fn clipping_does_not_measure_the_hidden_suffix() {
 
 #[test]
 fn styled_output_only_visits_visible_spans_and_never_moves_the_cursor() {
-    let mut output = Vec::new();
-    let mut rect = CrosstermRect::new(
-        &mut output,
-        Area {
-            column: 5,
-            width: 3,
-            height: 1,
-            ..Area::default()
-        },
-        ClearState::Precleared,
-    )
-    .unwrap();
-    let spans = once(ContentStyle::new().apply("abc"))
-        .chain(std::iter::from_fn(|| panic!("visited a hidden style span")));
-    let remaining =
-        print_line::<UnicodeProcessor, _>(&mut rect, "abcdef", spans, 0, 3, '~').unwrap();
-    assert_eq!(remaining, 0);
-    assert_eq!(String::from_utf8(output).unwrap(), "ab~");
+    for (capacity, expected) in [(0, ""), (3, "ab~")] {
+        let mut output = Vec::new();
+        let mut rect = CrosstermRect::new(
+            &mut output,
+            Area {
+                column: 5,
+                width: 3,
+                height: 1,
+                ..Area::default()
+            },
+            ClearState::Precleared,
+        )
+        .unwrap();
+        let spans = once(ContentStyle::new().apply("abc"))
+            .take(usize::from(capacity != 0))
+            .chain(std::iter::from_fn(|| panic!("visited a hidden style span")));
+        let remaining =
+            print_line::<UnicodeProcessor, _>(&mut rect, "abcdef", spans, 0, capacity, '~')
+                .unwrap();
+        assert_eq!(remaining, 0);
+        assert_eq!(String::from_utf8(output).unwrap(), expected);
+    }
 }
 
 #[test]
@@ -146,25 +150,4 @@ fn scrolling_and_styles_can_cross_different_grapheme_boundaries() {
         String::from_utf8(output).unwrap(),
         format!("……{}c", "b".green())
     );
-}
-
-#[test]
-fn zero_capacity_does_not_visit_styles() {
-    let mut output = Vec::new();
-    let mut rect = CrosstermRect::new(
-        &mut output,
-        Area {
-            width: 1,
-            height: 1,
-            ..Area::default()
-        },
-        ClearState::Precleared,
-    )
-    .unwrap();
-    let spans = std::iter::from_fn(|| panic!("visited a style without space to print"));
-    assert_eq!(
-        print_line::<UnicodeProcessor, _>(&mut rect, "a", spans, 0, 0, '…').unwrap(),
-        0
-    );
-    assert!(output.is_empty());
 }

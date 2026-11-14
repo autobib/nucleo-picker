@@ -241,39 +241,6 @@ mod tests {
     }
 
     #[test]
-    fn hovered_item_changes_do_not_change_the_queue() {
-        let mut picker = picker();
-        let mut list = MatchList::new(
-            &mut picker.core.list_state,
-            &picker.core.chars,
-            SelectedIndices::default(),
-        );
-        list.handle(MatchListEvent::Up(1), &Context::new(&picker.core.engine));
-        let redraw = update(&mut list, &mut picker.core.engine);
-        assert!(redraw);
-        assert_eq!(list.queued().count(), Some(0));
-    }
-
-    #[test]
-    fn queue_changes_are_reported_separately() {
-        let mut picker = picker();
-        let mut list = MatchList::new(
-            &mut picker.core.list_state,
-            &picker.core.chars,
-            SelectedIndices::default(),
-        );
-        list.handle(
-            MatchListEvent::ToggleDown(0),
-            &Context::new(&picker.core.engine),
-        );
-        assert_eq!(list.queued().count(), Some(1));
-        let redraw = update(&mut list, &mut picker.core.engine);
-        assert!(redraw);
-        assert_eq!(list.rank(&picker.core.engine), Some(0));
-        assert!(!update(&mut list, &mut picker.core.engine));
-    }
-
-    #[test]
     fn full_queue_blocks_insertion_movement_but_allows_removal_movement() {
         for reversed in [false, true] {
             let mut picker = picker();
@@ -288,10 +255,23 @@ mod tests {
             } else {
                 MatchListEvent::ToggleUp
             };
+            let navigate = if reversed {
+                MatchListEvent::Down
+            } else {
+                MatchListEvent::Up
+            };
+            list.handle(navigate(1), &Context::new(&picker.core.engine));
+            assert!(update(&mut list, &mut picker.core.engine));
+            assert_eq!(list.rank(&picker.core.engine), Some(1));
+            assert_eq!(list.queued().count(), Some(0));
+
+            list.handle(MatchListEvent::Reset, &Context::new(&picker.core.engine));
             list.handle(toggle(1), &Context::new(&picker.core.engine));
             assert_eq!(list.event_rank(&picker.core.engine), Some(1));
             assert_eq!(list.queued().count(), Some(1));
             assert!(update(&mut list, &mut picker.core.engine));
+            assert_eq!(list.rank(&picker.core.engine), Some(1));
+            assert!(!update(&mut list, &mut picker.core.engine));
 
             list.handle(toggle(1), &Context::new(&picker.core.engine));
             assert_eq!(list.event_rank(&picker.core.engine), Some(1));

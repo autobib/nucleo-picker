@@ -51,18 +51,25 @@ fn writes_match_push_text_at_every_character_boundary() {
 }
 
 #[test]
-fn formatted_and_character_writes_preserve_crlf() {
+fn writer_lifecycle_appends_unstyled_text_and_preserves_settings() {
     struct SplitCrlf;
 
     impl fmt::Display for SplitCrlf {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.write_str("first\r")?;
+            f.write_str("first\t\x1b[31m\r")?;
             f.write_str("")?;
             f.write_str("\nsecond\r")
         }
     }
 
+    let plain = ContentStyle::default();
+    let red = ContentStyle::new().red();
+    let blue = ContentStyle::new().blue();
     let mut buffer = PreviewBuffer::new();
+    buffer.set_err(true);
+    buffer.set_line_numbers(true);
+    buffer.set_offset(3, 4);
+    buffer.push_styled_str("prefix ", red);
     {
         let mut writer = TextWriter::new(&mut buffer);
         writeln!(writer, "{SplitCrlf}").unwrap();
@@ -71,53 +78,33 @@ fn formatted_and_character_writes_preserve_crlf() {
             writer.write_str("").unwrap();
         }
     }
+    assert!(buffer.line(4).unwrap().spans().eq([plain.apply("last␍")]));
+    buffer.text_writer().write_str("").unwrap();
+    buffer.text_writer().write_str("\nreopened").unwrap();
+    buffer.push_styled_str(" suffix", blue);
     assert!(buffer.lines().map(|line| line.as_str()).eq([
-        "first",
+        "prefix first␉␛[31m",
         "second",
         "é界e\u{301}👩‍💻",
         "␍",
         "last␍",
+        "reopened suffix",
     ]));
-}
-
-#[test]
-fn writes_append_unstyled_text_and_preserve_buffer_settings() {
-    let red = ContentStyle::new().red();
-    let blue = ContentStyle::new().blue();
-    let mut buffer = PreviewBuffer::new();
-    buffer.set_err(true);
-    buffer.set_line_numbers(true);
-    buffer.push_styled_str("prefix ", red);
-    {
-        let mut writer = buffer.text_writer();
-        writer.write_str("plain\t\x1b[31m\r").unwrap();
-        writer.write_str("\nlast\r").unwrap();
-    }
-    buffer.push_styled_str(" suffix", blue);
-    assert!(buffer.line(0).unwrap().spans().eq([
-        red.apply("prefix "),
-        ContentStyle::default().apply("plain␉␛[31m"),
-    ]));
-    assert!(buffer.line(1).unwrap().spans().eq([
-        ContentStyle::default().apply("last␍"),
-        blue.apply(" suffix"),
-    ]));
-    assert_eq!(buffer.lines().len(), 2);
-    assert!(buffer.is_err());
-    assert!(buffer.line_numbers());
-}
-
-#[test]
-fn dropping_a_writer_finishes_its_stream() {
-    let mut buffer = PreviewBuffer::new();
-    buffer.text_writer().write_str("first\r").unwrap();
-    assert_eq!(buffer.line(0).unwrap().as_str(), "first␍");
-    buffer.text_writer().write_str("").unwrap();
-    buffer.text_writer().write_str("\nsecond").unwrap();
     assert!(
         buffer
-            .lines()
-            .map(|line| line.as_str())
-            .eq(["first␍", "second"])
+            .line(0)
+            .unwrap()
+            .spans()
+            .eq([red.apply("prefix "), plain.apply("first␉␛[31m"),])
     );
+    assert!(
+        buffer
+            .line(5)
+            .unwrap()
+            .spans()
+            .eq([plain.apply("reopened"), blue.apply(" suffix"),])
+    );
+    assert!(buffer.is_err());
+    assert!(buffer.line_numbers());
+    assert_eq!(buffer.offset(), (3, 4));
 }

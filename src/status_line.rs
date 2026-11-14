@@ -165,7 +165,7 @@ mod tests {
 
     use super::*;
 
-    fn rendered_prefix(width: u16, status_marker: Option<char>) -> String {
+    fn rendered_prefix(width: u16, status_marker: Option<char>, clear: ClearState) -> String {
         let mut output = Vec::new();
         draw_match_counts(
             &mut CrosstermRect::new(
@@ -175,7 +175,7 @@ mod tests {
                     height: 1,
                     ..Area::default()
                 },
-                ClearState::ToEndOfLine,
+                clear,
             )
             .unwrap(),
             3,
@@ -189,18 +189,27 @@ mod tests {
     }
 
     #[test]
-    fn status_line() {
-        assert!(rendered_prefix(12, None).contains("  3/5"));
-        assert!(rendered_prefix(12, Some('⠏')).contains("⠏ 3/5"));
-        assert!(rendered_prefix(12, Some('≈')).contains("≈ 3/5"));
-
-        assert!(rendered_prefix(12, None).contains("─────"));
-
-        assert!(!rendered_prefix(4, None).contains("3/5"));
-
-        let exact = rendered_prefix(5, None);
-        assert!(exact.contains("3/5"));
-        assert!(!exact.contains("\x1b[2K"));
+    fn status_counts_and_markers_fit_or_clear_the_owned_width() {
+        for (width, marker, clear, expected) in [
+            (12, None, ClearState::ToEndOfLine, "  3/5"),
+            (12, Some('⠏'), ClearState::ToEndOfLine, "⠏ 3/5"),
+            (12, Some('≈'), ClearState::ToEndOfLine, "≈ 3/5"),
+            (5, None, ClearState::ToEndOfLine, "  3/5"),
+            (4, None, ClearState::ToEndOfLine, "\x1b[1G\x1b[K"),
+            (4, None, ClearState::WithinRect, "\x1b[1G    \x1b[1G"),
+        ] {
+            let output = rendered_prefix(width, marker, clear);
+            assert!(
+                output.contains(expected),
+                "width={width}, marker={marker:?}: {output:?}"
+            );
+            assert_eq!(output.contains("3/5"), width >= 5);
+            assert_eq!(output.contains("─────"), width == 12);
+            assert!(!output.contains("\x1b[2K"));
+            if width < 5 {
+                assert_eq!(output, expected);
+            }
+        }
 
         assert_eq!(decimal_width(0), 1);
         assert_eq!(decimal_width(9), 1);
@@ -209,48 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn exact_status_clear_fills_a_too_narrow_line() {
-        let mut output = Vec::new();
-        draw_match_counts(
-            &mut CrosstermRect::new(
-                &mut output,
-                Area {
-                    width: 4,
-                    height: 1,
-                    ..Area::default()
-                },
-                ClearState::WithinRect,
-            )
-            .unwrap(),
-            3,
-            5,
-            None,
-            None,
-            &PickerChars::new(),
-        )
-        .unwrap();
-
-        assert_eq!(output, b"\x1b[1G    \x1b[1G");
-    }
-    #[test]
-    fn marker_cycles_while_injecting_then_indicates_matching() {
-        let mut marker = StatusMarker::default();
-        let chars = PickerChars {
-            spinner_chars: &['a', 'b'],
-            matching_indicator: 'm',
-            ..PickerChars::new()
-        };
-        marker.update(true, true, &chars);
-        assert_eq!(marker.marker, Some('a'));
-        marker.update(true, true, &chars);
-        assert_eq!(marker.marker, Some('b'));
-        marker.update(true, false, &chars);
-        assert_eq!(marker.marker, Some('m'));
-        assert_eq!(StatusMarker::default().marker, None);
-    }
-
-    #[test]
-    fn unchanged_counts_do_not_redraw_after_list_changes() {
+    fn status_redraws_follow_counts_instead_of_list_changes() {
         use crate::{
             Picker,
             event::MatchListEvent,
@@ -279,61 +247,36 @@ mod tests {
         let mut status = StatusLine::new(&picker.core.chars);
         assert!(status.update(picker.core.engine.update(5), count(&list), false));
 
-        list.handle(MatchListEvent::Up(1), &Context::new(&picker.core.engine));
-        list.flush(&picker.core.engine);
-        let matching = picker.core.engine.update(5);
-        assert!(list.update(&picker.core.engine, matching.items_changed, false));
-        assert!(!status.update(matching, count(&list), false));
-
-        list.handle(
-            MatchListEvent::ToggleDown(0),
-            &Context::new(&picker.core.engine),
-        );
-        list.handle(
-            MatchListEvent::ToggleDown(0),
-            &Context::new(&picker.core.engine),
-        );
-        list.flush(&picker.core.engine);
-        let matching = picker.core.engine.update(5);
-        assert!(list.update(&picker.core.engine, matching.items_changed, false));
-        assert!(!status.update(matching, count(&list), false));
-        assert_eq!(list.queued().count(), Some(0));
-
-        list.handle(
-            MatchListEvent::ToggleDown(0),
-            &Context::new(&picker.core.engine),
-        );
-        list.flush(&picker.core.engine);
-        let matching = picker.core.engine.update(5);
-        assert!(list.update(&picker.core.engine, matching.items_changed, false));
-        assert!(status.update(matching, count(&list), false));
-        assert_eq!(list.queued().count(), Some(1));
-
-        list.handle(
-            MatchListEvent::UnqueueAll,
-            &Context::new(&picker.core.engine),
-        );
-        list.handle(MatchListEvent::Down(1), &Context::new(&picker.core.engine));
-        list.handle(
-            MatchListEvent::ToggleDown(0),
-            &Context::new(&picker.core.engine),
-        );
-        list.flush(&picker.core.engine);
-        let matching = picker.core.engine.update(5);
-        assert!(list.update(&picker.core.engine, matching.items_changed, false));
-        assert!(!status.update(matching, count(&list), false));
-        assert_eq!(list.queued().count(), Some(1));
-    }
-
-    #[test]
-    fn counts_follow_the_latest_matcher_update() {
-        use crate::{Picker, render::StrRenderer};
-
-        let mut picker = Picker::new(StrRenderer);
-        picker.extend(["a", "b"]);
-        while picker.core.engine.update(5).matching {}
-        let mut status = StatusLine::new(&picker.core.chars);
-        assert!(status.update(picker.core.engine.update(5), None, false));
+        use MatchListEvent::*;
+        for (name, events, selected, changed) in [
+            ("navigate", [Some(Up(1)), None, None], 0, false),
+            (
+                "toggle twice",
+                [Some(ToggleDown(0)), Some(ToggleDown(0)), None],
+                0,
+                false,
+            ),
+            ("queue", [Some(ToggleDown(0)), None, None], 1, true),
+            (
+                "replace queued item",
+                [Some(UnqueueAll), Some(Down(1)), Some(ToggleDown(0))],
+                1,
+                false,
+            ),
+        ] {
+            for event in events.into_iter().flatten() {
+                list.handle(event, &Context::new(&picker.core.engine));
+            }
+            list.flush(&picker.core.engine);
+            let matching = picker.core.engine.update(5);
+            assert!(list.update(&picker.core.engine, matching.items_changed, false));
+            assert_eq!(
+                status.update(matching, count(&list), false),
+                changed,
+                "{name}"
+            );
+            assert_eq!(list.queued().count(), Some(selected));
+        }
 
         picker.core.engine.reparse("a");
         let matching = loop {
@@ -342,15 +285,19 @@ mod tests {
                 break matching;
             }
         };
-        assert!(status.update(matching, None, false));
+        assert!(status.update(matching, count(&list), false));
         let values = status.previous.unwrap();
         assert_eq!((values.matched, values.total), (1, 2));
-        assert!(!status.update(matching, None, false));
+        assert!(!status.update(matching, count(&list), false));
     }
 
     #[test]
-    fn hidden_status_consumes_updates_and_resize_does_not_invalidate_again() {
-        let chars = PickerChars::new();
+    fn status_marker_updates_are_consumed_before_drawing() {
+        let chars = PickerChars {
+            spinner_chars: &['a', 'b'],
+            matching_indicator: 'm',
+            ..PickerChars::new()
+        };
         let mut status = StatusLine::new(&chars);
         let mut matching = MatchStatus {
             items_changed: false,
@@ -361,35 +308,32 @@ mod tests {
         };
         assert!(status.update(matching, None, false));
         assert!(!status.update(matching, None, false));
+        assert_eq!(status.marker.marker, None);
+        for (is_matching, injecting, marker) in [
+            (true, true, Some('a')),
+            (true, true, Some('b')),
+            (true, false, Some('m')),
+            (false, false, None),
+        ] {
+            matching.matching = is_matching;
+            matching.injecting = injecting;
+            assert!(!status.update(matching, None, false));
+            assert!(status.update(matching, None, true));
+            assert_eq!(status.marker.marker, marker);
+            assert!(!status.update(matching, None, false));
+        }
 
-        matching.injecting = true;
-        assert!(!status.update(matching, None, false));
-        let redraw = status.update(matching, None, true);
-        assert!(redraw);
-        assert!(!status.update(matching, None, false));
-
-        status.resize(
-            Area {
-                width: 20,
-                height: 1,
-                ..Area::default()
-            },
-            &(),
-        );
+        let area = Area {
+            width: 20,
+            height: 1,
+            ..Area::default()
+        };
+        status.resize(area, &());
         let mut output = Vec::new();
         status
             .draw(
                 &(),
-                &mut CrosstermRect::new(
-                    &mut output,
-                    Area {
-                        width: 20,
-                        height: 1,
-                        ..Area::default()
-                    },
-                    ClearState::Precleared,
-                )
-                .unwrap(),
+                &mut CrosstermRect::new(&mut output, area, ClearState::Precleared).unwrap(),
             )
             .unwrap();
         assert!(String::from_utf8(output).unwrap().contains("0/0"));

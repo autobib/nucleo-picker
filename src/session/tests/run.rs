@@ -53,33 +53,17 @@ fn initial_query_matches_the_normalized_prompt() {
 }
 
 #[test]
-fn quit_preserves_the_buffered_prompt_event() {
-    let mut picker = Picker::new(StrRenderer);
-
-    assert_eq!(
-        pick(
-            &mut picker,
-            [Event::Prompt(PromptEvent::Insert('x')), Event::Quit],
-        ),
-        None,
-    );
-    assert_eq!(picker.query(), "x");
-}
-
-#[test]
-fn select_preserves_the_buffered_prompt_event_and_hovered_item() {
-    let mut picker = Picker::new(StrRenderer);
-    picker.extend(["alpha"]);
-    while picker.core.engine.update(5).matching {}
-
-    assert_eq!(
-        pick(
-            &mut picker,
-            [Event::Prompt(PromptEvent::Insert('x')), Event::Select],
-        ),
-        Some("alpha"),
-    );
-    assert_eq!(picker.query(), "x");
+fn exits_preserve_the_buffered_prompt_and_selected_item() {
+    for (exit, expected) in [(Event::Select, Some("alpha")), (Event::Quit, None)] {
+        let mut picker = Picker::new(StrRenderer);
+        picker.push_batch(["alpha"]);
+        picker.filter().unwrap();
+        assert_eq!(
+            pick(&mut picker, [Event::Prompt(PromptEvent::Insert('x')), exit]),
+            expected,
+        );
+        assert_eq!(picker.query(), "x");
+    }
 }
 
 #[test]
@@ -188,72 +172,46 @@ fn busy_events_do_not_starve_frames_or_status() {
 }
 
 #[test]
-fn status_changed_accumulates_between_responses() {
-    let mut picker: Picker<&str, _> = PickerOptions::new()
-        .frame_interval(Duration::ZERO)
-        .picker(StrRenderer);
-    let statuses = picker.status_observer();
-    let mut responses = Vec::new();
-    let mut script = [
-        Ok(Event::Status { id: 0 }),
-        Err(RecvError::Timeout),
-        Ok(Event::Redraw),
-        Err(RecvError::Timeout),
-        Err(RecvError::Timeout),
-        Ok(Event::Status { id: 1 }),
-        Err(RecvError::Timeout),
-        Ok(Event::Status { id: 2 }),
-        Err(RecvError::Timeout),
-        Ok(Event::Quit),
-    ]
-    .into_iter();
-    let events = TestEvents(|_| {
+fn status_changes_accumulate_and_reset_when_responses_are_produced() {
+    for read_responses in [false, true] {
+        let mut picker: Picker<&str, _> = PickerOptions::new()
+            .frame_interval(Duration::ZERO)
+            .picker(StrRenderer);
+        let statuses = picker.status_observer();
+        let mut responses = Vec::new();
+        let mut script = [
+            Ok(Event::Status { id: 0 }),
+            Err(RecvError::Timeout),
+            Ok(Event::Redraw),
+            Err(RecvError::Timeout),
+            Err(RecvError::Timeout),
+            Ok(Event::Status { id: 1 }),
+            Err(RecvError::Timeout),
+            Ok(Event::Status { id: 2 }),
+            Err(RecvError::Timeout),
+            Ok(Event::Quit),
+        ]
+        .into_iter();
+        let events = TestEvents(|_| {
+            if read_responses && let Ok(status) = statuses.try_recv() {
+                responses.push((status.id, status.changed, status.frame_changed));
+            }
+            script.next().unwrap()
+        });
+        picker
+            .core
+            .pick_impl(events, &mut TestTerminal::default(), (), NoPreview)
+            .unwrap();
         if let Ok(status) = statuses.try_recv() {
             responses.push((status.id, status.changed, status.frame_changed));
         }
-        script.next().unwrap()
-    });
-
-    picker
-        .core
-        .pick_impl(events, &mut TestTerminal::default(), (), NoPreview)
-        .unwrap();
-
-    assert_eq!(
-        responses,
-        [(0, true, false), (1, true, false), (2, false, false)]
-    );
-}
-
-#[test]
-fn status_changed_resets_when_an_unread_response_is_produced() {
-    let mut picker: Picker<&str, _> = PickerOptions::new()
-        .frame_interval(Duration::ZERO)
-        .picker(StrRenderer);
-    let statuses = picker.status_observer();
-    let mut script = [
-        Ok(Event::Status { id: 0 }),
-        Err(RecvError::Timeout),
-        Ok(Event::Status { id: 1 }),
-        Err(RecvError::Timeout),
-        Ok(Event::Quit),
-    ]
-    .into_iter();
-
-    picker
-        .core
-        .pick_impl(
-            TestEvents(|_| script.next().unwrap()),
-            &mut TestTerminal::default(),
-            (),
-            NoPreview,
-        )
-        .unwrap();
-
-    let status = statuses.try_recv().unwrap();
-    assert_eq!(status.id, 1);
-    assert!(!status.changed);
-    assert!(!status.frame_changed);
+        let expected = if read_responses {
+            &[(0, true, false), (1, true, false), (2, false, false)][..]
+        } else {
+            &[(2, false, false)]
+        };
+        assert_eq!(responses, expected, "read_responses={read_responses}");
+    }
 }
 
 #[test]

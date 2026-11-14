@@ -60,19 +60,20 @@ impl Terminal for TestTerminal {
 
 #[test]
 fn panic_cleans_up_the_supplied_terminal() {
-    let mut terminal = TestTerminal {
-        failure: Some(Failure::WritePanic),
-        ..Default::default()
-    };
-    let mut picker: Picker<String, _> = Picker::new(StrRenderer);
-    let (_sender, events) = mpsc::channel::<Event>();
-
-    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = picker.pick_with_terminal_io(events, &mut terminal);
-    }));
-
-    assert!(panic.is_err());
-    assert_eq!(terminal.cleanup_calls, 1);
+    for (failure, cleanups) in [(Failure::WritePanic, 1), (Failure::CleanupPanic, 2)] {
+        let mut terminal = TestTerminal {
+            failure: Some(failure),
+            ..Default::default()
+        };
+        let mut picker: Picker<String, _> = Picker::new(StrRenderer);
+        let (sender, events) = mpsc::channel::<Event>();
+        sender.send(Event::Quit).unwrap();
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = picker.pick_with_terminal_io(events, &mut terminal);
+        }));
+        assert!(panic.is_err());
+        assert_eq!(terminal.cleanup_calls, cleanups);
+    }
 }
 
 #[test]
@@ -98,22 +99,4 @@ fn cleanup_runs_once_and_propagates_errors() {
         }
         assert_eq!(terminal.cleanup_calls, 1);
     }
-}
-
-#[test]
-fn cleanup_panic_retries_during_unwind() {
-    let mut terminal = TestTerminal {
-        failure: Some(Failure::CleanupPanic),
-        ..Default::default()
-    };
-    let mut picker: Picker<String, _> = Picker::new(StrRenderer);
-    let (sender, events) = mpsc::channel::<Event>();
-    sender.send(Event::Quit).unwrap();
-
-    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = picker.pick_with_terminal_io(events, &mut terminal);
-    }));
-
-    assert!(panic.is_err());
-    assert_eq!(terminal.cleanup_calls, 2);
 }

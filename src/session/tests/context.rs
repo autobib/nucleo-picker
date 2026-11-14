@@ -11,54 +11,37 @@ use crate::{
 };
 
 #[test]
-fn hovered_item_resolves_match_rank_and_outlives_the_context() {
+fn context_tracks_rank_identity_and_match_publication() {
     let mut picker = PickerOptions::new()
         .sort_results(false)
         .query("ta")
         .picker(StrRenderer);
+    let cx = Context::new(&picker.core.engine);
+    assert_eq!(cx.query(), "ta");
+    #[cfg(feature = "preview")]
+    assert!(cx.preview_size().is_none());
+    let revision = cx.match_revision();
     picker.push_batch(["alpha", "beta", "delta"]);
-    picker.filter().unwrap();
-
-    let hovered = {
-        let cx = Context::new(&picker.core.engine);
-        assert!(cx.hovered().is_none());
-        assert_eq!(cx.rank(), None);
-        assert_eq!(cx.query(), "ta");
-        #[cfg(feature = "preview")]
-        assert!(cx.preview_size().is_none());
-
-        let cx = cx.with_rank(Some(1));
-        let hovered = cx.hovered().unwrap();
-        assert_eq!(cx.rank(), Some(1));
-        assert_eq!(cx.match_ids().nth(1), Some(hovered.id()));
-        hovered
-    };
-    assert_eq!(hovered.value(), &"delta");
-    assert_eq!(hovered.id(), picker.core.engine.item_id(2));
-
-    picker.update_query("absent");
-    picker.filter().unwrap();
-    let cx = Context::new(&picker.core.engine).with_rank(Some(0));
-    assert!(cx.hovered().is_none());
-    assert_eq!(cx.rank(), None);
-}
-
-#[test]
-fn revisions_follow_publication_in_interactive_and_headless_matching() {
-    let mut picker = PickerOptions::new().sort_results(false).picker(StrRenderer);
-    let revision = Context::new(&picker.core.engine).match_revision();
-    picker.push_batch(["alpha", "beta"]);
     assert!(Context::new(&picker.core.engine).match_revision() == revision);
     picker.filter().unwrap();
-    let published = Context::new(&picker.core.engine).match_revision();
+    let cx = Context::new(&picker.core.engine);
+    assert!(cx.hovered().is_none());
+    assert_eq!(cx.rank(), None);
+    let cx = cx.with_rank(Some(1));
+    let hovered = cx.hovered().unwrap();
+    assert_eq!(cx.rank(), Some(1));
+    assert_eq!(cx.match_ids().nth(1), Some(hovered.id()));
+    assert_eq!(hovered.value(), &"delta");
+    assert_eq!(hovered.id(), picker.core.engine.item_id(2));
+    let published = cx.match_revision();
     assert!(published != revision);
     picker.filter().unwrap();
     assert!(Context::new(&picker.core.engine).match_revision() == published);
 
-    picker.update_query("beta");
+    picker.update_query("delta");
     let cx = Context::new(&picker.core.engine).with_rank(Some(0));
-    assert_eq!(cx.query(), "beta");
-    assert_eq!(cx.hovered().unwrap().value(), &"alpha");
+    assert_eq!(cx.query(), "delta");
+    assert_eq!(cx.hovered().unwrap().value(), &"beta");
     assert_eq!(cx.matches().len(), 2);
     assert!(cx.match_revision() == published);
 
@@ -76,7 +59,7 @@ fn revisions_follow_publication_in_interactive_and_headless_matching() {
     }
     let cx = Context::new(&picker.core.engine).with_rank(Some(0));
     assert!(cx.match_revision() != published);
-    assert_eq!(cx.hovered().unwrap().value(), &"beta");
+    assert_eq!(cx.hovered().unwrap().value(), &"delta");
     let before_restart = cx.match_revision();
     let old_id = cx.hovered().unwrap().id();
 
@@ -93,6 +76,12 @@ fn revisions_follow_publication_in_interactive_and_headless_matching() {
     let cx = Context::new(&picker.core.engine).with_rank(Some(0));
     assert!(cx.match_revision() != restarted);
     assert_eq!(cx.hovered().unwrap().value(), &"replacement");
+
+    picker.update_query("absent");
+    picker.filter().unwrap();
+    let cx = Context::new(&picker.core.engine).with_rank(Some(0));
+    assert!(cx.hovered().is_none());
+    assert_eq!(cx.rank(), None);
 }
 
 struct Observation {

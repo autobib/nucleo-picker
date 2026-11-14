@@ -6,15 +6,15 @@ use std::{
     time::{Duration, Instant},
 };
 
-use super::{FrameEvents, TestEvents, frame_events};
+use super::{FrameEvents, frame_events};
 use crate::{
-    Picker, PickerOptions, Terminal,
+    PickerOptions, Terminal,
     component::Component,
     error::PickError,
     event::{Event, EventSource, LayoutEvent, MatchListEvent, RecvError},
     preview::{
-        Preview, PreviewBuffer, PreviewEvent, SyncPreviewer, WithPreview,
-        pane::tests::support::*,
+        Preview, PreviewBuffer, PreviewEvent, SyncPreviewer,
+        pane::{PreviewPane, tests::support::*},
         request::{PreviewRequest, PreviewResponse, QueuedPreviewRequest},
     },
     rect::Area,
@@ -77,6 +77,16 @@ impl Terminal for TestTerminal {
         self.changed.push(changed);
         Ok(())
     }
+}
+
+fn offset(session: &mut PreviewPane<&'static str, TestPreviewer>, idx: u32) -> (usize, usize) {
+    session
+        .test_cache()
+        .peek(&idx)
+        .unwrap()
+        .buffer()
+        .unwrap()
+        .offset()
 }
 
 #[test]
@@ -145,46 +155,43 @@ fn prefetch_follows_rendering_and_progresses_on_idle_frames() {
 }
 
 #[test]
-fn interleaved_navigation_and_scrolling_target_the_buffered_item() {
-    for reversed in [false, true] {
+fn buffered_navigation_scroll_and_refresh_target_the_event_hovered_item() {
+    for (case, reversed, cached) in [
+        ("cached", false, true),
+        ("cached, reversed", true, true),
+        ("missing", false, false),
+        ("missing, reversed", true, false),
+    ] {
         let mut picker = PickerOptions::new()
             .reverse_items(false)
             .reversed(reversed)
             .picker(StrRenderer);
         picker.push_batch(["alpha", "beta"]);
         settle(&mut picker);
-        picker.core.list_state.layout.resize(
-            picker.core.engine.snapshot(),
-            8,
-            &picker.core.list_state.config,
-        );
         let mut session = preview_pane(TestPreviewer {
             lines: 30,
             ..TestPreviewer::default()
         });
-        picker.core.list_state.layout.set_rank(
-            picker.core.engine.snapshot(),
-            1,
-            &picker.core.list_state.config,
-        );
-        update(&mut session, &mut picker);
-        picker.core.list_state.layout.set_rank(
-            picker.core.engine.snapshot(),
-            0,
-            &picker.core.list_state.config,
-        );
-        let (next, previous) = if reversed {
-            (MatchListEvent::Down(1), MatchListEvent::Up(1))
+        if cached {
+            session.update_at(Some(1), &picker.core.engine, Instant::now());
+        }
+        let next = if reversed {
+            MatchListEvent::Down
         } else {
-            (MatchListEvent::Up(1), MatchListEvent::Down(1))
+            MatchListEvent::Up
+        };
+        let previous = if reversed {
+            MatchListEvent::Up
+        } else {
+            MatchListEvent::Down
         };
         let events = frame_events([
             Ok(Event::Preview(PreviewEvent::Up(2))),
             Ok(Event::Preview(PreviewEvent::Down(2))),
-            Ok(Event::MatchList(next)),
+            Ok(Event::MatchList(next(1))),
             Ok(Event::Preview(PreviewEvent::PageDown(1))),
             Ok(Event::Preview(PreviewEvent::Up(1))),
-            Ok(Event::MatchList(previous)),
+            Ok(Event::MatchList(previous(1))),
             Ok(Event::Preview(PreviewEvent::Down(1))),
             Err(RecvError::Timeout),
             Ok(Event::Quit),
@@ -193,56 +200,49 @@ fn interleaved_navigation_and_scrolling_target_the_buffered_item() {
             .core
             .pick_impl(events, &mut TestTerminal::default(), (), &mut session)
             .unwrap();
+        assert_eq!(offset(&mut session, 0), (0, 3), "{case}");
+        if cached {
+            assert_eq!(offset(&mut session, 1), (0, 7), "{case}");
+        } else {
+            assert!(!session.test_cache().contains(&1), "{case}");
+        }
         assert_eq!(
-            session
-                .test_cache()
-                .peek(&0)
-                .unwrap()
-                .buffer()
-                .unwrap()
-                .offset()
-                .1,
-            3
+            session.test_previewer().requested,
+            if cached {
+                &["beta", "alpha"][..]
+            } else {
+                &["alpha"][..]
+            },
+            "{case}"
         );
-        assert_eq!(
-            session
-                .test_cache()
-                .peek(&1)
-                .unwrap()
-                .buffer()
-                .unwrap()
-                .offset()
-                .1,
-            7
-        );
-        assert_eq!(session.test_previewer().requested, ["beta", "alpha"]);
-    }
-}
 
-#[test]
-fn batched_navigation_and_refresh_target_the_event_hovered_item() {
-    let mut picker = picker(["alpha", "beta"]);
-    let mut session = preview_pane(TestPreviewer::default());
-    session.update_at(Some(1), &picker.core.engine, Instant::now());
-    let events = frame_events([
-        Ok(Event::MatchList(MatchListEvent::Up(1))),
-        Ok(Event::Preview(PreviewEvent::Refresh)),
-        Ok(Event::MatchList(MatchListEvent::Down(1))),
-        Err(RecvError::Timeout),
-        Ok(Event::MatchList(MatchListEvent::Up(1))),
-        Err(RecvError::Timeout),
-        Ok(Event::Quit),
-    ]);
-    let mut terminal = TestTerminal::default();
-    picker
-        .core
-        .pick_impl(events, &mut terminal, (), &mut session)
-        .unwrap();
-    assert_eq!(
-        session.test_previewer().requested,
-        ["beta", "alpha", "beta"]
-    );
-    assert_eq!(terminal.changed, [false, true]);
+        let events = frame_events([
+            Ok(Event::MatchList(next(1))),
+            Ok(Event::Preview(PreviewEvent::Refresh)),
+            Ok(Event::MatchList(previous(1))),
+            Err(RecvError::Timeout),
+            Ok(Event::MatchList(next(1))),
+            Err(RecvError::Timeout),
+            Ok(Event::Quit),
+        ]);
+        let mut terminal = TestTerminal::default();
+        picker
+            .core
+            .pick_impl(events, &mut terminal, (), &mut session)
+            .unwrap();
+        assert_eq!(offset(&mut session, 0), (0, 3), "{case}");
+        assert_eq!(offset(&mut session, 1), (0, 0), "{case}");
+        assert_eq!(
+            session.test_previewer().requested,
+            if cached {
+                &["beta", "alpha", "beta"][..]
+            } else {
+                &["alpha", "beta"][..]
+            },
+            "{case}"
+        );
+        assert_eq!(terminal.changed, [false, true], "{case}");
+    }
 }
 
 #[test]
@@ -253,122 +253,112 @@ fn refresh_does_not_run_the_previewer_before_a_following_quit() {
             defer,
             ..TestPreviewer::default()
         };
-        let mut terminal = TestTerminal::default();
         let events = frame_events([Ok(Event::Preview(PreviewEvent::Refresh)), Ok(Event::Quit)]);
-        let mut preview_picker = picker.with_preview(&mut previewer);
         assert!(
-            preview_picker
-                .pick_with_terminal_io(events, &mut terminal)
+            picker
+                .with_preview(&mut previewer)
+                .pick_with_terminal_io(events, &mut TestTerminal::default())
                 .unwrap()
                 .is_none()
         );
-        assert_eq!(previewer.requested, ["alpha"]);
-        assert!(
-            previewer
-                .queued
-                .iter()
-                .all(QueuedPreviewRequest::is_cancelled)
-        );
+        assert_eq!(previewer.requested, ["alpha"], "defer={defer}");
+        let cancelled = previewer
+            .queued
+            .iter()
+            .all(QueuedPreviewRequest::is_cancelled);
+        assert!(cancelled, "defer={defer}");
     }
 }
 
 #[test]
-fn scrolling_a_filtered_match_uses_its_item_id() {
-    let mut picker = picker(["alpha", "beta"]);
-    picker.update_query("beta");
-    settle(&mut picker);
-    let mut session = preview_pane(TestPreviewer {
-        lines: 30,
-        ..TestPreviewer::default()
-    });
-    let events = frame_events([
-        Ok(Event::Preview(PreviewEvent::PageDown(1))),
-        Err(RecvError::Timeout),
-        Ok(Event::Quit),
-    ]);
-    picker
-        .core
-        .pick_impl(events, &mut TestTerminal::default(), (), &mut session)
-        .unwrap();
-    assert_eq!(
-        session
-            .test_cache()
-            .peek(&1)
-            .unwrap()
-            .buffer()
-            .unwrap()
-            .offset()
-            .1,
-        8
-    );
-    assert!(!session.test_cache().contains(&0));
+fn scrolling_uses_item_ids_and_only_redraws_the_preview() {
+    for (case, items, query, idx, item) in [
+        ("unfiltered", &["alpha"][..], "", 0, "alpha"),
+        ("filtered", &["alpha", "beta"][..], "beta", 1, "beta"),
+    ] {
+        let mut picker = picker(items.iter().copied());
+        picker.update_query(query);
+        settle(&mut picker);
+        let mut session = preview_pane(TestPreviewer {
+            lines: 30,
+            ..TestPreviewer::default()
+        });
+        let mut terminal = TestTerminal::default();
+        let events = frame_events([
+            Ok(Event::Preview(PreviewEvent::PageDown(1))),
+            Err(RecvError::Timeout),
+            Ok(Event::Quit),
+        ]);
+        picker
+            .core
+            .pick_impl(events, &mut terminal, (), &mut session)
+            .unwrap();
+        assert_eq!(offset(&mut session, idx), (0, 8), "{case}");
+        assert!(!session.test_cache().contains(&(1 - idx)), "{case}");
+        assert_eq!(terminal.changed, [true], "{case}");
+        let output = String::from_utf8(terminal.output).unwrap();
+        if query.is_empty() {
+            assert_eq!(output.matches(item).count(), 17, "{case}");
+        }
+        assert_eq!(output.matches('▌').count(), 1, "{case}");
+        assert_eq!(output.matches('>').count(), 1, "{case}");
+        assert_eq!(output.matches('╭').count(), 2, "{case}");
+
+        let events = frame_events([
+            Ok(Event::Preview(PreviewEvent::Down(usize::MAX))),
+            Ok(Event::Preview(PreviewEvent::Down(1))),
+            Ok(Event::Preview(PreviewEvent::Down(1))),
+            Ok(Event::Preview(PreviewEvent::Up(1))),
+            Err(RecvError::Timeout),
+            Ok(Event::Quit),
+        ]);
+        picker
+            .core
+            .pick_impl(events, &mut TestTerminal::default(), (), &mut session)
+            .unwrap();
+        assert_eq!(
+            offset(&mut session, idx),
+            (0, 21),
+            "{case}: bottom saturation"
+        );
+        assert_eq!(session.test_previewer().requested, [item], "{case}");
+    }
 }
 
 #[test]
-fn scrolling_a_missing_preview_does_not_request_it() {
-    let mut picker = picker(["alpha", "beta"]);
-    let mut session = preview_pane(TestPreviewer {
-        lines: 30,
-        ..TestPreviewer::default()
-    });
-    let events = frame_events([
-        Ok(Event::MatchList(MatchListEvent::Up(1))),
-        Ok(Event::Preview(PreviewEvent::PageDown(1))),
-        Ok(Event::MatchList(MatchListEvent::Down(1))),
-        Err(RecvError::Timeout),
-        Ok(Event::Quit),
-    ]);
-    picker
-        .core
-        .pick_impl(events, &mut TestTerminal::default(), (), &mut session)
-        .unwrap();
-    assert_eq!(session.test_previewer().requested, ["alpha"]);
-    assert_eq!(
-        session
-            .test_cache()
-            .peek(&0)
-            .unwrap()
-            .buffer()
-            .unwrap()
-            .offset(),
-        (0, 0)
-    );
-    assert!(!session.test_cache().contains(&1));
-}
-
-#[test]
-fn scrolling_pending_previews_is_ignored_by_the_loop() {
-    let mut picker = picker(["alpha"]);
-    let mut session = preview_pane(TestPreviewer {
-        defer: true,
-        ..TestPreviewer::default()
-    });
-    let mut terminal = TestTerminal::default();
-    let events = frame_events([
-        Ok(Event::Preview(PreviewEvent::PageDown(1))),
-        Err(RecvError::Timeout),
-        Ok(Event::Quit),
-    ]);
-    picker
-        .core
-        .pick_impl(events, &mut terminal, (), &mut session)
-        .unwrap();
-    assert!(session.test_cache().peek(&0).unwrap().buffer().is_none());
-    assert_eq!(session.test_previewer().requested, ["alpha"]);
-    assert_eq!(terminal.changed, [false]);
-}
-
-#[test]
-fn idle_frames_collect_completed_previews_and_enable_scrolling() {
+fn pending_navigation_and_scrolling_wait_for_idle_completion() {
     for size in [(20, 10), (30, 12)] {
-        let mut picker = picker(["alpha"]);
+        let mut picker = picker(["alpha", "beta"]);
         let status = picker.status_observer();
         let mut session = preview_pane(TestPreviewer {
             defer: true,
             ..TestPreviewer::default()
         });
-        update(&mut session, &mut picker);
-        let mut queued = session.test_previewer().queued.pop();
+        let events = frame_events([
+            Ok(Event::MatchList(MatchListEvent::Up(1))),
+            Ok(Event::Preview(PreviewEvent::PageDown(1))),
+            Ok(Event::MatchList(MatchListEvent::Down(1))),
+            Ok(Event::Preview(PreviewEvent::PageDown(1))),
+            Err(RecvError::Timeout),
+            Ok(Event::Quit),
+        ]);
+        let mut terminal = TestTerminal::default();
+        picker
+            .core
+            .pick_impl(events, &mut terminal, (), &mut session)
+            .unwrap();
+        assert!(
+            session.test_cache().peek(&0).unwrap().buffer().is_none(),
+            "{size:?}"
+        );
+        assert!(!session.test_cache().contains(&1), "{size:?}");
+        let previewer = session.test_previewer();
+        assert_eq!(previewer.requested, ["alpha"], "{size:?}");
+        assert_eq!(previewer.hovered, [Some("alpha")], "{size:?}");
+        assert!(!previewer.queued[0].is_cancelled(), "{size:?}");
+        assert_eq!(terminal.changed, [false], "{size:?}");
+
+        let mut queued = Some(session.test_previewer().take_request("alpha"));
         let mut step = 0;
         let events = FrameEvents(move || {
             step += 1;
@@ -379,15 +369,8 @@ fn idle_frames_collect_completed_previews_and_enable_scrolling() {
                     for _ in 1..30 {
                         buffer.newline();
                     }
-                    assert!(
-                        queued
-                            .take()
-                            .unwrap()
-                            .start()
-                            .unwrap()
-                            .publish(&mut buffer)
-                            .is_ok()
-                    );
+                    let active = queued.take().unwrap().start().unwrap();
+                    active.publish(&mut buffer).unwrap();
                     Ok(Event::Status { id: 0 })
                 }
                 4 => Ok(Event::Preview(PreviewEvent::Down(1))),
@@ -404,25 +387,15 @@ fn idle_frames_collect_completed_previews_and_enable_scrolling() {
             .unwrap();
         let status = status.try_recv().unwrap();
         assert_eq!((status.width, status.height), size);
-        assert_eq!(terminal.changed, [false, true, true, false]);
-        assert_eq!(
-            session
-                .test_cache()
-                .peek(&0)
-                .unwrap()
-                .buffer()
-                .unwrap()
-                .offset()
-                .1,
-            1
-        );
-        assert_eq!(session.test_previewer().requested, ["alpha"]);
+        assert_eq!(terminal.changed, [false, true, true, false], "{size:?}");
+        assert_eq!(offset(&mut session, 0), (0, 1), "{size:?}");
+        assert_eq!(session.test_previewer().requested, ["alpha"], "{size:?}");
 
         let output = String::from_utf8(terminal.output).unwrap();
         let list_draws = 1 + usize::from(size != (20, 10));
-        assert_eq!(output.matches("alpha").count(), list_draws);
-        assert_eq!(output.matches('>').count(), list_draws);
-        assert_eq!(output.matches('╭').count(), 3);
+        assert_eq!(output.matches("alpha").count(), list_draws, "{size:?}");
+        assert_eq!(output.matches('>').count(), list_draws, "{size:?}");
+        assert_eq!(output.matches('╭').count(), 3, "{size:?}");
     }
 }
 
@@ -441,19 +414,12 @@ fn redraw_checks_terminal_size_after_preview_generation() {
         }
         buffer.push_str(item);
     });
-    let mut steps = VecDeque::from([
+    let events = frame_events([
         Ok(Event::MatchList(MatchListEvent::Up(1))),
         Ok(Event::Status { id: 0 }),
         Err(RecvError::Timeout),
         Ok(Event::Quit),
     ]);
-    let events = TestEvents(|timeout: Duration| {
-        if timeout.is_zero() {
-            Err(RecvError::Timeout)
-        } else {
-            steps.pop_front().unwrap()
-        }
-    });
     picker
         .with_preview(previewer)
         .pick_with_terminal_io(events, &mut terminal)
@@ -463,151 +429,7 @@ fn redraw_checks_terminal_size_after_preview_generation() {
 }
 
 #[test]
-fn batched_navigation_back_to_the_same_item_does_not_promote() {
-    let mut picker = picker(["alpha", "beta"]);
-    let mut session = preview_pane(TestPreviewer {
-        defer: true,
-        ..TestPreviewer::default()
-    });
-    let events = frame_events([
-        Ok(Event::MatchList(MatchListEvent::Up(1))),
-        Ok(Event::MatchList(MatchListEvent::Down(1))),
-        Err(RecvError::Timeout),
-        Ok(Event::Quit),
-    ]);
-    let mut terminal = TestTerminal::default();
-    picker
-        .core
-        .pick_impl(events, &mut terminal, (), &mut session)
-        .unwrap();
-    assert_eq!(terminal.changed, [false]);
-    assert_eq!(session.test_previewer().requested, ["alpha"]);
-    assert_eq!(session.test_previewer().hovered, [Some("alpha")]);
-    assert!(!session.test_previewer().queued[0].is_cancelled());
-}
-
-#[test]
-fn scroll_changes_are_reported_without_redrawing_the_match_list() {
-    let mut picker = picker(["alpha"]);
-    let mut session = preview_pane(TestPreviewer {
-        lines: 30,
-        ..TestPreviewer::default()
-    });
-    let mut terminal = TestTerminal::default();
-    let events = frame_events([
-        Ok(Event::Preview(PreviewEvent::PageDown(1))),
-        Err(RecvError::Timeout),
-        Ok(Event::Quit),
-    ]);
-    picker
-        .core
-        .pick_impl(events, &mut terminal, (), &mut session)
-        .unwrap();
-    assert_eq!(
-        session
-            .test_cache()
-            .peek(&0)
-            .unwrap()
-            .buffer()
-            .unwrap()
-            .offset()
-            .1,
-        8
-    );
-    assert_eq!(terminal.changed, [true]);
-
-    let output = String::from_utf8(terminal.output).unwrap();
-    assert_eq!(output.matches("alpha").count(), 17);
-    assert_eq!(output.matches('▌').count(), 1);
-    assert_eq!(output.matches('>').count(), 1);
-    assert_eq!(output.matches('╭').count(), 2);
-}
-
-#[test]
-fn resizing_the_pane_preserves_the_hovered_item_and_reclamps_the_offset() {
-    let mut picker = picker(["alpha"]);
-    let mut session = preview_pane(TestPreviewer {
-        lines: 30,
-        ..TestPreviewer::default()
-    });
-    update(&mut session, &mut picker);
-    session
-        .test_cache()
-        .get_mut(&0)
-        .unwrap()
-        .buffer_mut()
-        .unwrap()
-        .set_offset(0, 25);
-    let mut terminal = TestTerminal {
-        sizes: VecDeque::from([(5, 10), (20, 10), (5, 10), (20, 10)]),
-        ..TestTerminal::default()
-    };
-    let events = frame_events([
-        Ok(Event::Redraw),
-        Err(RecvError::Timeout),
-        Ok(Event::Redraw),
-        Err(RecvError::Timeout),
-        Ok(Event::Redraw),
-        Err(RecvError::Timeout),
-        Ok(Event::Quit),
-    ]);
-    picker
-        .core
-        .pick_impl(events, &mut terminal, (), &mut session)
-        .unwrap();
-    assert_eq!(
-        session
-            .test_cache()
-            .peek(&0)
-            .unwrap()
-            .buffer()
-            .unwrap()
-            .offset()
-            .1,
-        22
-    );
-    assert_eq!(session.test_previewer().hovered, [Some("alpha")]);
-    assert_eq!(session.test_previewer().requested, ["alpha"]);
-}
-
-#[test]
-fn resizing_reclamps_the_offset_and_changes_page_height() {
-    let mut picker = picker(["alpha"]);
-    let mut session = preview_pane(TestPreviewer {
-        lines: 30,
-        ..TestPreviewer::default()
-    });
-    let mut terminal = TestTerminal {
-        sizes: VecDeque::from([(20, 10), (20, 14)]),
-        ..TestTerminal::default()
-    };
-    let events = frame_events([
-        Ok(Event::Preview(PreviewEvent::Down(usize::MAX))),
-        Ok(Event::Redraw),
-        Err(RecvError::Timeout),
-        Ok(Event::Preview(PreviewEvent::PageUp(1))),
-        Err(RecvError::Timeout),
-        Ok(Event::Quit),
-    ]);
-    picker
-        .core
-        .pick_impl(events, &mut terminal, (), &mut session)
-        .unwrap();
-    assert_eq!(
-        session
-            .test_cache()
-            .peek(&0)
-            .unwrap()
-            .buffer()
-            .unwrap()
-            .offset()
-            .1,
-        6
-    );
-}
-
-#[test]
-fn initial_layout_resizes_retained_preview_state() {
+fn resizing_retained_previews_preserves_hover_and_updates_page_height() {
     let mut picker = picker(["alpha"]);
     let mut session = preview_pane(TestPreviewer {
         lines: 30,
@@ -623,17 +445,7 @@ fn initial_layout_resizes_retained_preview_state() {
         &(),
     );
     session.handle_at(PreviewEvent::Down(usize::MAX), Some(0));
-    assert_eq!(
-        session
-            .test_cache()
-            .peek(&0)
-            .unwrap()
-            .buffer()
-            .unwrap()
-            .offset()
-            .1,
-        26
-    );
+    assert_eq!(offset(&mut session, 0), (0, 26));
 
     picker
         .core
@@ -644,17 +456,32 @@ fn initial_layout_resizes_retained_preview_state() {
             &mut session,
         )
         .unwrap();
-    assert_eq!(
-        session
-            .test_cache()
-            .peek(&0)
-            .unwrap()
-            .buffer()
-            .unwrap()
-            .offset()
-            .1,
-        22
-    );
+    assert_eq!(offset(&mut session, 0), (0, 22), "initial layout");
+
+    for (case, sizes, scroll, expected) in [
+        ("narrow", [(20, 10), (5, 10)], PreviewEvent::Down(1), 22),
+        ("restore", [(5, 10), (20, 10)], PreviewEvent::Down(1), 22),
+        ("grow", [(20, 10), (20, 14)], PreviewEvent::PageUp(1), 6),
+    ] {
+        let mut terminal = TestTerminal {
+            sizes: sizes.into(),
+            ..TestTerminal::default()
+        };
+        let events = frame_events([
+            Ok(Event::Redraw),
+            Ok(Event::Preview(scroll)),
+            Err(RecvError::Timeout),
+            Ok(Event::Quit),
+        ]);
+        picker
+            .core
+            .pick_impl(events, &mut terminal, (), &mut session)
+            .unwrap();
+        assert_eq!(offset(&mut session, 0), (0, expected), "{case}");
+        let previewer = session.test_previewer();
+        assert_eq!(previewer.hovered, [Some("alpha")], "{case}");
+        assert_eq!(previewer.requested, ["alpha"], "{case}");
+    }
 }
 
 #[test]
@@ -674,70 +501,41 @@ fn resizing_clamps_cached_previews_before_they_are_revisited() {
         &(),
     );
     session.handle_at(PreviewEvent::Down(usize::MAX), Some(0));
+    assert_eq!(offset(&mut session, 0), (0, 22));
     picker.core.list_state.layout.set_rank(
         picker.core.engine.snapshot(),
         1,
         &picker.core.list_state.config,
     );
-    let events = frame_events([
-        Ok(Event::Redraw),
-        Err(RecvError::Timeout),
-        Ok(Event::MatchList(MatchListEvent::Down(1))),
-        Err(RecvError::Timeout),
-        Ok(Event::Quit),
-    ]);
     let mut terminal = TestTerminal {
         sizes: VecDeque::from([(20, 10), (20, 14)]),
         ..TestTerminal::default()
     };
     picker
         .core
-        .pick_impl(events, &mut terminal, (), &mut session)
+        .pick_impl(
+            frame_events([Ok(Event::Redraw), Err(RecvError::Timeout), Ok(Event::Quit)]),
+            &mut terminal,
+            (),
+            &mut session,
+        )
         .unwrap();
-    assert_eq!(
-        session
-            .test_cache()
-            .peek(&0)
-            .unwrap()
-            .buffer()
-            .unwrap()
-            .offset()
-            .1,
-        18
-    );
-    assert_eq!(session.test_previewer().requested, ["alpha", "beta"]);
-}
-
-#[test]
-fn scrolling_down_down_up_at_the_bottom_moves_up_one_line() {
-    let mut picker = picker(["alpha"]);
-    let mut session = preview_pane(TestPreviewer {
-        lines: 30,
-        ..TestPreviewer::default()
-    });
-    let events = frame_events([
-        Ok(Event::Preview(PreviewEvent::Down(usize::MAX))),
-        Ok(Event::Preview(PreviewEvent::Down(1))),
-        Ok(Event::Preview(PreviewEvent::Down(1))),
-        Ok(Event::Preview(PreviewEvent::Up(1))),
-        Err(RecvError::Timeout),
-        Ok(Event::Quit),
-    ]);
+    assert_eq!(offset(&mut session, 0), (0, 18));
     picker
         .core
-        .pick_impl(events, &mut TestTerminal::default(), (), &mut session)
+        .pick_impl(
+            frame_events([
+                Ok(Event::MatchList(MatchListEvent::Down(1))),
+                Err(RecvError::Timeout),
+                Ok(Event::Quit),
+            ]),
+            &mut terminal,
+            (),
+            &mut session,
+        )
         .unwrap();
-    assert_eq!(
-        session
-            .test_cache()
-            .peek(&0)
-            .unwrap()
-            .buffer()
-            .unwrap()
-            .offset()
-            .1,
-        21
-    );
+    assert_eq!(offset(&mut session, 0), (0, 18));
+    assert_eq!(session.test_previewer().requested, ["alpha", "beta"]);
 }
 
 #[test]
@@ -762,40 +560,19 @@ fn zero_sized_panes_ignore_scrolling() {
             .core
             .pick_impl(events, &mut terminal, (), &mut session)
             .unwrap();
-        assert_eq!(
-            session
-                .test_cache()
-                .peek(&0)
-                .unwrap()
-                .buffer()
-                .unwrap()
-                .offset(),
-            (0, 0)
-        );
-        assert_eq!(session.test_previewer().hovered, [Some("alpha")]);
-        assert_eq!(session.test_previewer().requested, ["alpha"]);
-        assert_eq!(terminal.changed, [false]);
+        assert_eq!(offset(&mut session, 0), (0, 0), "{size:?}");
+        let previewer = session.test_previewer();
+        assert_eq!(previewer.hovered, [Some("alpha")], "{size:?}");
+        assert_eq!(previewer.requested, ["alpha"], "{size:?}");
+        assert_eq!(terminal.changed, [false], "{size:?}");
     }
-}
-
-#[test]
-fn ordinary_pickers_ignore_preview_events() {
-    let mut picker = picker(["alpha"]);
-    let mut terminal = TestTerminal::default();
-    let events = frame_events([
-        Ok(Event::Preview(PreviewEvent::Down(1))),
-        Ok(Event::Preview(PreviewEvent::PageDown(1))),
-        Ok(Event::Preview(PreviewEvent::Refresh)),
-        Err(RecvError::Timeout),
-        Ok(Event::Select),
-    ]);
-    let selected = picker.pick_with_terminal_io(events, &mut terminal).unwrap();
-    assert_eq!(selected, Some(&"alpha"));
-    assert_eq!(terminal.changed, [false]);
 }
 
 fn navigation() -> impl EventSource<AbortErr = &'static str> {
     frame_events([
+        Ok(Event::Preview(PreviewEvent::Down(1))),
+        Ok(Event::Preview(PreviewEvent::PageDown(1))),
+        Ok(Event::Preview(PreviewEvent::Refresh)),
         Err(RecvError::Timeout),
         Ok(Event::MatchList(MatchListEvent::Up(1))),
         Err(RecvError::Timeout),
@@ -806,30 +583,72 @@ fn navigation() -> impl EventSource<AbortErr = &'static str> {
 }
 
 #[test]
-fn preview_picker_can_be_returned_and_recovered_with_its_state() {
-    fn make_picker() -> Picker<&'static str, StrRenderer, WithPreview<crate::Single, TestPreviewer>>
-    {
-        picker(["alpha", "beta"]).with_preview(TestPreviewer::default())
-    }
+fn preview_picker_round_trips_state_and_preserves_selection_modes() {
+    let mut picker = picker(["alpha", "beta"]);
+    let mut plain_terminal = TestTerminal::default();
+    let selected = picker
+        .pick_with_terminal_io(navigation(), &mut plain_terminal)
+        .unwrap();
+    assert_eq!(selected, Some(&"alpha"));
+    assert_eq!(plain_terminal.changed, [false, true, true]);
+    assert!(
+        !String::from_utf8(plain_terminal.output)
+            .unwrap()
+            .contains('╭')
+    );
 
-    let mut preview_picker = make_picker();
+    let mut preview_picker = picker.with_preview(TestPreviewer::default());
+    let mut terminal = TestTerminal::default();
+    let selected = preview_picker
+        .pick_with_terminal_io(navigation(), &mut terminal)
+        .unwrap();
+    assert_eq!(selected, Some(&"alpha"));
+    assert_eq!(
+        preview_picker.previewer().requested,
+        ["alpha", "alpha", "beta"]
+    );
+    assert_eq!(terminal.changed, [true, true, true]);
+    assert!(String::from_utf8(terminal.output).unwrap().contains('╭'));
+    assert_eq!(terminal.cleanups, 1);
+
+    let selected = preview_picker
+        .as_multi()
+        .pick_with_terminal_io(
+            frame_events([
+                Ok(Event::MatchList(MatchListEvent::ToggleUp(1))),
+                Err(RecvError::Timeout),
+                Ok(Event::MatchList(MatchListEvent::ToggleUp(1))),
+                Ok(Event::Select),
+            ]),
+            &mut TestTerminal::default(),
+        )
+        .unwrap();
+    assert!(selected.iter().copied().eq(["alpha", "beta"]));
+
     let injector = preview_picker.injector();
     preview_picker.update_query("beta");
     preview_picker.previewer_mut().lines = 3;
+    let requests = preview_picker.previewer().requested.len();
+    let callbacks = preview_picker.previewer().hovered.len();
     settle(&mut preview_picker);
-    for (exit, expected) in [(Event::Select, Some("beta")), (Event::Quit, None)] {
+    for (case, exit, expected) in [
+        ("select", Event::Select, Some("beta")),
+        ("quit", Event::Quit, None),
+    ] {
         let selected = preview_picker
             .pick_with_terminal_io(frame_events([Ok(exit)]), &mut TestTerminal::default())
             .unwrap();
-        assert_eq!(selected.copied(), expected);
+        assert_eq!(selected.copied(), expected, "{case}");
     }
-
     let (mut picker, previewer) = preview_picker.into_parts();
     assert_eq!(picker.query(), "beta");
     assert_eq!(previewer.lines, 3);
-    assert_eq!(previewer.requested, ["beta", "beta"]);
-    assert_eq!(previewer.ids[0], previewer.ids[1]);
-    assert_eq!(previewer.hovered, [Some("beta"), None, Some("beta"), None]);
+    assert_eq!(previewer.requested[requests..], ["beta", "beta"]);
+    assert_eq!(previewer.ids[requests], previewer.ids[requests + 1]);
+    assert_eq!(
+        previewer.hovered[callbacks..],
+        [Some("beta"), None, Some("beta"), None]
+    );
 
     injector.push("gamma");
     picker.reset_query();
@@ -848,62 +667,20 @@ fn preview_picker_can_be_returned_and_recovered_with_its_state() {
 }
 
 #[test]
-fn preview_picker_uses_the_shared_loop_and_draws_a_pane() {
-    let mut picker = picker(["alpha", "beta"]);
-    let mut plain_terminal = TestTerminal::default();
-    let selected = picker
-        .pick_with_terminal_io(navigation(), &mut plain_terminal)
-        .unwrap();
-    assert_eq!(selected, Some(&"alpha"));
-
-    let mut previewer = TestPreviewer::default();
-    let mut terminal = TestTerminal::default();
-    let mut preview_picker = picker.with_preview(&mut previewer);
-    let selected = preview_picker
-        .pick_with_terminal_io(navigation(), &mut terminal)
-        .unwrap();
-    assert_eq!(selected, Some(&"alpha"));
-    assert_eq!(previewer.requested, ["alpha", "beta"]);
-    assert!(
-        !String::from_utf8(plain_terminal.output)
-            .unwrap()
-            .contains('╭')
-    );
-    assert!(String::from_utf8(terminal.output).unwrap().contains('╭'));
-    assert_eq!(terminal.cleanups, 1);
-}
-
-#[test]
-fn preview_picker_preserves_multiple_selection() {
-    let picker = picker(["alpha", "beta"]);
-    let mut preview_picker = picker.with_preview(TestPreviewer::default());
-    let events = frame_events([
-        Ok(Event::MatchList(MatchListEvent::ToggleUp(1))),
-        Err(RecvError::Timeout),
-        Ok(Event::MatchList(MatchListEvent::ToggleUp(1))),
-        Ok(Event::Select),
-    ]);
-    let selected = preview_picker
-        .as_multi()
-        .pick_with_terminal_io(events, &mut TestTerminal::default())
-        .unwrap();
-    assert_eq!(
-        selected.iter().copied().collect::<Vec<_>>(),
-        ["alpha", "beta"]
-    );
-}
-
-#[test]
 fn picker_exits_cancel_all_pending_requests() {
-    for (exit, succeeds) in [
-        (Ok(Event::Select), true),
-        (Ok(Event::Quit), true),
-        (Ok(Event::QuitPromptEmpty), true),
-        (Ok(Event::UserInterrupt), false),
-        (Ok(Event::Abort("aborted")), false),
-        (Ok(Event::Restart), false),
-        (Err(RecvError::Disconnected), false),
-        (Err(RecvError::IO(io::Error::other("read failed"))), false),
+    for (case, exit, succeeds) in [
+        ("select", Ok(Event::Select), true),
+        ("quit", Ok(Event::Quit), true),
+        ("quit empty", Ok(Event::QuitPromptEmpty), true),
+        ("interrupt", Ok(Event::UserInterrupt), false),
+        ("abort", Ok(Event::Abort("aborted")), false),
+        ("restart", Ok(Event::Restart), false),
+        ("disconnect", Err(RecvError::Disconnected), false),
+        (
+            "read error",
+            Err(RecvError::IO(io::Error::other("read failed"))),
+            false,
+        ),
     ] {
         let picker = picker(["alpha", "beta"]);
         let mut previewer = TestPreviewer {
@@ -919,23 +696,23 @@ fn picker_exits_cancel_all_pending_requests() {
         let mut preview_picker = picker.with_preview(&mut previewer);
         let result = preview_picker.pick_with_terminal_io(events, &mut terminal);
 
-        assert_eq!(result.is_ok(), succeeds);
-        assert_eq!(terminal.cleanups, 1);
-        assert_eq!(previewer.queued.len(), 2);
-        assert!(
-            previewer
-                .queued
-                .iter()
-                .all(QueuedPreviewRequest::is_cancelled)
-        );
-        assert_eq!(previewer.hovered, [Some("alpha"), Some("beta"), None]);
-        assert_eq!(previewer.cancelled_on_clear, [true]);
+        assert_eq!(result.is_ok(), succeeds, "{case}");
+        assert_eq!(terminal.cleanups, 1, "{case}");
+        assert_eq!(previewer.queued.len(), 2, "{case}");
+        let cancelled = previewer
+            .queued
+            .iter()
+            .all(QueuedPreviewRequest::is_cancelled);
+        assert!(cancelled, "{case}");
+        let hovered = [Some("alpha"), Some("beta"), None];
+        assert_eq!(previewer.hovered, hovered, "{case}");
+        assert_eq!(previewer.cancelled_on_clear, [true], "{case}");
     }
 }
 
 #[test]
 fn terminal_errors_cancel_pending_requests() {
-    for fail_write in [true, false] {
+    for (case, fail_write) in [("write", true), ("cleanup", false)] {
         let picker = picker(["alpha"]);
         let mut previewer = TestPreviewer {
             defer: true,
@@ -950,11 +727,11 @@ fn terminal_errors_cancel_pending_requests() {
         let result =
             preview_picker.pick_with_terminal_io(frame_events([Ok(Event::Quit)]), &mut terminal);
 
-        assert!(matches!(result, Err(PickError::IO(_))));
-        assert_eq!(terminal.cleanups, 1);
-        assert!(previewer.queued[0].is_cancelled());
-        assert_eq!(previewer.hovered, [Some("alpha"), None]);
-        assert_eq!(previewer.cancelled_on_clear, [true]);
+        assert!(matches!(result, Err(PickError::IO(_))), "{case}");
+        assert_eq!(terminal.cleanups, 1, "{case}");
+        assert!(previewer.queued[0].is_cancelled(), "{case}");
+        assert_eq!(previewer.hovered, [Some("alpha"), None], "{case}");
+        assert_eq!(previewer.cancelled_on_clear, [true], "{case}");
     }
 }
 
@@ -1003,15 +780,10 @@ fn replacing_items_between_sessions_changes_ids() {
             .unwrap();
     }
     assert_eq!(previewer.requested, ["alpha", "alpha", "alpha"]);
-    assert_eq!(
-        previewer
-            .ids
-            .iter()
-            .copied()
-            .collect::<std::collections::HashSet<_>>()
-            .len(),
-        3
-    );
+    let ids = &previewer.ids;
+    assert_ne!(ids[0], ids[1]);
+    assert_ne!(ids[0], ids[2]);
+    assert_ne!(ids[1], ids[2]);
 }
 
 #[test]
@@ -1060,60 +832,14 @@ fn restart_invalidates_cached_item_ids() {
 }
 
 #[test]
-fn toggling_the_pane_reports_the_hovered_item_and_coalesces_hidden_navigation() {
-    for defer in [false, true] {
-        for size in [(20, 10), (5, 10)] {
-            let picker = picker(["alpha", "beta"]);
-            let mut previewer = TestPreviewer {
-                defer,
-                ..TestPreviewer::default()
-            };
-            let events = frame_events([
-                Ok(Event::Layout(LayoutEvent::TogglePreview)),
-                Err(RecvError::Timeout),
-                Ok(Event::MatchList(MatchListEvent::Up(1))),
-                Err(RecvError::Timeout),
-                Ok(Event::Layout(LayoutEvent::TogglePreview)),
-                Err(RecvError::Timeout),
-                Ok(Event::Layout(LayoutEvent::TogglePreview)),
-                Err(RecvError::Timeout),
-                Ok(Event::MatchList(MatchListEvent::Down(1))),
-                Err(RecvError::Timeout),
-                Ok(Event::Layout(LayoutEvent::TogglePreview)),
-                Err(RecvError::Timeout),
-                Ok(Event::Layout(LayoutEvent::TogglePreview)),
-                Ok(Event::Layout(LayoutEvent::TogglePreview)),
-                Err(RecvError::Timeout),
-                Ok(Event::Quit),
-            ]);
-            let mut terminal = TestTerminal {
-                sizes: VecDeque::from([size]),
-                ..TestTerminal::default()
-            };
-            picker
-                .with_preview(&mut previewer)
-                .pick_with_terminal_io(events, &mut terminal)
-                .unwrap();
-            assert_eq!(
-                previewer.hovered,
-                [Some("alpha"), None, Some("beta"), None, Some("alpha"), None]
-            );
-            assert_eq!(
-                previewer.requested,
-                if defer {
-                    &["alpha", "beta", "alpha"][..]
-                } else {
-                    &["alpha", "beta"][..]
-                }
-            );
-        }
-    }
-}
-
-#[test]
-fn revealing_the_same_item_only_resubmits_queued_previews() {
-    for defer in [false, true] {
-        let picker = picker(["alpha", "beta"]);
+fn hide_reveal_coalesces_navigation_and_only_resubmits_queued_previews() {
+    for (case, items, defer, size) in [
+        ("ready", &["alpha", "beta"][..], false, (20, 10)),
+        ("queued", &["alpha", "beta"][..], true, (20, 10)),
+        ("ready, small pane", &["alpha", "beta"][..], false, (5, 10)),
+        ("queued, small pane", &["alpha", "beta"][..], true, (5, 10)),
+        ("empty", &[][..], true, (20, 10)),
+    ] {
         let mut previewer = TestPreviewer {
             defer,
             ..TestPreviewer::default()
@@ -1127,51 +853,56 @@ fn revealing_the_same_item_only_resubmits_queued_previews() {
             Err(RecvError::Timeout),
             Ok(Event::Layout(LayoutEvent::TogglePreview)),
             Err(RecvError::Timeout),
+            Ok(Event::Layout(LayoutEvent::TogglePreview)),
+            Err(RecvError::Timeout),
+            Ok(Event::MatchList(MatchListEvent::Up(1))),
+            Err(RecvError::Timeout),
+            Ok(Event::Layout(LayoutEvent::TogglePreview)),
+            Err(RecvError::Timeout),
+            Ok(Event::Layout(LayoutEvent::TogglePreview)),
+            Err(RecvError::Timeout),
+            Ok(Event::MatchList(MatchListEvent::Down(1))),
+            Err(RecvError::Timeout),
+            Ok(Event::Layout(LayoutEvent::TogglePreview)),
+            Err(RecvError::Timeout),
+            Ok(Event::Layout(LayoutEvent::TogglePreview)),
+            Ok(Event::Layout(LayoutEvent::TogglePreview)),
+            Err(RecvError::Timeout),
+            Ok(Event::Layout(LayoutEvent::TogglePreview)),
+            Err(RecvError::Timeout),
             Ok(Event::Quit),
         ]);
-        picker
-            .with_preview(&mut previewer)
-            .pick_with_terminal_io(events, &mut TestTerminal::default())
-            .unwrap();
-        assert_eq!(
-            previewer.hovered,
-            [Some("alpha"), None, Some("alpha"), None]
-        );
-        assert_eq!(
-            previewer.requested,
-            if defer {
-                &["alpha", "alpha"][..]
-            } else {
-                &["alpha"][..]
-            }
-        );
-    }
-}
-
-#[test]
-fn exiting_with_no_hovered_item_does_not_notify_again() {
-    for items in [&[][..], &["alpha"][..]] {
-        let mut previewer = TestPreviewer {
-            defer: true,
-            ..TestPreviewer::default()
+        let mut terminal = TestTerminal {
+            sizes: VecDeque::from([size]),
+            ..TestTerminal::default()
         };
         picker(items.iter().copied())
             .with_preview(&mut previewer)
-            .pick_with_terminal_io(
-                frame_events([
-                    Ok(Event::Layout(LayoutEvent::TogglePreview)),
-                    Err(RecvError::Timeout),
-                    Ok(Event::Quit),
-                ]),
-                &mut TestTerminal::default(),
-            )
+            .pick_with_terminal_io(events, &mut terminal)
             .unwrap();
         if items.is_empty() {
-            assert!(previewer.hovered.is_empty());
+            assert!(previewer.hovered.is_empty(), "{case}");
+            assert!(previewer.requested.is_empty(), "{case}");
         } else {
-            assert_eq!(previewer.hovered, [Some("alpha"), None]);
-            assert_eq!(previewer.cancelled_on_clear, [false]);
-            assert!(previewer.queued[0].is_cancelled());
+            let hovered = ["alpha", "alpha", "beta", "alpha"]
+                .into_iter()
+                .flat_map(|item| [Some(item), None]);
+            assert!(previewer.hovered.iter().copied().eq(hovered), "{case}");
+            assert_eq!(
+                previewer.requested,
+                if defer {
+                    &["alpha", "alpha", "beta", "alpha"][..]
+                } else {
+                    &["alpha", "beta"][..]
+                },
+                "{case}"
+            );
+            assert_eq!(previewer.cancelled_on_clear, [!defer; 4], "{case}");
         }
+        let cancelled = previewer
+            .queued
+            .iter()
+            .all(QueuedPreviewRequest::is_cancelled);
+        assert!(cancelled, "{case}");
     }
 }

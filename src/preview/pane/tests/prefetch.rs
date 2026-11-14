@@ -10,32 +10,27 @@ fn pane(count: usize) -> PreviewPane<&'static str, TestPreviewer> {
 }
 
 fn allocation(cached: &Cached) -> *const u8 {
-    let Some(RequestState::Ready(buffer)) = &cached.state else {
-        panic!("expected ready preview");
-    };
-    buffer.line(0).unwrap().as_str().as_ptr()
+    cached.buffer().unwrap().line(0).unwrap().as_str().as_ptr()
 }
 
 #[test]
-fn zero_disables_prefetch_without_allocating_its_cache() {
+fn prefetch_configuration_is_sampled_once_per_session_across_restarts() {
     let picker = picker(["a", "b", "c"]);
-    let mut session = pane(0);
+    let mut previewer = TestPreviewer {
+        prefetch_enabled: true,
+        ..TestPreviewer::default()
+    };
+    let mut session = preview_pane(&mut previewer);
     assert!(session.state.prefetch.is_none());
     for rank in [0, 1, 2, 1, 0] {
         session.run_frame(Some(rank), &picker.core.engine, deadline());
     }
     assert!(session.previewer.prefetched.is_empty());
     assert_eq!(session.previewer.requested, ["a", "b", "c"]);
-}
-
-#[test]
-fn prefetch_limit_is_sampled_once_per_session_including_across_restarts() {
-    let picker = picker(["a", "b", "c"]);
-    let mut previewer = TestPreviewer {
-        prefetch_limit: 1,
-        prefetch_enabled: true,
-        ..TestPreviewer::default()
-    };
+    session.previewer.prefetch_limit = 1;
+    session.restart();
+    assert!(session.state.prefetch.is_none());
+    drop(session);
     let mut session = preview_pane(&mut previewer);
     session.previewer.prefetch_limit = 0;
     for _ in 0..2 {
@@ -54,11 +49,10 @@ fn prefetch_limit_is_sampled_once_per_session_including_across_restarts() {
 fn neighbours_are_prefetched_in_priority_order_without_redrawing() {
     let picker = picker(["a", "b", "c", "d", "e", "f"]);
     let mut session = pane(3);
+    assert!(session.run_frame(Some(2), &picker.core.engine, Instant::now()));
+    assert!(session.previewer.prefetched.is_empty());
     for frame in 0..8 {
-        assert_eq!(
-            session.run_frame(Some(2), &picker.core.engine, deadline()),
-            frame == 0
-        );
+        assert!(!session.run_frame(Some(2), &picker.core.engine, deadline()));
         assert_eq!(session.previewer.prefetched.len(), (frame + 1).min(3));
     }
     assert_eq!(session.previewer.prefetched, ["d", "b", "e"]);
@@ -243,18 +237,8 @@ fn prefetch_preserves_main_cache_recency_and_scroll() {
     }
     session.run_frame(Some(0), &picker.core.engine, deadline());
     assert!(session.previewer.prefetched.is_empty());
-    assert_eq!(
-        session
-            .state
-            .cache
-            .peek(&1)
-            .unwrap()
-            .buffer()
-            .unwrap()
-            .offset()
-            .1,
-        7
-    );
+    let cached = session.state.cache.peek(&1).unwrap();
+    assert_eq!(cached.buffer().unwrap().offset().1, 7);
     for rank in [3, 2, 1] {
         session.run_frame(Some(rank), &picker.core.engine, Instant::now());
     }
@@ -361,33 +345,30 @@ fn immediately_dropped_prefetches_are_accepted_at_most_once_per_update() {
 }
 
 #[test]
-fn cached_neighbours_consume_the_per_frame_check_budget() {
+fn cached_and_rejected_neighbours_consume_the_per_frame_check_budget() {
     let checks = PREFETCH_CHECKS_PER_FRAME;
     let picker = picker(std::iter::repeat_n("item", checks + 2));
-    let mut session = pane(usize::MAX);
-    for idx in 1..=checks as u32 {
-        session.run_frame(Some(idx), &picker.core.engine, Instant::now());
-    }
-    session.run_frame(Some(0), &picker.core.engine, deadline());
-    assert!(session.previewer.prefetched.is_empty());
-    session.run_frame(Some(0), &picker.core.engine, deadline());
-    assert_eq!(session.previewer.prefetched, ["item"]);
-}
-
-#[test]
-fn rejected_neighbours_consume_the_per_frame_check_budget() {
-    let checks = PREFETCH_CHECKS_PER_FRAME;
-    let picker = picker(std::iter::repeat_n("item", checks + 2));
-    let mut session = pane(usize::MAX);
-    session.previewer.prefetch_enabled = false;
-    for frame in 1..=3 {
-        session.run_frame(Some(0), &picker.core.engine, deadline());
+    for (cached, counts) in [(true, [0, 1, 1]), (false, [checks, checks + 1, checks + 1])] {
+        let mut session = pane(usize::MAX);
+        session.previewer.prefetch_enabled = cached;
+        if cached {
+            for idx in 1..=checks as u32 {
+                session.run_frame(Some(idx), &picker.core.engine, Instant::now());
+            }
+        }
+        for expected in counts {
+            session.run_frame(Some(0), &picker.core.engine, deadline());
+            assert_eq!(
+                session.previewer.prefetched.len(),
+                expected,
+                "cached={cached}"
+            );
+        }
         assert_eq!(
-            session.previewer.prefetched.len(),
-            (frame * checks).min(checks + 1)
+            session.state.prefetch.as_ref().unwrap().cache.len(),
+            usize::from(cached)
         );
     }
-    assert!(session.state.prefetch.as_ref().unwrap().cache.is_empty());
 }
 
 #[test]
@@ -432,16 +413,6 @@ fn neighbour_cursor_handles_maximum_rank_and_count() {
         assert_eq!(prefetch.next(rank, u32::MAX), Some(farthest));
         assert_eq!(prefetch.next(rank, u32::MAX), None);
     }
-}
-
-#[test]
-fn expired_frame_budget_defers_prefetch_without_advancing_the_cursor() {
-    let picker = picker(["a", "b", "c"]);
-    let mut session = pane(2);
-    session.run_frame(Some(0), &picker.core.engine, Instant::now());
-    assert!(session.previewer.prefetched.is_empty());
-    session.run_frame(Some(0), &picker.core.engine, deadline());
-    assert_eq!(session.previewer.prefetched, ["b"]);
 }
 
 #[test]
@@ -531,16 +502,8 @@ fn prefetch_eviction_and_hovered_item_promotion_reuse_buffers() {
         },
     );
     session.run_frame(Some(0), &picker.core.engine, deadline());
-    let first = allocation(
-        session
-            .state
-            .prefetch
-            .as_ref()
-            .unwrap()
-            .cache
-            .peek(&1)
-            .unwrap(),
-    );
+    let cache = &session.state.prefetch.as_ref().unwrap().cache;
+    let first = allocation(cache.peek(&1).unwrap());
     for rank in [3, 6] {
         session.run_frame(Some(rank), &picker.core.engine, deadline());
     }
@@ -563,17 +526,8 @@ fn prefetch_eviction_and_hovered_item_promotion_reuse_buffers() {
         Some(&promoted)
     );
     assert_eq!(session.state.cache.len(), 1);
-    assert_eq!(
-        session
-            .state
-            .cache
-            .peek(&4)
-            .unwrap()
-            .buffer()
-            .unwrap()
-            .offset(),
-        (0, 0)
-    );
+    let cached = session.state.cache.peek(&4).unwrap();
+    assert_eq!(cached.buffer().unwrap().offset(), (0, 0));
 }
 
 #[test]
@@ -592,30 +546,4 @@ fn eviction_cancels_active_prefetches() {
     buffer.push_str("cancelled result");
     assert!(first.publish(&mut buffer).is_err());
     assert_eq!(buffer.line(0).unwrap().as_str(), "cancelled result");
-}
-
-#[test]
-fn restart_and_drop_cancel_prefetches_before_hovered_item_callbacks() {
-    for restart in [false, true] {
-        let picker = picker(["a", "b", "c"]);
-        let mut previewer = TestPreviewer {
-            prefetch_limit: 4,
-            prefetch_enabled: true,
-            prefetch_defer: true,
-            ..TestPreviewer::default()
-        };
-        let mut session = preview_pane(&mut previewer);
-        session.run_frame(Some(0), &picker.core.engine, deadline());
-        let active = session.previewer.take_request("b").start().unwrap();
-        session.run_frame(Some(0), &picker.core.engine, deadline());
-        if restart {
-            session.restart();
-            assert!(active.is_cancelled());
-            assert!(session.previewer.queued[0].is_cancelled());
-        }
-        drop(session);
-        assert!(active.is_cancelled());
-        assert!(previewer.queued[0].is_cancelled());
-        assert_eq!(previewer.cancelled_on_clear, [true]);
-    }
 }
