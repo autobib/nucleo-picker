@@ -365,4 +365,4 @@ impl<T> fmt::Display for CancelledRequest<T> {
 impl<T> std::error::Error for CancelledRequest<T> {}
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

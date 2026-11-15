@@ -57,20 +57,6 @@ impl KeepLines for Head {
     }
 }
 
-#[cfg(test)]
-struct All;
-
-#[cfg(test)]
-impl KeepLines for All {
-    fn subslice<'a>(&self, lines: &'a [Range<usize>]) -> &'a [Range<usize>] {
-        lines
-    }
-
-    fn from_offset(_: u16) -> Self {
-        Self
-    }
-}
-
 /// Represent additional data on top of a string slice.
 ///
 /// The `spans` are guaranteed to not contain newlines. In order to determine which spans belong to

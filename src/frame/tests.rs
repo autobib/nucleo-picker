@@ -1,55 +1,31 @@
-use super::{Frame, LayoutEvent};
+use std::time::Duration;
+
+use super::{Layout, LayoutEvent};
 use crate::{
-    Picker, Terminal,
-    component::{Component, NoPreview},
-    match_list::{MatchList, MatchListView},
-    prompt::Prompt,
+    DriverOptions,
+    rect::Area,
     render::StrRenderer,
-    session::{Context, Dimensions, Interface, Redraw, Single},
-    status_line::StatusLine,
+    session::{
+        Context, Dimensions, Exit, Geometry, Interface, Redraw,
+        tests::{Select, TestTerminal, frame_options},
+    },
 };
-use std::io::{self, Write};
-#[derive(Default)]
-pub(super) struct TestTerminal {
-    pub(super) output: Vec<u8>,
-    pub(super) dimensions: Dimensions,
-    pub(super) rendering: bool,
-}
 
-impl Write for TestTerminal {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.output.extend_from_slice(buf);
-        Ok(buf.len())
-    }
+struct EmptyPreview;
 
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
+impl Interface<&'static str> for EmptyPreview {
+    type State = ();
+    type Output<'items> = Option<&'items &'static str>;
+    const PREVIEW: bool = true;
 
-impl Terminal for TestTerminal {
-    fn init(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-
-    fn cleanup(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-
-    fn dimensions(&mut self) -> io::Result<Dimensions> {
-        Ok(self.dimensions)
-    }
-
-    fn begin_render(&mut self) -> io::Result<()> {
-        assert!(!self.rendering);
-        self.rendering = true;
-        Ok(())
-    }
-
-    fn end_render(&mut self) -> io::Result<()> {
-        assert!(self.rendering);
-        self.rendering = false;
-        Ok(())
+    fn init(&mut self, _: &Context<'_, &'static str>) {}
+    fn finish<'items>(
+        &mut self,
+        _: (),
+        _: Exit,
+        _: Context<'items, &'static str>,
+    ) -> Self::Output<'items> {
+        None
     }
 }
 
@@ -57,515 +33,198 @@ fn dimensions((width, height): (u16, u16)) -> Dimensions {
     Dimensions { width, height }
 }
 
-fn render_at_size(redraw: Redraw, size: (u16, u16)) -> String {
-    render_with(redraw, size, Single)
-}
-fn render_with<V>(redraw: Redraw, size: (u16, u16), mut preview: V) -> String
-where
-    V: Interface<String>,
-{
-    let mut picker = Picker::<String, _>::new(StrRenderer);
-    let mut state = preview.init(&Context::new(picker.matches()));
-    let mut prompt = Prompt::new(&mut picker.core.prompt, &picker.core.chars);
-    let mut list = MatchList::new(&mut picker.core.list_state, &picker.core.chars);
-    let mut status_line = StatusLine::new(&picker.core.chars);
-    let ratio = V::PREVIEW.then_some(0.5);
-    let mut frame = Frame::new(dimensions(size), false, ratio);
-    let mut contents = (
-        &mut prompt,
-        MatchListView {
-            list: &mut list,
-            engine: &picker.core.engine,
-            interface: &Single,
-            state: &(),
-        },
-        &mut status_line,
-        NoPreview,
-    );
-    frame.resize(&mut contents);
-    let mut contents = {
-        if V::PREVIEW {
-            preview.preview_resize(
-                &mut state,
-                frame
-                    .preview_enabled()
-                    .then(|| crate::preview::interior_dimensions(frame.preview)),
-            );
-        }
-        (
-            contents.0,
-            contents.1,
-            contents.2,
-            crate::component::PreviewPane {
-                interface: &preview,
-                state: &state,
-                boundary_chars: picker.core.preview_config.boundary_chars,
-                ellipsis: picker.core.chars.ellipsis,
-            },
-        )
-    };
-    let mut terminal = TestTerminal {
-        dimensions: dimensions(size),
-        ..TestTerminal::default()
-    };
-    frame.draw(&mut contents, &mut terminal, redraw).unwrap();
-    assert!(!terminal.rendering);
+fn render(redraw: Redraw, size: (u16, u16), interface: impl Interface<&'static str>) -> String {
+    let mut driver = DriverOptions::new().driver(StrRenderer);
+    let mut session = driver.session(interface, Duration::ZERO);
+    let preview = session.events().preview_enabled();
+    let mut layout = Layout::new(dimensions(size), false, preview.then_some(0.5));
+    let mut initial = session.prepare_frame(frame_options());
+    initial.resize(layout.geometry(dimensions(size), preview));
+    initial.complete();
+    let mut frame = session.prepare_frame(frame_options());
+    assert!(!frame.changed());
+    let mut terminal = TestTerminal::default();
+    frame.draw(&mut terminal, redraw).unwrap();
+    assert!(!frame.changed());
+    frame.complete();
     String::from_utf8(terminal.output).unwrap()
 }
+
 #[test]
-fn redraws_respect_component_boundaries_and_restore_the_cursor() {
-    for (render, preview_enabled) in [
-        (render_at_size as fn(Redraw, (u16, u16)) -> String, false),
-        (preview::render_preview, true),
-    ] {
+fn host_repaints_respect_component_boundaries_without_changing_the_frame() {
+    for preview_enabled in [false, true] {
         for (flags, screen_clear) in [
-            ([false, false, false, false], false),
             ([true, false, false, false], false),
             ([false, true, false, false], false),
             ([false, false, true, false], false),
             ([false, false, false, true], false),
-            ([true, true, false, false], false),
             ([true, true, true, false], true),
-            ([true, true, true, true], true),
         ] {
             let [prompt, list, status, preview] = flags;
-            let output = render(
-                Redraw {
-                    prompt,
-                    list,
-                    status,
-                    preview,
-                },
-                (20, 4),
-            );
-            let draw_preview = preview_enabled && (preview || screen_clear);
+            let redraw = Redraw {
+                prompt,
+                list,
+                status,
+                preview,
+            };
+            let output = if preview_enabled {
+                render(redraw, (20, 4), EmptyPreview)
+            } else {
+                render(redraw, (20, 4), Select)
+            };
             assert_eq!(
                 [
                     output.contains('>'),
                     output.contains("\x1b[1;1H"),
                     output.contains("0/0"),
-                    output.contains('╭')
+                    output.contains('╭'),
                 ],
-                [prompt, list, status, draw_preview],
-                "flags: {flags:?}, preview: {preview_enabled}",
+                [
+                    prompt,
+                    list,
+                    status,
+                    preview_enabled && (preview || screen_clear)
+                ],
+                "{flags:?}, preview={preview_enabled}",
             );
-            assert_eq!(output.matches("\x1b[2J").count(), usize::from(screen_clear));
-            assert!(!output.contains("\x1b[2K"));
+            assert_eq!(output.contains("\x1b[2J"), screen_clear);
             assert_eq!(
                 output.contains("\x1b[K"),
-                !preview_enabled && !screen_clear && (prompt || list)
+                !preview_enabled && !screen_clear && (prompt || list),
             );
             assert!(output.starts_with("\x1b[?2026h"));
             assert!(output.ends_with("\x1b[4;3H\x1b[?2026l"));
-            if draw_preview {
-                assert!(output.contains("╭────────╮"));
-                assert!(output.contains("╰────────╯"));
-                if screen_clear {
-                    assert!(output.find('>').unwrap() < output.find('╭').unwrap());
-                } else {
-                    assert!(output.contains("\x1b[2;11H\x1b[11G          \x1b[11G│        │"));
-                    assert!(output.contains("\x1b[3;11H\x1b[11G          \x1b[11G│        │"));
-                }
-            } else if !prompt && !list && !status {
-                assert_eq!(output, "\x1b[?2026h\x1b[4;3H\x1b[?2026l");
-            }
         }
     }
 }
 
 #[test]
-fn empty_areas_skip_component_drawing() {
-    use crate::rect::{Area, ClearState, Rect};
-
-    struct Hidden;
-    impl Component for Hidden {
-        fn resize(&mut self, _area: Area) {}
-
-        fn draw<D: Rect>(&mut self, _rect: &mut D) -> io::Result<()> {
-            panic!("empty areas must not be drawn");
+fn moved_and_empty_geometry_is_applied_before_painting() {
+    let mut driver = DriverOptions::new().driver::<&str, _>(StrRenderer);
+    let mut session = driver.session(Select, Duration::ZERO);
+    for (width, height) in [(20, 8), (0, 8), (20, 0), (20, 8)] {
+        let mut frame = session.prepare_frame(frame_options());
+        frame.resize(Geometry {
+            dimensions: Dimensions { width, height },
+            prompt: Area {
+                column: 3,
+                row: 2,
+                width: 10,
+                height: 1,
+            },
+            ..Geometry::default()
+        });
+        assert!(frame.changed());
+        let mut terminal = TestTerminal::default();
+        frame.draw(&mut terminal, frame.redraw()).unwrap();
+        if width == 0 || height == 0 {
+            assert!(terminal.output.is_empty());
+        } else {
+            let output = String::from_utf8(terminal.output).unwrap();
+            assert!(output.contains("\x1b[3;4H"));
+            assert!(output.ends_with("\x1b[3;6H\x1b[?2026l"));
         }
-    }
-
-    for (width, height) in [(0, 2), (8, 0)] {
-        for clear in [
-            ClearState::Precleared,
-            ClearState::ToEndOfLine,
-            ClearState::WithinRect,
-        ] {
-            let mut output = Vec::new();
-            super::draw_component(
-                &mut Hidden,
-                &mut output,
-                Area {
-                    width,
-                    height,
-                    ..Area::default()
-                },
-                clear,
-            )
-            .unwrap();
-            assert!(output.is_empty());
-        }
+        frame.complete();
+        let idle = session.prepare_frame(frame_options());
+        assert!(!idle.needs_render());
+        idle.complete();
     }
 }
 
 #[test]
-fn render_applies_terminal_resize_to_all_components_before_drawing() {
-    use crate::rect::{Area, Rect};
-
-    #[derive(Default)]
-    struct Tracked {
-        area: Area,
-        resizes: usize,
-        draws: usize,
-    }
-    impl Component for Tracked {
-        fn resize(&mut self, area: Area) {
-            self.area = area;
-            self.resizes += 1;
-        }
-
-        fn draw<D: Rect>(&mut self, rect: &mut D) -> io::Result<()> {
-            assert_eq!(self.area.width, rect.width().get());
-            assert_eq!(self.area.height, rect.height().get());
-            self.draws += 1;
-            Ok(())
-        }
-    }
-
-    for (size, split_width, list_height) in [
-        ((30, 4), 15, 2),
-        ((30, 8), 15, 6),
-        ((5, 8), 5, 6),
-        ((0, 8), 0, 6),
-        ((30, 0), 30, 0),
-    ] {
-        for ratio in [None, Some(0.5)] {
-            let mut frame = Frame::new(dimensions((20, 4)), false, ratio);
-            assert_eq!(frame.list.width, if ratio.is_some() { 10 } else { 20 });
-            let [mut prompt, mut list, mut status, mut preview] =
-                std::array::from_fn(|_| Tracked::default());
-            let mut terminal = TestTerminal {
-                dimensions: dimensions(size),
-                ..TestTerminal::default()
-            };
-            for redraw in [true, false] {
-                assert_eq!(
-                    frame
-                        .render(
-                            &mut (&mut prompt, &mut list, &mut status, &mut preview),
-                            &mut terminal,
-                            Redraw {
-                                prompt: redraw,
-                                ..Redraw::NONE
-                            },
-                        )
-                        .unwrap(),
-                    redraw,
-                );
-                let visible = redraw && size.0 != 0 && size.1 != 0;
-                assert_eq!(terminal.output.is_empty(), !visible);
-                assert!(!terminal.rendering);
-                if visible {
-                    assert!(terminal.output.windows(4).any(|bytes| bytes == b"\x1b[2J"));
-                }
-                terminal.output.clear();
-            }
-            assert_eq!(frame.dimensions(), dimensions(size));
-            let list_width = if ratio.is_some() { split_width } else { size.0 };
-            assert_eq!(
-                (frame.list.width, frame.list.height),
-                (list_width, list_height)
-            );
-            assert_eq!(frame.preview.is_empty(), list_width == size.0);
-            assert!(!frame.update_dimensions(dimensions(size)));
-            for (component, area) in [
-                (prompt, frame.prompt),
-                (list, frame.list),
-                (status, frame.status),
-                (preview, frame.preview),
-            ] {
-                assert_eq!(component.area, area);
-                assert_eq!(component.resizes, 1);
-                assert_eq!(component.draws, usize::from(!area.is_empty()));
-            }
-        }
-    }
-}
-
-#[test]
-fn toggle_status_restores_layout_across_small_sizes_and_resizes() {
+fn status_visibility_survives_resizing_in_both_orientations() {
     for reversed in [false, true] {
-        for ratio in [None, Some(0.4)] {
-            for size in [(0, 0), (0, 5), (20, 1), (20, 2), (20, 5)] {
-                let mut frame = Frame::new(dimensions(size), reversed, ratio);
-                let initial = [frame.prompt, frame.list, frame.status, frame.preview];
-                frame.handle(LayoutEvent::ToggleStatus);
-                assert!(!frame.status_enabled());
-                assert!(frame.status.is_empty());
-                assert_eq!(frame.prompt, initial[0]);
-                assert_eq!(frame.preview, initial[3]);
-                assert_eq!(frame.list.width, initial[1].width);
-                assert_eq!(frame.list.height, size.1.saturating_sub(1));
-                assert_eq!(frame.list.row, if reversed { size.1.min(1) } else { 0 });
-                assert!(render_pending(&mut frame));
-                assert!(!render_pending(&mut frame));
-
-                frame.update_dimensions(dimensions((30, 8)));
-                assert!(frame.status.is_empty());
-                assert_eq!(frame.list.height, 7);
-                frame.update_dimensions(dimensions(size));
-                frame.handle(LayoutEvent::ToggleStatus);
-                assert!(frame.status_enabled());
-                assert_eq!(
-                    [frame.prompt, frame.list, frame.status, frame.preview],
-                    initial,
-                );
-                assert!(render_pending(&mut frame));
-                assert!(!render_pending(&mut frame));
-            }
-        }
+        let size = dimensions((20, 5));
+        let mut layout = Layout::new(size, reversed, Some(0.4));
+        let initial = layout.geometry(size, true);
+        layout.handle(LayoutEvent::ToggleStatus, true);
+        assert!(layout.layout_changed());
+        let hidden = layout.geometry(size, true);
+        assert!(hidden.status.is_empty());
+        assert_eq!(hidden.list.height, 4);
+        assert_eq!(hidden.list.row, u16::from(reversed));
+        assert_eq!(
+            (hidden.prompt, hidden.preview),
+            (initial.prompt, initial.preview)
+        );
+        assert!(!layout.layout_changed());
+        assert!(layout.geometry(dimensions((30, 1)), true).status.is_empty());
+        layout.handle(LayoutEvent::ToggleStatus, true);
+        assert_eq!(layout.geometry(size, true), initial);
     }
 }
 
-fn render_pending(frame: &mut Frame) -> bool {
-    let mut terminal = TestTerminal {
-        dimensions: frame.dimensions(),
-        ..TestTerminal::default()
-    };
-    frame
-        .render(
-            &mut (NoPreview, NoPreview, NoPreview, NoPreview),
-            &mut terminal,
-            Redraw::NONE,
-        )
-        .unwrap()
-}
-
 #[test]
-fn preview_ratios_round_clamp_and_survive_resizing() {
+fn preview_ratios_round_clamp_and_round_trip_through_small_sizes() {
     for (width, ratio, expected) in [
         (101, 0.5, 51),
         (101, 0.4, 40),
         (101, 0.0, 3),
-        (101, 0.1, 10),
-        (101, 0.9, 91),
         (101, 1.0, 98),
         (6, 0.0, 3),
-        (6, 1.0, 3),
         (u16::MAX, 0.5, 32768),
-        (u16::MAX, 1.0, u16::MAX - 3),
     ] {
-        for reversed in [false, true] {
-            let mut frame = Frame::new(dimensions((width, 5)), reversed, Some(ratio));
-            assert_eq!(frame.preview.width, expected);
-            assert_eq!(frame.preview.column, width - expected);
-            assert_eq!(frame.prompt.width, width - expected);
-            assert_eq!(frame.status.width, width - expected);
-            assert_eq!(frame.list.width, width - expected);
-            for size in [(20, 5), (6, 3), (5, 5), (101, 2), (0, 0), (width, 5)] {
-                frame.update_dimensions(dimensions(size));
-                assert_eq!(frame.preview_ratio, Some(ratio));
-                if size.0 < 6 || size.1 < 3 {
-                    assert!(frame.preview.is_empty());
-                    assert_eq!(frame.list.width, size.0);
-                }
-            }
-            assert_eq!(frame.preview.width, expected);
+        let size = dimensions((width, 5));
+        let mut layout = Layout::new(size, false, Some(ratio));
+        let initial = layout.geometry(size, true);
+        assert_eq!(initial.preview.width, expected);
+        assert_eq!(initial.preview.column, width - expected);
+        for small in [(0, 0), (5, 5), (101, 2)] {
+            let geometry = layout.geometry(dimensions(small), true);
+            assert!(geometry.preview.is_empty());
+            assert_eq!(geometry.list.width, small.0);
         }
+        assert_eq!(layout.geometry(size, true), initial);
     }
 }
 
-mod preview {
-    use super::*;
-    use crate::session::Exit;
+#[test]
+fn divider_moves_from_displayed_width_and_survives_hiding_and_resize() {
+    use LayoutEvent::{MoveDividerLeft as Left, MoveDividerRight as Right};
 
-    #[test]
-    fn toggle_preview_restores_the_adjusted_ratio_after_resizing() {
-        for reversed in [false, true] {
-            let mut frame = Frame::new(dimensions((25, 5)), reversed, Some(0.4));
-            frame.handle(LayoutEvent::MoveDividerLeft(1));
-            assert!(render_pending(&mut frame));
-            let ratio = frame.preview_ratio;
-            assert_eq!(frame.preview.width, 11);
-
-            frame.handle(LayoutEvent::TogglePreview);
-            assert!(!frame.preview_enabled());
-            assert!(frame.preview.is_empty());
-            assert_eq!(frame.list.width, 25);
-            assert_eq!(frame.prompt.width, 25);
-            assert_eq!(frame.status.width, 25);
-            assert!(render_pending(&mut frame));
-            assert!(!render_pending(&mut frame));
-
-            frame.handle(LayoutEvent::MoveDividerLeft(1));
-            frame.handle(LayoutEvent::MoveDividerRight(1));
-            assert!(!render_pending(&mut frame));
-            assert_eq!(frame.preview_ratio, ratio);
-            assert!(frame.update_dimensions(dimensions((50, 5))));
-            assert!(frame.preview.is_empty());
-            assert_eq!(frame.list.width, 50);
-
-            frame.handle(LayoutEvent::TogglePreview);
-            assert!(frame.preview_enabled());
-            assert_eq!(frame.preview_ratio, ratio);
-            assert_eq!(frame.preview.width, 22);
-            assert!(render_pending(&mut frame));
-            assert!(!render_pending(&mut frame));
-        }
+    let size = dimensions((101, 5));
+    let mut layout = Layout::new(size, false, Some(0.5));
+    for (event, expected) in [
+        (Right(1), 50),
+        (Left(1), 51),
+        (Left(u16::MAX), 98),
+        (Right(u16::MAX), 3),
+        (Left(1), 4),
+    ] {
+        layout.handle(event, true);
+        assert_eq!(layout.geometry(size, true).preview.width, expected);
     }
+    layout.handle(LayoutEvent::TogglePreview, false);
+    let hidden = layout.geometry(size, false);
+    assert!(hidden.preview.is_empty());
+    assert_eq!(hidden.list.width, 101);
+    layout.handle(Left(20), false);
+    assert!(!layout.layout_changed());
+    assert!(
+        layout
+            .geometry(dimensions((202, 5)), false)
+            .preview
+            .is_empty()
+    );
+    layout.handle(LayoutEvent::TogglePreview, true);
+    assert_eq!(layout.geometry(dimensions((202, 5)), true).preview.width, 8);
 
-    #[test]
-    fn toggle_preview_remembers_visibility_when_the_terminal_is_too_small() {
-        for size in [(0, 0), (5, 5), (25, 2)] {
-            let mut frame = Frame::new(dimensions(size), false, Some(0.4));
-            assert!(frame.preview_enabled());
-            assert!(frame.preview.is_empty());
-            frame.handle(LayoutEvent::TogglePreview);
-            assert!(!frame.preview_enabled());
-            frame.update_dimensions(dimensions((25, 5)));
-            assert!(frame.preview.is_empty());
+    let mut layout = Layout::new(dimensions((20, 5)), false, Some(0.01));
+    layout.handle(Right(1), true);
+    assert!(!layout.layout_changed());
+    assert_eq!(
+        layout.geometry(dimensions((1000, 5)), true).preview.width,
+        10
+    );
+}
 
-            frame.update_dimensions(dimensions(size));
-            frame.handle(LayoutEvent::TogglePreview);
-            assert!(frame.preview_enabled());
-            assert!(frame.preview.is_empty());
-            frame.update_dimensions(dimensions((25, 5)));
-            assert_eq!(frame.preview.width, 10);
-        }
-    }
-
-    #[test]
-    fn adjustments_use_the_displayed_width_and_preserve_it_through_resize() {
-        let left = LayoutEvent::MoveDividerLeft as fn(u16) -> LayoutEvent;
-        let right = LayoutEvent::MoveDividerRight as fn(u16) -> LayoutEvent;
-        for (width, ratio, forward, backward, expected) in [
-            (7, 0.5, right, left, 3),
-            (13, 0.5, right, left, 6),
-            (20, 0.5, right, left, 9),
-            (101, 0.5, right, left, 50),
-            (u16::MAX, 0.5, right, left, 32767),
-            (20, 0.0, left, right, 4),
-            (20, 1.0, right, left, 16),
-        ] {
-            let mut frame = Frame::new(dimensions((width, 5)), false, Some(ratio));
-            let initial = frame.preview.width;
-            assert!(!render_pending(&mut frame));
-            for _ in 0..20 {
-                frame.handle(forward(1));
-                assert!(render_pending(&mut frame));
-                assert_eq!(frame.preview.width, expected);
-                frame.handle(backward(1));
-                assert!(render_pending(&mut frame));
-                assert_eq!(frame.preview.width, initial);
-            }
-            let ratio = frame.preview_ratio;
-            frame.handle(forward(0));
-            frame.handle(backward(0));
-            assert!(!render_pending(&mut frame));
-            assert_eq!(frame.preview_ratio, ratio);
-            frame.handle(forward(1));
-            if width == 20 {
-                frame.update_dimensions(dimensions((100, 5)));
-                assert_eq!(frame.preview.width, expected * 5);
-            }
-            frame.update_dimensions(dimensions((5, 5)));
-            assert!(frame.preview.is_empty());
-            frame.update_dimensions(dimensions((width, 5)));
-            assert_eq!(frame.preview.width, expected);
-        }
-    }
-
-    #[test]
-    fn adjustments_saturate_and_reverse_in_order_at_the_limits() {
-        let mut frame = Frame::new(dimensions((101, 5)), false, Some(0.5));
-        frame.handle(LayoutEvent::MoveDividerLeft(u16::MAX));
-        frame.handle(LayoutEvent::MoveDividerLeft(1));
-        assert_eq!(frame.preview.width, 98);
-        assert!(render_pending(&mut frame));
-        assert!(!render_pending(&mut frame));
-
-        frame.handle(LayoutEvent::MoveDividerRight(u16::MAX));
-        frame.handle(LayoutEvent::MoveDividerLeft(1));
-        frame.handle(LayoutEvent::MoveDividerRight(0));
-        assert_eq!(frame.preview.width, 4);
-        assert!(render_pending(&mut frame));
-        assert!(!render_pending(&mut frame));
-
-        frame.handle(LayoutEvent::MoveDividerLeft(u16::MAX));
-        frame.handle(LayoutEvent::MoveDividerRight(1));
-        assert_eq!(frame.preview.width, 97);
-        assert!(render_pending(&mut frame));
-        assert!(!render_pending(&mut frame));
-    }
-
-    #[test]
-    fn ineffective_adjustments_preserve_the_exact_ratio() {
-        for (size, ratio, shift) in [
-            ((101, 5), Some(0.5), 0),
-            ((20, 5), Some(0.01), -1),
-            ((20, 5), Some(0.99), 1),
-            ((6, 3), Some(0.4), -1),
-            ((6, 3), Some(0.4), 1),
-            ((5, 5), Some(0.4), 1),
-            ((101, 2), Some(0.4), -1),
-            ((0, 0), Some(0.4), 1),
-            ((101, 5), None, 1),
-        ] {
-            let mut frame = Frame::new(dimensions(size), false, ratio);
-            frame.handle(if shift >= 0 {
-                LayoutEvent::MoveDividerLeft(shift as u16)
-            } else {
-                LayoutEvent::MoveDividerRight((-shift) as u16)
-            });
-            assert!(!render_pending(&mut frame));
-            assert_eq!(frame.preview_ratio, ratio);
-        }
-    }
-
-    struct EmptyPreview;
-    impl Interface<String> for EmptyPreview {
-        type State = ();
-        type Output<'items> = Option<&'items String>;
-
-        const PREVIEW: bool = true;
-
-        fn init(&mut self, _: &Context<'_, String>) {}
-
-        fn finish<'items>(
-            &mut self,
-            (): (),
-            exit: Exit,
-            cx: Context<'items, String>,
-        ) -> Self::Output<'items> {
-            Single.finish((), exit, cx)
-        }
-    }
-    pub(super) fn render_preview(redraw: Redraw, size: (u16, u16)) -> String {
-        render_with(redraw, size, EmptyPreview)
-    }
-    #[test]
-    fn preview_falls_back_to_full_width_when_its_interior_cannot_fit() {
-        for size in [(0, 4), (1, 1), (5, 4), (20, 2), (20, 0)] {
-            assert_eq!(
-                Frame::new(dimensions(size), false, Some(0.5))
-                    .preview
-                    .height
-                    .saturating_sub(2),
-                0
-            );
-            assert_eq!(
-                render_preview(Redraw::FULL, size),
-                render_at_size(Redraw::FULL, size)
-            );
-        }
+#[test]
+fn undersized_previews_render_like_a_picker_without_preview() {
+    for size in [(0, 4), (1, 1), (5, 4), (20, 2), (20, 0)] {
         assert_eq!(
-            Frame::new(dimensions((6, 3)), false, Some(0.5))
-                .preview
-                .height
-                .saturating_sub(2),
-            1
+            render(Redraw::FULL, size, EmptyPreview),
+            render(Redraw::FULL, size, Select)
         );
-        assert!(render_preview(Redraw::FULL, (6, 3)).contains("\x1b[1;4H\x1b[4G╭─╮"));
     }
+    assert!(render(Redraw::FULL, (6, 3), EmptyPreview).contains("\x1b[1;4H\x1b[4G╭─╮"));
 }

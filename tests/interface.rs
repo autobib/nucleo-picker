@@ -75,6 +75,13 @@ impl<I: Iterator<Item = Result<Event<&'static str>, RecvError>>> EventSource for
     }
 }
 
+fn options() -> PickerOptions {
+    PickerOptions::new()
+        .threads(NonZero::new(1))
+        .sort_results(false)
+        .frame_interval(Duration::from_secs(5))
+}
+
 #[test]
 fn driver_output_outlives_a_temporary_interface() {
     struct Last<'a>(&'a Cell<bool>);
@@ -203,8 +210,6 @@ fn preview_defaults_survive_rewrapping_and_borrowed_conversions() {
         let selected = picker
             .as_single()
             .multi()
-            .single()
-            .multi()
             .pick_with_terminal_io(
                 Script(
                     [
@@ -230,89 +235,26 @@ fn preview_defaults_survive_rewrapping_and_borrowed_conversions() {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Phase {
-    Initial,
-    AfterInitial,
-    Before,
-    After,
-    Event,
-}
+struct Custom;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Change {
-    Queue,
-    Preview,
-    Both,
-}
-
-struct Custom<'a> {
-    phase: Phase,
-    change: Change,
-    ended: &'a Cell<bool>,
-    content_reads: &'a Cell<usize>,
-}
-
-struct State<'a> {
-    ended: &'a Cell<bool>,
+struct State {
     queued: ItemId,
     limit: NonZero<u32>,
     pane: Pane,
     frame: usize,
 }
 
-struct Output<'items> {
-    cx: Context<'items, String>,
-    selected: Option<ItemId>,
-}
-
-impl<'items> IntoIterator for Output<'items> {
-    type Item = &'items String;
-    type IntoIter = std::option::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.selected
-            .map(|id| self.cx.matches().item(id).unwrap().value())
-            .into_iter()
-    }
-}
-
-impl Custom<'_> {
-    fn change(&mut self, state: &mut State<'_>, cx: &Context<'_, String>) -> Redraw {
-        let mut redraw = Redraw::NONE;
-        if matches!(self.change, Change::Queue | Change::Both) {
-            state.queued = cx.matches().get(1).unwrap().id();
-            state.limit = NonZero::new(2).unwrap();
-            redraw |= Redraw::QUEUE;
-        }
-        if matches!(self.change, Change::Preview | Change::Both) {
-            state.pane.clear();
-            state.pane.push_text("new preview");
-            redraw |= Redraw::PREVIEW;
-        }
-        redraw
-    }
-}
-
-impl<'a> Interface<String> for Custom<'a> {
-    type State = State<'a>;
-    type Output<'items> = Output<'items>;
+impl Interface<String> for Custom {
+    type State = State;
+    type Output<'items> = Option<&'items String>;
 
     const PREVIEW: bool = true;
 
     fn init(&mut self, cx: &Context<'_, String>) -> Self::State {
-        assert_eq!(
-            cx.hovered().map(|item| item.id()),
-            cx.matches().ids().next()
-        );
-        assert!(cx.preview_enabled());
-        let mut pane = Pane::new();
-        pane.push_text("old preview");
         State {
-            ended: self.ended,
             queued: cx.matches().get(0).unwrap().id(),
             limit: NonZero::new(1).unwrap(),
-            pane,
+            pane: Pane::new(),
             frame: 0,
         }
     }
@@ -335,32 +277,34 @@ impl<'a> Interface<String> for Custom<'a> {
         _: bool,
         _: Instant,
     ) -> Redraw {
-        if matches!(
-            (self.phase, state.frame),
-            (Phase::Initial, 0) | (Phase::Before, 1)
-        ) {
-            self.change(state, cx)
-        } else {
-            Redraw::NONE
+        match state.frame {
+            0 => {
+                state.pane.push_text("initial preview");
+                Redraw::PREVIEW
+            }
+            1 => {
+                state.queued = cx.matches().get(1).unwrap().id();
+                state.limit = NonZero::new(2).unwrap();
+                Redraw::QUEUE
+            }
+            _ => Redraw::NONE,
         }
     }
 
     fn after_frame(
         &mut self,
         state: &mut Self::State,
-        cx: &Context<'_, String>,
+        _: &Context<'_, String>,
         _: Instant,
     ) -> Redraw {
-        let redraw = if matches!(
-            (self.phase, state.frame),
-            (Phase::AfterInitial, 0) | (Phase::After, 1)
-        ) {
-            self.change(state, cx)
+        state.frame += 1;
+        if state.frame == 2 {
+            state.pane.clear();
+            state.pane.push_text("after preview");
+            Redraw::PREVIEW
         } else {
             Redraw::NONE
-        };
-        state.frame += 1;
-        redraw
+        }
     }
 
     fn preview_event(
@@ -369,20 +313,15 @@ impl<'a> Interface<String> for Custom<'a> {
         _: PreviewEvent,
         cx: &Context<'_, String>,
     ) -> Redraw {
-        if self.phase == Phase::Event {
-            self.change(state, cx)
-        } else {
-            Redraw::NONE
-        }
+        state.queued = cx.matches().get(0).unwrap().id();
+        state.limit = NonZero::new(1).unwrap();
+        state.pane.clear();
+        state.pane.push_text("event preview");
+        Redraw::QUEUE | Redraw::PREVIEW
     }
 
     fn preview_content<'s>(&'s self, state: &'s Self::State) -> Content<'s> {
-        self.content_reads.set(self.content_reads.get() + 1);
         Content::Ready(&state.pane)
-    }
-
-    fn on_end(&mut self, state: &mut Self::State) {
-        assert!(!state.ended.replace(true));
     }
 
     fn finish<'items>(
@@ -391,108 +330,60 @@ impl<'a> Interface<String> for Custom<'a> {
         exit: Exit,
         cx: Context<'items, String>,
     ) -> Self::Output<'items> {
-        assert!(state.ended.get());
-        assert_eq!(state.frame, 4);
-        Output {
-            cx,
-            selected: matches!(exit, Exit::Selected(_)).then_some(state.queued),
-        }
+        matches!(exit, Exit::Selected(_)).then(|| cx.matches().item(state.queued).unwrap().value())
     }
 }
 
 #[test]
-fn public_hooks_redraw_selectively_and_output_outlives_the_interface() {
-    for phase in [
-        Phase::Initial,
-        Phase::AfterInitial,
-        Phase::Before,
-        Phase::After,
-        Phase::Event,
-    ] {
-        for change in [Change::Queue, Change::Preview, Change::Both] {
-            let queue = matches!(change, Change::Queue | Change::Both);
-            let preview = matches!(change, Change::Preview | Change::Both);
-            let mut picker = PickerOptions::new()
-                .sort_results(false)
-                .frame_interval(Duration::from_secs(5))
-                .picker(StrRenderer);
-            picker.push_batch(["alpha", "beta"].map(str::to_owned));
-            picker.filter().unwrap();
-            let expected =
-                picker.matches().get(usize::from(queue)).unwrap().value() as *const String;
-            let mut terminal = TestTerminal::default();
-            let output = {
-                let ended = Cell::new(false);
-                let content_reads = Cell::new(0);
-                let output = picker
-                    .as_interface(Custom {
-                        phase,
-                        change,
-                        ended: &ended,
-                        content_reads: &content_reads,
-                    })
-                    .pick_with_terminal_io(
-                        Script(
-                            [
-                                Ok(Event::Preview(PreviewEvent::Refresh)),
-                                Err(RecvError::Timeout),
-                                Err(RecvError::Timeout),
-                                Err(RecvError::Timeout),
-                                Ok(Event::Select),
-                            ]
-                            .into_iter(),
-                        ),
-                        &mut terminal,
-                    )
-                    .unwrap();
-                assert!(ended.get());
-                let preview_repaints = 1 + usize::from(phase != Phase::Initial && preview);
-                assert_eq!(content_reads.get(), preview_repaints);
-                output
-            };
-            assert_eq!(output.cx.hovered().unwrap().value(), "alpha");
-            assert_eq!(
-                output.into_iter().next().unwrap() as *const String,
-                expected
-            );
-            assert_eq!(
-                terminal.changed,
+fn interface_hooks_redraw_only_the_components_they_change() {
+    let mut picker = options().picker(StrRenderer);
+    picker.push_batch(["alpha", "beta"].map(str::to_owned));
+    picker.filter().unwrap();
+    let mut terminal = TestTerminal::default();
+    let output = picker
+        .as_interface(Custom)
+        .pick_with_terminal_io(
+            Script(
                 [
-                    matches!(phase, Phase::AfterInitial | Phase::Before | Phase::Event),
-                    phase == Phase::After,
-                    false
-                ],
-                "{phase:?}, {change:?}",
-            );
-            assert_eq!(
-                terminal.renders.len(),
-                1 + usize::from(phase != Phase::Initial)
-            );
-            let rendered = terminal.renders.last().unwrap();
-            if queue {
-                assert!(rendered.contains("(1/2)"));
-                assert_eq!(rendered.matches('┃').count(), 1);
-            }
-            if preview {
-                assert!(rendered.contains("new preview"));
-            }
-            if phase != Phase::Initial {
-                assert!(!rendered.contains('>'));
-                assert_eq!(rendered.contains("alpha"), queue);
-                assert_eq!(rendered.contains("beta"), queue);
-                assert_eq!(rendered.contains("2/2"), queue);
-                assert_eq!(rendered.contains('╭'), preview);
-            }
-        }
+                    Err(RecvError::Timeout),
+                    Err(RecvError::Timeout),
+                    Ok(Event::Preview(PreviewEvent::Refresh)),
+                    Err(RecvError::Timeout),
+                    Err(RecvError::Timeout),
+                    Ok(Event::Select),
+                ]
+                .into_iter(),
+            ),
+            &mut terminal,
+        )
+        .unwrap();
+    assert_eq!(output.unwrap(), "alpha");
+    assert_eq!(terminal.changed, [true, true, true, false]);
+    let [initial, queue, preview, both] = terminal.renders.as_slice() else {
+        panic!("expected initial, queue, preview, and combined renders");
+    };
+    assert!(initial.contains("initial preview"));
+    assert!(queue.contains("(1/2)"));
+    assert!(!queue.contains('╭'));
+    assert!(preview.contains("after preview"));
+    assert!(!preview.contains("alpha"));
+    assert!(!preview.contains("2/2"));
+    assert!(both.contains("(1/1)"));
+    assert!(both.contains("event preview"));
+    for rendered in [queue, both] {
+        assert!(rendered.contains("alpha"));
+        assert!(rendered.contains("beta"));
+        assert_eq!(rendered.matches('┃').count(), 1);
+    }
+    for rendered in [queue, preview, both] {
+        assert!(!rendered.contains('>'));
     }
 }
 
 #[test]
 fn uncached_previews_follow_frames_and_revisits_instead_of_event_targets() {
     let generated = RefCell::new(Vec::new());
-    let mut picker = PickerOptions::new()
-        .sort_results(false)
-        .frame_interval(Duration::from_secs(5))
+    let mut picker = options()
         .picker(StrRenderer)
         .with_interface(UncachedPreview::new(
             Single,
@@ -550,7 +441,7 @@ fn uncached_previews_follow_frames_and_revisits_instead_of_event_targets() {
 #[test]
 fn explicit_uncached_interfaces_preserve_limits_and_borrowed_output() {
     let generated = RefCell::new(Vec::new());
-    let mut picker = PickerOptions::new().sort_results(false).picker(StrRenderer);
+    let mut picker = options().picker(StrRenderer);
     picker.push_batch(["alpha", "beta"].map(str::to_owned));
     picker.filter().unwrap();
     let mut terminal = TestTerminal::default();

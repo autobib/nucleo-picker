@@ -201,13 +201,15 @@
 //! }
 //! ```
 
+mod borrowed;
 mod context;
 mod item;
+mod live;
 mod matches;
 mod redraw;
 mod run;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use std::{num::NonZero, time::Instant};
 
@@ -219,6 +221,7 @@ pub use crate::interface::{
 pub use crate::rect::Dimensions;
 pub use context::Context;
 pub use item::{ItemId, ItemRef, OwnedItem};
+pub(crate) use live::{FrameOptions, Geometry, Session};
 pub use matches::Matches;
 pub use redraw::Redraw;
 

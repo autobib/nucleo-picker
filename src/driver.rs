@@ -15,7 +15,7 @@ use crate::{
     match_list::MatchListState,
     observer::{self, Notifier, Observer},
     prompt::PromptState,
-    session::{MatchStatus, Matches},
+    session::{MatchStatus, Matches, Session},
     terminal::CrosstermTerminal,
 };
 
@@ -47,6 +47,33 @@ impl<T: Send + Sync + 'static, R: Render<T>> Extend<T> for Driver<T, R> {
 }
 
 impl<T: Send + Sync + 'static, R> Driver<T, R> {
+    /// Start a new interactive picker session.
+    ///
+    /// The session contains the given [`Interface`] and can be driven by the governing application
+    /// in order to run a picker.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "crate-local session entry point")
+    )]
+    pub(crate) fn session<I: Interface<T>>(
+        &mut self,
+        interface: I,
+        startup_wait: Duration,
+    ) -> Session<'_, T, R, I>
+    where
+        R: Render<T>,
+    {
+        Session::new(
+            &mut self.engine,
+            &mut self.list_state,
+            &mut self.prompt,
+            &self.chars,
+            &self.preview_config,
+            interface,
+            startup_wait,
+        )
+    }
+
     /// Initialize a driver with default configuration and the provided renderer.
     #[must_use]
     #[inline]

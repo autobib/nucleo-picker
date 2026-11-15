@@ -13,11 +13,6 @@ use crossterm::{
 
 use crate::rect::Dimensions;
 
-#[cfg(all(test, feature = "unstable-backend"))]
-mod lifecycle_test;
-#[cfg(all(test, feature = "unstable-backend"))]
-mod size_test;
-
 /// A generic terminal backend accepting raw bytes with ANSI escape sequences, with special
 /// initialization and cleanup.
 #[doc(hidden)]

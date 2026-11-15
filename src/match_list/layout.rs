@@ -278,33 +278,4 @@ impl ListLayout {
             false
         }
     }
-
-    /// Increment the rank by the given amount.
-    #[cfg(test)]
-    pub fn rank_incr<T: Send + Sync + 'static>(
-        &mut self,
-        buffer: &nc::Snapshot<T>,
-        increase: u32,
-        config: &MatchListConfig,
-    ) -> bool {
-        let new_rank = self
-            .rank
-            .saturating_add(increase)
-            .min(buffer.total().saturating_sub(1));
-
-        self.set_rank(buffer, new_rank, config)
-    }
-
-    /// Decrement the rank by the given amount.
-    #[cfg(test)]
-    pub fn rank_decr<T: Send + Sync + 'static>(
-        &mut self,
-        buffer: &nc::Snapshot<T>,
-        decrease: u32,
-        config: &MatchListConfig,
-    ) -> bool {
-        let new_rank = self.rank.saturating_sub(decrease);
-
-        self.set_rank(buffer, new_rank, config)
-    }
 }

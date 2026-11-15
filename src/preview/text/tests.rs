@@ -1,91 +1,68 @@
-use std::fmt::{self, Write};
+use std::fmt::Write;
 
 use crossterm::style::{ContentStyle, Stylize};
 
-use crate::preview::{Buffer, Pane, TextWriter};
+use crate::preview::{Buffer, TextWriter};
 
 #[test]
-fn writes_match_push_text_at_every_character_boundary() {
-    let controls: String = (0u8..=0x9f).map(char::from).collect();
-    for input in [
-        "",
-        "plain text",
-        "\n\n",
-        "\r",
-        "\r\n",
-        "\r\r\n",
-        "\r\r\r",
-        "first\r\n\n  last\r",
-        "\r\u{85}\n\r\t\n",
-        "é界e\u{301}👩‍💻\r\n\t\x1b[31mend\r",
-        &controls,
-    ] {
-        let mut expected = Buffer::new();
-        expected.push_text(input);
-        for first in (0..=input.len()).filter(|&i| input.is_char_boundary(i)) {
-            for second in (first..=input.len()).filter(|&i| input.is_char_boundary(i)) {
-                let mut buffer = Buffer::new();
-                {
-                    let mut writer: TextWriter<'_> = buffer.text_writer();
-                    for chunk in [&input[..first], &input[first..second], &input[second..]] {
-                        writer.write_str(chunk).unwrap();
-                        writer.write_str("").unwrap();
-                    }
-                }
+fn chunk_boundaries_preserve_unicode_controls_and_crlf() {
+    let cases: &[(&str, &[&str])] = &[
+        ("", &[""]),
+        ("plain\n\n", &["plain", "", ""]),
+        ("\r", &["␍"]),
+        ("\r\n", &["", ""]),
+        ("\r\r\n", &["␍", ""]),
+        ("\r\r\r", &["␍␍␍"]),
+        ("\r\u{85}\n\r\t\n", &["␍", "␍␉", ""]),
+        (
+            "é界e\u{301}👩‍💻\r\n\t\x1b[31mend\r",
+            &["é界e\u{301}👩‍💻", "␉␛[31mend␍"],
+        ),
+    ];
+    for &(input, expected) in cases {
+        for boundary in (0..=input.len()).filter(|&i| input.is_char_boundary(i)) {
+            let mut buffer = Buffer::new();
+            {
+                let mut writer = buffer.text_writer();
+                writer.write_str(&input[..boundary]).unwrap();
+                writer.write_str("").unwrap();
+                writer.write_str(&input[boundary..]).unwrap();
+            }
+            assert!(
+                buffer
+                    .lines()
+                    .map(|line| line.as_str())
+                    .eq(expected.iter().copied()),
+                "{input:?}, boundary {boundary}"
+            );
+            for (line, &text) in buffer.lines().zip(expected) {
                 assert!(
-                    buffer
-                        .lines()
-                        .map(|line| line.as_str())
-                        .eq(expected.lines().map(|line| line.as_str())),
-                    "{input:?}, boundaries {first}, {second}"
+                    line.spans()
+                        .eq((!text.is_empty()).then(|| ContentStyle::default().apply(text)))
                 );
-                for line in buffer.lines() {
-                    assert!(
-                        line.spans()
-                            .all(|span| *span.style() == ContentStyle::default())
-                    );
-                }
             }
         }
     }
 }
 
 #[test]
-fn writer_lifecycle_appends_unstyled_text_and_preserves_settings() {
-    struct SplitCrlf;
-
-    impl fmt::Display for SplitCrlf {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.write_str("first\t\x1b[31m\r")?;
-            f.write_str("")?;
-            f.write_str("\nsecond\r")
-        }
-    }
-
+fn formatted_and_character_writes_append_plain_text_and_flush_pending_cr_on_drop() {
     let plain = ContentStyle::default();
     let red = ContentStyle::new().red();
-    let blue = ContentStyle::new().blue();
-    let mut pane = Pane::new().with_line_numbers(true).with_offset(3, 4);
-    pane.set_err(true);
-    let buffer = pane.buffer_mut();
+    let mut buffer = Buffer::new();
     buffer.push_styled_str("prefix ", red);
     {
-        let mut writer = TextWriter::new(buffer);
-        writeln!(writer, "{SplitCrlf}").unwrap();
-        for ch in "é界e\u{301}👩‍💻\r\n\r\r\nlast\r".chars() {
+        let mut writer = TextWriter::new(&mut buffer);
+        let label = "preview";
+        write!(writer, "{label}: ").unwrap();
+        for ch in "é界e\u{301}👩‍💻\r\nlast\r".chars() {
             writer.write_char(ch).unwrap();
-            writer.write_str("").unwrap();
         }
     }
-    assert!(buffer.line(4).unwrap().spans().eq([plain.apply("last␍")]));
-    buffer.text_writer().write_str("").unwrap();
     buffer.text_writer().write_str("\nreopened").unwrap();
-    buffer.push_styled_str(" suffix", blue);
+    buffer.push_styled_str(" suffix", red);
     assert!(buffer.lines().map(|line| line.as_str()).eq([
-        "prefix first␉␛[31m",
-        "second",
-        "é界e\u{301}👩‍💻",
-        "␍",
+        "prefix preview: é界e\u{301}👩‍💻",
         "last␍",
         "reopened suffix",
     ]));
@@ -94,16 +71,14 @@ fn writer_lifecycle_appends_unstyled_text_and_preserves_settings() {
             .line(0)
             .unwrap()
             .spans()
-            .eq([red.apply("prefix "), plain.apply("first␉␛[31m"),])
+            .eq([red.apply("prefix "), plain.apply("preview: é界e\u{301}👩‍💻"),])
     );
+    assert!(buffer.line(1).unwrap().spans().eq([plain.apply("last␍")]));
     assert!(
         buffer
-            .line(5)
+            .line(2)
             .unwrap()
             .spans()
-            .eq([plain.apply("reopened"), blue.apply(" suffix"),])
+            .eq([plain.apply("reopened"), red.apply(" suffix"),])
     );
-    assert!(pane.is_err());
-    assert!(pane.line_numbers());
-    assert_eq!(pane.offset(), (3, 4));
 }

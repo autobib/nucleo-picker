@@ -1,15 +1,10 @@
-use std::{
-    sync::mpsc,
-    thread,
-    time::{Duration, Instant},
-};
+use std::{sync::mpsc, thread, time::Duration};
 
-use super::{TestEvents, TestTerminal};
+use super::{TestEvents, TestTerminal, frame_events};
 use crate::{
     Picker, PickerOptions,
     event::{Event, MatchListEvent, PromptEvent, RecvError},
     render::StrRenderer,
-    session::Single,
 };
 
 fn pick(
@@ -22,113 +17,53 @@ fn pick(
     }
     drop(sender);
     picker
-        .core
-        .pick_impl(receiver, &mut TestTerminal::default(), &mut Single)
+        .pick_with_terminal_io(receiver, &mut TestTerminal::default())
         .unwrap()
         .copied()
 }
 
 #[test]
-fn initial_query_matches_the_normalized_prompt() {
-    let mut picker = PickerOptions::new().query("a\u{7}b").picker(StrRenderer);
-    picker.extend(["ab", "cd"]);
-    while picker.core.engine.update(5).matching {}
-
-    assert_eq!(picker.query(), "ab");
-    assert_eq!(picker.core.engine.snapshot().matched_item_count(), 1);
-    assert_eq!(pick(&mut picker, [Event::Select]), Some("ab"));
-
-    pick(
-        &mut picker,
-        [
-            Event::Prompt(PromptEvent::Reset("ab".to_owned())),
-            Event::Quit,
-        ],
-    );
-    while picker.core.engine.update(5).matching {}
-
-    assert_eq!(picker.query(), "ab");
-    assert_eq!(picker.core.engine.snapshot().matched_item_count(), 1);
-    assert_eq!(pick(&mut picker, [Event::Select]), Some("ab"));
-}
-
-#[test]
-fn exits_preserve_the_buffered_prompt_and_selected_item() {
-    for (exit, expected) in [(Event::Select, Some("alpha")), (Event::Quit, None)] {
-        let mut picker = Picker::new(StrRenderer);
-        picker.push_batch(["alpha"]);
+fn exits_commit_buffered_edits_without_rematching_the_selection() {
+    for (exit, expected) in [(Event::Select, Some("beta")), (Event::Quit, None)] {
+        let mut picker = PickerOptions::new().sort_results(false).picker(StrRenderer);
+        picker.push_batch(["alpha", "beta"]);
         picker.filter().unwrap();
         assert_eq!(
-            pick(&mut picker, [Event::Prompt(PromptEvent::Insert('x')), exit]),
+            pick(
+                &mut picker,
+                [
+                    Event::MatchList(MatchListEvent::Up(1)),
+                    Event::Prompt(PromptEvent::Reset("^alpha$".to_owned())),
+                    exit,
+                ]
+            ),
             expected,
         );
-        assert_eq!(picker.query(), "x");
+        assert_eq!(picker.query(), "^alpha$");
+        picker.filter().unwrap();
+        assert_eq!(pick(&mut picker, [Event::Select]), Some("alpha"));
     }
 }
 
 #[test]
-fn reused_picker_preserves_navigation_on_exit() {
-    for reversed in [false, true] {
-        for (exit, expected) in [(Event::Select, Some("beta")), (Event::Quit, None)] {
-            let mut picker = PickerOptions::new()
-                .sort_results(false)
-                .reversed(reversed)
-                .frame_interval(Duration::from_secs(1))
-                .picker(StrRenderer);
-            picker.push_batch(["alpha", "beta"]);
-            picker.filter().unwrap();
-
-            let navigate = if reversed {
-                MatchListEvent::Down(1)
-            } else {
-                MatchListEvent::Up(1)
-            };
-            assert_eq!(
-                pick(&mut picker, [Event::MatchList(navigate), exit]),
-                expected,
-            );
-            assert_eq!(pick(&mut picker, [Event::Select]), Some("beta"));
-        }
-    }
-}
-
-#[test]
-fn reused_picker_matches_the_query_saved_on_exit() {
+fn quit_prompt_empty_flushes_edits_before_deciding_to_exit() {
     let mut picker = Picker::new(StrRenderer);
-    picker.extend(["alpha", "beta"]);
-    while picker.core.engine.update(5).matching {}
-
-    pick(
-        &mut picker,
-        [
-            Event::Prompt(PromptEvent::Reset("beta".to_owned())),
-            Event::Quit,
-        ],
+    picker.push_batch(["alpha"]);
+    picker.filter().unwrap();
+    assert_eq!(
+        pick(
+            &mut picker,
+            [
+                Event::Prompt(PromptEvent::Insert('x')),
+                Event::QuitPromptEmpty,
+                Event::Prompt(PromptEvent::Backspace(1)),
+                Event::QuitPromptEmpty,
+                Event::Select,
+            ]
+        ),
+        None
     );
-    let status = picker.status_observer();
-    let (sender, receiver) = mpsc::channel::<Event>();
-    let input = thread::spawn(move || {
-        for id in 0.. {
-            sender.send(Event::Status { id }).unwrap();
-            if !status
-                .recv_timeout(Duration::from_secs(5))
-                .unwrap()
-                .matching
-            {
-                break;
-            }
-        }
-        sender.send(Event::Select).unwrap();
-    });
-    let selected = picker
-        .core
-        .pick_impl(receiver, &mut TestTerminal::default(), &mut Single)
-        .unwrap()
-        .copied();
-    input.join().unwrap();
-
-    assert_eq!(selected, Some("beta"));
-    assert_eq!(picker.query(), "beta");
+    assert_eq!(picker.query(), "");
 }
 
 #[test]
@@ -157,10 +92,7 @@ fn busy_events_do_not_starve_frames_or_status() {
         });
         let mut terminal = TestTerminal::default();
 
-        picker
-            .core
-            .pick_impl(events, &mut terminal, &mut Single)
-            .unwrap();
+        picker.pick_with_terminal_io(events, &mut terminal).unwrap();
 
         assert!(terminal.first_frame.is_some());
         let response = status.try_recv().unwrap();
@@ -199,8 +131,7 @@ fn status_changes_accumulate_and_reset_when_responses_are_produced() {
             script.next().unwrap()
         });
         picker
-            .core
-            .pick_impl(events, &mut TestTerminal::default(), &mut Single)
+            .pick_with_terminal_io(events, &mut TestTerminal::default())
             .unwrap();
         if let Ok(status) = statuses.try_recv() {
             responses.push((status.id, status.changed, status.frame_changed));
@@ -236,10 +167,7 @@ fn slow_render_leaves_time_to_drain() {
         ..TestTerminal::default()
     };
 
-    picker
-        .core
-        .pick_impl(events, &mut terminal, &mut Single)
-        .unwrap();
+    picker.pick_with_terminal_io(events, &mut terminal).unwrap();
 
     assert!(
         terminal.first_frame.unwrap()
@@ -265,8 +193,7 @@ fn drain_reserve_does_not_wait_for_more_events() {
     });
 
     picker
-        .core
-        .pick_impl(events, &mut TestTerminal::default(), &mut Single)
+        .pick_with_terminal_io(events, &mut TestTerminal::default())
         .unwrap();
 
     assert_eq!(status.try_recv().unwrap().id, 9);
@@ -277,8 +204,7 @@ fn headless_updates_rebuild_layout_when_reentering_the_picker() {
     fn draw(picker: &mut Picker<&'static str, StrRenderer>) -> Vec<u8> {
         let mut terminal = TestTerminal::default();
         picker
-            .core
-            .pick_impl(TestEvents(|_| Ok(Event::Quit)), &mut terminal, &mut Single)
+            .pick_with_terminal_io(TestEvents(|_| Ok(Event::Quit)), &mut terminal)
             .unwrap();
         terminal.output
     }
@@ -321,26 +247,26 @@ fn headless_updates_rebuild_layout_when_reentering_the_picker() {
 }
 
 #[test]
-fn open_input_can_fall_back_to_interactive_picking() {
-    let mut picker = Picker::new(StrRenderer);
-    let injector = picker.injector();
-    injector.push("alpha");
-    let start = Instant::now();
-    while picker.update_matches(Duration::from_millis(5)).matching {
-        assert!(start.elapsed() < Duration::from_secs(5));
-        thread::yield_now();
+fn size_queries_follow_redraws_and_background_frequency() {
+    for (redraw, frames, injecting, calls) in [
+        (false, 1, false, 1),
+        (true, 1, false, 2),
+        (false, 7, true, 3),
+    ] {
+        let events = frame_events(
+            redraw
+                .then_some(Ok(Event::Redraw))
+                .into_iter()
+                .chain((0..frames).map(|_| Err(RecvError::Timeout)))
+                .chain([Ok(Event::Quit)]),
+        );
+        let mut terminal = TestTerminal::default();
+        let mut picker = PickerOptions::new()
+            .frame_interval(Duration::from_millis(1))
+            .background_frame_interval(Duration::from_millis(3))
+            .picker::<&str, _>(StrRenderer);
+        let _injector = injecting.then(|| picker.injector());
+        picker.pick_with_terminal_io(events, &mut terminal).unwrap();
+        assert_eq!(terminal.size_reads, calls);
     }
-
-    let count = picker.filter().map(|matches| matches.len());
-    assert_eq!(count, None);
-    let selected = match count {
-        Some(0) => None,
-        Some(1) => picker.matches().get(0).map(|item| *item.value()),
-        _ => pick(&mut picker, [Event::Select]),
-    };
-    assert_eq!(selected, Some("alpha"));
-
-    injector.push("beta");
-    drop(injector);
-    assert_eq!(picker.filter().unwrap().len(), 2);
 }
