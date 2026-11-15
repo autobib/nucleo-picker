@@ -46,7 +46,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
         list.flush(engine);
         let initial = engine.update(match_budget);
         list.update(engine, initial.items_changed, false);
-        let has_preview = I::HAS_PREVIEW;
+        let has_preview = I::PREVIEW;
         let cx = Context::new(engine)
             .with_rank(list.rank(engine))
             .with_preview_enabled(has_preview);
@@ -331,7 +331,7 @@ impl<T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Contents
     }
 
     fn preview_resize(&mut self, area: Option<Area>) {
-        if I::HAS_PREVIEW {
+        if I::PREVIEW {
             self.interface
                 .preview_resize(self.state, area.map(crate::preview::interior_dimensions));
         }

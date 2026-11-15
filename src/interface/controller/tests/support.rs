@@ -71,7 +71,7 @@ impl<P: Preview<&'static str>> Interface<&'static str> for TestSession<P> {
     type State = ();
     type Output<'items> = Option<&'items &'static str>;
 
-    const HAS_PREVIEW: bool = true;
+    const PREVIEW: bool = true;
 
     fn init(&mut self, _: &Context<'_, &'static str>) {}
 

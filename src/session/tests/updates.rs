@@ -26,7 +26,7 @@ impl<T: Send + Sync + 'static, const ENABLED: bool> Interface<T> for Probe<'_, E
     type State = ();
     type Output<'items> = Option<&'items T>;
 
-    const HAS_PREVIEW: bool = ENABLED;
+    const PREVIEW: bool = ENABLED;
 
     fn init(&mut self, _: &Context<'_, T>) {}
 

@@ -208,7 +208,7 @@ fn initialization_and_restart_observe_published_matches_and_hover() {
         type State = ();
         type Output<'items> = Option<&'items T>;
 
-        const HAS_PREVIEW: bool = PREVIEW;
+        const PREVIEW: bool = PREVIEW;
 
         fn init(&mut self, cx: &Context<'_, T>) {
             self.0.push(Observation::new(cx));
@@ -513,7 +513,7 @@ mod preview {
         type State = MultiState;
         type Output<'items> = QueueOutput<'items, T>;
 
-        const HAS_PREVIEW: bool = true;
+        const PREVIEW: bool = true;
 
         fn init(&mut self, cx: &Context<'_, T>) -> Self::State {
             self.queue.init(cx)

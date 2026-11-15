@@ -69,7 +69,7 @@ where
     let mut prompt = Prompt::new(&mut picker.core.prompt, &picker.core.chars);
     let mut list = MatchList::new(&mut picker.core.list_state, &picker.core.chars);
     let mut status_line = StatusLine::new(&picker.core.chars);
-    let ratio = V::HAS_PREVIEW.then_some(0.5);
+    let ratio = V::PREVIEW.then_some(0.5);
     let mut frame = Frame::new(dimensions(size), false, ratio);
     let mut contents = (
         &mut prompt,
@@ -84,7 +84,7 @@ where
     );
     frame.resize(&mut contents);
     let mut contents = {
-        if V::HAS_PREVIEW {
+        if V::PREVIEW {
             preview.preview_resize(
                 &mut state,
                 frame
@@ -528,7 +528,7 @@ mod preview {
         type State = ();
         type Output<'items> = Option<&'items String>;
 
-        const HAS_PREVIEW: bool = true;
+        const PREVIEW: bool = true;
 
         fn init(&mut self, _: &Context<'_, String>) {}
 

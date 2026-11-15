@@ -263,10 +263,10 @@ use crate::{
 ///
 /// ## Initialization
 ///
-/// When the picker starts up, the following call sequence is made.
+/// When the session starts, the following call sequence is made.
 ///
 /// 1. The match engine is updated with any changes which were processed in the background.
-/// 2. [`init`](Self::init) is called once. The preview pane is enabled according to `HAS_PREVIEW`
+/// 2. [`init`](Self::init) is called once. The preview pane is enabled according to [`PREVIEW`](Self::PREVIEW)
 ///    and is dimensionless.
 /// 3. The terminal is initialized.
 /// 4. [`before_frame`](Self::before_frame) is called with the initial hovered item.
@@ -278,7 +278,7 @@ use crate::{
 ///
 /// ## Frame loop
 ///
-/// After a batch ends without exiting:
+/// On each frame:
 ///
 /// 1. A bounded batch of events is processed. Events which cause the picker to exit are immediately
 ///    processed. This updates the prompt and match list, reparses if the query changed, and updates
@@ -286,7 +286,7 @@ use crate::{
 /// 2. [`before_frame`](Self::before_frame) is called.
 /// 3. [`queue_status`](Self::queue_status) is called to update the status line.
 /// 4. Check for pending redraws either from events or as required by the interface. If a resize is
-///    required, a full redraw is done. If [`HAS_PREVIEW`](Self::HAS_PREVIEW) is true,
+///    required, a full redraw is done. If [`PREVIEW`](Self::PREVIEW) is true,
 ///    [`preview_resize`](Self::preview_resize) is called with the new dimensions (or `None` if the
 ///    preview pane is hidden).
 /// 5. Draw the components.
@@ -311,10 +311,9 @@ pub trait Interface<T>: Sized {
     type State;
 
     /// Whether this interface provides a preview pane.
-    const HAS_PREVIEW: bool = false;
+    const PREVIEW: bool = false;
 
-    /// The output of the picker after selection. This is an [`Option<&T>`] for single-selection
-    /// pickers and [`Selection<'_, T>`] for multi-selection pickers.
+    /// The output of the picker after selection.
     type Output<'a>: IntoIterator<Item = &'a T, IntoIter: ExactSizeIterator>
     where
         T: 'a;
@@ -399,7 +398,7 @@ pub trait Interface<T>: Sized {
 
     /// Return the current preview pane.
     ///
-    /// If the preview pane is [enabled](Self::HAS_PREVIEW), this is usually the rendered preview pane corresponding to the current item. If the preview pane is not enabled, this value is ignored and the implementation should just return [`Content::Empty`]. This is the default value.
+    /// If the preview pane is [enabled](Self::PREVIEW), this is usually the rendered preview pane corresponding to the current item. If the preview pane is not enabled, this value is ignored and the implementation should just return [`Content::Empty`]. This is the default value.
     fn preview_content<'a>(&'a self, _state: &'a Self::State) -> Content<'a> {
         Content::Empty
     }

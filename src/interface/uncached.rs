@@ -86,7 +86,7 @@ where
     type State = UncachedPreviewState<I::State>;
     type Output<'items> = I::Output<'items>;
 
-    const HAS_PREVIEW: bool = true;
+    const PREVIEW: bool = true;
 
     fn init(&mut self, cx: &Context<'_, T>) -> Self::State {
         UncachedPreviewState {

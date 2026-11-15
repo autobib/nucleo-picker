@@ -222,7 +222,7 @@ impl<T: Send + Sync + 'static, I: Interface<T>, P: Preview<T>> Interface<T>
     type State = CachedPreviewState<I::State>;
     type Output<'a> = I::Output<'a>;
 
-    const HAS_PREVIEW: bool = true;
+    const PREVIEW: bool = true;
 
     fn init(&mut self, cx: &Context<'_, T>) -> Self::State {
         CachedPreviewState {

@@ -143,7 +143,7 @@ impl<'a> Interface<String> for Custom<'a> {
     type State = State<'a>;
     type Output<'items> = Output<'items>;
 
-    const HAS_PREVIEW: bool = true;
+    const PREVIEW: bool = true;
 
     fn init(&mut self, cx: &Context<'_, String>) -> Self::State {
         assert_eq!(
