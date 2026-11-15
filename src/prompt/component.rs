@@ -101,14 +101,14 @@ impl<'a> Prompt<'a> {
     }
 }
 
-impl Component<()> for Prompt<'_> {
-    fn resize(&mut self, area: Area, _engine: &()) {
+impl Component for Prompt<'_> {
+    fn resize(&mut self, area: Area) {
         self.area = area;
         if let Some(width) = area.width.checked_sub(2) {
             self.state.resize(width);
         }
     }
-    fn draw<D: Rect>(&mut self, _engine: &(), rect: &mut D) -> io::Result<()> {
+    fn draw<D: Rect>(&mut self, rect: &mut D) -> io::Result<()> {
         rect.clear_line()?;
         rect.print(self.chars.prompt)?;
 
@@ -120,7 +120,7 @@ impl Component<()> for Prompt<'_> {
         }
         Ok(())
     }
-    fn cursor(&self, _engine: &()) -> Option<Position> {
+    fn cursor(&self) -> Option<Position> {
         (!self.area.is_empty()).then(|| Position {
             column: self
                 .state

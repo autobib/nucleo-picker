@@ -148,7 +148,6 @@ fn restart_clears_queued_items_before_reusing_indices() {
 fn custom_queue_hooks_control_navigation_markers_status_and_output() {
     use super::frame_events;
     use crate::{
-        component::PreviewComponent,
         event::RecvError,
         session::{Exit, Interface, ItemId, QueueEvent},
     };
@@ -235,8 +234,6 @@ fn custom_queue_hooks_control_navigation_markers_status_and_output() {
             }
         }
     }
-
-    impl PreviewComponent<&'static str, State> for FirstOnly {}
 
     for preview in [
         false,

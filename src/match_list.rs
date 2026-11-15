@@ -30,7 +30,7 @@ mod unicode;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use component::MatchList;
+pub(crate) use component::{MatchList, MatchListView};
 pub use selection::{MultiState, QueueEvent, Selection, SelectionIntoIter};
 pub(crate) use state::MatchListState;
 

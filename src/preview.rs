@@ -108,6 +108,7 @@ pub use crate::session::{ItemId, ItemRef, WithPreview};
 #[cfg(feature = "preview-ansi")]
 pub use ansi::{AnsiState, AnsiWriter};
 pub use buffer::{Buffer, Line};
+pub(crate) use draw::draw;
 pub use pane::{Pane, Viewport};
 pub use pool::{PoolPreviewer, Worker};
 use request::{Request, Response};

@@ -8,10 +8,9 @@ use super::FrameEvents;
 use super::{TestEvents, TestTerminal, frame_events};
 use crate::{
     Picker, PickerOptions,
-    component::PreviewComponent,
     event::{Event, MatchListEvent, PromptEvent, RecvError},
     render::StrRenderer,
-    session::{Context, Exit, Interface, ItemId, Single},
+    session::{Context, Exit, Interface, ItemId, Redraw, Single},
 };
 
 struct Update {
@@ -19,11 +18,13 @@ struct Update {
     query: String,
     hovered: Option<ItemId>,
     matches: Vec<ItemId>,
+    deadline: Instant,
+    after_frame: Option<Instant>,
     #[cfg(feature = "preview")]
     preview_enabled: bool,
 }
 
-struct Probe<'a, const ENABLED: bool>(&'a RefCell<Vec<Update>>);
+struct Probe<'a, const ENABLED: bool>(&'a RefCell<Vec<Update>>, Redraw);
 
 impl<T: Send + Sync + 'static, const ENABLED: bool> Interface<T> for Probe<'_, ENABLED> {
     type State = ();
@@ -42,25 +43,35 @@ impl<T: Send + Sync + 'static, const ENABLED: bool> Interface<T> for Probe<'_, E
     ) -> Self::Output<'items> {
         Single.finish((), exit, cx)
     }
-}
-
-impl<T: Send + Sync + 'static, const ENABLED: bool> PreviewComponent<T, ()> for Probe<'_, ENABLED> {
-    fn update(
+    fn before_frame(
         &mut self,
         _: &mut (),
         cx: &Context<'_, T>,
         matches_changed: bool,
-        _: Instant,
-    ) -> bool {
+        deadline: Instant,
+    ) -> Redraw {
         self.0.borrow_mut().push(Update {
             matches_changed,
             query: cx.query().to_owned(),
             hovered: cx.hovered().map(|item| item.id()),
             matches: cx.matches().ids().collect(),
+            deadline,
+            after_frame: None,
             #[cfg(feature = "preview")]
-            preview_enabled: cx.preview_dimensions().is_some(),
+            preview_enabled: cx.preview_enabled(),
         });
-        false
+        self.1
+    }
+
+    fn after_frame(&mut self, _: &mut (), cx: &Context<'_, T>, deadline: Instant) -> Redraw {
+        let mut updates = self.0.borrow_mut();
+        let last = updates.last_mut().unwrap();
+        assert_eq!(last.deadline, deadline);
+        assert_eq!(last.after_frame.replace(deadline), None);
+        assert_eq!(last.query, cx.query());
+        assert_eq!(last.hovered, cx.hovered().map(|item| item.id()));
+        assert!(cx.matches().ids().eq(last.matches.iter().copied()));
+        self.1
     }
 }
 
@@ -80,7 +91,7 @@ fn initial_idle_and_navigation_frames_notify_even_without_preview() {
         let mut picker = picker();
         let ids: Vec<_> = picker.matches().ids().collect();
         let updates = RefCell::new(Vec::new());
-        let mut probe = Probe::<ENABLED>(&updates);
+        let mut probe = Probe::<ENABLED>(&updates, Redraw::NONE);
         for _ in 0..2 {
             picker
                 .core
@@ -107,6 +118,7 @@ fn initial_idle_and_navigation_frames_notify_even_without_preview() {
                     .zip([(true, 0), (false, 0), (false, 1), (false, 0)])
             {
                 assert_eq!(update.matches_changed, changed);
+                assert_eq!(update.after_frame, Some(update.deadline));
                 assert_eq!(update.hovered, Some(ids[index]));
                 assert_eq!(update.matches, ids);
                 #[cfg(feature = "preview")]
@@ -140,7 +152,7 @@ fn restart_notifications_coalesce_and_clear_after_delivery() {
                 Ok(Event::Quit),
             ]),
             &mut TestTerminal::default(),
-            &mut Probe::<false>(&updates),
+            &mut Probe::<false>(&updates, Redraw::NONE),
         )
         .unwrap();
     let updates = updates.borrow();
@@ -187,7 +199,7 @@ fn query_submission_and_injection_notify_only_when_matches_are_published() {
         .pick_impl(
             events,
             &mut TestTerminal::default(),
-            &mut Probe::<false>(&updates),
+            &mut Probe::<false>(&updates, Redraw::NONE),
         )
         .unwrap();
     let updates = updates.borrow();
@@ -247,7 +259,7 @@ fn hidden_frames_receive_match_notifications_without_replaying_them_on_reveal() 
         .pick_impl(
             events,
             &mut TestTerminal::default(),
-            &mut Probe::<true>(&updates),
+            &mut Probe::<true>(&updates, Redraw::NONE),
         )
         .unwrap();
     let updates = updates.borrow();
@@ -273,4 +285,98 @@ fn hidden_frames_receive_match_notifications_without_replaying_them_on_reveal() 
     assert!(revealed.preview_enabled);
     assert!(!revealed.matches_changed);
     assert_eq!(revealed.matches.len(), 3);
+    assert!(updates.iter().all(|update| update.after_frame.is_some()));
+}
+
+#[cfg(feature = "preview")]
+#[test]
+fn preview_adapter_forwards_both_frame_hooks_and_hidden_match_changes() {
+    use crate::{
+        event::LayoutEvent,
+        preview::{Pane, SyncPreviewer},
+    };
+
+    let updates = RefCell::new(Vec::new());
+    let mut generated = 0;
+    let mut picker = picker()
+        .with_interface(Probe::<false>(&updates, Redraw::NONE))
+        .with_preview(SyncPreviewer(|_: &&str, _: &mut Pane| generated += 1));
+    let _injectors = picker.injector_observer(false);
+    picker
+        .core
+        .pick_impl(
+            frame_events([
+                Err(RecvError::Timeout),
+                Ok(Event::Layout(LayoutEvent::TogglePreview)),
+                Err(RecvError::Timeout),
+                Ok(Event::Restart),
+                Err(RecvError::Timeout),
+                Err(RecvError::Timeout),
+                Ok(Event::Layout(LayoutEvent::TogglePreview)),
+                Err(RecvError::Timeout),
+                Ok(Event::Quit),
+            ]),
+            &mut TestTerminal::default(),
+            &mut picker.interface,
+        )
+        .unwrap();
+    let updates = updates.borrow();
+    assert_eq!(updates.len(), 6);
+    for (update, (changed, enabled)) in updates.iter().zip([
+        (true, true),
+        (false, true),
+        (false, false),
+        (true, false),
+        (false, false),
+        (false, true),
+    ]) {
+        assert_eq!(update.matches_changed, changed);
+        assert_eq!(update.preview_enabled, enabled);
+        assert_eq!(update.after_frame, Some(update.deadline));
+    }
+    assert_eq!(generated, 1);
+}
+
+#[cfg(feature = "preview")]
+#[test]
+fn preview_adapter_combines_redraw_masks_and_preserves_them_while_hidden() {
+    use crate::{
+        WithPreview,
+        preview::{Pane, SyncPreviewer},
+    };
+
+    let picker = picker();
+    let updates = RefCell::new(Vec::new());
+    let mut interface = WithPreview::new(
+        Probe::<false>(&updates, Redraw::QUEUE),
+        SyncPreviewer(|_: &&str, pane: &mut Pane| {
+            pane.push_text("preview");
+        }),
+    );
+    let mut state = interface.init(&Context::new(&picker.core.engine));
+    let deadline = Instant::now();
+    for (enabled, rank, changed) in [
+        (true, 0, true),
+        (true, 0, false),
+        (false, 1, false),
+        (false, 1, false),
+        (true, 1, true),
+    ] {
+        let cx = Context::new(&picker.core.engine)
+            .with_rank(Some(rank))
+            .with_preview_enabled(enabled);
+        let expected = if changed {
+            Redraw::QUEUE | Redraw::PREVIEW
+        } else {
+            Redraw::QUEUE
+        };
+        assert_eq!(
+            interface.before_frame(&mut state, &cx, false, deadline),
+            expected
+        );
+        assert_eq!(
+            interface.after_frame(&mut state, &cx, deadline),
+            Redraw::QUEUE
+        );
+    }
 }

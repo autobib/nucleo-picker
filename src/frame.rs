@@ -5,6 +5,7 @@ use crate::{
     Terminal,
     component::Component,
     rect::{Area, ClearState, CrosstermRect, Dimensions, Rect},
+    session::Redraw,
 };
 use crossterm::{
     QueueableCommand,
@@ -13,9 +14,6 @@ use crossterm::{
     terminal::{BeginSynchronizedUpdate, Clear, ClearType, EndSynchronizedUpdate},
 };
 use std::io;
-
-#[cfg(feature = "preview")]
-use crate::preview::interior_dimensions;
 
 /// Events which modify the layout of the picker screen.
 #[derive(Debug, PartialEq, Eq)]
@@ -42,50 +40,30 @@ pub enum LayoutEvent {
     MoveDividerRight(u16),
 }
 
-#[derive(Clone, Copy, Default)]
-pub(crate) struct Redraw {
-    pub prompt: bool,
-    pub list: bool,
-    pub status: bool,
-    pub preview: bool,
-}
-
-impl Redraw {
-    pub fn any(self) -> bool {
-        self.prompt || self.list || self.status || self.preview
-    }
-    pub fn full() -> Self {
-        Self {
-            prompt: true,
-            list: true,
-            status: true,
-            preview: true,
-        }
-    }
-}
-
 pub(crate) trait Contents {
-    fn prompt(&mut self) -> impl Component<()>;
-    fn list(&mut self) -> impl Component<()>;
-    fn status(&mut self) -> impl Component<()>;
-    fn preview(&mut self) -> impl Component<()>;
+    fn prompt(&mut self) -> impl Component;
+    fn list(&mut self) -> impl Component;
+    fn status(&mut self) -> impl Component;
+    fn preview(&mut self) -> impl Component;
+    fn preview_resize(&mut self, area: Option<Area>);
 }
 
 #[cfg(test)]
-impl<P: Component<()>, L: Component<()>, S: Component<()>, V: Component<()>> Contents
-    for (P, L, S, V)
-{
-    fn prompt(&mut self) -> impl Component<()> {
+impl<P: Component, L: Component, S: Component, V: Component> Contents for (P, L, S, V) {
+    fn prompt(&mut self) -> impl Component {
         &mut self.0
     }
-    fn list(&mut self) -> impl Component<()> {
+    fn list(&mut self) -> impl Component {
         &mut self.1
     }
-    fn status(&mut self) -> impl Component<()> {
+    fn status(&mut self) -> impl Component {
         &mut self.2
     }
-    fn preview(&mut self) -> impl Component<()> {
+    fn preview(&mut self) -> impl Component {
         &mut self.3
+    }
+    fn preview_resize(&mut self, area: Option<Area>) {
+        self.3.resize(area.unwrap_or_default());
     }
 }
 
@@ -103,8 +81,6 @@ pub(crate) struct Frame {
     list: Area,
     status: Area,
     preview: Area,
-    #[cfg(feature = "preview")]
-    preview_dimensions: Dimensions,
 }
 
 impl Frame {
@@ -123,8 +99,6 @@ impl Frame {
             list: Area::default(),
             status: Area::default(),
             preview: Area::default(),
-            #[cfg(feature = "preview")]
-            preview_dimensions: Dimensions::default(),
         };
         frame.layout();
         frame
@@ -137,11 +111,6 @@ impl Frame {
 
     pub fn preview_enabled(&self) -> bool {
         self.preview_ratio.is_some() && !self.preview_hidden
-    }
-
-    #[cfg(feature = "preview")]
-    pub fn preview_dimensions(&self) -> Dimensions {
-        self.preview_dimensions
     }
 
     pub fn status_enabled(&self) -> bool {
@@ -269,14 +238,10 @@ impl Frame {
 
     /// Resize all of the frame components.
     pub fn resize(&mut self, contents: &mut impl Contents) {
-        contents.prompt().resize(self.prompt, &());
-        contents.list().resize(self.list, &());
-        contents.status().resize(self.status, &());
-        contents.preview().resize(self.preview, &());
-        #[cfg(feature = "preview")]
-        {
-            self.preview_dimensions = interior_dimensions(self.preview);
-        }
+        contents.prompt().resize(self.prompt);
+        contents.list().resize(self.list);
+        contents.status().resize(self.status);
+        contents.preview_resize(self.preview_enabled().then_some(self.preview));
         self.pending_resize = false;
     }
 
@@ -289,7 +254,7 @@ impl Frame {
         writer: &mut W,
         mut redraw: Redraw,
     ) -> io::Result<bool> {
-        if !redraw.any() && !self.pending_resize {
+        if redraw == Redraw::NONE && !self.pending_resize {
             // we don't need to check for a resize in this path since the resize
             // should have been propagated by a Redraw event
             return Ok(false);
@@ -299,7 +264,7 @@ impl Frame {
             // resize immediately before drawing, so that the draw can take into account the new
             // size
             self.resize(contents);
-            redraw = Redraw::full();
+            redraw = Redraw::FULL;
         }
         self.draw(contents, writer, redraw)?;
         Ok(true)
@@ -316,7 +281,7 @@ impl Frame {
             return Ok(());
         }
         let clear = if redraw.prompt && redraw.list && redraw.status {
-            redraw = Redraw::full();
+            redraw = Redraw::FULL;
             ClearState::Precleared
         } else if self.preview.is_empty() {
             ClearState::ToEndOfLine
@@ -332,18 +297,18 @@ impl Frame {
                 .queue(Clear(ClearType::All))?;
         }
         if redraw.list {
-            draw_component(&mut contents.list(), &(), writer, self.list, clear)?;
+            draw_component(&mut contents.list(), writer, self.list, clear)?;
         }
         if redraw.status {
-            draw_component(&mut contents.status(), &(), writer, self.status, clear)?;
+            draw_component(&mut contents.status(), writer, self.status, clear)?;
         }
         if redraw.prompt {
-            draw_component(&mut contents.prompt(), &(), writer, self.prompt, clear)?;
+            draw_component(&mut contents.prompt(), writer, self.prompt, clear)?;
         }
         if redraw.preview {
-            draw_component(&mut contents.preview(), &(), writer, self.preview, clear)?;
+            draw_component(&mut contents.preview(), writer, self.preview, clear)?;
         }
-        if let Some(cursor) = contents.prompt().cursor(&()) {
+        if let Some(cursor) = contents.prompt().cursor() {
             writer.queue(MoveTo(
                 self.prompt.column + cursor.column,
                 self.prompt.row + cursor.row,
@@ -355,9 +320,8 @@ impl Frame {
 }
 
 /// Draw a component to the screen in the provided area with the given clear policy.
-fn draw_component<S, C: Component<S>, W: io::Write + ?Sized>(
+fn draw_component<C: Component, W: io::Write + ?Sized>(
     component: &mut C,
-    engine: &S,
     writer: &mut W,
     area: Area,
     clear: ClearState,
@@ -367,7 +331,7 @@ fn draw_component<S, C: Component<S>, W: io::Write + ?Sized>(
     };
     rect.reset_style()?;
     rect.move_to(0, 0)?;
-    component.draw(engine, &mut rect)?;
+    component.draw(&mut rect)?;
     rect.reset_style()
 }
 

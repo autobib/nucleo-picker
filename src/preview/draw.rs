@@ -11,7 +11,7 @@ use crate::{
     },
 };
 
-pub(super) fn draw<D: Rect>(
+pub(crate) fn draw<D: Rect>(
     rect: &mut D,
     preview: Content<'_>,
     chars: BoundaryChars,

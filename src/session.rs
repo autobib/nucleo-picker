@@ -176,7 +176,7 @@
 //! - `'a` in `PickerRef<'a, T, R, I>` is the lifetime of the mutable borrow of the
 //!   original picker. Its `pick*` methods return `I::Output<'a>`.
 //!
-//! The [`Interface`] trait is sealed: use one of the provided interfaces. To customize how
+//! In most cases you can use one of the provided interfaces. To customize how
 //! items are displayed, implement [`Render`] or [`Preview`]; to customize IO, use
 //! [`Picker::pick_with_keybind`] or [`Picker::pick_with_io`].
 //!
@@ -206,6 +206,7 @@ mod context;
 mod item;
 mod matches;
 mod picker_ref;
+mod redraw;
 mod run;
 #[cfg(test)]
 mod tests;
@@ -213,6 +214,7 @@ mod tests;
 use std::{
     io::{self, BufWriter, IsTerminal},
     num::NonZero,
+    time::Instant,
 };
 
 use crossterm::event::KeyEvent;
@@ -223,12 +225,12 @@ pub use context::Context;
 pub use item::{ItemId, ItemRef, OwnedItem};
 pub use matches::Matches;
 pub use picker_ref::PickerRef;
+pub use redraw::Redraw;
 
 #[cfg(doc)]
 use crate::{Picker, Selection};
 use crate::{
     PickerCore, Render,
-    component::PreviewComponent,
     error::PickError,
     event::{Event, EventSource, StdinReader, keybind_single},
     terminal::CrosstermTerminal,
@@ -236,7 +238,7 @@ use crate::{
 #[cfg(feature = "preview")]
 use crate::{
     event::keybind_passthrough_preview,
-    preview::{DEFAULT_CACHE_SIZE, Preview, controller::PreviewState},
+    preview::{Content, DEFAULT_CACHE_SIZE, Preview, PreviewEvent, controller::PreviewState},
 };
 
 /// Generics for the picker interface.
@@ -250,11 +252,62 @@ use crate::{
 /// 2. Preview-enabled pickers (via [`WithPreview`]) which render item
 ///    previews in a separate pane.
 ///
-/// This trait is sealed and cannot be implemented outside this library.
-///
 /// Read the [module documentation](self) for an overview and more details.
-#[allow(private_bounds)]
-pub trait Interface<T>: Sized + PreviewComponent<T, Self::State> {
+///
+/// # Interface call order
+///
+/// The [`Picker`] drives an interface implementation in order to produce the interactive picker.
+/// The picker drives the loop until [completion](#completion-and-errors) (i.e. if a selection is
+/// made, the picker quits, or there is an error).
+///
+/// ## Initialization
+///
+/// When the picker starts up, the following call sequence is made.
+///
+/// 1. [`init`](Self::init) is called once with context containing the query and match snapshot,
+///    with no hovered item. The preview pane is enabled according to `HAS_PREVIEW` and is
+///    dimensionless.
+/// 2. The match engine is updated with any changes which were processed in the background and the
+///    terminal is setup.
+/// 3. Terminal dimensions are queried and resizes are propagated, for instance via
+///    [`preview_resize`](Self::preview_resize) if the preview pane is enabled.
+/// 4. [`before_frame`](Self::before_frame) is called with the initial hovered item.
+/// 5. [`queued_count`](Self::queued_count) and [`queue_limit`](Self::queue_limit) are called to
+///    update the status line.
+/// 6. The first full frame is drawn.
+/// 7. [`after_frame`](Self::after_frame) is called. The draw mask is used for the next frame.
+///
+/// ## Frame loop
+///
+/// After a batch ends without exiting:
+///
+/// 1. A bounded batch of events is processed. Events which cause the picker to exit are immediately
+///    processed. This updates the prompt and match list, reparses if the query changed, and updates
+///    the match engine.
+/// 2. [`before_frame`](Self::before_frame) is called.
+/// 3. [`queued_count`](Self::queued_count) and [`queue_limit`](Self::queue_limit) are called to
+///    update the status line.
+/// 4. Check for pending redraws either from events or as required by the interface. If a resize is
+///    required, a full redraw is done. If [`HAS_PREVIEW`](Self::HAS_PREVIEW) is true, the new size
+///    [`preview_resize`](Self::preview_resize) with the new dimensions.
+/// 5. Draw the components.
+/// 6. If a status request can be processed, call [`queued_count`](Self::queued_count).
+/// 7. [`after_frame`](Self::after_frame) is called. Its redraw mask is carried over to the next
+///    frame.
+///
+/// Note that the frame hooks ([`before_frame`](Self::before_frame) and
+/// [`after_frame`](Self::after_frame)) are run on all frames, independently of whether or not
+/// changes were made.
+///
+/// ## Completion and errors
+///
+/// After an exit or error while processing events, the driver records any changes in the underlying
+/// picker, attempts to clean up the terminal, and then calls [`on_end`](Self::on_end). If the exit
+/// and cleanup succeeds, [`finish`](Self::finish) is called.
+///
+/// Abnormal exit (for instance with IO errors) will still result in attempted terminal cleanup but
+/// will not result in usual interface cleanup methods from being called.
+pub trait Interface<T>: Sized {
     /// Arbitrary state which persists for exactly one session.
     type State;
 
@@ -325,6 +378,63 @@ pub trait Interface<T>: Sized + PreviewComponent<T, Self::State> {
         exit: Exit,
         cx: Context<'items, T>,
     ) -> Self::Output<'items>;
+
+    /// Perform work before rendering the frame, after processing matches and navigation.
+    ///
+    /// This method is called on every frame, regardless of whether changes occurred or not. The
+    /// resulting redraw mask influences the subsequent screen redraw.
+    fn before_frame(
+        &mut self,
+        _state: &mut Self::State,
+        _cx: &Context<'_, T>,
+        _matches_changed: bool,
+        _deadline: Instant,
+    ) -> Redraw {
+        Redraw::NONE
+    }
+
+    /// Perform work after rendering the frame.
+    // TODO: add more details here, including on the frame geometry (?)
+    fn after_frame(
+        &mut self,
+        _state: &mut Self::State,
+        _cx: &Context<'_, T>,
+        _deadline: Instant,
+    ) -> Redraw {
+        Redraw::NONE
+    }
+
+    /// Return the current preview pane.
+    ///
+    /// If the preview pane is [enabled](Self::HAS_PREVIEW), this is usually the rendered preview pane corresponding to the current item. If the preview pane is not enabled, this value is ignored and the implementation should just return [`Content::Empty`]. This is the default value.
+    #[cfg(feature = "preview")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
+    fn preview_content<'a>(&'a self, _state: &'a Self::State) -> Content<'a> {
+        Content::Empty
+    }
+
+    /// Handle a preview event.
+    ///
+    /// The preview event is only forwarded if the preview pane is [enabled](Self::HAS_PREVIEW).
+    /// Use the returned [`Redraw`] mask if the screen needs to be redrawn.
+    #[cfg(feature = "preview")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
+    fn preview_event(
+        &mut self,
+        _state: &mut Self::State,
+        _event: PreviewEvent,
+        _cx: &Context<'_, T>,
+    ) -> Redraw {
+        Redraw::NONE
+    }
+
+    /// Update the dimensions of the preview pane.
+    ///
+    /// These are the dimensions of the drawable area of the preview pane, or `None` if the preview
+    /// pane is hidden.
+    #[cfg(feature = "preview")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
+    fn preview_resize(&mut self, _state: &mut Self::State, _size: Option<Dimensions>) {}
 
     /// The default keybindings for this interface.
     ///
@@ -547,10 +657,6 @@ impl<T: Send + Sync + 'static> Interface<T> for Single {
     }
 }
 
-impl<T> PreviewComponent<T, ()> for Single {}
-
-impl<T> PreviewComponent<T, MultiState> for Multi {}
-
 #[cfg(feature = "preview")]
 impl<T: Send + Sync + 'static, I: Interface<T>, P: Preview<T>> Interface<T> for WithPreview<I, P> {
     type State = WithPreviewState<I::State>;
@@ -611,6 +717,64 @@ impl<T: Send + Sync + 'static, I: Interface<T>, P: Preview<T>> Interface<T> for 
         cx: Context<'items, T>,
     ) -> Self::Output<'items> {
         self.interface.finish(state.interface, exit, cx)
+    }
+
+    fn before_frame(
+        &mut self,
+        state: &mut Self::State,
+        cx: &Context<'_, T>,
+        matches_changed: bool,
+        deadline: Instant,
+    ) -> Redraw {
+        let mut redraw =
+            self.interface
+                .before_frame(&mut state.interface, cx, matches_changed, deadline);
+        if state
+            .preview
+            .update(&mut self.previewer, cx, matches_changed, deadline)
+        {
+            redraw |= Redraw::PREVIEW;
+        }
+        redraw
+    }
+
+    fn after_frame(
+        &mut self,
+        state: &mut Self::State,
+        cx: &Context<'_, T>,
+        deadline: Instant,
+    ) -> Redraw {
+        let redraw = self
+            .interface
+            .after_frame(&mut state.interface, cx, deadline);
+        state
+            .preview
+            .update_prefetch(&mut self.previewer, cx, deadline);
+        redraw
+    }
+
+    fn preview_content<'a>(&'a self, state: &'a Self::State) -> Content<'a> {
+        state.preview.content()
+    }
+
+    fn preview_event(
+        &mut self,
+        state: &mut Self::State,
+        event: PreviewEvent,
+        cx: &Context<'_, T>,
+    ) -> Redraw {
+        if state
+            .preview
+            .handle_event(cx.hovered().map(|item| item.id().index), event)
+        {
+            Redraw::PREVIEW
+        } else {
+            Redraw::NONE
+        }
+    }
+
+    fn preview_resize(&mut self, state: &mut Self::State, size: Option<Dimensions>) {
+        state.preview.resize(size);
     }
 
     #[inline]

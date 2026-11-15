@@ -8,10 +8,9 @@ use std::{
 use super::{FrameEvents, frame_events};
 use crate::{
     Picker, PickerOptions, Terminal,
-    component::PreviewComponent,
     event::{Event, RecvError},
     render::StrRenderer,
-    session::{Context, Dimensions, Exit, Interface, Single},
+    session::{Context, Dimensions, Exit, Interface, Redraw, Single},
 };
 
 type Log = RefCell<Vec<&'static str>>;
@@ -21,6 +20,7 @@ enum PanicAt {
     Never,
     Init,
     Update,
+    AfterFrame,
     Events,
     End,
     Finish,
@@ -83,13 +83,22 @@ impl<'a, T: Send + Sync + 'static> Interface<T> for Probe<'a> {
         assert_ne!(self.panic_at, PanicAt::Finish);
         Single.finish((), exit, cx)
     }
-}
-
-impl<'a, T> PreviewComponent<T, State<'a>> for Probe<'a> {
-    fn update(&mut self, state: &mut State<'a>, _: &Context<'_, T>, _: bool, _: Instant) -> bool {
+    fn before_frame(
+        &mut self,
+        state: &mut State<'a>,
+        _: &Context<'_, T>,
+        _: bool,
+        _: Instant,
+    ) -> Redraw {
         assert_eq!(state.session, self.sessions);
         assert_ne!(self.panic_at, PanicAt::Update);
-        false
+        Redraw::NONE
+    }
+
+    fn after_frame(&mut self, state: &mut State<'a>, _: &Context<'_, T>, _: Instant) -> Redraw {
+        assert_eq!(state.session, self.sessions);
+        assert_ne!(self.panic_at, PanicAt::AfterFrame);
+        Redraw::NONE
     }
 }
 
@@ -279,6 +288,7 @@ fn unwinding_drops_state_without_reentering_lifecycle_hooks() {
     for panic_at in [
         PanicAt::Init,
         PanicAt::Update,
+        PanicAt::AfterFrame,
         PanicAt::Events,
         PanicAt::End,
         PanicAt::Finish,

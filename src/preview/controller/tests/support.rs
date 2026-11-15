@@ -3,35 +3,37 @@ use crate::{
     Picker, PickerOptions,
     match_engine::MatchEngine,
     preview::{
-        DEFAULT_CACHE_SIZE, ItemId, ItemRef,
+        DEFAULT_CACHE_SIZE, ItemId, ItemRef, interior_dimensions,
         request::{ActiveRequest, QueuedRequest, Response},
     },
+    rect::Area,
     render::StrRenderer,
-    session::{Exit, Single},
+    session::{Exit, Interface, Redraw, Single, WithPreview, WithPreviewState},
 };
 
 pub(crate) struct TestSession<P> {
-    pub(super) state: PreviewState,
-    pub(super) previewer: P,
+    // Drop cached requests before the previewer, including during unwinding.
+    pub(super) state: WithPreviewState<()>,
+    pub(super) interface: WithPreview<Single, P>,
 }
 
 impl<P: Preview<&'static str>> TestSession<P> {
     pub(crate) fn new(cache_size: Option<NonZero<usize>>, previewer: P) -> Self {
         Self {
-            state: PreviewState::new(cache_size, previewer.prefetch_limit()),
-            previewer,
+            state: WithPreviewState {
+                interface: (),
+                preview: PreviewState::new(cache_size, previewer.prefetch_limit()),
+            },
+            interface: WithPreview::new_single(previewer).cache_size(cache_size),
         }
     }
 
     pub(crate) fn resize(&mut self, area: Area) {
-        self.state.resize_area(area);
+        self.preview_resize(&mut (), Some(interior_dimensions(area)));
     }
 
-    pub(crate) fn handle(&mut self, event: PreviewEvent, cx: &Context<'_, &'static str>) {
-        if let Some(size) = cx.preview_dimensions() {
-            self.state
-                .handle_event(cx.hovered().map(|item| item.id().index), event, size);
-        }
+    pub(crate) fn handle(&mut self, event: PreviewEvent, cx: &Context<'_, &'static str>) -> bool {
+        self.preview_event(&mut (), event, cx).preview
     }
 
     pub(crate) fn update(
@@ -40,25 +42,26 @@ impl<P: Preview<&'static str>> TestSession<P> {
         matches_changed: bool,
         deadline: Instant,
     ) -> bool {
-        self.state
-            .update(&mut self.previewer, cx, matches_changed, deadline)
+        self.before_frame(&mut (), cx, matches_changed, deadline)
+            .preview
     }
 
     pub(crate) fn prefetch(&mut self, cx: &Context<'_, &'static str>, deadline: Instant) {
-        self.state
-            .update_prefetch(&mut self.previewer, cx, deadline);
+        let _ = self.after_frame(&mut (), cx, deadline);
     }
 
     pub(crate) fn hide(&mut self) {
-        self.state.set_hovered(&mut self.previewer, None);
+        self.state
+            .preview
+            .set_hovered(&mut self.interface.previewer, None);
     }
 
     pub(crate) fn restart(&mut self) {
-        self.state.restart(&mut self.previewer);
+        self.state.preview.restart(&mut self.interface.previewer);
     }
 
     pub(crate) fn end(&mut self) {
-        self.state.end(&mut self.previewer);
+        self.interface.on_end(&mut self.state);
     }
 }
 
@@ -71,8 +74,8 @@ impl<P: Preview<&'static str>> Interface<&'static str> for TestSession<P> {
 
     fn init(&mut self, _: &Context<'_, &'static str>) {}
 
-    fn on_restart(&mut self, _: &mut (), _: &Context<'_, &'static str>) {
-        self.restart();
+    fn on_restart(&mut self, _: &mut (), cx: &Context<'_, &'static str>) {
+        self.interface.on_restart(&mut self.state, cx);
     }
 
     fn finish<'items>(
@@ -83,42 +86,41 @@ impl<P: Preview<&'static str>> Interface<&'static str> for TestSession<P> {
     ) -> Self::Output<'items> {
         Single.finish((), exit, cx)
     }
-}
+    fn preview_content<'a>(&'a self, _: &'a ()) -> Content<'a> {
+        self.interface.preview_content(&self.state)
+    }
 
-impl<P: Preview<&'static str>> PreviewComponent<&'static str, ()> for TestSession<P> {
-    fn component(
+    fn preview_resize(&mut self, _: &mut (), size: Option<Dimensions>) {
+        self.interface.preview_resize(&mut self.state, size);
+    }
+
+    fn preview_event(
         &mut self,
         _: &mut (),
-        chars: &PickerChars,
-        config: &PreviewConfig,
-    ) -> impl Component<()> {
-        PreviewPane {
-            state: &mut self.state,
-            boundary_chars: config.boundary_chars,
-            ellipsis: chars.ellipsis,
-        }
+        event: PreviewEvent,
+        cx: &Context<'_, &'static str>,
+    ) -> Redraw {
+        self.interface.preview_event(&mut self.state, event, cx)
     }
 
-    fn handle(&mut self, _: &mut (), event: PreviewEvent, cx: &Context<'_, &'static str>) {
-        self.handle(event, cx);
-    }
-
-    fn update(
+    fn before_frame(
         &mut self,
         _: &mut (),
         cx: &Context<'_, &'static str>,
         matches_changed: bool,
         deadline: Instant,
-    ) -> bool {
-        self.update(cx, matches_changed, deadline)
+    ) -> Redraw {
+        self.interface
+            .before_frame(&mut self.state, cx, matches_changed, deadline)
     }
 
-    fn prefetch(&mut self, _: &mut (), cx: &Context<'_, &'static str>, deadline: Instant) {
-        self.prefetch(cx, deadline);
-    }
-
-    fn hide(&mut self, _: &mut ()) {
-        self.hide();
+    fn after_frame(
+        &mut self,
+        _: &mut (),
+        cx: &Context<'_, &'static str>,
+        deadline: Instant,
+    ) -> Redraw {
+        self.interface.after_frame(&mut self.state, cx, deadline)
     }
 }
 
@@ -209,7 +211,7 @@ impl<P: Preview<&'static str>> TestSession<P> {
     ) -> bool {
         let cx = Context::new(engine)
             .with_rank(rank)
-            .with_preview(Some(interior_dimensions(self.state.area)));
+            .with_preview_enabled(true);
         let redraw = self.update(&cx, false, deadline);
         self.prefetch(&cx, deadline);
         redraw
@@ -223,19 +225,18 @@ impl<P: Preview<&'static str>> TestSession<P> {
     ) -> bool {
         let cx = Context::new(engine)
             .with_rank(rank)
-            .with_preview(Some(interior_dimensions(self.state.area)));
+            .with_preview_enabled(true);
         self.update(&cx, false, deadline)
     }
 
-    pub(crate) fn handle_at(&mut self, event: PreviewEvent, hovered: Option<u32>) {
-        self.state
-            .handle_event(hovered, event, interior_dimensions(self.state.area));
+    pub(crate) fn handle_at(&mut self, event: PreviewEvent, hovered: Option<u32>) -> bool {
+        self.state.preview.handle_event(hovered, event)
     }
 }
 
 impl<P> TestSession<P> {
     pub(crate) fn contents(&self) -> Vec<&str> {
-        let Some(RequestState::Ready(pane)) = &self.state.cached().unwrap().state else {
+        let Some(RequestState::Ready(pane)) = &self.state.preview.cached().unwrap().state else {
             panic!("expected ready preview");
         };
         pane.buffer().lines().map(|line| line.as_str()).collect()
@@ -386,10 +387,10 @@ pub(crate) fn update(
 #[cfg(feature = "unstable-backend")]
 impl<P> TestSession<P> {
     pub(crate) fn test_cache(&mut self) -> &mut LruCache<u32, Cached> {
-        &mut self.state.cache
+        &mut self.state.preview.cache
     }
 
     pub(crate) fn test_previewer(&mut self) -> &mut P {
-        &mut self.previewer
+        &mut self.interface.previewer
     }
 }

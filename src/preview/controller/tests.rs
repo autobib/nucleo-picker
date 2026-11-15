@@ -3,6 +3,7 @@ use crate::preview::{
     DEFAULT_CACHE_SIZE, Pane, SyncPreviewer,
     request::{QueuedRequest, Response},
 };
+use crate::rect::Area;
 
 mod prefetch;
 pub(crate) mod support;
@@ -34,17 +35,28 @@ fn synchronous_generation_preserves_initial_presentation_and_reuses_storage_on_r
     fn check(previewer: impl Preview<&'static str>) {
         let picker = picker(["alpha"]);
         let mut session = preview_pane(previewer);
-        session.state.resize_area(Area {
+        session.resize(Area {
             width: 12,
             height: 5,
             ..Area::default()
         });
-        session.state.spare.push_str("reusable request storage");
-        let allocation = session.state.spare.line(0).unwrap().as_str().as_ptr();
+        session
+            .state
+            .preview
+            .spare
+            .push_str("reusable request storage");
+        let allocation = session
+            .state
+            .preview
+            .spare
+            .line(0)
+            .unwrap()
+            .as_str()
+            .as_ptr();
         for _ in 0..2 {
             assert!(session.update_at(Some(0), &picker.core.engine, Instant::now()));
             assert!(!session.update_at(Some(0), &picker.core.engine, Instant::now()));
-            let Content::Ready(pane) = session.state.content() else {
+            let Content::Ready(pane) = session.state.preview.content() else {
                 panic!("expected synchronous preview");
             };
             assert_eq!(pane.offset(), (5, 17));
@@ -67,7 +79,7 @@ fn synchronous_generation_preserves_initial_presentation_and_reuses_storage_on_r
 }
 
 #[test]
-fn preview_events_use_context_identity_and_interior_geometry() {
+fn preview_events_use_context_identity_and_applied_geometry() {
     let mut picker = picker(["alpha", "beta"]);
     picker.update_query("beta");
     settle(&mut picker);
@@ -82,16 +94,20 @@ fn preview_events_use_context_identity_and_interior_geometry() {
     });
     let cx = Context::new(&picker.core.engine)
         .with_rank(Some(0))
-        .with_preview(Some(Dimensions {
-            width: 4,
-            height: 3,
-        }));
+        .with_preview_enabled(true);
     session.update(&cx, true, Instant::now());
     session.handle(PreviewEvent::PageDown(1), &cx);
-    let cached = session.state.cache.peek(&1).unwrap();
-    assert_eq!(cached.pane().unwrap().offset(), (0, 3));
-    assert!(!session.state.cache.contains(&0));
-    assert_eq!(session.previewer.requested, ["beta"]);
+    let cached = session.state.preview.cache.peek(&1).unwrap();
+    assert_eq!(cached.pane().unwrap().offset(), (0, 8));
+    session.state.preview.resize(Some(Dimensions {
+        width: 4,
+        height: 3,
+    }));
+    session.handle(PreviewEvent::PageDown(1), &cx);
+    let cached = session.state.preview.cache.peek(&1).unwrap();
+    assert_eq!(cached.pane().unwrap().offset(), (0, 11));
+    assert!(!session.state.preview.cache.contains(&0));
+    assert_eq!(session.interface.previewer.requested, ["beta"]);
 }
 
 #[test]
@@ -102,12 +118,11 @@ fn cached_identity_preserves_scroll_and_line_numbers_until_restart() {
     assert!(session.update_at(Some(0), &picker.core.engine, Instant::now()));
     assert!(!session.update_at(Some(0), &picker.core.engine, Instant::now()));
     for hovered in [None, Some(1)] {
-        session.handle_at(PreviewEvent::ToggleLineNumbers, hovered);
-        session.handle_at(PreviewEvent::SetLineNumbers(true), hovered);
+        assert!(!session.handle_at(PreviewEvent::ToggleLineNumbers, hovered));
+        assert!(!session.handle_at(PreviewEvent::SetLineNumbers(true), hovered));
     }
-    assert!(!session.state.pending_redraw);
-    assert_eq!(session.state.cache.len(), 1);
-    let cached = session.state.cache.get_mut(&0).unwrap();
+    assert_eq!(session.state.preview.cache.len(), 1);
+    let cached = session.state.preview.cache.get_mut(&0).unwrap();
     assert!(!cached.pane().unwrap().line_numbers());
     cached.pane_mut().unwrap().set_offset(12, 7);
     session.handle_at(PreviewEvent::ToggleLineNumbers, Some(0));
@@ -117,7 +132,7 @@ fn cached_identity_preserves_scroll_and_line_numbers_until_restart() {
     assert_eq!(hovered_index(&picker), Some(1));
     assert!(session.update_at(Some(0), &picker.core.engine, Instant::now()));
     assert_eq!(session.contents(), ["beta"]);
-    let pane = session.state.cached().unwrap().pane().unwrap();
+    let pane = session.state.preview.cached().unwrap().pane().unwrap();
     assert_eq!(pane.offset(), (0, 0));
     assert!(!pane.line_numbers());
 
@@ -128,12 +143,15 @@ fn cached_identity_preserves_scroll_and_line_numbers_until_restart() {
             session.update_at(Some(rank), &picker.core.engine, Instant::now()),
             changed
         );
-        let pane = session.state.cached().unwrap().pane().unwrap();
+        let pane = session.state.preview.cached().unwrap().pane().unwrap();
         assert_eq!(pane.offset(), if rank == 0 { (12, 7) } else { (0, 0) });
         assert_eq!(pane.line_numbers(), rank == 0);
         assert_eq!(pane.buffer().line(0).unwrap().as_str(), "alpha");
     }
-    assert_eq!(session.previewer.requested, ["alpha", "beta", "alpha"]);
+    assert_eq!(
+        session.interface.previewer.requested,
+        ["alpha", "beta", "alpha"]
+    );
     session.hide();
     assert!(!session.update_at(Some(0), &picker.core.engine, Instant::now()));
     session.restart();
@@ -141,7 +159,7 @@ fn cached_identity_preserves_scroll_and_line_numbers_until_restart() {
     picker.push_batch(["alpha"]);
     settle(&mut picker);
     assert!(session.update_at(Some(0), &picker.core.engine, Instant::now()));
-    let pane = session.state.cached().unwrap().pane().unwrap();
+    let pane = session.state.preview.cached().unwrap().pane().unwrap();
     assert_eq!(pane.offset(), (0, 0));
     assert!(!pane.line_numbers());
     session.end();
@@ -215,22 +233,22 @@ fn refresh_and_eviction_reuse_buffers_and_reset_display_settings() {
             ..TestPreviewer::default()
         },
     );
-    session.state.resize_area(Area {
+    session.resize(Area {
         width: 12,
         height: 5,
         ..Area::default()
     });
     session.update_at(Some(0), &picker.core.engine, Instant::now());
-    let pane = session.state.cached().unwrap().pane().unwrap();
+    let pane = session.state.preview.cached().unwrap().pane().unwrap();
     let allocation = pane.buffer().line(0).unwrap().as_str().as_ptr();
 
-    session.previewer.lines = 4;
+    session.interface.previewer.lines = 4;
     for (step, (rank, refresh)) in [(0, true), (1, false), (0, true), (1, false)]
         .into_iter()
         .enumerate()
     {
-        let previous = session.state.last_item.unwrap();
-        let cached = session.state.cache.get_mut(&previous).unwrap();
+        let previous = session.state.preview.last_item.unwrap();
+        let cached = session.state.preview.cache.get_mut(&previous).unwrap();
         let pane = cached.pane_mut().unwrap();
         pane.set_offset(7, 8);
         pane.buffer_mut().push_text("\nprevious contents\n");
@@ -238,29 +256,35 @@ fn refresh_and_eviction_reuse_buffers_and_reset_display_settings() {
         pane.set_line_numbers(true);
         if refresh {
             for _ in 0..2 {
-                session.handle_at(PreviewEvent::Refresh, session.state.last_item);
+                session.handle_at(PreviewEvent::Refresh, session.state.preview.last_item);
             }
         }
-        assert_eq!(session.previewer.requested.len(), step + 1);
+        assert_eq!(session.interface.previewer.requested.len(), step + 1);
         assert!(session.update_at(Some(rank), &picker.core.engine, Instant::now()));
         assert!(!session.update_at(Some(rank), &picker.core.engine, Instant::now()));
-        assert_eq!(session.state.cache.len(), 1);
-        assert_eq!(session.previewer.buffer_allocations[step + 1], allocation);
-        let pane = session.state.cached().unwrap().pane().unwrap();
+        assert_eq!(session.state.preview.cache.len(), 1);
+        assert_eq!(
+            session.interface.previewer.buffer_allocations[step + 1],
+            allocation
+        );
+        let pane = session.state.preview.cached().unwrap().pane().unwrap();
         assert_eq!(pane.offset(), (0, 0));
         assert_eq!(pane.buffer().lines().len(), 4);
         assert!(!pane.is_err());
         assert!(!pane.line_numbers());
     }
     assert_eq!(
-        session.previewer.requested,
+        session.interface.previewer.requested,
         ["alpha", "alpha", "beta", "alpha", "beta"]
     );
     assert_eq!(
-        session.previewer.hovered,
+        session.interface.previewer.hovered,
         [Some("alpha"), Some("beta"), Some("alpha"), Some("beta")]
     );
-    assert_eq!(session.previewer.ids[0], session.previewer.ids[1]);
+    assert_eq!(
+        session.interface.previewer.ids[0],
+        session.interface.previewer.ids[1]
+    );
 }
 
 #[test]
@@ -271,34 +295,36 @@ fn refresh_only_invalidates_the_target_without_resubmitting_queued_work() {
         session.update_at(Some(idx), &picker.core.engine, Instant::now());
     }
     for hovered in [None, Some(2)] {
-        session.handle_at(PreviewEvent::Refresh, hovered);
+        assert!(!session.handle_at(PreviewEvent::Refresh, hovered));
     }
-    assert!(!session.state.pending_redraw);
-    assert_eq!(session.state.cache.len(), 2);
-    assert_eq!(session.previewer.requested, ["alpha", "beta"]);
-    let cached = session.state.cache.peek_mut(&1).unwrap();
+    assert_eq!(session.state.preview.cache.len(), 2);
+    assert_eq!(session.interface.previewer.requested, ["alpha", "beta"]);
+    let cached = session.state.preview.cache.peek_mut(&1).unwrap();
     cached.pane_mut().unwrap().set_offset(0, 7);
     session.handle_at(PreviewEvent::Refresh, Some(0));
     assert!(!session.update_at(Some(1), &picker.core.engine, Instant::now()));
-    assert_eq!(session.previewer.requested, ["alpha", "beta"]);
-    let pane = session.state.cached().unwrap().pane().unwrap();
+    assert_eq!(session.interface.previewer.requested, ["alpha", "beta"]);
+    let pane = session.state.preview.cached().unwrap().pane().unwrap();
     assert_eq!(pane.offset(), (0, 7));
-    session.previewer.defer = true;
-    assert!(session.previewer.queued.is_empty());
+    session.interface.previewer.defer = true;
+    assert!(session.interface.previewer.queued.is_empty());
     assert!(session.update_at(Some(0), &picker.core.engine, Instant::now()));
     assert!(!session.update_at(Some(0), &picker.core.engine, Instant::now()));
     assert!(session.update_at(Some(1), &picker.core.engine, Instant::now()));
-    let pane = session.state.cached().unwrap().pane().unwrap();
+    let pane = session.state.preview.cached().unwrap().pane().unwrap();
     assert_eq!(pane.offset(), (0, 7));
-    assert_eq!(session.previewer.requested, ["alpha", "beta", "alpha"]);
-    assert_eq!(session.previewer.queued.len(), 1);
-    assert!(!session.previewer.queued[0].is_cancelled());
+    assert_eq!(
+        session.interface.previewer.requested,
+        ["alpha", "beta", "alpha"]
+    );
+    assert_eq!(session.interface.previewer.queued.len(), 1);
+    assert!(!session.interface.previewer.queued[0].is_cancelled());
 }
 
 #[test]
 fn cache_evicts_the_least_recently_visited_item() {
     let mut session = TestSession::new(NonZero::new(3), TestPreviewer::default());
-    let capacity = session.state.cache.cap().get();
+    let capacity = session.state.preview.cache.cap().get();
     assert_eq!(capacity, 3);
     let picker = picker(std::iter::repeat_n("item", capacity + 1));
     for rank in 0..capacity as u32 {
@@ -307,14 +333,14 @@ fn cache_evicts_the_least_recently_visited_item() {
     session.update_at(Some(0), &picker.core.engine, Instant::now());
     session.update_at(Some(capacity as u32), &picker.core.engine, Instant::now());
 
-    assert_eq!(session.state.cache.len(), capacity);
-    assert!(session.state.cache.contains(&0));
-    assert!(!session.state.cache.contains(&1));
-    assert_eq!(session.previewer.requested.len(), capacity + 1);
+    assert_eq!(session.state.preview.cache.len(), capacity);
+    assert!(session.state.preview.cache.contains(&0));
+    assert!(!session.state.preview.cache.contains(&1));
+    assert_eq!(session.interface.previewer.requested.len(), capacity + 1);
 
     session.update_at(Some(1), &picker.core.engine, Instant::now());
-    assert_eq!(session.previewer.requested.len(), capacity + 2);
-    let cached = session.state.cache.peek(&1).unwrap();
+    assert_eq!(session.interface.previewer.requested.len(), capacity + 2);
+    let cached = session.state.preview.cache.peek(&1).unwrap();
     assert_eq!(cached.pane().unwrap().offset(), (0, 0));
 }
 
@@ -325,19 +351,27 @@ fn unbounded_cache_retains_previews_and_scroll_state() {
     let picker = picker(std::iter::repeat_n("item", item_count));
     for idx in 0..item_count as u32 {
         session.update_at(Some(idx), &picker.core.engine, Instant::now());
-        let cached = session.state.cache.get_mut(&idx).unwrap();
+        let cached = session.state.preview.cache.get_mut(&idx).unwrap();
         cached.pane_mut().unwrap().set_offset(0, idx as usize + 1);
     }
-    assert_eq!(session.state.cache.len(), item_count);
+    assert_eq!(session.state.preview.cache.len(), item_count);
 
     for idx in 0..item_count as u32 {
         session.update_at(Some(idx), &picker.core.engine, Instant::now());
         assert_eq!(
-            session.state.cached().unwrap().pane().unwrap().offset().1,
+            session
+                .state
+                .preview
+                .cached()
+                .unwrap()
+                .pane()
+                .unwrap()
+                .offset()
+                .1,
             idx as usize + 1
         );
     }
-    assert_eq!(session.previewer.requested.len(), item_count);
+    assert_eq!(session.interface.previewer.requested.len(), item_count);
 }
 
 #[test]
@@ -348,11 +382,18 @@ fn refresh_and_eviction_cancel_requests_and_reuse_returned_buffers() {
     {
         let mut session = TestSession::new(NonZero::new(1), TestPreviewer::default());
         let picker = picker(["alpha", "beta"]);
-        session.state.spare.push_str("reusable buffer");
-        let mut allocation = session.state.spare.line(0).unwrap().as_str().as_ptr();
-        session.previewer.defer = true;
+        session.state.preview.spare.push_str("reusable buffer");
+        let mut allocation = session
+            .state
+            .preview
+            .spare
+            .line(0)
+            .unwrap()
+            .as_str()
+            .as_ptr();
+        session.interface.previewer.defer = true;
         session.update_at(Some(0), &picker.core.engine, Instant::now());
-        let request = session.previewer.take_request("alpha");
+        let request = session.interface.previewer.take_request("alpha");
         let (queued, active) = if matches!(stage, Stage::Published) {
             let mut pane = Pane::new();
             pane.buffer_mut().push_text("completed alpha\n");
@@ -363,14 +404,14 @@ fn refresh_and_eviction_cancel_requests_and_reuse_returned_buffers() {
             stage.prepare(request)
         };
 
-        session.previewer.defer = false;
-        session.previewer.lines = 2;
+        session.interface.previewer.defer = false;
+        session.interface.previewer.lines = 2;
         let (rank, item) = if evict {
             assert!(session.update_at(Some(1), &picker.core.engine, Instant::now()));
             (1, "beta")
         } else {
             session.handle_at(PreviewEvent::Refresh, Some(0));
-            assert_eq!(session.previewer.requested, ["alpha"]);
+            assert_eq!(session.interface.previewer.requested, ["alpha"]);
             (0, "alpha")
         };
         if let Some(queued) = queued {
@@ -384,9 +425,9 @@ fn refresh_and_eviction_cancel_requests_and_reuse_returned_buffers() {
             assert!(session.update_at(Some(rank), &picker.core.engine, Instant::now()));
         }
         assert!(!session.update_at(Some(rank), &picker.core.engine, Instant::now()));
-        assert_eq!(session.previewer.requested, ["alpha", item]);
+        assert_eq!(session.interface.previewer.requested, ["alpha", item]);
         assert_eq!(
-            session.previewer.buffer_allocations[1], allocation,
+            session.interface.previewer.buffer_allocations[1], allocation,
             "stage={stage:?}, evict={evict}"
         );
         assert_eq!(session.contents(), [item; 2]);
@@ -400,50 +441,70 @@ fn queued_promotion_and_dropped_requests_reuse_buffers_once_per_update() {
         defer: true,
         ..TestPreviewer::default()
     });
-    session.state.spare.push_str("previous contents");
-    let allocation = session.state.spare.line(0).unwrap().as_str().as_ptr();
+    session.state.preview.spare.push_str("previous contents");
+    let allocation = session
+        .state
+        .preview
+        .spare
+        .line(0)
+        .unwrap()
+        .as_str()
+        .as_ptr();
     for rank in [0, 0, 1, 0, 0, 0] {
         session.update_at(Some(rank), &picker.core.engine, Instant::now());
     }
-    assert_eq!(session.previewer.requested, ["alpha", "beta", "alpha"]);
     assert_eq!(
-        session.previewer.hovered,
+        session.interface.previewer.requested,
+        ["alpha", "beta", "alpha"]
+    );
+    assert_eq!(
+        session.interface.previewer.hovered,
         [Some("alpha"), Some("beta"), Some("alpha")]
     );
-    assert!(session.previewer.queued[0].is_cancelled());
-    assert!(!session.previewer.queued[1].is_cancelled());
-    assert!(!session.previewer.queued[2].is_cancelled());
-    assert_eq!(session.previewer.buffer_allocations[2], allocation);
+    assert!(session.interface.previewer.queued[0].is_cancelled());
+    assert!(!session.interface.previewer.queued[1].is_cancelled());
+    assert!(!session.interface.previewer.queued[2].is_cancelled());
+    assert_eq!(
+        session.interface.previewer.buffer_allocations[2],
+        allocation
+    );
     for (step, stage) in [Stage::DroppedQueued, Stage::DroppedActive]
         .into_iter()
         .enumerate()
     {
-        let Some(RequestState::Pending(pending)) = &session.state.cached().unwrap().state else {
+        let Some(RequestState::Pending(pending)) = &session.state.preview.cached().unwrap().state
+        else {
             panic!("expected pending preview");
         };
-        assert_eq!(pending.epoch, session.state.epoch);
-        stage.prepare(session.previewer.take_request("alpha"));
+        assert_eq!(pending.epoch, session.state.preview.epoch);
+        stage.prepare(session.interface.previewer.take_request("alpha"));
         assert!(!session.update_at(Some(0), &picker.core.engine, Instant::now()));
         assert!(!session.update_at(Some(0), &picker.core.engine, Instant::now()));
-        assert_eq!(session.previewer.requested.len(), step + 4);
-        assert_eq!(session.previewer.buffer_allocations[step + 3], allocation);
-        assert_eq!(session.previewer.ids[step + 3], session.previewer.ids[0]);
+        assert_eq!(session.interface.previewer.requested.len(), step + 4);
+        assert_eq!(
+            session.interface.previewer.buffer_allocations[step + 3],
+            allocation
+        );
+        assert_eq!(
+            session.interface.previewer.ids[step + 3],
+            session.interface.previewer.ids[0]
+        );
     }
-    session.previewer.defer = false;
-    drop(session.previewer.take_request("alpha"));
+    session.interface.previewer.defer = false;
+    drop(session.interface.previewer.take_request("alpha"));
     assert!(session.update_at(Some(0), &picker.core.engine, Instant::now()));
     assert!(!session.update_at(Some(0), &picker.core.engine, Instant::now()));
-    let pane = session.state.cached().unwrap().pane().unwrap();
+    let pane = session.state.preview.cached().unwrap().pane().unwrap();
     assert_eq!(pane.buffer().line(0).unwrap().as_str().as_ptr(), allocation);
     assert_eq!(session.contents(), ["alpha"]);
     assert!(!pane.is_err());
     assert!(!pane.line_numbers());
     assert_eq!(
-        session.previewer.requested,
+        session.interface.previewer.requested,
         ["alpha", "beta", "alpha", "alpha", "alpha", "alpha"]
     );
     assert_eq!(
-        session.previewer.hovered,
+        session.interface.previewer.hovered,
         [Some("alpha"), Some("beta"), Some("alpha")]
     );
 }
@@ -456,27 +517,34 @@ fn active_previews_survive_revisits_and_complete_once() {
         ..TestPreviewer::default()
     });
     session.update_at(Some(0), &picker.core.engine, Instant::now());
-    let active = session.previewer.queued.pop().unwrap().start().unwrap();
+    let active = session
+        .interface
+        .previewer
+        .queued
+        .pop()
+        .unwrap()
+        .start()
+        .unwrap();
     session.hide();
     session.update_at(Some(0), &picker.core.engine, Instant::now());
     session.update_at(Some(1), &picker.core.engine, Instant::now());
-    let queued = session.previewer.take_request("beta");
+    let queued = session.interface.previewer.take_request("beta");
     for rank in [None, None, Some(0), Some(0)] {
         session.update_at(rank, &picker.core.engine, Instant::now());
     }
     assert!(!active.is_cancelled());
-    assert_eq!(session.previewer.requested, ["alpha", "beta"]);
+    assert_eq!(session.interface.previewer.requested, ["alpha", "beta"]);
     let mut pane = Pane::new();
     pane.buffer_mut().push_str("completed alpha");
     pane.set_err(true);
     assert!(active.publish(&mut pane).is_ok());
     assert!(session.update_at(Some(0), &picker.core.engine, Instant::now()));
     assert!(!session.update_at(Some(0), &picker.core.engine, Instant::now()));
-    let pane = session.state.cached().unwrap().pane().unwrap();
+    let pane = session.state.preview.cached().unwrap().pane().unwrap();
     assert_eq!(pane.buffer().line(0).unwrap().as_str(), "completed alpha");
     assert!(pane.is_err());
     assert_eq!(
-        session.previewer.hovered,
+        session.interface.previewer.hovered,
         [
             Some("alpha"),
             None,
@@ -489,13 +557,13 @@ fn active_previews_survive_revisits_and_complete_once() {
     publish(queued.start().unwrap());
     assert!(!session.update_at(Some(0), &picker.core.engine, Instant::now()));
     assert!(matches!(
-        session.state.cache.peek(&1).unwrap().state,
+        session.state.preview.cache.peek(&1).unwrap().state,
         Some(RequestState::Pending(_))
     ));
     assert!(session.update_at(Some(1), &picker.core.engine, Instant::now()));
     assert!(!session.update_at(Some(1), &picker.core.engine, Instant::now()));
     assert_eq!(session.contents(), ["beta"]);
-    assert_eq!(session.previewer.requested, ["alpha", "beta"]);
+    assert_eq!(session.interface.previewer.requested, ["alpha", "beta"]);
 }
 
 #[test]
@@ -517,22 +585,22 @@ fn filtering_and_cleared_hovered_items_reprioritize_by_item_identity() {
         picker.update_query(query);
         settle(&mut picker);
         assert_eq!(update(&mut session, &mut picker), changed);
-        assert_eq!(session.state.cached().is_none(), query == "missing");
+        assert_eq!(session.state.preview.cached().is_none(), query == "missing");
     }
     assert_eq!(
-        session.previewer.requested,
+        session.interface.previewer.requested,
         ["alpha", "beta", "alpha", "alpha"]
     );
-    let ids = &session.previewer.ids;
+    let ids = &session.interface.previewer.ids;
     assert_ne!(ids[0], ids[1]);
     assert_eq!(ids[0], ids[2]);
     assert_eq!(ids[0], ids[3]);
-    assert!(session.previewer.queued[0].is_cancelled());
-    assert!(!session.previewer.queued[1].is_cancelled());
-    assert!(session.previewer.queued[2].is_cancelled());
-    assert!(!session.previewer.queued[3].is_cancelled());
+    assert!(session.interface.previewer.queued[0].is_cancelled());
+    assert!(!session.interface.previewer.queued[1].is_cancelled());
+    assert!(session.interface.previewer.queued[2].is_cancelled());
+    assert!(!session.interface.previewer.queued[3].is_cancelled());
     assert_eq!(
-        session.previewer.hovered,
+        session.interface.previewer.hovered,
         [
             Some("alpha"),
             Some("beta"),
@@ -556,16 +624,16 @@ fn immediately_dropped_requests_are_submitted_at_most_once_per_update() {
             session.update_at(Some(0), &picker.core.engine, Instant::now()),
             count == 1
         );
-        assert_eq!(session.previewer.requested.len(), count);
+        assert_eq!(session.interface.previewer.requested.len(), count);
     }
-    session.previewer.defer = false;
+    session.interface.previewer.defer = false;
     assert!(session.update_at(Some(0), &picker.core.engine, Instant::now()));
     assert!(!session.update_at(Some(0), &picker.core.engine, Instant::now()));
-    assert_eq!(session.previewer.requested.len(), 5);
+    assert_eq!(session.interface.previewer.requested.len(), 5);
 }
 
 #[test]
-fn restart_preserves_invalidation_until_the_next_update() {
+fn restart_clears_preview_state_without_deferring_changes_to_update() {
     for defer in [false, true] {
         for restarts in [1, 2] {
             let mut picker = picker([]);
@@ -575,10 +643,10 @@ fn restart_preserves_invalidation_until_the_next_update() {
             });
             assert!(!update(&mut session, &mut picker));
             assert!(!update(&mut session, &mut picker));
-            assert!(session.previewer.hovered.is_empty());
-            assert!(session.previewer.requested.is_empty());
-            assert!(session.state.cache.is_empty());
-            assert!(session.state.cached().is_none());
+            assert!(session.interface.previewer.hovered.is_empty());
+            assert!(session.interface.previewer.requested.is_empty());
+            assert!(session.state.preview.cache.is_empty());
+            assert!(session.state.preview.cached().is_none());
             picker.push_batch(["alpha"]);
             settle(&mut picker);
             assert!(update(&mut session, &mut picker));
@@ -589,22 +657,24 @@ fn restart_preserves_invalidation_until_the_next_update() {
             for _ in 0..restarts {
                 session.restart();
             }
-            assert!(session.state.cache.is_empty());
+            assert!(session.state.preview.cache.is_empty());
             assert!(
                 session
+                    .interface
                     .previewer
                     .queued
                     .iter()
                     .all(QueuedRequest::is_cancelled)
             );
-            assert!(update(&mut session, &mut picker));
+            assert!(matches!(session.state.preview.content(), Content::Empty));
             assert!(!update(&mut session, &mut picker));
-            assert_eq!(session.state.epoch, 0);
-            assert_eq!(session.previewer.requested, ["alpha"]);
+            assert!(!update(&mut session, &mut picker));
+            assert_eq!(session.state.preview.epoch, 0);
+            assert_eq!(session.interface.previewer.requested, ["alpha"]);
 
             session.restart();
             assert!(!update(&mut session, &mut picker));
-            assert_eq!(session.previewer.hovered, [Some("alpha"), None]);
+            assert_eq!(session.interface.previewer.hovered, [Some("alpha"), None]);
         }
     }
 }
@@ -617,25 +687,28 @@ fn restart_with_a_reused_item_id_and_pending_preview_reports_one_change() {
     let old_idx = hovered_index(&picker).unwrap();
 
     session.restart();
-    assert_eq!(session.state.last_item, None);
-    assert_eq!(session.state.epoch, 0);
-    assert!(session.state.cache.is_empty());
+    assert_eq!(session.state.preview.last_item, None);
+    assert_eq!(session.state.preview.epoch, 0);
+    assert!(session.state.preview.cache.is_empty());
     assert!(update(&mut session, &mut picker));
-    assert_eq!(session.previewer.requested, ["alpha", "alpha"]);
+    assert_eq!(session.interface.previewer.requested, ["alpha", "alpha"]);
 
     session.restart();
     picker.restart();
     picker.push_batch(["beta"]);
     settle(&mut picker);
     assert_eq!(hovered_index(&picker).unwrap(), old_idx);
-    session.previewer.defer = true;
+    session.interface.previewer.defer = true;
 
     assert!(update(&mut session, &mut picker));
     assert!(!update(&mut session, &mut picker));
-    assert_eq!(session.previewer.requested, ["alpha", "alpha", "beta"]);
-    assert!(!session.previewer.queued[0].is_cancelled());
     assert_eq!(
-        session.previewer.hovered,
+        session.interface.previewer.requested,
+        ["alpha", "alpha", "beta"]
+    );
+    assert!(!session.interface.previewer.queued[0].is_cancelled());
+    assert_eq!(
+        session.interface.previewer.hovered,
         [Some("alpha"), None, Some("alpha"), None, Some("beta")]
     );
 }
@@ -652,11 +725,18 @@ fn pending_previews_ignore_scrolling_even_after_publication() {
         height: 10,
         ..Area::default()
     };
-    session.state.resize_area(area);
+    session.resize(area);
     session.update_at(Some(0), &picker.core.engine, Instant::now());
     session.handle_at(PreviewEvent::Down(1), Some(0));
     session.handle_at(PreviewEvent::Right(1), Some(0));
-    let active = session.previewer.queued.pop().unwrap().start().unwrap();
+    let active = session
+        .interface
+        .previewer
+        .queued
+        .pop()
+        .unwrap()
+        .start()
+        .unwrap();
     session.handle_at(PreviewEvent::PageDown(1), Some(0));
     let mut pane = Pane::new();
     for _ in 0..30 {
@@ -673,14 +753,21 @@ fn pending_previews_ignore_scrolling_even_after_publication() {
     ] {
         session.handle_at(event, Some(0));
     }
-    session.state.resize_area(area);
+    session.resize(area);
     assert!(matches!(
-        session.state.cache.peek(&0).unwrap().state,
+        session.state.preview.cache.peek(&0).unwrap().state,
         Some(RequestState::Pending(_))
     ));
     session.update_at(Some(0), &picker.core.engine, Instant::now());
     assert_eq!(
-        session.state.cached().unwrap().pane().unwrap().offset(),
+        session
+            .state
+            .preview
+            .cached()
+            .unwrap()
+            .pane()
+            .unwrap()
+            .offset(),
         (0, 0)
     );
 }
@@ -694,12 +781,14 @@ fn lines_and_pages_saturate_in_order_and_preserve_columns() {
     });
     let cx = Context::new(&picker.core.engine)
         .with_rank(Some(0))
-        .with_preview(Some(Dimensions {
-            width: 20,
-            height: 8,
-        }));
+        .with_preview_enabled(true);
+    let size = Dimensions {
+        width: 20,
+        height: 8,
+    };
+    session.state.preview.resize(Some(size));
     assert!(session.update(&cx, true, Instant::now()));
-    let cached = session.state.cache.peek_mut(&0).unwrap();
+    let cached = session.state.preview.cache.peek_mut(&0).unwrap();
     cached.pane_mut().unwrap().set_offset(9, 0);
     for (event, row) in [
         (PreviewEvent::Up(5), 0),
@@ -720,22 +809,34 @@ fn lines_and_pages_saturate_in_order_and_preserve_columns() {
         (PreviewEvent::AlignTop, 0),
         (PreviewEvent::AlignTop, 0),
     ] {
-        let previous = session.state.cached().unwrap().pane().unwrap().offset();
-        session.handle(event, &cx);
+        let previous = session
+            .state
+            .preview
+            .cached()
+            .unwrap()
+            .pane()
+            .unwrap()
+            .offset();
+        assert_eq!(session.handle(event, &cx), previous != (9, row));
         assert_eq!(
-            session.state.cached().unwrap().pane().unwrap().offset(),
+            session
+                .state
+                .preview
+                .cached()
+                .unwrap()
+                .pane()
+                .unwrap()
+                .offset(),
             (9, row)
         );
-        assert_eq!(
-            session.update(&cx, false, Instant::now()),
-            previous != (9, row)
-        );
+        assert!(!session.update(&cx, false, Instant::now()));
     }
     for lines in [1, 3, 8] {
         let mut session = preview_pane(TestPreviewer {
             lines,
             ..TestPreviewer::default()
         });
+        session.state.preview.resize(Some(size));
         assert!(session.update(&cx, true, Instant::now()));
         for event in [
             PreviewEvent::Down(1),
@@ -743,9 +844,16 @@ fn lines_and_pages_saturate_in_order_and_preserve_columns() {
             PreviewEvent::AlignTop,
             PreviewEvent::AlignBottom,
         ] {
-            session.handle(event, &cx);
+            assert!(!session.handle(event, &cx));
             assert_eq!(
-                session.state.cached().unwrap().pane().unwrap().offset(),
+                session
+                    .state
+                    .preview
+                    .cached()
+                    .unwrap()
+                    .pane()
+                    .unwrap()
+                    .offset(),
                 (0, 0)
             );
             assert!(!session.update(&cx, false, Instant::now()));
@@ -764,7 +872,11 @@ fn zero_sized_panes_only_suppress_movement_at_zero_width() {
     for (width, height) in [(0, 1), (1, 0), (0, 0)] {
         let cx = Context::new(&picker.core.engine)
             .with_rank(Some(0))
-            .with_preview(Some(Dimensions { width, height }));
+            .with_preview_enabled(true);
+        session
+            .state
+            .preview
+            .resize(Some(Dimensions { width, height }));
         for (event, offset) in [
             (PreviewEvent::Left(1), (6, 2)),
             (PreviewEvent::Right(1), (7, 2)),
@@ -777,54 +889,56 @@ fn zero_sized_panes_only_suppress_movement_at_zero_width() {
             (PreviewEvent::AlignTop, (7, 0)),
             (PreviewEvent::AlignBottom, (7, 4)),
         ] {
-            let cached = session.state.cache.peek_mut(&0).unwrap();
+            let cached = session.state.preview.cache.peek_mut(&0).unwrap();
             cached.pane_mut().unwrap().set_offset(7, 2);
             let expected = if width == 0 { (7, 2) } else { offset };
-            session.handle(event, &cx);
+            assert_eq!(session.handle(event, &cx), expected != (7, 2));
             assert_eq!(
-                session.state.cached().unwrap().pane().unwrap().offset(),
+                session
+                    .state
+                    .preview
+                    .cached()
+                    .unwrap()
+                    .pane()
+                    .unwrap()
+                    .offset(),
                 expected
             );
-            assert_eq!(
-                session.update(&cx, false, Instant::now()),
-                expected != (7, 2)
-            );
+            assert!(!session.update(&cx, false, Instant::now()));
         }
     }
 }
 
 #[test]
-fn scrolling_accumulates_changes_without_advancing_request_priority() {
+fn scrolling_reports_changes_without_advancing_request_priority() {
     let picker = picker(["alpha", "beta"]);
     let mut session = preview_pane(TestPreviewer {
         lines: 30,
         ..TestPreviewer::default()
     });
     session.update_at(Some(0), &picker.core.engine, Instant::now());
-    let epoch = session.state.epoch;
-    session.state.resize_area(Area {
+    let epoch = session.state.preview.epoch;
+    session.resize(Area {
         column: 10,
         row: 0,
         width: 10,
         height: 10,
     });
-    for event in [PreviewEvent::Down(1), PreviewEvent::Up(0)] {
-        session.handle_at(event, Some(0));
-    }
-    let cached = session.state.cache.peek(&0).unwrap();
+    assert!(session.handle_at(PreviewEvent::Down(1), Some(0)));
+    assert!(!session.handle_at(PreviewEvent::Up(0), Some(0)));
+    let cached = session.state.preview.cache.peek(&0).unwrap();
     assert_eq!(cached.pane().unwrap().offset().1, 1);
-    assert!(session.update_at(Some(0), &picker.core.engine, Instant::now()));
     assert!(!session.update_at(Some(0), &picker.core.engine, Instant::now()));
-    assert_eq!(session.state.epoch, epoch);
-    assert_eq!(session.previewer.requested, ["alpha"]);
+    assert_eq!(session.state.preview.epoch, epoch);
+    assert_eq!(session.interface.previewer.requested, ["alpha"]);
 
     session.handle_at(PreviewEvent::Down(1), Some(0));
-    session.previewer.defer = true;
+    session.interface.previewer.defer = true;
     assert!(session.update_at(Some(1), &picker.core.engine, Instant::now()));
     assert!(!session.update_at(Some(1), &picker.core.engine, Instant::now()));
-    assert_eq!(session.state.epoch, epoch + 1);
-    assert_eq!(session.previewer.requested, ["alpha", "beta"]);
-    assert!(!session.previewer.queued[0].is_cancelled());
+    assert_eq!(session.state.preview.epoch, epoch + 1);
+    assert_eq!(session.interface.previewer.requested, ["alpha", "beta"]);
+    assert!(!session.interface.previewer.queued[0].is_cancelled());
 }
 
 #[test]
@@ -844,16 +958,27 @@ fn restart_and_end_cancel_foreground_and_prefetch_requests_before_callbacks() {
         }
         session.update_at(Some(3), &picker.core.engine, Instant::now());
         session.update_at(Some(0), &picker.core.engine, Instant::now());
-        let foreground = session.previewer.take_request("alpha").start().unwrap();
+        let foreground = session
+            .interface
+            .previewer
+            .take_request("alpha")
+            .start()
+            .unwrap();
         session.run_frame(Some(0), &picker.core.engine, deadline());
-        let prefetched = session.previewer.take_request("beta").start().unwrap();
+        let prefetched = session
+            .interface
+            .previewer
+            .take_request("beta")
+            .start()
+            .unwrap();
         session.run_frame(Some(0), &picker.core.engine, deadline());
-        assert_eq!(session.previewer.requested, ["delta", "alpha"]);
-        assert_eq!(session.previewer.prefetched, ["beta", "gamma"]);
+        assert_eq!(session.interface.previewer.requested, ["delta", "alpha"]);
+        assert_eq!(session.interface.previewer.prefetched, ["beta", "gamma"]);
         assert!(!foreground.is_cancelled());
         assert!(!prefetched.is_cancelled());
         assert!(
             session
+                .interface
                 .previewer
                 .queued
                 .iter()
@@ -862,9 +987,9 @@ fn restart_and_end_cancel_foreground_and_prefetch_requests_before_callbacks() {
 
         if restart {
             session.restart();
-            assert!(session.state.cache.is_empty());
-            assert_eq!(session.state.last_item, None);
-            assert_eq!(session.state.epoch, 0);
+            assert!(session.state.preview.cache.is_empty());
+            assert_eq!(session.state.preview.last_item, None);
+            assert_eq!(session.state.preview.epoch, 0);
             assert!(foreground.is_cancelled());
             assert!(prefetched.is_cancelled());
             session.restart();
@@ -907,7 +1032,7 @@ fn owned_state_preserves_requests_until_end_or_drop() {
         };
         let cx = Context::new(&picker.core.engine)
             .with_rank(Some(0))
-            .with_preview(Some(Dimensions::default()));
+            .with_preview_enabled(true);
         let (mut state, active) = {
             let mut state = PreviewState::new(None, previewer.prefetch_limit());
             assert!(state.update(&mut previewer, &cx, true, Instant::now()));
@@ -990,14 +1115,18 @@ fn line_number_events_preserve_raw_offsets_and_only_redraw_on_changes() {
     for (width, height) in [(0, 0), (0, 8), (20, 0), (20, 8)] {
         let cx = Context::new(&picker.core.engine)
             .with_rank(Some(0))
-            .with_preview(Some(Dimensions { width, height }));
+            .with_preview_enabled(true);
         for base in [false, true] {
             let mut session = preview_pane(TestPreviewer {
                 line_numbers: base,
                 ..TestPreviewer::default()
             });
+            session
+                .state
+                .preview
+                .resize(Some(Dimensions { width, height }));
             assert!(session.update(&cx, true, Instant::now()));
-            let cached = session.state.cache.peek_mut(&0).unwrap();
+            let cached = session.state.preview.cache.peek_mut(&0).unwrap();
             let pane = cached.pane_mut().unwrap();
             assert_eq!(pane.line_numbers(), base);
             pane.set_offset(usize::MAX, usize::MAX);
@@ -1008,15 +1137,14 @@ fn line_number_events_preserve_raw_offsets_and_only_redraw_on_changes() {
                 (PreviewEvent::SetLineNumbers(!base), !base, true),
                 (PreviewEvent::SetLineNumbers(!base), !base, false),
             ] {
-                session.handle(event, &cx);
-                let pane = session.state.cached().unwrap().pane().unwrap();
+                assert_eq!(session.handle(event, &cx), changed);
+                let pane = session.state.preview.cached().unwrap().pane().unwrap();
                 assert_eq!(pane.line_numbers(), expected);
                 assert_eq!(pane.offset(), (usize::MAX, usize::MAX));
                 assert_eq!(pane.buffer().line(0).unwrap().as_str(), "alpha");
-                assert_eq!(session.update(&cx, false, Instant::now()), changed);
                 assert!(!session.update(&cx, false, Instant::now()));
             }
-            assert_eq!(session.previewer.requested, ["alpha"]);
+            assert_eq!(session.interface.previewer.requested, ["alpha"]);
         }
     }
 }
@@ -1026,7 +1154,7 @@ fn horizontal_events_follow_layout_and_only_redraw_when_the_offset_changes() {
     let picker = picker(["abcdefghijklmnop"]);
     let mut session = preview_pane(TestPreviewer::default());
     assert!(session.update_at(Some(0), &picker.core.engine, Instant::now()));
-    session.state.resize_area(Area {
+    session.resize(Area {
         width: 12,
         height: 4,
         ..Area::default()
@@ -1044,26 +1172,38 @@ fn horizontal_events_follow_layout_and_only_redraw_when_the_offset_changes() {
         (PreviewEvent::Right(1), 8, false),
         (PreviewEvent::Left(1), 7, true),
     ] {
-        session.handle_at(event, Some(0));
+        assert_eq!(session.handle_at(event, Some(0)), changed);
         assert_eq!(
-            session.state.cached().unwrap().pane().unwrap().offset().0,
+            session
+                .state
+                .preview
+                .cached()
+                .unwrap()
+                .pane()
+                .unwrap()
+                .offset()
+                .0,
             expected
-        );
-        assert_eq!(
-            session.update_at(Some(0), &picker.core.engine, Instant::now()),
-            changed
         );
         assert!(!session.update_at(Some(0), &picker.core.engine, Instant::now()));
     }
     for width in [30, 0, 12] {
-        session.state.resize_area(Area {
+        session.resize(Area {
             width,
             height: 4,
             ..Area::default()
         });
         session.handle_at(PreviewEvent::Right(1), Some(0));
         assert_eq!(
-            session.state.cached().unwrap().pane().unwrap().offset().0,
+            session
+                .state
+                .preview
+                .cached()
+                .unwrap()
+                .pane()
+                .unwrap()
+                .offset()
+                .0,
             7
         );
         assert!(!session.update_at(Some(0), &picker.core.engine, Instant::now()));
@@ -1071,12 +1211,20 @@ fn horizontal_events_follow_layout_and_only_redraw_when_the_offset_changes() {
     session.handle_at(PreviewEvent::Right(1), Some(1));
     session.handle_at(PreviewEvent::Left(1), None);
     assert!(!session.update_at(Some(0), &picker.core.engine, Instant::now()));
-    assert_eq!(session.state.cache.len(), 1);
-    assert_eq!(session.previewer.requested, ["abcdefghijklmnop"]);
+    assert_eq!(session.state.preview.cache.len(), 1);
+    assert_eq!(session.interface.previewer.requested, ["abcdefghijklmnop"]);
     session.restart();
     assert!(session.update_at(Some(0), &picker.core.engine, Instant::now()));
     assert_eq!(
-        session.state.cached().unwrap().pane().unwrap().offset().0,
+        session
+            .state
+            .preview
+            .cached()
+            .unwrap()
+            .pane()
+            .unwrap()
+            .offset()
+            .0,
         0
     );
 }

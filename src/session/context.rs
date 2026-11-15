@@ -1,5 +1,3 @@
-#[cfg(feature = "preview")]
-use super::Dimensions;
 use super::{ItemRef, Matches};
 use crate::match_engine::MatchEngine;
 
@@ -10,7 +8,7 @@ pub struct Context<'items, T> {
     query: &'items str,
     rank: Option<u32>,
     #[cfg(feature = "preview")]
-    preview_dimensions: Option<Dimensions>,
+    preview_enabled: bool,
 }
 
 impl<'items, T: Send + Sync + 'static> Context<'items, T> {
@@ -20,7 +18,7 @@ impl<'items, T: Send + Sync + 'static> Context<'items, T> {
             query: engine.query(),
             rank: None,
             #[cfg(feature = "preview")]
-            preview_dimensions: None,
+            preview_enabled: false,
         }
     }
 
@@ -30,8 +28,8 @@ impl<'items, T: Send + Sync + 'static> Context<'items, T> {
     }
 
     #[cfg(feature = "preview")]
-    pub(crate) fn with_preview(mut self, size: Option<Dimensions>) -> Self {
-        self.preview_dimensions = size;
+    pub(crate) fn with_preview_enabled(mut self, enabled: bool) -> Self {
+        self.preview_enabled = enabled;
         self
     }
 
@@ -50,12 +48,14 @@ impl<'items, T: Send + Sync + 'static> Context<'items, T> {
         self.query
     }
 
-    /// Returns the dimensions of the preview pane, or `None` if the preview pane is hidden or
-    /// otherwise not enabled.
+    /// Returns whether the preview pane is enabled.
+    ///
+    /// For example, this method returns `false` if the user has requested that the preview pane is
+    /// hidden. Implementations may use this information to skip background preview preparation.
     #[cfg(feature = "preview")]
     #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
-    pub fn preview_dimensions(&self) -> Option<Dimensions> {
-        self.preview_dimensions
+    pub fn preview_enabled(&self) -> bool {
+        self.preview_enabled
     }
 
     /// Return a view of the currently matching items in the picker.

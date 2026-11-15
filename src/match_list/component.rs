@@ -205,23 +205,30 @@ impl<'a> MatchList<'a> {
     }
 }
 
-impl<T: Send + Sync + 'static, R: crate::Render<T>, I: Interface<T>>
-    Component<(&MatchEngine<T, R>, &I, &I::State)> for MatchList<'_>
+pub(crate) struct MatchListView<'a, 'session, T, R, I: Interface<T>> {
+    pub list: &'a mut MatchList<'session>,
+    pub engine: &'a MatchEngine<T, R>,
+    pub interface: &'a I,
+    pub state: &'a I::State,
+}
+
+impl<T: Send + Sync + 'static, R: crate::Render<T>, I: Interface<T>> Component
+    for MatchListView<'_, '_, T, R, I>
 {
-    fn resize(&mut self, area: Area, (engine, _, _): &(&MatchEngine<T, R>, &I, &I::State)) {
-        self.state
+    fn resize(&mut self, area: Area) {
+        self.list
+            .state
             .layout
-            .resize(engine.snapshot(), area.height, &self.state.config);
+            .resize(self.engine.snapshot(), area.height, &self.list.state.config);
     }
 
-    fn draw<D: Rect>(
-        &mut self,
-        (engine, interface, state): &(&MatchEngine<T, R>, &I, &I::State),
-        rect: &mut D,
-    ) -> io::Result<()> {
-        self.state.draw_items(engine, rect, self.chars, |idx| {
-            interface.is_queued(state, engine.item_id(idx))
-        })
+    fn draw<D: Rect>(&mut self, rect: &mut D) -> io::Result<()> {
+        self.list
+            .state
+            .draw_items(self.engine, rect, self.list.chars, |idx| {
+                self.interface
+                    .is_queued(self.state, self.engine.item_id(idx))
+            })
     }
 }
 

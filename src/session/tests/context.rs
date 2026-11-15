@@ -3,7 +3,6 @@ use std::time::{Duration, Instant};
 use super::{TestEvents, TestTerminal};
 use crate::{
     PickerOptions,
-    component::PreviewComponent,
     event::{Event, MatchListEvent, PromptEvent},
     match_list::SelectionIntoIter,
     render::StrRenderer,
@@ -19,7 +18,7 @@ fn context_tracks_rank_identity_and_match_publication() {
     let cx = Context::new(&picker.core.engine);
     assert_eq!(cx.query(), "ta");
     #[cfg(feature = "preview")]
-    assert!(cx.preview_dimensions().is_none());
+    assert!(!cx.preview_enabled());
     picker.push_batch(["alpha", "beta", "delta"]);
     assert!(Context::new(&picker.core.engine).matches().is_empty());
     picker.filter().unwrap();
@@ -112,7 +111,7 @@ struct Observation {
     query: String,
     matches: Vec<ItemId>,
     #[cfg(feature = "preview")]
-    preview_dimensions: Option<(u16, u16)>,
+    preview_enabled: bool,
 }
 
 impl Observation {
@@ -123,9 +122,7 @@ impl Observation {
             query: cx.query().to_owned(),
             matches: cx.matches().ids().collect(),
             #[cfg(feature = "preview")]
-            preview_dimensions: cx
-                .preview_dimensions()
-                .map(|size| (size.width, size.height)),
+            preview_enabled: cx.preview_enabled(),
         }
     }
 }
@@ -211,8 +208,6 @@ impl<T: Send + Sync + 'static> Interface<T> for QueueProbe<'_> {
     }
 }
 
-impl<T> PreviewComponent<T, MultiState> for QueueProbe<'_> {}
-
 #[test]
 fn initialization_and_restart_observe_the_retained_and_previous_generations() {
     struct Probe<'a, const PREVIEW: bool>(&'a mut Vec<Observation>);
@@ -241,8 +236,6 @@ fn initialization_and_restart_observe_the_retained_and_previous_generations() {
             crate::Single.finish((), exit, cx)
         }
     }
-
-    impl<T, const PREVIEW: bool> PreviewComponent<T, ()> for Probe<'_, PREVIEW> {}
 
     fn check<const PREVIEW: bool>() {
         for reversed in [false, true] {
@@ -288,7 +281,7 @@ fn initialization_and_restart_observe_the_retained_and_previous_generations() {
             assert_eq!(init.rank, None);
             assert_eq!(init.query, "ta");
             #[cfg(feature = "preview")]
-            assert_eq!(init.preview_dimensions, PREVIEW.then_some((0, 0)));
+            assert_eq!(init.preview_enabled, PREVIEW);
             assert_eq!(restart.hovered, Some(ids[1]));
             assert_eq!(restart.rank, Some(1));
             assert_eq!(&restart.matches[..ids.len()], ids.as_slice());
@@ -298,7 +291,7 @@ fn initialization_and_restart_observe_the_retained_and_previous_generations() {
             assert!(empty_restart.matches.is_empty());
             #[cfg(feature = "preview")]
             for observation in [restart, empty_restart] {
-                assert_eq!(observation.preview_dimensions, PREVIEW.then_some((8, 6)));
+                assert_eq!(observation.preview_enabled, PREVIEW);
             }
         }
     }
@@ -418,7 +411,7 @@ fn events_observe_buffered_navigation_and_only_submitted_queries() {
             assert_eq!(observation.query, query);
             assert_eq!(observation.matches, ids);
             #[cfg(feature = "preview")]
-            assert_eq!(observation.preview_dimensions, None);
+            assert!(!observation.preview_enabled);
         }
         assert_eq!(picker.query(), "absent");
         assert_eq!(picker.filter().unwrap().len(), 0);
@@ -508,43 +501,24 @@ fn selection_without_a_hovered_item_requires_queued_items() {
 
 #[cfg(feature = "preview")]
 mod preview {
-    use std::io;
-
     use super::*;
     use crate::{
         Picker,
-        component::{Component, PreviewComponent},
         event::{LayoutEvent, RecvError},
-        preview::{PreviewEvent, interior_dimensions},
-        rect::{Area, Rect},
-        session::{Dimensions, tests::frame_events},
+        preview::PreviewEvent,
+        session::{Dimensions, Redraw, tests::frame_events},
     };
 
     struct PreviewProbe<'a> {
         queue: QueueProbe<'a>,
-        observations: &'a mut Vec<(&'static str, Observation)>,
-        size: Dimensions,
+        observations: &'a mut Vec<(&'static str, Observation, Option<Dimensions>)>,
+        size: Option<Dimensions>,
     }
 
     impl PreviewProbe<'_> {
         fn observe<T: Send + Sync + 'static>(&mut self, phase: &'static str, cx: &Context<'_, T>) {
-            let observation = Observation::new(cx);
-            if let Some(size) = observation.preview_dimensions {
-                assert_eq!(size, (self.size.width, self.size.height));
-            } else {
-                assert_eq!(phase, "update");
-            }
-            self.observations.push((phase, observation));
-        }
-    }
-
-    impl Component<()> for PreviewProbe<'_> {
-        fn resize(&mut self, area: Area, _: &()) {
-            self.size = interior_dimensions(area);
-        }
-
-        fn draw<D: Rect>(&mut self, _: &(), _: &mut D) -> io::Result<()> {
-            Ok(())
+            self.observations
+                .push((phase, Observation::new(cx), self.size));
         }
     }
 
@@ -575,29 +549,34 @@ mod preview {
         ) -> Self::Output<'items> {
             self.queue.finish(state, exit, cx)
         }
-    }
+        fn preview_resize(&mut self, _: &mut MultiState, size: Option<Dimensions>) {
+            self.size = size;
+        }
 
-    impl<T: Send + Sync + 'static> PreviewComponent<T, MultiState> for PreviewProbe<'_> {
-        fn component(
+        fn preview_event(
             &mut self,
             _: &mut MultiState,
-            _: &crate::PickerChars,
-            _: &crate::preview::PreviewConfig,
-        ) -> impl Component<()> {
-            self
-        }
-
-        fn handle(&mut self, _: &mut MultiState, _: PreviewEvent, cx: &Context<'_, T>) {
+            _: PreviewEvent,
+            cx: &Context<'_, T>,
+        ) -> Redraw {
             self.observe("event", cx);
+            Redraw::NONE
         }
 
-        fn update(&mut self, _: &mut MultiState, cx: &Context<'_, T>, _: bool, _: Instant) -> bool {
-            self.observe("update", cx);
-            false
+        fn before_frame(
+            &mut self,
+            _: &mut MultiState,
+            cx: &Context<'_, T>,
+            _: bool,
+            _: Instant,
+        ) -> Redraw {
+            self.observe("before", cx);
+            Redraw::NONE
         }
 
-        fn prefetch(&mut self, _: &mut MultiState, cx: &Context<'_, T>, _: Instant) {
-            self.observe("prefetch", cx);
+        fn after_frame(&mut self, _: &mut MultiState, cx: &Context<'_, T>, _: Instant) -> Redraw {
+            self.observe("after", cx);
+            Redraw::NONE
         }
     }
 
@@ -637,33 +616,37 @@ mod preview {
                 &mut PreviewProbe {
                     queue: QueueProbe::new(&mut queued),
                     observations: &mut previews,
-                    size: Dimensions::default(),
+                    size: None,
                 },
             )
             .unwrap();
 
         let expected = [
-            ("update", 0, Some((8, 6))),
-            ("prefetch", 0, Some((8, 6))),
-            ("event", 1, Some((8, 6))),
-            ("event", 1, Some((8, 6))),
-            ("update", 1, Some((8, 6))),
-            ("prefetch", 1, Some((10, 6))),
-            ("update", 1, None),
-            ("event", 1, Some((0, 0))),
-            ("update", 1, Some((0, 0))),
-            ("prefetch", 1, Some((10, 6))),
+            ("before", 0, true, Some((8, 6))),
+            ("after", 0, true, Some((8, 6))),
+            ("event", 1, true, Some((8, 6))),
+            ("event", 1, true, Some((8, 6))),
+            ("before", 1, true, Some((8, 6))),
+            ("after", 1, true, Some((10, 6))),
+            ("before", 1, false, Some((10, 6))),
+            ("after", 1, false, None),
+            ("event", 1, true, None),
+            ("before", 1, true, None),
+            ("after", 1, true, Some((10, 6))),
         ];
         assert_eq!(previews.len(), expected.len());
-        for ((phase, observation), (expected_phase, rank, size)) in previews.iter().zip(expected) {
+        for ((phase, observation, size), (expected_phase, rank, enabled, expected_size)) in
+            previews.iter().zip(expected)
+        {
             assert_eq!(*phase, expected_phase);
             assert_eq!(observation.rank, Some(rank));
             assert_eq!(observation.hovered, Some(ids[rank as usize]));
-            assert_eq!(observation.preview_dimensions, size);
+            assert_eq!(observation.preview_enabled, enabled);
+            assert_eq!(size.map(|size| (size.width, size.height)), expected_size);
         }
         assert_eq!(queued.len(), 4);
-        for (observation, size) in queued.iter().zip([None, None, Some((0, 0)), Some((10, 6))]) {
-            assert_eq!(observation.preview_dimensions, size);
+        for (observation, enabled) in queued.iter().zip([false, false, true, true]) {
+            assert_eq!(observation.preview_enabled, enabled);
             assert_eq!(observation.hovered, Some(ids[1]));
         }
         assert_eq!(terminal.size_reads, 4);
@@ -682,22 +665,40 @@ mod preview {
             picker
                 .core
                 .pick_impl(
-                    TestEvents(|_| Ok(Event::Quit)),
+                    frame_events([
+                        Ok(Event::Layout(LayoutEvent::TogglePreview)),
+                        Err(RecvError::Timeout),
+                        Ok(Event::Layout(LayoutEvent::TogglePreview)),
+                        Err(RecvError::Timeout),
+                        Ok(Event::Quit),
+                    ]),
                     &mut terminal,
                     &mut PreviewProbe {
                         queue: QueueProbe::new(&mut queued),
                         observations: &mut previews,
-                        size: Dimensions::default(),
+                        size: None,
                     },
                 )
                 .unwrap();
-            assert_eq!(previews.len(), 2);
-            for (_, observation) in previews {
-                assert_eq!(observation.preview_dimensions, Some((0, 0)));
+            let expected = [
+                ("before", true, Some(Dimensions::default())),
+                ("after", true, Some(Dimensions::default())),
+                ("before", false, Some(Dimensions::default())),
+                ("after", false, None),
+                ("before", true, None),
+                ("after", true, Some(Dimensions::default())),
+            ];
+            assert_eq!(previews.len(), expected.len());
+            for ((phase, observation, size), (expected_phase, enabled, expected_size)) in
+                previews.into_iter().zip(expected)
+            {
+                assert_eq!(phase, expected_phase);
+                assert_eq!(observation.preview_enabled, enabled);
+                assert_eq!(size, expected_size);
                 assert_eq!(observation.hovered, None);
                 assert_eq!(observation.rank, None);
             }
-            assert_eq!(terminal.size_reads, 1);
+            assert_eq!(terminal.size_reads, 3);
         }
     }
 }

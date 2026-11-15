@@ -83,9 +83,9 @@ impl<'a> StatusLine<'a> {
     }
 }
 
-impl Component<()> for StatusLine<'_> {
-    fn resize(&mut self, _area: Area, _engine: &()) {}
-    fn draw<D: Rect>(&mut self, _engine: &(), rect: &mut D) -> io::Result<()> {
+impl Component for StatusLine<'_> {
+    fn resize(&mut self, _area: Area) {}
+    fn draw<D: Rect>(&mut self, rect: &mut D) -> io::Result<()> {
         let values = self.previous.unwrap_or_default();
         draw_match_counts(
             rect,
@@ -342,13 +342,10 @@ mod tests {
             height: 1,
             ..Area::default()
         };
-        status.resize(area, &());
+        status.resize(area);
         let mut output = Vec::new();
         status
-            .draw(
-                &(),
-                &mut CrosstermRect::new(&mut output, area, ClearState::Precleared).unwrap(),
-            )
+            .draw(&mut CrosstermRect::new(&mut output, area, ClearState::Precleared).unwrap())
             .unwrap();
         assert!(String::from_utf8(output).unwrap().contains("0/0"));
         assert!(!status.update(matching, None, false));

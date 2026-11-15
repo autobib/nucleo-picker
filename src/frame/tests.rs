@@ -1,11 +1,11 @@
-use super::{Frame, LayoutEvent, Redraw};
+use super::{Frame, LayoutEvent};
 use crate::{
     Picker, Terminal,
     component::{Component, NoPreview},
-    match_list::MatchList,
+    match_list::{MatchList, MatchListView},
     prompt::Prompt,
     render::StrRenderer,
-    session::{Context, Dimensions, Interface, Single},
+    session::{Context, Dimensions, Interface, Redraw, Single},
     status_line::StatusLine,
 };
 use std::io::{self, Write};
@@ -65,7 +65,7 @@ where
     V: Interface<String>,
 {
     let mut picker = Picker::<String, _>::new(StrRenderer);
-    let mut state = preview.init(&Context::new(&picker.core.engine));
+    let state = preview.init(&Context::new(&picker.core.engine));
     let mut prompt = Prompt::new(&mut picker.core.prompt, &picker.core.chars);
     let mut list = MatchList::new(&mut picker.core.list_state, &picker.core.chars);
     let mut status_line = StatusLine::new(&picker.core.chars);
@@ -74,19 +74,44 @@ where
     #[cfg(not(feature = "preview"))]
     let ratio = None;
     let mut frame = Frame::new(dimensions(size), false, ratio);
-    let mut component = preview.component(
-        &mut state,
-        &picker.core.chars,
-        #[cfg(feature = "preview")]
-        &picker.core.preview_config,
-    );
     let mut contents = (
         &mut prompt,
-        (&mut list, (&picker.core.engine, &Single, &())),
+        MatchListView {
+            list: &mut list,
+            engine: &picker.core.engine,
+            interface: &Single,
+            state: &(),
+        },
         &mut status_line,
-        &mut component,
+        NoPreview,
     );
     frame.resize(&mut contents);
+    #[cfg(feature = "preview")]
+    let mut state = state;
+    #[cfg(feature = "preview")]
+    let mut contents = {
+        if V::HAS_PREVIEW {
+            preview.preview_resize(
+                &mut state,
+                frame
+                    .preview_enabled()
+                    .then(|| crate::preview::interior_dimensions(frame.preview)),
+            );
+        }
+        (
+            contents.0,
+            contents.1,
+            contents.2,
+            crate::component::PreviewPane {
+                interface: &preview,
+                state: &state,
+                boundary_chars: picker.core.preview_config.boundary_chars,
+                ellipsis: picker.core.chars.ellipsis,
+            },
+        )
+    };
+    #[cfg(not(feature = "preview"))]
+    let _ = state;
     let mut terminal = TestTerminal {
         dimensions: dimensions(size),
         ..TestTerminal::default()
@@ -162,10 +187,10 @@ fn empty_areas_skip_component_drawing() {
     use crate::rect::{Area, ClearState, Rect};
 
     struct Hidden;
-    impl Component<()> for Hidden {
-        fn resize(&mut self, _area: Area, _engine: &()) {}
+    impl Component for Hidden {
+        fn resize(&mut self, _area: Area) {}
 
-        fn draw<D: Rect>(&mut self, _engine: &(), _rect: &mut D) -> io::Result<()> {
+        fn draw<D: Rect>(&mut self, _rect: &mut D) -> io::Result<()> {
             panic!("empty areas must not be drawn");
         }
     }
@@ -179,7 +204,6 @@ fn empty_areas_skip_component_drawing() {
             let mut output = Vec::new();
             super::draw_component(
                 &mut Hidden,
-                &(),
                 &mut output,
                 Area {
                     width,
@@ -204,13 +228,13 @@ fn render_applies_terminal_resize_to_all_components_before_drawing() {
         resizes: usize,
         draws: usize,
     }
-    impl Component<()> for Tracked {
-        fn resize(&mut self, area: Area, _engine: &()) {
+    impl Component for Tracked {
+        fn resize(&mut self, area: Area) {
             self.area = area;
             self.resizes += 1;
         }
 
-        fn draw<D: Rect>(&mut self, _engine: &(), rect: &mut D) -> io::Result<()> {
+        fn draw<D: Rect>(&mut self, rect: &mut D) -> io::Result<()> {
             assert_eq!(self.area.width, rect.width().get());
             assert_eq!(self.area.height, rect.height().get());
             self.draws += 1;
@@ -242,7 +266,7 @@ fn render_applies_terminal_resize_to_all_components_before_drawing() {
                             &mut terminal,
                             Redraw {
                                 prompt: redraw,
-                                ..Redraw::default()
+                                ..Redraw::NONE
                             },
                         )
                         .unwrap(),
@@ -322,7 +346,7 @@ fn render_pending(frame: &mut Frame) -> bool {
         .render(
             &mut (NoPreview, NoPreview, NoPreview, NoPreview),
             &mut terminal,
-            Redraw::default(),
+            Redraw::NONE,
         )
         .unwrap()
 }
@@ -532,8 +556,8 @@ mod preview {
                 0
             );
             assert_eq!(
-                render_preview(Redraw::full(), size),
-                render_at_size(Redraw::full(), size)
+                render_preview(Redraw::FULL, size),
+                render_at_size(Redraw::FULL, size)
             );
         }
         assert_eq!(
@@ -543,6 +567,6 @@ mod preview {
                 .saturating_sub(2),
             1
         );
-        assert!(render_preview(Redraw::full(), (6, 3)).contains("\x1b[1;4H\x1b[4G╭─╮"));
+        assert!(render_preview(Redraw::FULL, (6, 3)).contains("\x1b[1;4H\x1b[4G╭─╮"));
     }
 }

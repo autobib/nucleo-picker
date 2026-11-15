@@ -1,29 +1,16 @@
 use super::{
-    BoundaryChars, Buffer, Content, ItemId, ItemRef, Preview, PreviewConfig, PreviewEvent,
+    Buffer, Content, ItemId, ItemRef, Preview, PreviewEvent,
     cache::{Cached, RequestState},
-    interior_dimensions,
     request::Request,
 };
-use crate::{
-    PickerChars,
-    component::{Component, PreviewComponent},
-    rect::{Area, Rect},
-    session::{Context, Dimensions, Interface, WithPreview, WithPreviewState},
-};
+use crate::session::{Context, Dimensions};
 use lru::LruCache;
 use std::{
-    io,
     num::NonZero,
     time::{Duration, Instant},
 };
 
 const PREFETCH_CHECKS_PER_FRAME: usize = 4;
-
-struct PreviewPane<'a> {
-    state: &'a mut PreviewState,
-    boundary_chars: BoundaryChars,
-    ellipsis: char,
-}
 
 pub(crate) struct PreviewState {
     cache: LruCache<u32, Cached>,
@@ -32,14 +19,12 @@ pub(crate) struct PreviewState {
     last_item: Option<u32>,
     // Unlike last_item, the hovered field is cleared while the pane is hidden.
     hovered: Option<u32>,
-    // state to preserve scroll and restart invalidation and return redraw state with
-    // `update`
-    pending_redraw: bool,
     // the epoch is advanced when the hovered item changes and is reset on restart. the epoch is passed to
     // each preview request and then returned by the previewer. it is used to prevent repeated
     // resubmission when the hovered item has not changed
     epoch: u64,
-    area: Area,
+    // Events use the last applied geometry even when a layout change is pending.
+    size: Dimensions,
 }
 
 impl PreviewState {
@@ -57,9 +42,8 @@ impl PreviewState {
             spare: Buffer::new(),
             last_item: None,
             hovered: None,
-            pending_redraw: false,
             epoch: 0,
-            area: Area::default(),
+            size: Dimensions::default(),
         }
     }
 
@@ -67,7 +51,7 @@ impl PreviewState {
         self.last_item.and_then(|idx| self.cache.peek(&idx))
     }
 
-    fn content(&self) -> Content<'_> {
+    pub(crate) fn content(&self) -> Content<'_> {
         match self.cached().and_then(|cached| cached.state.as_ref()) {
             Some(RequestState::Ready(pane)) => Content::Ready(pane),
             Some(RequestState::Pending(_) | RequestState::Active(_) | RequestState::Retry(_)) => {
@@ -95,7 +79,7 @@ impl PreviewState {
         self.set_hovered(previewer, None);
     }
 
-    fn update<T: Send + Sync + 'static, P: Preview<T>>(
+    pub(crate) fn update<T: Send + Sync + 'static, P: Preview<T>>(
         &mut self,
         previewer: &mut P,
         cx: &Context<'_, T>,
@@ -105,12 +89,13 @@ impl PreviewState {
         if let Some(prefetch) = &mut self.prefetch {
             prefetch.dirty |= matches_changed;
         }
-        if cx.preview_dimensions().is_none() {
+        if !cx.preview_enabled() {
+            self.set_hovered(previewer, None);
             return false;
         }
-        self.update_current(previewer, cx, deadline);
+        let redraw = self.update_current(previewer, cx, deadline);
         self.sync_prefetch(cx.rank());
-        std::mem::take(&mut self.pending_redraw)
+        redraw
     }
 
     /// Update the current preview by polling and resubmitting requests and keeping track if a
@@ -120,19 +105,17 @@ impl PreviewState {
         previewer: &mut P,
         cx: &Context<'_, T>,
         deadline: Instant,
-    ) {
+    ) -> bool {
         let item = cx.hovered();
         let hovered = item.map(|item| item.id().index);
         if self.hovered != hovered {
             self.epoch = self.epoch.wrapping_add(1);
         }
         self.set_hovered(previewer, item);
-        if self.last_item != hovered {
-            self.last_item = hovered;
-            self.pending_redraw = true;
-        }
+        let changed = self.last_item != hovered;
+        self.last_item = hovered;
         let Some(item) = item else {
-            return;
+            return changed;
         };
         let id = item.id();
         let idx = id.index;
@@ -149,7 +132,7 @@ impl PreviewState {
         }
         let cached = self.cache.get_mut(&idx).unwrap();
         if matches!(cached.state, Some(RequestState::Ready(_))) {
-            return;
+            return changed;
         }
 
         // check the state:
@@ -176,8 +159,9 @@ impl PreviewState {
             .poll(),
             state => state,
         };
-        self.pending_redraw |= matches!(state, RequestState::Ready(_));
+        let ready = matches!(state, RequestState::Ready(_));
         cached.state = Some(state);
+        changed || ready
     }
 
     fn sync_prefetch(&mut self, rank: Option<u32>) {
@@ -197,13 +181,13 @@ impl PreviewState {
         prefetch.dirty = false;
     }
 
-    fn update_prefetch<T: Send + Sync + 'static, P: Preview<T>>(
+    pub(crate) fn update_prefetch<T: Send + Sync + 'static, P: Preview<T>>(
         &mut self,
         previewer: &mut P,
         cx: &Context<'_, T>,
         deadline: Instant,
     ) {
-        if cx.preview_dimensions().is_none() {
+        if !cx.preview_enabled() {
             return;
         }
         let Some(prefetch) = &mut self.prefetch else {
@@ -300,7 +284,7 @@ impl PreviewState {
         }
     }
 
-    fn handle_event(&mut self, idx: Option<u32>, event: PreviewEvent, size: Dimensions) {
+    pub(crate) fn handle_event(&mut self, idx: Option<u32>, event: PreviewEvent) -> bool {
         let Some(cached) = idx.and_then(|idx| {
             self.cache.get_mut(&idx).or_else(|| {
                 if matches!(event, PreviewEvent::Refresh) {
@@ -310,32 +294,31 @@ impl PreviewState {
                 }
             })
         }) else {
-            return;
+            return false;
         };
 
         // handle refresh first since we will refresh / cancel
         // even if the preview is not ready yet
         if matches!(event, PreviewEvent::Refresh) {
-            self.pending_redraw |= self.last_item == idx;
             cached.state = cached
                 .state
                 .take()
                 .map(|state| RequestState::Retry(state.into_buffer()));
-            return;
+            return self.last_item == idx;
         }
 
         // then check: is the preview ready? if not, nothing to do
         let Some(pane) = cached.pane_mut() else {
-            return;
+            return false;
         };
 
         let previous = (pane.offset(), pane.line_numbers());
         match event {
             PreviewEvent::ToggleLineNumbers => pane.toggle_line_numbers(),
             PreviewEvent::SetLineNumbers(enabled) => pane.set_line_numbers(enabled),
-            _ if size.width == 0 => return,
+            _ if self.size.width == 0 => return false,
             event => {
-                let mut viewport = pane.viewport(size);
+                let mut viewport = pane.viewport(self.size);
                 match event {
                     PreviewEvent::Left(columns) => viewport.left(columns),
                     PreviewEvent::Right(columns) => viewport.right(columns),
@@ -353,12 +336,12 @@ impl PreviewState {
                 };
             }
         }
-        self.pending_redraw |= (pane.offset(), pane.line_numbers()) != previous;
+        (pane.offset(), pane.line_numbers()) != previous
     }
 
-    fn resize_area(&mut self, area: Area) {
-        self.area = area;
-        let size = interior_dimensions(area);
+    pub(crate) fn resize(&mut self, size: Option<Dimensions>) {
+        let size = size.unwrap_or_default();
+        self.size = size;
         for (_, cached) in self.cache.iter_mut() {
             if let Some(pane) = cached.pane_mut() {
                 pane.viewport(size).clamp_vertical();
@@ -367,96 +350,16 @@ impl PreviewState {
     }
 
     pub(crate) fn restart<T, P: Preview<T>>(&mut self, previewer: &mut P) {
-        self.pending_redraw |= self.last_item.take().is_some();
-        self.cache.clear();
+        self.last_item = None;
         if let Some(prefetch) = &mut self.prefetch {
-            prefetch.cache.clear();
             prefetch.rank = None;
             prefetch.dirty = false;
             prefetch.queued = None;
         }
         self.spare = Buffer::new();
         self.epoch = 0;
-        self.set_hovered(previewer, None);
+        self.end(previewer);
         previewer.restart();
-    }
-}
-
-impl Component<()> for PreviewPane<'_> {
-    fn resize(&mut self, area: Area, _engine: &()) {
-        self.state.resize_area(area);
-    }
-    fn draw<D: Rect>(&mut self, _engine: &(), rect: &mut D) -> io::Result<()> {
-        super::draw::draw(
-            rect,
-            self.state.content(),
-            self.boundary_chars,
-            self.ellipsis,
-        )
-    }
-}
-
-impl<T: Send + Sync + 'static, I: Interface<T>, P: Preview<T>>
-    PreviewComponent<T, WithPreviewState<I::State>> for WithPreview<I, P>
-{
-    fn component(
-        &mut self,
-        state: &mut WithPreviewState<I::State>,
-        chars: &PickerChars,
-        config: &PreviewConfig,
-    ) -> impl Component<()> {
-        PreviewPane {
-            state: &mut state.preview,
-            boundary_chars: config.boundary_chars,
-            ellipsis: chars.ellipsis,
-        }
-    }
-
-    fn handle(
-        &mut self,
-        state: &mut WithPreviewState<I::State>,
-        event: PreviewEvent,
-        cx: &Context<'_, T>,
-    ) {
-        let Some(size) = cx.preview_dimensions() else {
-            return;
-        };
-        state
-            .preview
-            .handle_event(cx.hovered().map(|item| item.id().index), event, size);
-    }
-
-    fn update(
-        &mut self,
-        state: &mut WithPreviewState<I::State>,
-        cx: &Context<'_, T>,
-        matches_changed: bool,
-        deadline: Instant,
-    ) -> bool {
-        let base = self
-            .interface
-            .update(&mut state.interface, cx, matches_changed, deadline);
-        state
-            .preview
-            .update(&mut self.previewer, cx, matches_changed, deadline)
-            || base
-    }
-
-    fn prefetch(
-        &mut self,
-        state: &mut WithPreviewState<I::State>,
-        cx: &Context<'_, T>,
-        deadline: Instant,
-    ) {
-        self.interface.prefetch(&mut state.interface, cx, deadline);
-        state
-            .preview
-            .update_prefetch(&mut self.previewer, cx, deadline);
-    }
-
-    fn hide(&mut self, state: &mut WithPreviewState<I::State>) {
-        self.interface.hide(&mut state.interface);
-        state.preview.set_hovered(&mut self.previewer, None);
     }
 }
 

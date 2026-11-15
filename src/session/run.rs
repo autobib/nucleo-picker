@@ -5,16 +5,17 @@ use std::{
     time::{Duration, Instant},
 };
 
-use super::{Context, Exit, Interface};
+use super::{Context, Exit, Interface, Redraw};
 use crate::{
-    PickerChars, PickerCore, Render, Terminal,
+    PickerCore, Render, Terminal,
     component::Component,
     error::PickError,
     event::{Event, EventSource, PickerStatus, RecvError},
-    frame::{Contents, Frame, Redraw},
+    frame::{Contents, Frame},
     match_engine::MatchEngine,
-    match_list::MatchList,
+    match_list::{MatchList, MatchListView},
     prompt::Prompt,
+    rect::Area,
     status_line::StatusLine,
     terminal::session,
     util::as_u32,
@@ -33,11 +34,9 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
     {
         #[cfg(feature = "preview")]
         let has_preview = I::HAS_PREVIEW;
-        #[cfg(not(feature = "preview"))]
-        let has_preview = false;
         let cx = Context::new(&self.engine);
         #[cfg(feature = "preview")]
-        let cx = cx.with_preview(has_preview.then_some(super::Dimensions::default()));
+        let cx = cx.with_preview_enabled(has_preview);
         let mut session_state = DropGuard::new(
             (interface.init(&cx), interface),
             |mut session: (I::State, &mut I)| {
@@ -64,13 +63,6 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
         list.flush(engine);
         let initial = engine.update(5);
         list.update(engine, initial.items_changed, false);
-        status_line.update(
-            initial,
-            interface
-                .queued_count(state)
-                .map(|count| (as_u32(count), interface.queue_limit(state))),
-            false,
-        );
         #[cfg(feature = "preview")]
         let preview_ratio = has_preview.then_some(self.preview_config.ratio);
         #[cfg(not(feature = "preview"))]
@@ -83,15 +75,20 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
             prompt: &mut prompt,
             list: &mut list,
             status: &mut status_line,
+            #[cfg(feature = "preview")]
             chars: &self.chars,
             #[cfg(feature = "preview")]
             preview_config: &self.preview_config,
         });
-        interface.update(
-            state,
-            &context(engine, list.rank(engine), &frame),
-            true,
-            frame_start + self.interval,
+        let cx = context(engine, list.rank(engine), &frame);
+        // The initial full repaint includes all changes reported by before_frame.
+        let _ = interface.before_frame(state, &cx, true, frame_start + self.interval);
+        status_line.update(
+            initial,
+            interface
+                .queued_count(state)
+                .map(|count| (as_u32(count), interface.queue_limit(state))),
+            false,
         );
         frame.draw(
             &mut SessionContents {
@@ -101,28 +98,21 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                 prompt: &mut prompt,
                 list: &mut list,
                 status: &mut status_line,
+                #[cfg(feature = "preview")]
                 chars: &self.chars,
                 #[cfg(feature = "preview")]
                 preview_config: &self.preview_config,
             },
             &mut **terminal,
-            Redraw::full(),
+            Redraw::FULL,
         )?;
-        if has_preview && frame.preview_enabled() {
-            interface.prefetch(
-                state,
-                &context(engine, list.rank(engine), &frame),
-                frame_start + self.interval,
-            );
-        }
+        let mut pending_redraw = interface.after_frame(state, &cx, frame_start + self.interval);
 
         let mut frame_number = 0_u64;
         let mut handle_status = None;
         let mut changed_since_status = true;
         let mut matches_changed = false;
         let exit = 'selection: loop {
-            // whether the preview was enabled on the previous frame
-            let preview_was_enabled = frame.preview_enabled();
             let mut force_redraw = false;
             let frame_deadline = frame_start + self.interval;
             // this is a deadline with a 1ms bonus so that we always have a bit of time to
@@ -166,7 +156,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                     Event::Layout(event) => frame.handle(event),
                     #[cfg(feature = "preview")]
                     Event::Preview(event) => {
-                        if has_preview && frame.preview_enabled() {
+                        if frame.preview_enabled() {
                             // we have a previewer (i.e.: inside a PreviewPicker) and moreover
                             // the frame has not been hidden by the user.
 
@@ -174,7 +164,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                             // since that would bleed state from the frame logic everywhere
                             // which is a lot of complexity which is only required for
                             // unrealistically tiny terminals
-                            interface.handle(
+                            pending_redraw |= interface.preview_event(
                                 state,
                                 event,
                                 &context(engine, list.event_rank(engine), &frame),
@@ -208,6 +198,11 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                                 state,
                                 &context(engine, list.event_rank(engine), &frame),
                             );
+                            pending_redraw |= Redraw::QUEUE;
+                            #[cfg(feature = "preview")]
+                            {
+                                pending_redraw |= Redraw::PREVIEW;
+                            }
                             engine.restart();
                             matches_changed = true;
                             let cx = context(engine, None, &frame);
@@ -245,34 +240,33 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
             matches_changed |= status.items_changed;
 
             // update other components with the new prompt/engine state and process redraws
-            let mut redraw = Redraw {
-                prompt: prompt_change.needs_redraw,
-                list: list.update(engine, status.items_changed, prompt_change.contents_changed),
-                status: status_line.update(
-                    status,
-                    interface
-                        .queued_count(state)
-                        .map(|count| (as_u32(count), interface.queue_limit(state))),
-                    background_frame,
-                ) && frame.status_enabled(),
-                preview: interface.update(
-                    state,
-                    &context(engine, list.rank(engine), &frame),
-                    std::mem::take(&mut matches_changed),
-                    frame_start + self.interval,
-                ) && has_preview
-                    && frame.preview_enabled(),
-            };
-
-            if has_preview && preview_was_enabled && !frame.preview_enabled() {
-                // this is only used to process `hide` events within the previewer;
-                // currently this controls the 'hover_changed' event
-                interface.hide(state);
+            pending_redraw.prompt |= prompt_change.needs_redraw;
+            pending_redraw.list |=
+                list.update(engine, status.items_changed, prompt_change.contents_changed);
+            let cx = context(engine, list.rank(engine), &frame);
+            pending_redraw |= interface.before_frame(
+                state,
+                &cx,
+                std::mem::take(&mut matches_changed),
+                frame_start + self.interval,
+            );
+            pending_redraw.status |= status_line.update(
+                status,
+                interface
+                    .queued_count(state)
+                    .map(|count| (as_u32(count), interface.queue_limit(state))),
+                background_frame,
+            );
+            let mut redraw = std::mem::take(&mut pending_redraw);
+            redraw.status &= frame.status_enabled();
+            #[cfg(feature = "preview")]
+            {
+                redraw.preview &= frame.preview_enabled();
             }
 
             // a redraw was externally requested
             if force_redraw {
-                redraw = Redraw::full();
+                redraw = Redraw::FULL;
             }
 
             let changed = frame.render(
@@ -283,6 +277,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                     prompt: &mut prompt,
                     list: &mut list,
                     status: &mut status_line,
+                    #[cfg(feature = "preview")]
                     chars: &self.chars,
                     #[cfg(feature = "preview")]
                     preview_config: &self.preview_config,
@@ -313,13 +308,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                     injecting: status.injecting,
                 });
             }
-            if has_preview && frame.preview_enabled() {
-                interface.prefetch(
-                    state,
-                    &context(engine, list.rank(engine), &frame),
-                    frame_start + self.interval,
-                );
-            }
+            pending_redraw |= interface.after_frame(state, &cx, frame_start + self.interval);
         };
 
         list.flush(engine);
@@ -348,7 +337,8 @@ struct SessionContents<'a, 'session, T, R, I: Interface<T>> {
     prompt: &'a mut Prompt<'session>,
     list: &'a mut MatchList<'session>,
     status: &'a mut StatusLine<'session>,
-    chars: &'a PickerChars,
+    #[cfg(feature = "preview")]
+    chars: &'a crate::PickerChars,
     #[cfg(feature = "preview")]
     preview_config: &'a crate::preview::PreviewConfig,
 }
@@ -356,28 +346,47 @@ struct SessionContents<'a, 'session, T, R, I: Interface<T>> {
 impl<T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Contents
     for SessionContents<'_, '_, T, R, I>
 {
-    fn prompt(&mut self) -> impl Component<()> {
+    fn prompt(&mut self) -> impl Component {
         &mut *self.prompt
     }
 
-    fn list(&mut self) -> impl Component<()> {
-        (
-            &mut *self.list,
-            (self.engine, &*self.interface, &*self.state),
-        )
+    fn list(&mut self) -> impl Component {
+        MatchListView {
+            list: &mut *self.list,
+            engine: self.engine,
+            interface: &*self.interface,
+            state: &*self.state,
+        }
     }
 
-    fn status(&mut self) -> impl Component<()> {
+    fn status(&mut self) -> impl Component {
         &mut *self.status
     }
 
-    fn preview(&mut self) -> impl Component<()> {
-        self.interface.component(
-            self.state,
-            self.chars,
-            #[cfg(feature = "preview")]
-            self.preview_config,
-        )
+    fn preview(&mut self) -> impl Component {
+        #[cfg(feature = "preview")]
+        {
+            crate::component::PreviewPane {
+                interface: &*self.interface,
+                state: &*self.state,
+                boundary_chars: self.preview_config.boundary_chars,
+                ellipsis: self.chars.ellipsis,
+            }
+        }
+        #[cfg(not(feature = "preview"))]
+        {
+            crate::component::NoPreview
+        }
+    }
+
+    fn preview_resize(&mut self, area: Option<Area>) {
+        #[cfg(feature = "preview")]
+        if I::HAS_PREVIEW {
+            self.interface
+                .preview_resize(self.state, area.map(crate::preview::interior_dimensions));
+        }
+        #[cfg(not(feature = "preview"))]
+        let _ = area;
     }
 }
 
@@ -388,11 +397,7 @@ fn context<'items, T: Send + Sync + 'static, R>(
 ) -> Context<'items, T> {
     let cx = Context::new(engine).with_rank(rank);
     #[cfg(feature = "preview")]
-    let cx = cx.with_preview(
-        frame
-            .preview_enabled()
-            .then_some(frame.preview_dimensions()),
-    );
+    let cx = cx.with_preview_enabled(frame.preview_enabled());
     #[cfg(not(feature = "preview"))]
     let _ = frame;
     cx

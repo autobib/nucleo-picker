@@ -25,13 +25,10 @@ fn draw_prompt(state: &mut PromptState, width: u16, clear: ClearState) -> Vec<u8
         height: 1,
         ..Area::default()
     };
-    prompt.resize(area, &());
+    prompt.resize(area);
     let mut output = Vec::new();
     prompt
-        .draw(
-            &(),
-            &mut CrosstermRect::new(&mut output, area, clear).unwrap(),
-        )
+        .draw(&mut CrosstermRect::new(&mut output, area, clear).unwrap())
         .unwrap();
     output
 }

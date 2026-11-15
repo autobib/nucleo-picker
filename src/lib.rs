@@ -1202,19 +1202,6 @@ impl<T, R> Picker<T, R> {
     pub fn as_multi(&mut self) -> PickerRef<'_, T, R, Multi> {
         self.core.as_interface(self.core.multi_defaults)
     }
-
-    /// Get a picker variant which also generates previews.
-    ///
-    /// The original picker and the previewer can be recovered using
-    /// [`Picker::into_parts`].
-    #[cfg(feature = "preview")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
-    #[inline]
-    pub fn with_preview<P>(self, previewer: P) -> Picker<T, R, WithPreview<Single, P>> {
-        let interface =
-            WithPreview::new(self.interface, previewer).cache_size(self.core.preview_cache_size);
-        self.core.with_interface(interface)
-    }
 }
 
 impl<T, R> Picker<T, R, Multi> {
@@ -1231,7 +1218,9 @@ impl<T, R> Picker<T, R, Multi> {
     pub fn as_single(&mut self) -> PickerRef<'_, T, R, Single> {
         self.core.as_interface(Single)
     }
+}
 
+impl<T, R, I> Picker<T, R, I> {
     /// Get a picker variant which also generates previews.
     ///
     /// The original picker and the previewer can be recovered using
@@ -1239,14 +1228,12 @@ impl<T, R> Picker<T, R, Multi> {
     #[cfg(feature = "preview")]
     #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     #[inline]
-    pub fn with_preview<P>(self, previewer: P) -> Picker<T, R, WithPreview<Multi, P>> {
+    pub fn with_preview<P>(self, previewer: P) -> Picker<T, R, WithPreview<I, P>> {
         let interface =
             WithPreview::new(self.interface, previewer).cache_size(self.core.preview_cache_size);
         self.core.with_interface(interface)
     }
-}
 
-impl<T, R, I> Picker<T, R, I> {
     /// Change the interface of this picker.
     #[must_use]
     #[inline]
