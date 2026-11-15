@@ -31,17 +31,6 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
         E: EventSource,
         W: Terminal,
     {
-        let has_preview = I::HAS_PREVIEW;
-        let cx = Context::new(&self.engine).with_preview_enabled(has_preview);
-        let mut session_state = DropGuard::new(
-            (interface.init(&cx), interface),
-            |mut session: (I::State, &mut I)| {
-                if !std::thread::panicking() {
-                    session.1.on_end(&mut session.0);
-                }
-            },
-        );
-        let (state, interface) = &mut *session_state;
         let engine = &mut self.engine;
         // Headless updates defer layout work until the next interactive session.
         if std::mem::take(&mut self.list_state.items_changed) {
@@ -52,16 +41,33 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
         let mut prompt = Prompt::new(&mut self.prompt, &self.chars);
         let mut list = MatchList::new(&mut self.list_state, &self.chars);
         let mut status_line = StatusLine::new(&self.chars);
+        let match_budget = 2 * self.interval.as_millis() as u64 / 3;
+        let mut frame_start = Instant::now();
+        list.flush(engine);
+        let initial = engine.update(match_budget);
+        list.update(engine, initial.items_changed, false);
+        let has_preview = I::HAS_PREVIEW;
+        let cx = Context::new(engine)
+            .with_rank(list.rank(engine))
+            .with_preview_enabled(has_preview);
+        let mut session_state = DropGuard::new(
+            (interface.init(&cx), interface),
+            |mut session: (I::State, &mut I)| {
+                if !std::thread::panicking() {
+                    session.1.on_end(&mut session.0);
+                }
+            },
+        );
+        let (state, interface) = &mut *session_state;
         let mut terminal = session(writer);
         terminal.init()?;
 
-        let mut frame_start = Instant::now();
-        list.flush(engine);
-        let initial = engine.update(5);
-        list.update(engine, initial.items_changed, false);
+        // The initial full repaint includes all changes reported by before_frame.
+        let _ = interface.before_frame(state, &cx, true, frame_start + self.interval);
+        status_line.update(initial, interface.queue_status(state), false);
         let preview_ratio = has_preview.then_some(self.preview_config.ratio);
         let mut frame = Frame::new(terminal.dimensions()?, self.reversed, preview_ratio);
-        frame.resize(&mut SessionContents {
+        let mut contents = SessionContents {
             engine,
             interface: &mut **interface,
             state,
@@ -70,25 +76,9 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
             status: &mut status_line,
             chars: &self.chars,
             preview_config: &self.preview_config,
-        });
-        let cx = context(engine, list.rank(engine), &frame);
-        // The initial full repaint includes all changes reported by before_frame.
-        let _ = interface.before_frame(state, &cx, true, frame_start + self.interval);
-        status_line.update(initial, interface.queue_status(state), false);
-        frame.draw(
-            &mut SessionContents {
-                engine,
-                interface: &mut **interface,
-                state,
-                prompt: &mut prompt,
-                list: &mut list,
-                status: &mut status_line,
-                chars: &self.chars,
-                preview_config: &self.preview_config,
-            },
-            &mut **terminal,
-            Redraw::FULL,
-        )?;
+        };
+        frame.resize(&mut contents);
+        frame.draw(&mut contents, &mut **terminal, Redraw::FULL)?;
         let mut pending_redraw = interface.after_frame(state, &cx, frame_start + self.interval);
 
         let mut frame_number = 0_u64;
@@ -214,7 +204,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
             }
 
             // then update the match engine
-            let status = engine.update(2 * self.interval.as_millis() as u64 / 3);
+            let status = engine.update(match_budget);
             matches_changed |= status.items_changed;
 
             // update other components with the new prompt/engine state and process redraws

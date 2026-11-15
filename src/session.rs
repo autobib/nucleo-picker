@@ -264,19 +264,17 @@ use crate::{
 /// ## Initialization
 ///
 /// When the picker starts up, the following call sequence is made.
-/// `Context` no longer exposes it.]
 ///
-/// 1. [`init`](Self::init) is called once with context containing a snapshot of the matches,
-///    with no hovered item. The preview pane is enabled according to `HAS_PREVIEW` and is
-///    dimensionless.
-/// 2. The terminal is initialized and the match engine is updated with any changes which were processed
-///    in the background.
-/// 3. Terminal dimensions are queried and resizes are propagated, for instance via
-///    [`preview_resize`](Self::preview_resize) if the preview pane is enabled.
+/// 1. The match engine is updated with any changes which were processed in the background.
+/// 2. [`init`](Self::init) is called once. The preview pane is enabled according to `HAS_PREVIEW`
+///    and is dimensionless.
+/// 3. The terminal is initialized.
 /// 4. [`before_frame`](Self::before_frame) is called with the initial hovered item.
 /// 5. [`queue_status`](Self::queue_status) is called to update the status line.
-/// 6. The first full frame is drawn.
-/// 7. [`after_frame`](Self::after_frame) is called. The draw mask is used for the next frame.
+/// 6. Terminal dimensions are queried and resizes are propagated, for instance via
+///    [`preview_resize`](Self::preview_resize) if the preview pane is enabled.
+/// 7. The first full frame is drawn.
+/// 8. [`after_frame`](Self::after_frame) is called. The draw mask is used for the next frame.
 ///
 /// ## Frame loop
 ///
@@ -321,7 +319,10 @@ pub trait Interface<T>: Sized {
     where
         T: 'a;
 
-    /// Initialize the state before any matching and layout computations.
+    /// Initialize the state after initial match-list updates.
+    ///
+    /// The provided [`Context`] is the shared first frame context which is also passed to the call
+    /// to [`before_frame`](Self::before_frame) which occurs during initialization.
     fn init(&mut self, cx: &Context<'_, T>) -> Self::State;
 
     /// Process a restart event.

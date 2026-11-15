@@ -28,10 +28,7 @@ impl<'items, T: Send + Sync + 'static> Context<'items, T> {
         self
     }
 
-    /// Returns the hovered item, if any.
-    ///
-    /// Note that this is `None` if the match list is empty and during initialization (even if the
-    /// the match-list is non-emty).
+    /// Returns the hovered item, or `None` if the match list is empty.
     pub fn hovered(&self) -> Option<ItemRef<'items, T>> {
         self.matches.get(self.rank? as usize)
     }

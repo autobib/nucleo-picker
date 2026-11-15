@@ -201,7 +201,7 @@ impl<T: Send + Sync + 'static> Interface<T> for QueueProbe<'_> {
 }
 
 #[test]
-fn initialization_and_restart_observe_the_retained_and_previous_generations() {
+fn initialization_and_restart_observe_published_matches_and_hover() {
     struct Probe<'a, const PREVIEW: bool>(&'a mut Vec<Observation>);
 
     impl<T: Send + Sync + 'static, const PREVIEW: bool> Interface<T> for Probe<'_, PREVIEW> {
@@ -267,9 +267,9 @@ fn initialization_and_restart_observe_the_retained_and_previous_generations() {
             let [init, restart, empty_restart] = observations.as_slice() else {
                 panic!("expected initialization and two restart observations");
             };
-            assert_eq!(init.matches, ids);
-            assert_eq!(init.hovered, None);
-            assert_eq!(init.rank, None);
+            assert_eq!(init.matches, restart.matches);
+            assert_eq!(init.hovered, Some(ids[0]));
+            assert_eq!(init.rank, Some(0));
             assert_eq!(init.preview_enabled, PREVIEW);
             assert_eq!(restart.hovered, Some(ids[1]));
             assert_eq!(restart.rank, Some(1));
@@ -609,7 +609,7 @@ mod preview {
             .unwrap();
 
         let expected = [
-            ("before", 0, true, Some((8, 6))),
+            ("before", 0, true, None),
             ("after", 0, true, Some((8, 6))),
             ("event", 1, true, Some((8, 6))),
             ("event", 1, true, Some((8, 6))),
@@ -668,7 +668,7 @@ mod preview {
                 )
                 .unwrap();
             let expected = [
-                ("before", true, Some(Dimensions::default())),
+                ("before", true, None),
                 ("after", true, Some(Dimensions::default())),
                 ("before", false, Some(Dimensions::default())),
                 ("after", false, None),

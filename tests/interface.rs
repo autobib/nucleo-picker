@@ -146,7 +146,10 @@ impl<'a> Interface<String> for Custom<'a> {
     const HAS_PREVIEW: bool = true;
 
     fn init(&mut self, cx: &Context<'_, String>) -> Self::State {
-        assert!(cx.hovered().is_none());
+        assert_eq!(
+            cx.hovered().map(|item| item.id()),
+            cx.matches().ids().next()
+        );
         assert!(cx.preview_enabled());
         let mut pane = Pane::new();
         pane.push_text("old preview");
