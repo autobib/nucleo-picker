@@ -4,7 +4,7 @@ use crossterm::style::{ContentStyle, Stylize};
 use nucleo_picker::{
     Picker, Render,
     preview::{
-        Preview, WithPreview,
+        CachedPreview, Preview,
         request::{Request, Response},
     },
 };
@@ -75,7 +75,7 @@ fn main() -> io::Result<()> {
 
     // get the selection by running the picker with the previewer
     let selected = picker
-        .as_interface(WithPreview::new_single(&mut previewer))
+        .as_interface(CachedPreview::new_single(&mut previewer))
         .pick()?;
 
     // the lifetime of 'selected' is tied only to the picker itself, so we can now

@@ -1,7 +1,7 @@
 use super::super::*;
 use crate::{
     Picker, PickerOptions,
-    interface::{Single, WithPreview, WithPreviewState},
+    interface::{CachedPreview, CachedPreviewState, Single},
     match_engine::MatchEngine,
     preview::{
         DEFAULT_CACHE_SIZE, ItemId, ItemRef, interior_dimensions,
@@ -14,18 +14,18 @@ use crate::{
 
 pub(crate) struct TestSession<P> {
     // Drop cached requests before the previewer, including during unwinding.
-    pub(super) state: WithPreviewState<()>,
-    pub(super) interface: WithPreview<Single, P>,
+    pub(super) state: CachedPreviewState<()>,
+    pub(super) interface: CachedPreview<Single, P>,
 }
 
 impl<P: Preview<&'static str>> TestSession<P> {
     pub(crate) fn new(cache_size: Option<NonZero<usize>>, previewer: P) -> Self {
         Self {
-            state: WithPreviewState {
+            state: CachedPreviewState {
                 interface: (),
                 preview: PreviewState::new(cache_size, previewer.prefetch_limit()),
             },
-            interface: WithPreview::new_single(previewer).cache_size(cache_size),
+            interface: CachedPreview::new_single(previewer).cache_size(cache_size),
         }
     }
 

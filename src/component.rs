@@ -16,7 +16,6 @@
 use std::io;
 
 use crate::rect::{Area, Position, Rect};
-#[cfg(feature = "preview")]
 use crate::{preview::BoundaryChars, session::Interface};
 
 /// A single component in the frame.
@@ -33,7 +32,6 @@ pub(crate) trait Component {
     }
 }
 
-#[cfg(feature = "preview")]
 pub(crate) struct PreviewPane<'a, T, I: Interface<T>> {
     pub interface: &'a I,
     pub state: &'a I::State,
@@ -41,7 +39,6 @@ pub(crate) struct PreviewPane<'a, T, I: Interface<T>> {
     pub ellipsis: char,
 }
 
-#[cfg(feature = "preview")]
 impl<T, I: Interface<T>> Component for PreviewPane<'_, T, I> {
     fn resize(&mut self, _area: Area) {}
 
@@ -55,10 +52,10 @@ impl<T, I: Interface<T>> Component for PreviewPane<'_, T, I> {
     }
 }
 
-#[cfg(any(not(feature = "preview"), test))]
+#[cfg(test)]
 pub(crate) struct NoPreview;
 
-#[cfg(any(not(feature = "preview"), test))]
+#[cfg(test)]
 impl Component for NoPreview {
     fn resize(&mut self, _area: Area) {}
     fn draw<D: Rect>(&mut self, _rect: &mut D) -> io::Result<()> {

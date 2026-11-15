@@ -1,15 +1,15 @@
-#![cfg(all(feature = "preview", feature = "unstable-backend"))]
+#![cfg(feature = "unstable-backend")]
 
 use std::{
-    cell::Cell,
+    cell::{Cell, RefCell},
     io,
     num::NonZero,
     time::{Duration, Instant},
 };
 
 use nucleo_picker::{
-    Interface, PickerOptions, Terminal,
-    event::{Event, EventSource, RecvError},
+    Interface, Multi, PickerOptions, Single, Terminal, UncachedPreview,
+    event::{Event, EventSource, LayoutEvent, MatchListEvent, RecvError},
     preview::{Content, Pane, PreviewEvent},
     render::StrRenderer,
     session::{Context, Dimensions, Exit, ItemId, Redraw},
@@ -328,4 +328,119 @@ fn public_hooks_redraw_selectively_and_output_outlives_the_interface() {
             }
         }
     }
+}
+
+#[test]
+fn uncached_previews_follow_frames_and_revisits_instead_of_event_targets() {
+    let generated = RefCell::new(Vec::new());
+    let mut picker = PickerOptions::new()
+        .sort_results(false)
+        .frame_interval(Duration::from_secs(5))
+        .picker(StrRenderer)
+        .with_interface(UncachedPreview::new(
+            Single,
+            |item: &&'static str, pane: &mut Pane| {
+                generated.borrow_mut().push(*item);
+                for _ in 0..10 {
+                    pane.push_text(item);
+                    pane.push_text("\n");
+                }
+            },
+        ));
+    picker.push_batch(["alpha", "beta"]);
+    picker.filter().unwrap();
+    let mut terminal = TestTerminal::default();
+    let output = picker
+        .pick_with_terminal_io(
+            Script(
+                [
+                    Err(RecvError::Timeout),
+                    Ok(Event::MatchList(MatchListEvent::Up(1))),
+                    Ok(Event::Preview(PreviewEvent::PageDown(1))),
+                    Ok(Event::Preview(PreviewEvent::Refresh)),
+                    Ok(Event::MatchList(MatchListEvent::Down(1))),
+                    Err(RecvError::Timeout),
+                    Ok(Event::Preview(PreviewEvent::Refresh)),
+                    Ok(Event::Layout(LayoutEvent::TogglePreview)),
+                    Err(RecvError::Timeout),
+                    Ok(Event::MatchList(MatchListEvent::Up(1))),
+                    Ok(Event::Preview(PreviewEvent::Refresh)),
+                    Err(RecvError::Timeout),
+                    Ok(Event::MatchList(MatchListEvent::Down(1))),
+                    Ok(Event::Layout(LayoutEvent::TogglePreview)),
+                    Err(RecvError::Timeout),
+                    Ok(Event::MatchList(MatchListEvent::Up(1))),
+                    Err(RecvError::Timeout),
+                    Ok(Event::MatchList(MatchListEvent::Down(1))),
+                    Err(RecvError::Timeout),
+                    Ok(Event::Preview(PreviewEvent::Refresh)),
+                    Ok(Event::Select),
+                ]
+                .into_iter(),
+            ),
+            &mut terminal,
+        )
+        .unwrap();
+    assert_eq!(output, Some(&"alpha"));
+    assert_eq!(&*generated.borrow(), &["alpha", "alpha", "beta", "alpha"]);
+    assert_eq!(
+        terminal.changed,
+        [false, false, true, true, true, true, true]
+    );
+    assert_eq!(terminal.renders.len(), 6);
+}
+
+#[test]
+fn explicit_uncached_interfaces_preserve_limits_and_borrowed_output() {
+    let generated = RefCell::new(Vec::new());
+    let mut picker = PickerOptions::new().sort_results(false).picker(StrRenderer);
+    picker.push_batch(["alpha", "beta"].map(str::to_owned));
+    picker.filter().unwrap();
+    let mut terminal = TestTerminal::default();
+    let output = {
+        let mut generate = |item: &String, pane: &mut Pane| {
+            generated.borrow_mut().push(item.clone());
+            pane.push_text(item);
+        };
+        picker
+            .as_interface(UncachedPreview::new(
+                Multi::new().max_selection_count(NonZero::new(1)),
+                &mut generate,
+            ))
+            .pick_with_terminal_io(
+                Script(
+                    [
+                        Ok(Event::MatchList(MatchListEvent::ToggleUp(1))),
+                        Ok(Event::MatchList(MatchListEvent::ToggleUp(1))),
+                        Ok(Event::Select),
+                    ]
+                    .into_iter(),
+                ),
+                &mut terminal,
+            )
+            .unwrap()
+    };
+    assert!(output.iter().map(String::as_str).eq(["alpha"]));
+    let selected = picker
+        .as_interface(UncachedPreview::new(
+            Single,
+            |item: &String, pane: &mut Pane| {
+                generated.borrow_mut().push(item.clone());
+                pane.push_text(item);
+            },
+        ))
+        .pick_with_terminal_io(Script([Ok(Event::Select)].into_iter()), &mut terminal)
+        .unwrap()
+        .unwrap();
+    assert_eq!(selected, "beta");
+    assert_eq!(&*generated.borrow(), &["alpha", "beta"]);
+
+    assert_eq!(
+        picker
+            .pick_with_terminal_io(Script([Ok(Event::Select)].into_iter()), &mut terminal)
+            .unwrap()
+            .unwrap(),
+        "beta",
+    );
+    assert_eq!(generated.borrow().len(), 2);
 }

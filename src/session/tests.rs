@@ -11,7 +11,7 @@ use crate::{
 
 mod context;
 mod lifecycle;
-#[cfg(all(feature = "preview", feature = "unstable-backend"))]
+#[cfg(all(feature = "preview-cache", feature = "unstable-backend"))]
 mod preview;
 mod run;
 mod selection;

@@ -6,7 +6,6 @@ use crate::match_engine::MatchEngine;
 pub struct Context<'items, T> {
     matches: Matches<'items, T>,
     rank: Option<u32>,
-    #[cfg(feature = "preview")]
     preview_enabled: bool,
 }
 
@@ -15,7 +14,6 @@ impl<'items, T: Send + Sync + 'static> Context<'items, T> {
         Self {
             matches: Matches::new(engine),
             rank: None,
-            #[cfg(feature = "preview")]
             preview_enabled: false,
         }
     }
@@ -25,7 +23,6 @@ impl<'items, T: Send + Sync + 'static> Context<'items, T> {
         self
     }
 
-    #[cfg(feature = "preview")]
     pub(crate) fn with_preview_enabled(mut self, enabled: bool) -> Self {
         self.preview_enabled = enabled;
         self
@@ -48,8 +45,6 @@ impl<'items, T: Send + Sync + 'static> Context<'items, T> {
     ///
     /// For example, this method returns `false` if the user has requested that the preview pane is
     /// hidden. Implementations may use this information to skip background preview preparation.
-    #[cfg(feature = "preview")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     pub fn preview_enabled(&self) -> bool {
         self.preview_enabled
     }

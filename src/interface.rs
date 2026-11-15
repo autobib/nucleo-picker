@@ -1,31 +1,33 @@
-#[cfg(feature = "preview")]
+#[cfg(feature = "preview-cache")]
 pub(crate) mod cache;
-#[cfg(feature = "preview")]
+#[cfg(feature = "preview-cache")]
 pub(crate) mod controller;
 mod picker_ref;
 mod selection;
+mod uncached;
 
 use std::num::NonZero;
-#[cfg(feature = "preview")]
+#[cfg(feature = "preview-cache")]
 use std::time::Instant;
 
 use crossterm::event::KeyEvent;
 
 pub use picker_ref::PickerRef;
 pub use selection::{MultiState, Selection, SelectionIntoIter};
+pub use uncached::{UncachedPreview, UncachedPreviewState};
 
 use crate::{
     Picker,
     event::{Event, keybind_single},
     session::{Context, Exit, Interface, PickerCore},
 };
-#[cfg(feature = "preview")]
+#[cfg(feature = "preview-cache")]
 use crate::{
     event::keybind_passthrough_preview,
     preview::{Content, DEFAULT_CACHE_SIZE, Preview, PreviewEvent},
     session::{Dimensions, ItemId, QueueEvent, Redraw},
 };
-#[cfg(feature = "preview")]
+#[cfg(feature = "preview-cache")]
 use controller::PreviewState;
 
 /// The single-selection picker interface.
@@ -103,26 +105,26 @@ impl Multi {
 /// The preview implementation `P` may decide that prefetch is worthwhile (see [`Preview::prefetch`]
 /// and [`Preview::prefetch_limit`]), in which case the picker will also maintain an internal
 /// prefetch cache, separate from the main cache. The prefetch cache will be 2 times the size of [`Preview::prefetch_limit`].
-#[cfg(feature = "preview")]
-#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
-pub struct WithPreview<I, P> {
+#[cfg(feature = "preview-cache")]
+#[cfg_attr(docsrs, doc(cfg(feature = "preview-cache")))]
+pub struct CachedPreview<I, P> {
     pub(crate) interface: I,
     pub(crate) previewer: P,
     pub(crate) cache_size: Option<NonZero<usize>>,
 }
 
-/// Composite state used by [`WithPreview`].
+/// Composite state used by [`CachedPreview`].
 ///
 /// This contains state of the base interface along with extra state used by the preview pane.
-#[cfg(feature = "preview")]
-#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
-pub struct WithPreviewState<S> {
+#[cfg(feature = "preview-cache")]
+#[cfg_attr(docsrs, doc(cfg(feature = "preview-cache")))]
+pub struct CachedPreviewState<S> {
     pub(crate) interface: S,
     pub(crate) preview: PreviewState,
 }
 
-#[cfg(feature = "preview")]
-impl<I, P> WithPreview<I, P> {
+#[cfg(feature = "preview-cache")]
+impl<I, P> CachedPreview<I, P> {
     /// Wrap an interface with a new interface that generates previews.
     #[must_use]
     #[inline]
@@ -145,10 +147,24 @@ impl<I, P> WithPreview<I, P> {
         self.cache_size = size;
         self
     }
+
+    /// Get a reference to the inner interface.
+    #[must_use]
+    #[inline]
+    pub const fn inner(&self) -> &I {
+        &self.interface
+    }
+
+    /// Get a mutable reference to the inner interface.
+    #[must_use]
+    #[inline]
+    pub const fn inner_mut(&mut self) -> &mut I {
+        &mut self.interface
+    }
 }
 
-#[cfg(feature = "preview")]
-impl<P> WithPreview<Single, P> {
+#[cfg(feature = "preview-cache")]
+impl<P> CachedPreview<Single, P> {
     /// Initialize a new preview interface in single-selection mode.
     #[must_use]
     #[inline]
@@ -157,8 +173,8 @@ impl<P> WithPreview<Single, P> {
     }
 }
 
-#[cfg(feature = "preview")]
-impl<P> WithPreview<Multi, P> {
+#[cfg(feature = "preview-cache")]
+impl<P> CachedPreview<Multi, P> {
     /// Initialize a new preview interface in multi-selection mode.
     #[must_use]
     #[inline]
@@ -199,15 +215,17 @@ impl<T: Send + Sync + 'static> Interface<T> for Single {
     }
 }
 
-#[cfg(feature = "preview")]
-impl<T: Send + Sync + 'static, I: Interface<T>, P: Preview<T>> Interface<T> for WithPreview<I, P> {
-    type State = WithPreviewState<I::State>;
+#[cfg(feature = "preview-cache")]
+impl<T: Send + Sync + 'static, I: Interface<T>, P: Preview<T>> Interface<T>
+    for CachedPreview<I, P>
+{
+    type State = CachedPreviewState<I::State>;
     type Output<'a> = I::Output<'a>;
 
     const HAS_PREVIEW: bool = true;
 
     fn init(&mut self, cx: &Context<'_, T>) -> Self::State {
-        WithPreviewState {
+        CachedPreviewState {
             interface: self.interface.init(cx),
             preview: PreviewState::new(self.cache_size, self.previewer.prefetch_limit()),
         }

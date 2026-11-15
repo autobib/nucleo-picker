@@ -32,11 +32,8 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
         E: EventSource,
         W: Terminal,
     {
-        #[cfg(feature = "preview")]
         let has_preview = I::HAS_PREVIEW;
-        let cx = Context::new(&self.engine);
-        #[cfg(feature = "preview")]
-        let cx = cx.with_preview_enabled(has_preview);
+        let cx = Context::new(&self.engine).with_preview_enabled(has_preview);
         let mut session_state = DropGuard::new(
             (interface.init(&cx), interface),
             |mut session: (I::State, &mut I)| {
@@ -63,10 +60,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
         list.flush(engine);
         let initial = engine.update(5);
         list.update(engine, initial.items_changed, false);
-        #[cfg(feature = "preview")]
         let preview_ratio = has_preview.then_some(self.preview_config.ratio);
-        #[cfg(not(feature = "preview"))]
-        let preview_ratio = None;
         let mut frame = Frame::new(terminal.dimensions()?, self.reversed, preview_ratio);
         frame.resize(&mut SessionContents {
             engine,
@@ -75,9 +69,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
             prompt: &mut prompt,
             list: &mut list,
             status: &mut status_line,
-            #[cfg(feature = "preview")]
             chars: &self.chars,
-            #[cfg(feature = "preview")]
             preview_config: &self.preview_config,
         });
         let cx = context(engine, list.rank(engine), &frame);
@@ -98,9 +90,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                 prompt: &mut prompt,
                 list: &mut list,
                 status: &mut status_line,
-                #[cfg(feature = "preview")]
                 chars: &self.chars,
-                #[cfg(feature = "preview")]
                 preview_config: &self.preview_config,
             },
             &mut **terminal,
@@ -154,7 +144,6 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                         );
                     }
                     Event::Layout(event) => frame.handle(event),
-                    #[cfg(feature = "preview")]
                     Event::Preview(event) => {
                         if frame.preview_enabled() {
                             // we have a previewer (i.e.: inside a PreviewPicker) and moreover
@@ -198,11 +187,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                                 state,
                                 &context(engine, list.event_rank(engine), &frame),
                             );
-                            pending_redraw |= Redraw::QUEUE;
-                            #[cfg(feature = "preview")]
-                            {
-                                pending_redraw |= Redraw::PREVIEW;
-                            }
+                            pending_redraw |= Redraw::QUEUE | Redraw::PREVIEW;
                             engine.restart();
                             matches_changed = true;
                             let cx = context(engine, None, &frame);
@@ -259,10 +244,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
             );
             let mut redraw = std::mem::take(&mut pending_redraw);
             redraw.status &= frame.status_enabled();
-            #[cfg(feature = "preview")]
-            {
-                redraw.preview &= frame.preview_enabled();
-            }
+            redraw.preview &= frame.preview_enabled();
 
             // a redraw was externally requested
             if force_redraw {
@@ -277,9 +259,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                     prompt: &mut prompt,
                     list: &mut list,
                     status: &mut status_line,
-                    #[cfg(feature = "preview")]
                     chars: &self.chars,
-                    #[cfg(feature = "preview")]
                     preview_config: &self.preview_config,
                 },
                 &mut **terminal,
@@ -337,9 +317,7 @@ struct SessionContents<'a, 'session, T, R, I: Interface<T>> {
     prompt: &'a mut Prompt<'session>,
     list: &'a mut MatchList<'session>,
     status: &'a mut StatusLine<'session>,
-    #[cfg(feature = "preview")]
     chars: &'a crate::PickerChars,
-    #[cfg(feature = "preview")]
     preview_config: &'a crate::preview::PreviewConfig,
 }
 
@@ -364,29 +342,19 @@ impl<T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Contents
     }
 
     fn preview(&mut self) -> impl Component {
-        #[cfg(feature = "preview")]
-        {
-            crate::component::PreviewPane {
-                interface: &*self.interface,
-                state: &*self.state,
-                boundary_chars: self.preview_config.boundary_chars,
-                ellipsis: self.chars.ellipsis,
-            }
-        }
-        #[cfg(not(feature = "preview"))]
-        {
-            crate::component::NoPreview
+        crate::component::PreviewPane {
+            interface: &*self.interface,
+            state: &*self.state,
+            boundary_chars: self.preview_config.boundary_chars,
+            ellipsis: self.chars.ellipsis,
         }
     }
 
     fn preview_resize(&mut self, area: Option<Area>) {
-        #[cfg(feature = "preview")]
         if I::HAS_PREVIEW {
             self.interface
                 .preview_resize(self.state, area.map(crate::preview::interior_dimensions));
         }
-        #[cfg(not(feature = "preview"))]
-        let _ = area;
     }
 }
 
@@ -395,10 +363,7 @@ fn context<'items, T: Send + Sync + 'static, R>(
     rank: Option<u32>,
     frame: &Frame,
 ) -> Context<'items, T> {
-    let cx = Context::new(engine).with_rank(rank);
-    #[cfg(feature = "preview")]
-    let cx = cx.with_preview_enabled(frame.preview_enabled());
-    #[cfg(not(feature = "preview"))]
-    let _ = frame;
-    cx
+    Context::new(engine)
+        .with_rank(rank)
+        .with_preview_enabled(frame.preview_enabled())
 }

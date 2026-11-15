@@ -33,8 +33,6 @@ impl Redraw {
     };
 
     /// Request redraw of the preview pane.
-    #[cfg(feature = "preview")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     pub const PREVIEW: Self = Self {
         preview: true,
         ..Self::NONE

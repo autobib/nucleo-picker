@@ -1,9 +1,5 @@
 use super::*;
-use crate::{
-    Picker,
-    interface::{cache::RequestState, controller::tests::support::picker},
-    render::StrRenderer,
-};
+use crate::{Picker, preview::lock::Poll, render::StrRenderer};
 use std::{
     collections::{BTreeSet, HashMap},
     sync::{
@@ -19,6 +15,13 @@ fn request<T: Send + Sync + 'static, R>(picker: &Picker<T, R>, index: u32) -> Re
         snapshot: picker.core.engine.snapshot(),
         id: picker.core.engine.item_id(index),
     }
+}
+
+fn picker(items: impl IntoIterator<Item = &'static str>) -> Picker<&'static str, StrRenderer> {
+    let mut picker = Picker::new(StrRenderer);
+    picker.push_batch(items);
+    picker.filter().unwrap();
+    picker
 }
 
 #[test]
@@ -58,7 +61,7 @@ fn request_transitions_preserve_identity_and_publication() {
     assert_eq!(pane.offset(), (0, 0));
     assert!(!pane.line_numbers());
     assert!(!pane.is_err());
-    let RequestState::Ready(pane) = RequestState::Pending(pending).poll() else {
+    let Poll::Ready(pane) = pending.reader.poll() else {
         panic!("expected published preview");
     };
     assert_eq!(pane.buffer().line(0).unwrap().as_str(), "alpha");
@@ -87,7 +90,7 @@ fn failed_publication_preserves_item_id_and_buffer() {
             .with_offset(17, 29)
             .with_line_numbers(true);
         pane.set_err(true);
-        drop(RequestState::Pending(pending).into_buffer());
+        drop(pending.reader.cancel_any());
         assert!(active.is_cancelled());
         let cancelled = if publish_before_restart {
             let cancelled = active.publish(&mut pane).unwrap_err();
@@ -122,7 +125,7 @@ fn ids_distinguish_duplicate_items_and_survive_appends() {
     let mut map = HashMap::from([(first, "first"), (second, "second")]);
     assert_eq!(map.len(), 2);
     picker.push_batch(["same"]);
-    crate::interface::controller::tests::support::settle(&mut picker);
+    picker.filter().unwrap();
     assert_eq!(map[&request(&picker, 0).id()], "first");
     assert_eq!(map[&request(&picker, 1).id()], "second");
     let third = request(&picker, 2).id();
@@ -160,13 +163,13 @@ fn cancelled_request_retains_item_and_id_after_restart_and_picker_drop() {
         let (pending, queued) = original.defer();
         let active = queued.start().unwrap();
         assert_eq!(active.id(), id);
-        drop(RequestState::Pending(pending).into_buffer());
+        drop(pending.reader.cancel_any());
         assert!(active.is_cancelled());
         drop(active);
 
         let (pending, queued) = request(&picker, 0).defer();
         let cancelled = if cancel_before_restart {
-            drop(RequestState::Pending(pending).into_buffer());
+            drop(pending.reader.cancel_any());
             let cancelled = queued.start().err().unwrap();
             picker.restart();
             drop(picker);
@@ -174,7 +177,7 @@ fn cancelled_request_retains_item_and_id_after_restart_and_picker_drop() {
         } else {
             picker.restart();
             drop(picker);
-            drop(RequestState::Pending(pending).into_buffer());
+            drop(pending.reader.cancel_any());
             queued.start().err().unwrap()
         };
         assert_eq!(cancelled.id(), id);

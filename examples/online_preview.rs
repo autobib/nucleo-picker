@@ -5,7 +5,7 @@
 //! Run with:
 //!
 //! ```bash
-//! cargo run --release --features preview --example online_preview
+//! cargo run --release --features preview-cache --example online_preview
 //! ```
 //!
 //! This example exists in particular to highlight idiomatic handling of fatal preview errors,

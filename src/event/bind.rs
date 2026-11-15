@@ -1,7 +1,6 @@
 use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use super::{Event, MatchListEvent, PromptEvent};
-#[cfg(feature = "preview")]
 use super::{LayoutEvent, PreviewEvent};
 
 /// The default keybindings.
@@ -19,11 +18,6 @@ use super::{LayoutEvent, PreviewEvent};
 /// [`Event::Abort`] is never produced by the default keybindings. This type parameter is simply
 /// here for flexibility to generate events of a particular type when used in situations where `A`
 /// is not the default `!`.
-///
-/// # Preview bindings
-///
-/// When the `preview` feature is enabled, the default keybindings include keybindings which target
-/// the preview pane.
 ///
 /// # Specialized bindings
 ///
@@ -52,14 +46,7 @@ use super::{LayoutEvent, PreviewEvent};
 /// in generic code.
 #[inline]
 pub fn keybind_default<A>(key_event: KeyEvent) -> Option<Event<A>> {
-    #[cfg(feature = "preview")]
-    {
-        keybind_multi_preview(key_event)
-    }
-    #[cfg(not(feature = "preview"))]
-    {
-        keybind_multi(key_event)
-    }
+    keybind_multi_preview(key_event)
 }
 
 /// Keybindings which do not emit [multi-selection events](MatchListEvent#multi-selection-events).
@@ -71,14 +58,7 @@ pub fn keybind_default<A>(key_event: KeyEvent) -> Option<Event<A>> {
 )]
 #[inline]
 pub fn keybind_no_multi<A>(key_event: KeyEvent) -> Option<Event<A>> {
-    #[cfg(feature = "preview")]
-    {
-        keybind_single_preview(key_event)
-    }
-    #[cfg(not(feature = "preview"))]
-    {
-        keybind_single(key_event)
-    }
+    keybind_single_preview(key_event)
 }
 
 /// Keybindings which only emit single-selection non-preview events.
@@ -103,10 +83,8 @@ pub fn keybind_multi<A>(key_event: KeyEvent) -> Option<Event<A>> {
 
 /// Keybindings which only emit single-selection events and preview events.
 ///
-/// These are the keybindings for the [`WithPreview<Single, P>`](crate::session::WithPreview) interface.
+/// These are the keybindings for the [`CachedPreview<Single, P>`](crate::session::CachedPreview) interface.
 /// See the [caveats on specialized bindings](keybind_default#specialized-bindings) for more details.
-#[cfg(feature = "preview")]
-#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
 #[inline]
 pub fn keybind_single_preview<A>(key_event: KeyEvent) -> Option<Event<A>> {
     keybind_passthrough_core(key_event)
@@ -116,11 +94,9 @@ pub fn keybind_single_preview<A>(key_event: KeyEvent) -> Option<Event<A>> {
 
 /// Keybindings which only emit multi-selection and preview events.
 ///
-/// These are the keybindings for the [`WithPreview<Multi, P>`](crate::session::WithPreview) interface.
+/// These are the keybindings for the [`CachedPreview<Multi, P>`](crate::session::CachedPreview) interface.
 /// See the [caveats on specialized bindings](keybind_default#specialized-bindings) for
 /// more details.
-#[cfg(feature = "preview")]
-#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
 #[inline]
 pub fn keybind_multi_preview<A>(key_event: KeyEvent) -> Option<Event<A>> {
     keybind_passthrough_core(key_event)
@@ -164,7 +140,6 @@ fn keybind_passthrough_multi<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEven
 }
 
 /// A composable set of keybindings for preview-pane manipulation.
-#[cfg(feature = "preview")]
 #[inline]
 pub(crate) fn keybind_passthrough_preview<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEvent> {
     match key_event {

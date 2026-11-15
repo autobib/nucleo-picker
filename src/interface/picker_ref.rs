@@ -3,8 +3,8 @@ use std::io;
 use crossterm::event::KeyEvent;
 
 use super::Single;
-#[cfg(feature = "preview")]
-use super::{Multi, WithPreview};
+#[cfg(feature = "preview-cache")]
+use super::{CachedPreview, Multi};
 #[cfg(feature = "unstable-backend")]
 use crate::Terminal;
 use crate::{
@@ -118,15 +118,15 @@ impl<'a, T, R, I> PickerRef<'a, T, R, I> {
     }
 }
 
-#[cfg(feature = "preview")]
-#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
-impl<'a, T, R, P> PickerRef<'a, T, R, WithPreview<Single, P>> {
+#[cfg(feature = "preview-cache")]
+#[cfg_attr(docsrs, doc(cfg(feature = "preview-cache")))]
+impl<'a, T, R, P> PickerRef<'a, T, R, CachedPreview<Single, P>> {
     /// Convert this view type to a multi-selection variant.
     #[must_use]
     #[inline]
-    pub fn multi(self) -> PickerRef<'a, T, R, WithPreview<Multi, P>> {
+    pub fn multi(self) -> PickerRef<'a, T, R, CachedPreview<Multi, P>> {
         PickerRef {
-            interface: WithPreview {
+            interface: CachedPreview {
                 interface: self.core.multi_defaults,
                 previewer: self.interface.previewer,
                 cache_size: self.interface.cache_size,
@@ -136,16 +136,16 @@ impl<'a, T, R, P> PickerRef<'a, T, R, WithPreview<Single, P>> {
     }
 }
 
-#[cfg(feature = "preview")]
-#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
-impl<'a, T, R, P> PickerRef<'a, T, R, WithPreview<Multi, P>> {
+#[cfg(feature = "preview-cache")]
+#[cfg_attr(docsrs, doc(cfg(feature = "preview-cache")))]
+impl<'a, T, R, P> PickerRef<'a, T, R, CachedPreview<Multi, P>> {
     /// Convert this view type to a single-selection variant.
     #[must_use]
     #[inline]
-    pub fn single(self) -> PickerRef<'a, T, R, WithPreview<Single, P>> {
+    pub fn single(self) -> PickerRef<'a, T, R, CachedPreview<Single, P>> {
         PickerRef {
             core: self.core,
-            interface: WithPreview {
+            interface: CachedPreview {
                 interface: Single,
                 previewer: self.interface.previewer,
                 cache_size: self.interface.cache_size,
@@ -154,9 +154,9 @@ impl<'a, T, R, P> PickerRef<'a, T, R, WithPreview<Multi, P>> {
     }
 }
 
-#[cfg(feature = "preview")]
-#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
-impl<'a, T, R, I, P> PickerRef<'a, T, R, WithPreview<I, P>> {
+#[cfg(feature = "preview-cache")]
+#[cfg_attr(docsrs, doc(cfg(feature = "preview-cache")))]
+impl<'a, T, R, I, P> PickerRef<'a, T, R, CachedPreview<I, P>> {
     /// Convert this into a picker without previews by discarding the previewer.
     #[must_use]
     #[inline]

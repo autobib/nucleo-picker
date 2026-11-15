@@ -21,6 +21,7 @@ use super::{
 /// thread pool. Each worker lives in its own thread and manages its own scratch space. There are no
 /// synchronization methods between workers. This trait is designed for use with a [`PoolPreviewer`];
 /// read those docs for more detail.
+#[cfg_attr(docsrs, doc(cfg(feature = "preview-cache")))]
 pub trait Worker<T> {
     /// Generate a preview in the provided pane.
     ///
@@ -137,6 +138,7 @@ pub trait Worker<T> {
 /// preview pool. The next call to `preview` will immediately propagate the panic. However, note
 /// that the picker can return between the panic and the next call to `preview`, so the panic
 /// might not be observed by the picker.
+#[cfg_attr(docsrs, doc(cfg(feature = "preview-cache")))]
 pub struct PoolPreviewer<T, F = fn(&T, &mut Pane) -> bool> {
     pool: Pool<T>,
     sync_preview: Option<F>,

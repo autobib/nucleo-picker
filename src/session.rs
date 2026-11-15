@@ -37,15 +37,15 @@
 //! | --- | --- | --- |
 //! | [`Single`] (default) | `Picker::new(renderer)` | `Option<&T>` |
 //! | [`Multi`] | `picker.multi()` | [`Selection<'_, T>`] |
-//! | [`WithPreview<Single, P>`] | `picker.with_preview(previewer)` | `Option<&T>` |
-//! | [`WithPreview<Multi, P>`] | `picker.multi().with_preview(previewer)` | [`Selection<'_, T>`] |
+//! | [`CachedPreview<Single, P>`] | `picker.with_preview(previewer)` | `Option<&T>` |
+//! | [`CachedPreview<Multi, P>`] | `picker.multi().with_preview(previewer)` | [`Selection<'_, T>`] |
 //!
-//! Note that the preview interfaces require the `preview` feature. When the picker quits without a
-//! selection, it returns either `None` or an empty [`Selection`].
+//! Note that the built-in preview interface requires the `preview-cache` feature. When the picker quits without a
+//! selection, it returns either `None` or an empty [`Selection`]. Also note the built-in [`UncachedPreview`] interface.
 //!
 //! ### Multiple selections
 //!
-//! With the [`Multi`] or [`WithPreview<Multi, P>`] interface, the interactive picker permits the
+//! With the [`Multi`] or [`CachedPreview<Multi, P>`] interface, the interactive picker permits the
 //! user to make multiple selections.
 //!
 //! The `pick*` methods are analogous to the single-selection variants, except additional items can be
@@ -64,8 +64,8 @@
 //!
 //! ### Adding previews
 //!
-//! With the `preview` feature enabled, [`Picker::with_preview`] wraps the current selection mode in
-//! a [`WithPreview<I, P>`]. Converting between single and multiple selection preserves the
+//! With the `preview-cache` feature enabled, [`Picker::with_preview`] wraps the current selection mode in
+//! a [`CachedPreview<I, P>`]. Converting between single and multiple selection preserves the
 //! previewer. See [`crate::preview`] for constructing a previewer.
 //!
 //! The corresponding pick methods on the resulting [`Picker`] have same behaviour, except
@@ -78,9 +78,9 @@
 //!
 //! ```no_run
 //! # fn main() -> std::io::Result<()> {
-//! # #[cfg(feature = "preview")]
+//! # #[cfg(feature = "preview-cache")]
 //! # {
-//! use nucleo_picker::{Picker, WithPreview, preview::{Pane, SyncPreviewer}, render::StrRenderer};
+//! use nucleo_picker::{Picker, CachedPreview, preview::{Pane, SyncPreviewer}, render::StrRenderer};
 //!
 //! let mut picker = Picker::new(StrRenderer);
 //! picker.push_batch(["red", "blue", "green"]);
@@ -89,7 +89,7 @@
 //! });
 //!
 //! let selected = picker
-//!     .as_interface(WithPreview::new_single(&mut previewer))
+//!     .as_interface(CachedPreview::new_single(&mut previewer))
 //!     .pick()?;
 //! # }
 //! # Ok(())
@@ -218,9 +218,11 @@ use std::{
 
 use crossterm::event::KeyEvent;
 
-pub use crate::interface::{Multi, MultiState, PickerRef, Single};
-#[cfg(feature = "preview")]
-pub use crate::interface::{WithPreview, WithPreviewState};
+#[cfg(feature = "preview-cache")]
+pub use crate::interface::{CachedPreview, CachedPreviewState};
+pub use crate::interface::{
+    Multi, MultiState, PickerRef, Single, UncachedPreview, UncachedPreviewState,
+};
 pub use crate::rect::Dimensions;
 pub use context::Context;
 pub(crate) use core::PickerCore;
@@ -228,9 +230,8 @@ pub use item::{ItemId, ItemRef, OwnedItem};
 pub use matches::Matches;
 pub use redraw::Redraw;
 
-#[cfg(all(doc, feature = "preview"))]
+#[cfg(all(doc, feature = "preview-cache"))]
 use crate::preview::Preview;
-#[cfg(feature = "preview")]
 use crate::preview::{Content, PreviewEvent};
 #[cfg(doc)]
 use crate::{Picker, Selection};
@@ -249,7 +250,7 @@ use crate::{
 /// 1. [`Single`]-selection and [`Multi`]-selection modes, which allows queuing selections in the
 ///    interactive interface and sets the return type (the `Output` type parameter) as
 ///    [`Option<&T>`] or [`Selection<'_, T>`] respectively.
-/// 2. Preview-enabled pickers (via [`WithPreview`]) which render item
+/// 2. Preview-enabled pickers (via [`CachedPreview`]) which render item
 ///    previews in a separate pane.
 ///
 /// Read the [module documentation](self) for an overview and more details.
@@ -314,8 +315,6 @@ pub trait Interface<T>: Sized {
     type State;
 
     /// Whether this interface provides a preview pane.
-    #[cfg(feature = "preview")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     const HAS_PREVIEW: bool = false;
 
     /// The output of the picker after selection. This is an [`Option<&T>`] for single-selection
@@ -409,8 +408,6 @@ pub trait Interface<T>: Sized {
     /// Return the current preview pane.
     ///
     /// If the preview pane is [enabled](Self::HAS_PREVIEW), this is usually the rendered preview pane corresponding to the current item. If the preview pane is not enabled, this value is ignored and the implementation should just return [`Content::Empty`]. This is the default value.
-    #[cfg(feature = "preview")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     fn preview_content<'a>(&'a self, _state: &'a Self::State) -> Content<'a> {
         Content::Empty
     }
@@ -419,8 +416,6 @@ pub trait Interface<T>: Sized {
     ///
     /// The preview event is only forwarded if the preview pane is enabled and not hidden.
     /// Use the returned [`Redraw`] mask if the screen needs to be redrawn.
-    #[cfg(feature = "preview")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     fn preview_event(
         &mut self,
         _state: &mut Self::State,
@@ -435,8 +430,6 @@ pub trait Interface<T>: Sized {
     /// These are the dimensions of the drawable area of the preview pane (including width and
     /// height 0 if the preview pane if the preview pane is very small), or `None` if the preview
     /// pane is hidden.
-    #[cfg(feature = "preview")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     fn preview_resize(&mut self, _state: &mut Self::State, _size: Option<Dimensions>) {}
 
     /// The default keybindings for this interface.

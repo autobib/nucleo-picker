@@ -23,7 +23,6 @@
 //! example](https://github.com/autobib/nucleo-picker/blob/master/examples/restart.rs).
 
 mod bind;
-#[cfg(feature = "preview")]
 pub(crate) use bind::keybind_passthrough_preview;
 
 use std::{
@@ -40,11 +39,7 @@ use self::bind::convert_crossterm_event;
 #[expect(deprecated)]
 pub use self::bind::keybind_no_multi;
 pub use self::bind::{keybind_default, keybind_multi, keybind_single};
-#[cfg(feature = "preview")]
-#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
 pub use self::bind::{keybind_multi_preview, keybind_single_preview};
-#[cfg(feature = "preview")]
-#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
 pub use crate::preview::PreviewEvent;
 pub use crate::{
     frame::LayoutEvent, match_list::MatchListEvent, observer::Observer, prompt::PromptEvent,
@@ -204,8 +199,6 @@ pub enum Event<A = !> {
     /// Modify the layout of the screen.
     Layout(LayoutEvent),
     /// Modify the preview pane.
-    #[cfg(feature = "preview")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     Preview(PreviewEvent),
     /// Quit the picker (no selection).
     Quit,

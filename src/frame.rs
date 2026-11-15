@@ -27,16 +27,10 @@ pub enum LayoutEvent {
     ///
     /// When the preview is hidden, the preview cache is preserved but events which target
     /// the preview have no effect.
-    #[cfg(feature = "preview")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     TogglePreview,
     /// Move the divider between the match list and the previewer to the left.
-    #[cfg(feature = "preview")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     MoveDividerLeft(u16),
     /// Move the divider between the match list and the previewer to the right.
-    #[cfg(feature = "preview")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     MoveDividerRight(u16),
 }
 
@@ -125,7 +119,6 @@ impl Frame {
                 // TODO: maybe limit redraws only to match list / status line instead
                 self.pending_resize = true;
             }
-            #[cfg(feature = "preview")]
             LayoutEvent::TogglePreview => {
                 if self.preview_ratio.is_some() {
                     self.preview_hidden.toggle();
@@ -133,11 +126,9 @@ impl Frame {
                     self.pending_resize = true;
                 }
             }
-            #[cfg(feature = "preview")]
             LayoutEvent::MoveDividerLeft(columns) => {
                 self.pending_resize |= self.shift_preview(i32::from(columns));
             }
-            #[cfg(feature = "preview")]
             LayoutEvent::MoveDividerRight(columns) => {
                 self.pending_resize |= self.shift_preview(-i32::from(columns));
             }
@@ -155,7 +146,6 @@ impl Frame {
         true
     }
 
-    #[cfg(feature = "preview")]
     fn shift_preview(&mut self, columns: i32) -> bool {
         if self.preview.is_empty() {
             return false;

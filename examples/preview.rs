@@ -1,7 +1,7 @@
 //! A minimal preview example.
 //!
 //! ```bash
-//! cargo run --release --example preview --features preview
+//! cargo run --release --example preview --features preview-cache
 //! ```
 //!
 //! All data is from Wikipedia.

@@ -236,9 +236,10 @@ fn custom_queue_hooks_control_navigation_markers_status_and_output() {
     }
 
     for preview in [
-        false,
-        #[cfg(feature = "preview")]
-        true,
+        0,
+        1,
+        #[cfg(feature = "preview-cache")]
+        2,
     ] {
         for restart in [false, true] {
             let mut picker = PickerOptions::new()
@@ -266,34 +267,47 @@ fn custom_queue_hooks_control_navigation_markers_status_and_output() {
                 size: Some((40, 8)),
                 ..TestTerminal::default()
             };
-            #[cfg(feature = "preview")]
-            let output = if preview {
+            let output = if preview == 1 {
                 picker
                     .core
                     .pick_impl(
                         events,
                         &mut terminal,
-                        &mut crate::WithPreview::new(
+                        &mut crate::UncachedPreview::new(
                             FirstOnly,
-                            crate::preview::SyncPreviewer(
-                                |_: &&str, _: &mut crate::preview::Pane| {},
-                            ),
+                            |_: &&str, _: &mut crate::preview::Pane| {},
                         ),
                     )
                     .unwrap()
             } else {
-                picker
-                    .core
-                    .pick_impl(events, &mut terminal, &mut FirstOnly)
-                    .unwrap()
-            };
-            #[cfg(not(feature = "preview"))]
-            let output = {
-                let _ = preview;
-                picker
-                    .core
-                    .pick_impl(events, &mut terminal, &mut FirstOnly)
-                    .unwrap()
+                #[cfg(feature = "preview-cache")]
+                if preview == 2 {
+                    picker
+                        .core
+                        .pick_impl(
+                            events,
+                            &mut terminal,
+                            &mut crate::CachedPreview::new(
+                                FirstOnly,
+                                crate::preview::SyncPreviewer(
+                                    |_: &&str, _: &mut crate::preview::Pane| {},
+                                ),
+                            ),
+                        )
+                        .unwrap()
+                } else {
+                    picker
+                        .core
+                        .pick_impl(events, &mut terminal, &mut FirstOnly)
+                        .unwrap()
+                }
+                #[cfg(not(feature = "preview-cache"))]
+                {
+                    picker
+                        .core
+                        .pick_impl(events, &mut terminal, &mut FirstOnly)
+                        .unwrap()
+                }
             };
             assert_eq!(output.copied(), (!restart).then_some("alpha"));
             let status = statuses.try_recv().unwrap();

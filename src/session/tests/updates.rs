@@ -3,9 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[cfg(feature = "preview")]
-use super::FrameEvents;
-use super::{TestEvents, TestTerminal, frame_events};
+use super::{FrameEvents, TestEvents, TestTerminal, frame_events};
 use crate::{
     Picker, PickerOptions,
     event::{Event, MatchListEvent, PromptEvent, RecvError},
@@ -19,7 +17,6 @@ struct Update {
     matches: Vec<ItemId>,
     deadline: Instant,
     after_frame: Option<Instant>,
-    #[cfg(feature = "preview")]
     preview_enabled: bool,
 }
 
@@ -29,7 +26,6 @@ impl<T: Send + Sync + 'static, const ENABLED: bool> Interface<T> for Probe<'_, E
     type State = ();
     type Output<'items> = Option<&'items T>;
 
-    #[cfg(feature = "preview")]
     const HAS_PREVIEW: bool = ENABLED;
 
     fn init(&mut self, _: &Context<'_, T>) {}
@@ -55,7 +51,6 @@ impl<T: Send + Sync + 'static, const ENABLED: bool> Interface<T> for Probe<'_, E
             matches: cx.matches().ids().collect(),
             deadline,
             after_frame: None,
-            #[cfg(feature = "preview")]
             preview_enabled: cx.preview_enabled(),
         });
         self.1
@@ -118,14 +113,12 @@ fn initial_idle_and_navigation_frames_notify_even_without_preview() {
                 assert_eq!(update.after_frame, Some(update.deadline));
                 assert_eq!(update.hovered, Some(ids[index]));
                 assert_eq!(update.matches, ids);
-                #[cfg(feature = "preview")]
                 assert_eq!(update.preview_enabled, ENABLED);
             }
         }
     }
 
     check::<false>();
-    #[cfg(feature = "preview")]
     check::<true>();
 }
 
@@ -215,7 +208,6 @@ fn query_submission_and_injection_notify_only_when_matches_are_published() {
     }
 }
 
-#[cfg(feature = "preview")]
 #[test]
 fn hidden_frames_receive_match_notifications_without_replaying_them_on_reveal() {
     use crate::event::LayoutEvent;
@@ -285,95 +277,118 @@ fn hidden_frames_receive_match_notifications_without_replaying_them_on_reveal() 
     assert!(updates.iter().all(|update| update.after_frame.is_some()));
 }
 
-#[cfg(feature = "preview")]
 #[test]
 fn preview_adapter_forwards_both_frame_hooks_and_hidden_match_changes() {
-    use crate::{
-        event::LayoutEvent,
-        preview::{Pane, SyncPreviewer},
-    };
+    use crate::{event::LayoutEvent, preview::Pane};
 
-    let updates = RefCell::new(Vec::new());
-    let mut generated = 0;
-    let mut picker = picker()
-        .with_interface(Probe::<false>(&updates, Redraw::NONE))
-        .with_preview(SyncPreviewer(|_: &&str, _: &mut Pane| generated += 1));
-    let _injectors = picker.injector_observer(false);
-    picker
-        .core
-        .pick_impl(
-            frame_events([
-                Err(RecvError::Timeout),
-                Ok(Event::Layout(LayoutEvent::TogglePreview)),
-                Err(RecvError::Timeout),
-                Ok(Event::Restart),
-                Err(RecvError::Timeout),
-                Err(RecvError::Timeout),
-                Ok(Event::Layout(LayoutEvent::TogglePreview)),
-                Err(RecvError::Timeout),
-                Ok(Event::Quit),
-            ]),
-            &mut TestTerminal::default(),
-            &mut picker.interface,
-        )
-        .unwrap();
-    let updates = updates.borrow();
-    assert_eq!(updates.len(), 6);
-    for (update, (changed, enabled)) in updates.iter().zip([
-        (true, true),
-        (false, true),
-        (false, false),
-        (true, false),
-        (false, false),
-        (false, true),
-    ]) {
-        assert_eq!(update.matches_changed, changed);
-        assert_eq!(update.preview_enabled, enabled);
-        assert_eq!(update.after_frame, Some(update.deadline));
+    fn run<I: Interface<&'static str>>(mut picker: Picker<&'static str, StrRenderer, I>) {
+        let _injectors = picker.injector_observer(false);
+        assert!(
+            picker
+                .core
+                .pick_impl(
+                    frame_events([
+                        Err(RecvError::Timeout),
+                        Ok(Event::Layout(LayoutEvent::TogglePreview)),
+                        Err(RecvError::Timeout),
+                        Ok(Event::Restart),
+                        Err(RecvError::Timeout),
+                        Err(RecvError::Timeout),
+                        Ok(Event::Layout(LayoutEvent::TogglePreview)),
+                        Err(RecvError::Timeout),
+                        Ok(Event::Quit),
+                    ]),
+                    &mut TestTerminal::default(),
+                    &mut picker.interface,
+                )
+                .is_ok()
+        );
     }
-    assert_eq!(generated, 1);
+
+    for cached in [
+        false,
+        #[cfg(feature = "preview-cache")]
+        true,
+    ] {
+        let updates = RefCell::new(Vec::new());
+        let mut generated = 0;
+        let picker = picker();
+        let interface = Probe::<false>(&updates, Redraw::NONE);
+        let generate = |_: &&str, _: &mut Pane| generated += 1;
+        match cached {
+            #[cfg(feature = "preview-cache")]
+            true => run(picker
+                .with_interface(interface)
+                .with_preview(crate::preview::SyncPreviewer(generate))),
+            _ => run(picker.with_interface(crate::UncachedPreview::new(interface, generate))),
+        }
+        let updates = updates.borrow();
+        assert_eq!(updates.len(), 6);
+        for (update, (changed, enabled)) in updates.iter().zip([
+            (true, true),
+            (false, true),
+            (false, false),
+            (true, false),
+            (false, false),
+            (false, true),
+        ]) {
+            assert_eq!(update.matches_changed, changed);
+            assert_eq!(update.preview_enabled, enabled);
+            assert_eq!(update.after_frame, Some(update.deadline));
+        }
+        assert_eq!(generated, 1);
+    }
 }
 
-#[cfg(feature = "preview")]
 #[test]
 fn preview_adapter_combines_redraw_masks_and_preserves_them_while_hidden() {
-    use crate::{
-        WithPreview,
-        preview::{Pane, SyncPreviewer},
-    };
+    use crate::{UncachedPreview, preview::Pane};
 
     let picker = picker();
     let updates = RefCell::new(Vec::new());
-    let mut interface = WithPreview::new(
-        Probe::<false>(&updates, Redraw::QUEUE),
-        SyncPreviewer(|_: &&str, pane: &mut Pane| {
-            pane.push_text("preview");
-        }),
-    );
-    let mut state = interface.init(&Context::new(&picker.core.engine));
-    let deadline = Instant::now();
-    for (enabled, rank, changed) in [
-        (true, 0, true),
-        (true, 0, false),
-        (false, 1, false),
-        (false, 1, false),
-        (true, 1, true),
-    ] {
-        let cx = Context::new(&picker.core.engine)
-            .with_rank(Some(rank))
-            .with_preview_enabled(enabled);
-        let expected = if changed {
-            Redraw::QUEUE | Redraw::PREVIEW
-        } else {
-            Redraw::QUEUE
-        };
-        assert_eq!(
-            interface.before_frame(&mut state, &cx, false, deadline),
-            expected
-        );
-        assert_eq!(
-            interface.after_frame(&mut state, &cx, deadline),
-            Redraw::QUEUE
-        );
+    let generate = |_: &&str, pane: &mut Pane| pane.push_text("preview");
+    fn check<I: Interface<&'static str>>(
+        picker: &Picker<&'static str, StrRenderer>,
+        mut interface: I,
+    ) {
+        let mut state = interface.init(&Context::new(&picker.core.engine));
+        let deadline = Instant::now();
+        for (enabled, rank, changed) in [
+            (true, 0, true),
+            (true, 0, false),
+            (false, 1, false),
+            (false, 1, false),
+            (true, 1, true),
+        ] {
+            let cx = Context::new(&picker.core.engine)
+                .with_rank(Some(rank))
+                .with_preview_enabled(enabled);
+            let expected = if changed {
+                Redraw::QUEUE | Redraw::PREVIEW
+            } else {
+                Redraw::QUEUE
+            };
+            assert_eq!(
+                interface.before_frame(&mut state, &cx, false, deadline),
+                expected
+            );
+            assert_eq!(
+                interface.after_frame(&mut state, &cx, deadline),
+                Redraw::QUEUE
+            );
+        }
     }
+
+    check(
+        &picker,
+        UncachedPreview::new(Probe::<false>(&updates, Redraw::QUEUE), generate),
+    );
+    #[cfg(feature = "preview-cache")]
+    check(
+        &picker,
+        crate::CachedPreview::new(
+            Probe::<false>(&updates, Redraw::QUEUE),
+            crate::preview::SyncPreviewer(generate),
+        ),
+    );
 }

@@ -65,14 +65,11 @@ where
     V: Interface<String>,
 {
     let mut picker = Picker::<String, _>::new(StrRenderer);
-    let state = preview.init(&Context::new(&picker.core.engine));
+    let mut state = preview.init(&Context::new(&picker.core.engine));
     let mut prompt = Prompt::new(&mut picker.core.prompt, &picker.core.chars);
     let mut list = MatchList::new(&mut picker.core.list_state, &picker.core.chars);
     let mut status_line = StatusLine::new(&picker.core.chars);
-    #[cfg(feature = "preview")]
     let ratio = V::HAS_PREVIEW.then_some(0.5);
-    #[cfg(not(feature = "preview"))]
-    let ratio = None;
     let mut frame = Frame::new(dimensions(size), false, ratio);
     let mut contents = (
         &mut prompt,
@@ -86,9 +83,6 @@ where
         NoPreview,
     );
     frame.resize(&mut contents);
-    #[cfg(feature = "preview")]
-    let mut state = state;
-    #[cfg(feature = "preview")]
     let mut contents = {
         if V::HAS_PREVIEW {
             preview.preview_resize(
@@ -110,8 +104,6 @@ where
             },
         )
     };
-    #[cfg(not(feature = "preview"))]
-    let _ = state;
     let mut terminal = TestTerminal {
         dimensions: dimensions(size),
         ..TestTerminal::default()
@@ -124,7 +116,6 @@ where
 fn redraws_respect_component_boundaries_and_restore_the_cursor() {
     for (render, preview_enabled) in [
         (render_at_size as fn(Redraw, (u16, u16)) -> String, false),
-        #[cfg(feature = "preview")]
         (preview::render_preview, true),
     ] {
         for (flags, screen_clear) in [
@@ -385,13 +376,9 @@ fn preview_ratios_round_clamp_and_survive_resizing() {
     }
 }
 
-#[cfg(feature = "preview")]
 mod preview {
     use super::*;
-    use crate::preview::{
-        Preview,
-        request::{Request, Response},
-    };
+    use crate::session::Exit;
 
     #[test]
     fn toggle_preview_restores_the_adjusted_ratio_after_resizing() {
@@ -537,13 +524,25 @@ mod preview {
     }
 
     struct EmptyPreview;
-    impl Preview<String> for EmptyPreview {
-        fn preview(&mut self, request: Request<'_, String>, _: std::time::Duration) -> Response {
-            Response::Ready(request.ready())
+    impl Interface<String> for EmptyPreview {
+        type State = ();
+        type Output<'items> = Option<&'items String>;
+
+        const HAS_PREVIEW: bool = true;
+
+        fn init(&mut self, _: &Context<'_, String>) {}
+
+        fn finish<'items>(
+            &mut self,
+            (): (),
+            exit: Exit,
+            cx: Context<'items, String>,
+        ) -> Self::Output<'items> {
+            Single.finish((), exit, cx)
         }
     }
     pub(super) fn render_preview(redraw: Redraw, size: (u16, u16)) -> String {
-        render_with(redraw, size, crate::WithPreview::new_single(EmptyPreview))
+        render_with(redraw, size, EmptyPreview)
     }
     #[test]
     fn preview_falls_back_to_full_width_when_its_interior_cannot_fit() {

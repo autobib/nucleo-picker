@@ -48,7 +48,7 @@ mod multi_select;
 mod multiline;
 #[path = "scenarios/picker_options.rs"]
 mod picker_options;
-#[cfg(feature = "preview")]
+#[cfg(feature = "preview-cache")]
 #[path = "scenarios/preview.rs"]
 mod preview;
 #[path = "scenarios/unicode.rs"]

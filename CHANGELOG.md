@@ -40,7 +40,7 @@ In short, this release:
 ### Added
 
 - This release includes a new previewer!
-  - The preview pane is gated behind a `preview` feature flag.
+  - The preview pane is gated behind a `preview-cache` feature flag.
   - Visit the documentation for the `preview` module for more details.
 - Added methods for non-interactive picker usage: `Picker::filter`, `Picker::matches`, and `Picker::update_matches`.
 - Added new `Layout` event, for events which influence the layout of the screen.

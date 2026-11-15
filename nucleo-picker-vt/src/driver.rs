@@ -198,7 +198,7 @@ impl Driver {
         })
     }
 
-    #[cfg(feature = "preview")]
+    #[cfg(feature = "preview-cache")]
     pub fn start_with_preview<T: Into<String>, P>(
         items: Vec<T>,
         options: PickerOptions,

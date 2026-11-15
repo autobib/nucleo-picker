@@ -9,8 +9,8 @@
 //!
 //! Here are some other common use-cases:
 //!
-//! - To include a preview pane in the picker, enable the [preview feature](#cargo-features) and see
-//!   the [`preview`] module.
+//! - To include a preview pane in the picker, see the [`preview`] module. The simplest entry point is to
+//!  enable the [preview-cache feature](#cargo-features) and use [`Picker::with_preview`].
 //! - For headless (non-interactive) use, see the [relevant section of the picker documentation](Picker#headless-non-interactive-use).
 //! - For more precise control over the interface and integration with an existing application, see the [`event`] module.
 //! - See the [picker usage documentation](https://github.com/autobib/nucleo-picker/blob/master/USAGE.md)
@@ -41,9 +41,9 @@
 //! | Feature | Default | Dependencies | Requires | Description |
 //! | --- | --- | --- | --- | --- |
 //! | <code style="white-space: nowrap;">unix-poll</code> | Yes | — | — | This enables the <code style="white-space: nowrap;">use-dev-tty</code> feature of `crossterm` to fix a polling issue on macOS which breaks non-interactive STDIN. (Note that the <code style="white-space: nowrap;">use-dev-tty</code> feature is confusingly named, since even with this feature disabled, crossterm uses `/dev/tty` anyway.) |
-//! | `preview` | No | [`lru`] | — | This enables the base preview-pane functionality. |
+//! | `preview-cache` | No | [`lru`] | — | This enables the [`Preview`](preview::Preview) trait and [`CachedPreview`]. |
 //! | `serde`   | No | [`serde`] | — | This enables `DeserializeSeed` for an [`Injector`]. |
-//! | <code style="white-space: nowrap;">preview-ansi</code> | No | [`anstyle_parse`] | `preview` | This adds ANSI-parsing support for the preview buffer. |
+//! | <code style="white-space: nowrap;">preview-ansi</code> | No | [`anstyle_parse`] | — | This adds ANSI-parsing support for the preview buffer. |
 
 #![deny(missing_docs)]
 #![warn(rustdoc::unescaped_backticks)]
@@ -59,8 +59,6 @@ mod interface;
 mod match_engine;
 mod match_list;
 mod observer;
-#[cfg(feature = "preview")]
-#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
 pub mod preview;
 mod prompt;
 mod rect;
@@ -78,8 +76,9 @@ use nucleo::{
     pattern::{CaseMatching as NucleoCaseMatching, Normalization as NucleoNormalization},
 };
 use observer::Observer;
-#[cfg(feature = "preview")]
-use preview::{BoundaryChars, DEFAULT_CACHE_SIZE, PreviewConfig};
+#[cfg(feature = "preview-cache")]
+use preview::DEFAULT_CACHE_SIZE;
+use preview::{BoundaryChars, PreviewConfig};
 
 use crate::{
     error::PickError,
@@ -91,11 +90,11 @@ use crate::{
 };
 
 pub use crate::injector::Injector;
-#[cfg(feature = "preview")]
+#[cfg(feature = "preview-cache")]
 #[doc(inline)]
-pub use crate::interface::WithPreview;
+pub use crate::interface::CachedPreview;
 #[doc(inline)]
-pub use crate::interface::{Multi, PickerRef, Single};
+pub use crate::interface::{Multi, PickerRef, Single, UncachedPreview};
 pub use crate::interface::{Selection, SelectionIntoIter};
 #[doc(inline)]
 pub use crate::session::Interface;
@@ -436,9 +435,8 @@ pub struct PickerOptions {
     case_matching: NucleoCaseMatching,
     normalization: NucleoNormalization,
     prompt_config: PromptConfig,
-    #[cfg(feature = "preview")]
     preview_config: PreviewConfig,
-    #[cfg(feature = "preview")]
+    #[cfg(feature = "preview-cache")]
     preview_cache_size: Option<NonZero<usize>>,
     sort_results: bool,
     reverse_items: bool,
@@ -469,9 +467,8 @@ impl PickerOptions {
             case_matching: NucleoCaseMatching::Smart,
             normalization: NucleoNormalization::Smart,
             prompt_config: PromptConfig::new(),
-            #[cfg(feature = "preview")]
             preview_config: PreviewConfig::new(),
-            #[cfg(feature = "preview")]
+            #[cfg(feature = "preview-cache")]
             preview_cache_size: DEFAULT_CACHE_SIZE,
             sort_results: true,
             reverse_items: false,
@@ -521,9 +518,8 @@ impl PickerOptions {
             engine,
             list_state,
             prompt,
-            #[cfg(feature = "preview")]
             preview_config: self.preview_config,
-            #[cfg(feature = "preview")]
+            #[cfg(feature = "preview-cache")]
             preview_cache_size: self.preview_cache_size,
             interval: self.interval,
             background_frame_frequency,
@@ -797,23 +793,19 @@ impl PickerOptions {
     ///     .matching_indicator('.');
     /// ```
     /// If `ascii` is `false`, this uses the default Unicode character set.
-    ///
-    /// When the `preview` feature is enabled, this also sets the preview boundary characters to use
-    /// the ASCII or Unicode defaults.
     pub const fn ascii_compatible(mut self, ascii: bool) -> Self {
         self.chars = if ascii {
             PickerChars::ascii()
         } else {
             PickerChars::new()
         };
-        #[cfg(feature = "preview")]
-        {
-            self.preview_config.boundary_chars = if ascii {
-                BoundaryChars::ascii()
-            } else {
-                BoundaryChars::new()
-            };
-        }
+
+        self.preview_config.boundary_chars = if ascii {
+            BoundaryChars::ascii()
+        } else {
+            BoundaryChars::new()
+        };
+
         self
     }
 
@@ -845,7 +837,6 @@ impl PickerOptions {
     }
 }
 
-#[cfg(feature = "preview")]
 impl PickerOptions {
     /// Set the preview size as a fraction of the total terminal width.
     ///
@@ -855,7 +846,6 @@ impl PickerOptions {
     ///
     /// Values outside the range `0..=1` will cause a panic in debug builds, but in release builds
     /// the value will simply be set to `0.5`
-    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     #[must_use]
     #[inline]
     pub const fn preview_dimensions(mut self, ratio: f64) -> Self {
@@ -869,7 +859,6 @@ impl PickerOptions {
     ///
     /// This defaults to the value returned by [`BoundaryChars::new`]. Note that each character must
     /// have Unicode width 1.
-    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     #[must_use]
     #[inline]
     pub const fn preview_boundary_chars(mut self, chars: BoundaryChars) -> Self {
@@ -894,10 +883,11 @@ impl PickerOptions {
     ///
     /// # Interface default
     ///
-    /// This is the value propagated to into [`WithPreview`] by
+    /// This is the value propagated to into [`CachedPreview`] by
     /// [`with_preview`](Picker::with_preview). Note that separately constructing the interface will ignore
     /// this option.
-    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
+    #[cfg(feature = "preview-cache")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "preview-cache")))]
     #[must_use]
     #[inline]
     pub const fn preview_cache_size(mut self, size: Option<NonZero<usize>>) -> Self {
@@ -936,15 +926,15 @@ impl PickerOptions {
 /// no items were selected.
 ///
 /// More generally, the picker is generic over its *interface* `I`, which in particular
-/// defines the behaviour of the above 3 methods. Currently, the parameter `I` controls the
+/// defines the behaviour of the above 3 methods. Essentially, the parameter `I` controls the
 /// following behaviour:
 ///
 /// 1. Whether the picker operates in single selection mode (the default [`Single`]) or in multiple
 ///    selection mode ([`Multi`]).
-/// 2. Whether the picker has item previews (the wrapper state [`WithPreview`]).
+/// 2. Whether the picker has item previews (the wrapper state [`CachedPreview`]).
 ///
-/// For more details on picker variants, read the [session module documentation](session).
-/// In particular, jump to the sections on:
+/// For more details on picker variants read the [`Interface`] trait documentation and the read the
+/// [session module documentation](session). In particular, jump to the sections on:
 ///
 /// - [multiple selections](session#multiple-selections)
 /// - [adding previews](session#adding-previews)
@@ -1236,12 +1226,12 @@ impl<T, R, I> Picker<T, R, I> {
     /// that this method can be called even if the interface already contains a previewer; this can
     /// create unnecessary overhead and should be avoided but will not result in incorrect
     /// behaviour.
-    #[cfg(feature = "preview")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
+    #[cfg(feature = "preview-cache")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "preview-cache")))]
     #[inline]
-    pub fn with_preview<P>(self, previewer: P) -> Picker<T, R, WithPreview<I, P>> {
+    pub fn with_preview<P>(self, previewer: P) -> Picker<T, R, CachedPreview<I, P>> {
         let interface =
-            WithPreview::new(self.interface, previewer).cache_size(self.core.preview_cache_size);
+            CachedPreview::new(self.interface, previewer).cache_size(self.core.preview_cache_size);
         self.core.with_interface(interface)
     }
 
@@ -1260,14 +1250,14 @@ impl<T, R, I> Picker<T, R, I> {
     }
 }
 
-#[cfg(feature = "preview")]
-#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
-impl<T, R, P> Picker<T, R, WithPreview<Single, P>> {
+#[cfg(feature = "preview-cache")]
+#[cfg_attr(docsrs, doc(cfg(feature = "preview-cache")))]
+impl<T, R, P> Picker<T, R, CachedPreview<Single, P>> {
     /// Convert into a multi-selection picker with item previews.
     #[must_use]
     #[inline]
-    pub fn multi(self) -> Picker<T, R, WithPreview<Multi, P>> {
-        let interface = WithPreview {
+    pub fn multi(self) -> Picker<T, R, CachedPreview<Multi, P>> {
+        let interface = CachedPreview {
             interface: self.core.multi_defaults,
             previewer: self.interface.previewer,
             cache_size: self.interface.cache_size,
@@ -1278,8 +1268,8 @@ impl<T, R, P> Picker<T, R, WithPreview<Single, P>> {
     /// Mutably borrow this picker as a multi-selection picker with item previews.
     #[must_use]
     #[inline]
-    pub fn as_multi(&mut self) -> PickerRef<'_, T, R, WithPreview<Multi, &mut P>> {
-        self.core.as_interface(WithPreview {
+    pub fn as_multi(&mut self) -> PickerRef<'_, T, R, CachedPreview<Multi, &mut P>> {
+        self.core.as_interface(CachedPreview {
             interface: self.core.multi_defaults,
             previewer: &mut self.interface.previewer,
             cache_size: self.interface.cache_size,
@@ -1287,14 +1277,14 @@ impl<T, R, P> Picker<T, R, WithPreview<Single, P>> {
     }
 }
 
-#[cfg(feature = "preview")]
-#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
-impl<T, R, P> Picker<T, R, WithPreview<Multi, P>> {
+#[cfg(feature = "preview-cache")]
+#[cfg_attr(docsrs, doc(cfg(feature = "preview-cache")))]
+impl<T, R, P> Picker<T, R, CachedPreview<Multi, P>> {
     /// Convert back to a single-selection picker, retaining the internal previewer.
     #[must_use]
     #[inline]
-    pub fn single(self) -> Picker<T, R, WithPreview<Single, P>> {
-        self.core.with_interface(WithPreview {
+    pub fn single(self) -> Picker<T, R, CachedPreview<Single, P>> {
+        self.core.with_interface(CachedPreview {
             interface: Single,
             previewer: self.interface.previewer,
             cache_size: self.interface.cache_size,
@@ -1304,8 +1294,8 @@ impl<T, R, P> Picker<T, R, WithPreview<Multi, P>> {
     /// Mutably borrow this picker as a single-selection picker with item previews.
     #[must_use]
     #[inline]
-    pub fn as_single(&mut self) -> PickerRef<'_, T, R, WithPreview<Single, &mut P>> {
-        self.core.as_interface(WithPreview {
+    pub fn as_single(&mut self) -> PickerRef<'_, T, R, CachedPreview<Single, &mut P>> {
+        self.core.as_interface(CachedPreview {
             interface: Single,
             previewer: &mut self.interface.previewer,
             cache_size: self.interface.cache_size,
@@ -1313,9 +1303,9 @@ impl<T, R, P> Picker<T, R, WithPreview<Multi, P>> {
     }
 }
 
-#[cfg(feature = "preview")]
-#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
-impl<T, R, I, P> Picker<T, R, WithPreview<I, P>> {
+#[cfg(feature = "preview-cache")]
+#[cfg_attr(docsrs, doc(cfg(feature = "preview-cache")))]
+impl<T, R, I, P> Picker<T, R, CachedPreview<I, P>> {
     /// Convert into a picker without previews by dropping the previewer.
     ///
     /// This is convenient for stateless previewers, or for previewers passed by reference. To

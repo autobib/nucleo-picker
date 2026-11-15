@@ -15,7 +15,6 @@ fn context_tracks_rank_identity_and_match_publication() {
         .sort_results(false)
         .query("ta")
         .picker(StrRenderer);
-    #[cfg(feature = "preview")]
     assert!(!Context::new(&picker.core.engine).preview_enabled());
     picker.push_batch(["alpha", "beta", "delta"]);
     assert!(Context::new(&picker.core.engine).matches().is_empty());
@@ -106,7 +105,6 @@ struct Observation {
     hovered: Option<ItemId>,
     rank: Option<u32>,
     matches: Vec<ItemId>,
-    #[cfg(feature = "preview")]
     preview_enabled: bool,
 }
 
@@ -116,7 +114,6 @@ impl Observation {
             hovered: cx.hovered().map(|item| item.id()),
             rank: cx.rank(),
             matches: cx.matches().ids().collect(),
-            #[cfg(feature = "preview")]
             preview_enabled: cx.preview_enabled(),
         }
     }
@@ -211,7 +208,6 @@ fn initialization_and_restart_observe_the_retained_and_previous_generations() {
         type State = ();
         type Output<'items> = Option<&'items T>;
 
-        #[cfg(feature = "preview")]
         const HAS_PREVIEW: bool = PREVIEW;
 
         fn init(&mut self, cx: &Context<'_, T>) {
@@ -274,7 +270,6 @@ fn initialization_and_restart_observe_the_retained_and_previous_generations() {
             assert_eq!(init.matches, ids);
             assert_eq!(init.hovered, None);
             assert_eq!(init.rank, None);
-            #[cfg(feature = "preview")]
             assert_eq!(init.preview_enabled, PREVIEW);
             assert_eq!(restart.hovered, Some(ids[1]));
             assert_eq!(restart.rank, Some(1));
@@ -282,7 +277,6 @@ fn initialization_and_restart_observe_the_retained_and_previous_generations() {
             assert_eq!(empty_restart.hovered, None);
             assert_eq!(empty_restart.rank, None);
             assert!(empty_restart.matches.is_empty());
-            #[cfg(feature = "preview")]
             for observation in [restart, empty_restart] {
                 assert_eq!(observation.preview_enabled, PREVIEW);
             }
@@ -290,7 +284,6 @@ fn initialization_and_restart_observe_the_retained_and_previous_generations() {
     }
 
     check::<false>();
-    #[cfg(feature = "preview")]
     check::<true>();
 }
 
@@ -298,9 +291,10 @@ fn initialization_and_restart_observe_the_retained_and_previous_generations() {
 #[test]
 fn custom_output_outlives_a_temporary_picker_ref_and_its_interface_borrows() {
     for preview in [
-        false,
-        #[cfg(feature = "preview")]
-        true,
+        0,
+        1,
+        #[cfg(feature = "preview-cache")]
+        2,
     ] {
         let mut picker = PickerOptions::new()
             .sort_results(false)
@@ -318,30 +312,39 @@ fn custom_output_outlives_a_temporary_picker_ref_and_its_interface_borrows() {
                 [Event::MatchList(MatchListEvent::ToggleUp(1)), Event::Select].into_iter();
             let events = TestEvents(|_| Ok(events.next().unwrap()));
             let mut terminal = TestTerminal::default();
-            #[cfg(feature = "preview")]
-            if preview {
+            if preview == 1 {
                 picker
-                    .as_interface(crate::WithPreview::new(
+                    .as_interface(crate::UncachedPreview::new(
                         interface,
-                        crate::preview::SyncPreviewer(
-                            |_: &String, _: &mut crate::preview::Pane| {},
-                        ),
+                        |_: &String, _: &mut crate::preview::Pane| {},
                     ))
                     .pick_with_terminal_io(events, &mut terminal)
                     .unwrap()
             } else {
-                picker
-                    .as_interface(interface)
-                    .pick_with_terminal_io(events, &mut terminal)
-                    .unwrap()
-            }
-            #[cfg(not(feature = "preview"))]
-            {
-                let _ = preview;
-                picker
-                    .as_interface(interface)
-                    .pick_with_terminal_io(events, &mut terminal)
-                    .unwrap()
+                #[cfg(feature = "preview-cache")]
+                if preview == 2 {
+                    picker
+                        .as_interface(crate::CachedPreview::new(
+                            interface,
+                            crate::preview::SyncPreviewer(
+                                |_: &String, _: &mut crate::preview::Pane| {},
+                            ),
+                        ))
+                        .pick_with_terminal_io(events, &mut terminal)
+                        .unwrap()
+                } else {
+                    picker
+                        .as_interface(interface)
+                        .pick_with_terminal_io(events, &mut terminal)
+                        .unwrap()
+                }
+                #[cfg(not(feature = "preview-cache"))]
+                {
+                    picker
+                        .as_interface(interface)
+                        .pick_with_terminal_io(events, &mut terminal)
+                        .unwrap()
+                }
             }
         };
 
@@ -398,7 +401,6 @@ fn events_observe_buffered_navigation_and_published_matches() {
             assert_eq!(observation.rank, Some(rank));
             assert_eq!(observation.hovered, Some(ids[rank as usize]));
             assert_eq!(observation.matches, ids);
-            #[cfg(feature = "preview")]
             assert!(!observation.preview_enabled);
         }
         assert_eq!(picker.query(), "absent");
@@ -485,7 +487,6 @@ fn selection_without_a_hovered_item_requires_queued_items() {
     }
 }
 
-#[cfg(feature = "preview")]
 mod preview {
     use super::*;
     use crate::{

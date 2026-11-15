@@ -6,7 +6,7 @@ rust-version = "1.100"
 version = "0.0.0"
 
 [features]
-preview = ["nucleo-picker/preview"]
+preview-cache = ["nucleo-picker/preview-cache"]
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
