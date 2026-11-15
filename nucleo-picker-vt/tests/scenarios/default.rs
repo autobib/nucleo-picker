@@ -23,9 +23,9 @@ fn basic() -> Result<(), Box<dyn Error>> {
     sr.send(Event::Prompt(PromptEvent::ClearAfter))?;
     sr.wait_for_match_complete(24, 24)?;
     sr.send(Event::MatchList(MatchListEvent::Up(3)))?;
-    checkpoint!(sr, "selection-03");
+    checkpoint!(sr, "hover-03");
     sr.send(Event::MatchList(MatchListEvent::Down(1)))?;
-    checkpoint!(sr, "selection-02");
+    checkpoint!(sr, "hover-02");
     sr.send(Event::Prompt(PromptEvent::Reset("item-23".to_owned())))?;
     sr.wait_for_match_complete(1, 24)?;
     sr.send(Event::Select)?;

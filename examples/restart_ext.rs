@@ -11,7 +11,6 @@
 //! only documentation here is for the changes relative to the `restart` example.
 
 use std::{
-    convert::Infallible,
     io::{self, IsTerminal},
     num::NonZero,
     process::exit,
@@ -23,7 +22,7 @@ use std::{
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use nucleo_picker::{
     Picker,
-    event::{Event, StdinReader, keybind_default},
+    event::{Event, StdinReader, keybind_multi},
     render::DisplayRenderer,
 };
 use rand::random;
@@ -113,8 +112,8 @@ fn main() -> io::Result<()> {
             modifiers: KeyModifiers::CONTROL,
             code: KeyCode::Char('r'),
             ..
-        } => Some(Event::<Infallible>::Restart),
-        e => keybind_default(e),
+        } => Some(Event::<!>::Restart),
+        e => keybind_multi(e),
     });
 
     for n in picker.as_multi().pick_with_io(event_source, &mut stderr)? {

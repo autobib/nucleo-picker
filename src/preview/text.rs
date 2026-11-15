@@ -3,21 +3,21 @@ mod tests;
 
 use std::fmt;
 
-use super::PreviewBuffer;
+use super::Buffer;
 
-/// A [`fmt::Write`] adapter to simplify repeated calls to [`PreviewBuffer::push_text`].
+/// A [`fmt::Write`] adapter to simplify repeated calls to [`Buffer::push_text`].
 ///
 /// Note that this writer only supports unstyled writes. For styled writes, use the corresponding
 /// methods directly or see [`AnsiWriter`](super::AnsiWriter).
 #[derive(Debug)]
 pub struct TextWriter<'a> {
-    buffer: &'a mut PreviewBuffer,
+    buffer: &'a mut Buffer,
     pending_cr: bool,
 }
 
 impl<'a> TextWriter<'a> {
     /// Initialize a new text writer around an existing buffer.
-    pub fn new(buffer: &'a mut PreviewBuffer) -> Self {
+    pub fn new(buffer: &'a mut Buffer) -> Self {
         Self {
             buffer,
             pending_cr: false,
@@ -25,7 +25,7 @@ impl<'a> TextWriter<'a> {
     }
 }
 
-impl PreviewBuffer {
+impl Buffer {
     /// Returns a [`fmt::Write`] adapter which defers writes to [`push_text`](Self::push_text).
     ///
     /// See the [`push_text`](Self::push_text) documentation for the behaviour of this method. Note

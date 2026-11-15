@@ -172,7 +172,7 @@ impl Iterator for IndexSpans<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::iter::once;
+    use std::slice::from_ref;
 
     use super::*;
     use crate::util::unicode::{AsciiProcessor, UnicodeProcessor, is_ascii_safe};
@@ -248,181 +248,95 @@ mod tests {
     #[test]
     fn test_spanned() {
         fn assert_matching(
-            indices: Vec<u32>,
-            input: &'static str,
-            expected_spans: Vec<Span>,
-            expected_lines: Vec<Range<usize>>,
+            indices: &[u32],
+            input: &str,
+            expected_spans: &[(Range<usize>, bool)],
+            expected_lines: &[Range<usize>],
         ) {
             let mut spans = Vec::new();
             let mut lines = Vec::new();
+            let check = |spans: &[Span], lines: &[Range<usize>]| {
+                assert!(
+                    spans
+                        .iter()
+                        .map(|span| (span.range.clone(), span.is_match))
+                        .eq(expected_spans.iter().cloned()),
+                    "{input:?}: {spans:?}"
+                );
+                assert_eq!(lines, expected_lines);
+            };
 
-            spans_from_indices::<UnicodeProcessor>(&indices, input, &mut spans, &mut lines);
-            assert_eq!(spans, expected_spans);
-            assert_eq!(lines, expected_lines);
+            spans_from_indices::<UnicodeProcessor>(indices, input, &mut spans, &mut lines);
+            check(&spans, &lines);
 
             if is_ascii_safe(input) {
-                spans_from_indices::<AsciiProcessor>(&indices, input, &mut spans, &mut lines);
-                assert_eq!(spans, expected_spans);
-                assert_eq!(lines, expected_lines);
+                spans_from_indices::<AsciiProcessor>(indices, input, &mut spans, &mut lines);
+                check(&spans, &lines);
             }
         }
 
         // basic test
-        assert_matching(
-            Vec::new(),
-            "a",
-            vec![Span {
-                range: 0..1,
-                is_match: false,
-            }],
-            once(0..1).collect(),
-        );
+        assert_matching(&[], "a", &[(0..1, false)], from_ref(&(0..1)));
 
         // newline
+        assert_matching(&[], "\na", &[(1..2, false)], &[0..0, 0..1]);
+        assert_matching(&[], "\r\na", &[(2..3, false)], &[0..0, 0..1]);
         assert_matching(
-            Vec::new(),
-            "\na",
-            vec![Span {
-                range: 1..2,
-                is_match: false,
-            }],
-            vec![0..0, 0..1],
-        );
-        assert_matching(
-            Vec::new(),
-            "\r\na",
-            vec![Span {
-                range: 2..3,
-                is_match: false,
-            }],
-            vec![0..0, 0..1],
-        );
-        assert_matching(
-            Vec::new(),
+            &[],
             "a\n\r\nbc",
-            vec![
-                Span {
-                    range: 0..1,
-                    is_match: false,
-                },
-                Span {
-                    range: 4..6,
-                    is_match: false,
-                },
-            ],
-            vec![0..1, 1..1, 1..2],
+            &[(0..1, false), (4..6, false)],
+            &[0..1, 1..1, 1..2],
         );
 
         // small edge cases
-        assert_matching(Vec::new(), "", vec![], once(0..0).collect());
-        assert_matching(Vec::new(), "\n", vec![], vec![0..0, 0..0]);
-        assert_matching(Vec::new(), "\r\n", vec![], vec![0..0, 0..0]);
+        assert_matching(&[], "", &[], from_ref(&(0..0)));
+        assert_matching(&[], "\n", &[], &[0..0, 0..0]);
+        assert_matching(&[], "\r\n", &[], &[0..0, 0..0]);
 
         // with indices
         assert_matching(
-            vec![0, 2],
+            &[0, 2],
             "a\nb",
-            vec![
-                Span {
-                    range: 0..1,
-                    is_match: true,
-                },
-                Span {
-                    range: 2..3,
-                    is_match: true,
-                },
-            ],
-            vec![0..1, 1..2],
+            &[(0..1, true), (2..3, true)],
+            &[0..1, 1..2],
         );
         assert_matching(
-            vec![0, 2],
+            &[0, 2],
             "abc",
-            vec![
-                Span {
-                    range: 0..1,
-                    is_match: true,
-                },
-                Span {
-                    range: 1..2,
-                    is_match: false,
-                },
-                Span {
-                    range: 2..3,
-                    is_match: true,
-                },
-            ],
-            once(0..3).collect(),
+            &[(0..1, true), (1..2, false), (2..3, true)],
+            from_ref(&(0..3)),
+        );
+        assert_matching(
+            &[1, 2, 4, 5, 6],
+            "abcdefg",
+            &[(0..1, false), (1..3, true), (3..4, false), (4..7, true)],
+            from_ref(&(0..4)),
+        );
+        assert_matching(
+            &[2],
+            "abcd",
+            &[(0..2, false), (2..3, true), (3..4, false)],
+            from_ref(&(0..3)),
+        );
+        assert_matching(
+            &[10, 11, 12, 13],
+            "abcdefghijklmn",
+            &[(0..10, false), (10..14, true)],
+            from_ref(&(0..2)),
         );
 
         // with indices split over newlines
         assert_matching(
-            vec![0, 2],
+            &[0, 2],
             "a\r\nＨ",
-            vec![
-                Span {
-                    range: 0..1,
-                    is_match: true,
-                },
-                Span {
-                    range: 3..6,
-                    is_match: true,
-                },
-            ],
-            vec![0..1, 1..2],
+            &[(0..1, true), (3..6, true)],
+            &[0..1, 1..2],
         );
         assert_matching(
-            vec![0, 2, 3],
+            &[0, 2, 3],
             "abcd\nb",
-            vec![
-                Span {
-                    range: 0..1,
-                    is_match: true,
-                },
-                Span {
-                    range: 1..2,
-                    is_match: false,
-                },
-                Span {
-                    range: 2..4,
-                    is_match: true,
-                },
-                Span {
-                    range: 5..6,
-                    is_match: false,
-                },
-            ],
-            vec![0..3, 3..4],
+            &[(0..1, true), (1..2, false), (2..4, true), (5..6, false)],
+            &[0..3, 3..4],
         );
-    }
-
-    #[test]
-    fn test_next_span() {
-        let indices: Vec<u32> = vec![1, 2, 4, 5, 6];
-        let mut is = IndexSpans::new(&indices);
-        assert_eq!(is.next(), Some((1, 2)));
-        assert_eq!(is.cursor, 2);
-        assert_eq!(is.next(), Some((4, 6)));
-        assert_eq!(is.cursor, 5);
-        assert_eq!(is.next(), None);
-        assert_eq!(is.cursor, 5);
-
-        let indices: Vec<u32> = vec![];
-        let mut is = IndexSpans::new(&indices);
-        assert_eq!(is.next(), None);
-        assert_eq!(is.cursor, 0);
-
-        let indices: Vec<u32> = vec![2];
-        let mut is = IndexSpans::new(&indices);
-        assert_eq!(is.next(), Some((2, 2)));
-        assert_eq!(is.cursor, 1);
-        assert_eq!(is.next(), None);
-        assert_eq!(is.cursor, 1);
-
-        let indices: Vec<u32> = vec![10, 11, 12, 13];
-        let mut is = IndexSpans::new(&indices);
-        assert_eq!(is.next(), Some((10, 13)));
-        assert_eq!(is.cursor, 4);
-        assert_eq!(is.next(), None);
-        assert_eq!(is.cursor, 4);
     }
 }

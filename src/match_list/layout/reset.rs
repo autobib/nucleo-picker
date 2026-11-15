@@ -7,7 +7,7 @@ pub fn reset(
     mut sizes_below_incl: impl ExtendIncremental,
     mut sizes_above: impl ExtendIncremental,
 ) {
-    // cursor = 0, so this renders exactly one element; but we need to make sure we do not
+    // rank = 0, so this renders exactly one element; but we need to make sure we do not
     // accidentally fill `padding_top` as well
     total_remaining -= sizes_below_incl.extend_unbounded(total_remaining - padding_top);
     sizes_above.extend_unbounded(total_remaining);

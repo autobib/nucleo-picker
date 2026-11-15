@@ -2,10 +2,7 @@ use std::{io, iter::once};
 
 use crossterm::style::{Color, ContentStyle};
 
-use super::{
-    BoundaryChars,
-    cache::{Cached, RequestState},
-};
+use super::{BoundaryChars, Content, Pane};
 use crate::{
     rect::Rect,
     util::{
@@ -14,27 +11,26 @@ use crate::{
     },
 };
 
-pub(super) fn draw<D: Rect>(
+pub(crate) fn draw<D: Rect>(
     rect: &mut D,
-    // None if there is no preview to draw (e.g., no matches);
-    // this is different than 'pending' which is internal to `Cached`
-    preview: Option<&Cached>,
+    preview: Content<'_>,
     chars: BoundaryChars,
     ellipsis: char,
 ) -> io::Result<()> {
-    let number_width = preview.map_or(0, |cached| cached.number_width(rect.width().get() - 2));
-    let horizontal_position = preview.map_or(0, |cached| cached.horizontal_position);
-    let pending = preview.is_some_and(|cached| {
-        matches!(
-            cached.state,
-            Some(RequestState::Pending(_) | RequestState::Active(_) | RequestState::Retry(_))
+    let (preview, loading) = match preview {
+        Content::Empty => (None, false),
+        Content::Loading => (None, true),
+        Content::Ready(pane) => (Some(pane), false),
+    };
+    let number_width = preview.map_or(0, |pane| pane.number_width(rect.width().get() - 2));
+    let (horizontal_position, _) = preview.map_or((0, 0), Pane::offset);
+    let is_err = preview.is_some_and(Pane::is_err);
+    let preview = preview.map(|pane| {
+        (
+            pane.buffer(),
+            pane.visible_rows(rect.height().get() - 2).start,
         )
     });
-    let preview = preview.and_then(|cached| match &cached.state {
-        Some(RequestState::Ready(buffer)) => Some((buffer, cached.scroll_position)),
-        _ => None,
-    });
-    let is_err = preview.is_some_and(|(buffer, _)| buffer.is_err());
     let border_style = ContentStyle {
         foreground_color: is_err.then_some(Color::DarkRed),
         ..ContentStyle::new()
@@ -103,7 +99,7 @@ pub(super) fn draw<D: Rect>(
                 capacity,
                 ellipsis,
             )?
-        } else if pending && row == 1 {
+        } else if loading && row == 1 {
             let message = "Loading...";
             let capacity = width - 2;
             rect.set_foreground(Color::DarkGrey)?;

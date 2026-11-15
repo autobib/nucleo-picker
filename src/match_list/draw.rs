@@ -42,7 +42,7 @@ fn draw_single_match<
     R: Render<T>,
     L: KeepLines,
     D: Rect,
-    const SELECTED: bool,
+    const HOVERED: bool,
 >(
     rect: &mut D,
     buffer: &mut RenderScratch,
@@ -76,7 +76,7 @@ fn draw_single_match<
         )
         .queue_print(
             rect,
-            SELECTED,
+            HOVERED,
             queued,
             config.highlight_padding,
             config.highlight_line,
@@ -91,7 +91,7 @@ fn draw_single_match<
         )
         .queue_print(
             rect,
-            SELECTED,
+            HOVERED,
             queued,
             config.highlight_padding,
             config.highlight_line,
@@ -112,7 +112,7 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, D: Rect>(
     mut item_iter: impl Iterator<Item = (nc::Item<'a, T>, bool)>,
     chars: &PickerChars,
 ) -> io::Result<()> {
-    // render above the selection
+    // render above the hovered item
     for (item_height, (item, queued)) in above.iter().rev().zip(item_iter.by_ref()) {
         draw_single_match::<_, _, Tail, _, false>(
             rect,
@@ -127,8 +127,8 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, D: Rect>(
         )?;
     }
 
-    // render the selection
-    // SAFETY: both callers supply above.len() + below.len() matches, with the selected item in below.
+    // render the hovered item
+    // SAFETY: both callers supply above.len() + below.len() matches, with the hovered item in below.
     // The loop above consumes only above.len() items.
     let (item, queued) = unsafe { item_iter.next().unwrap_unchecked() };
     draw_single_match::<_, _, Head, _, true>(
@@ -143,7 +143,7 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, D: Rect>(
         chars,
     )?;
 
-    // render below the selection
+    // render below the hovered item
     for (item_height, (item, queued)) in below[1..].iter().zip(item_iter.by_ref()) {
         draw_single_match::<_, _, Head, _, false>(
             rect,
@@ -185,7 +185,7 @@ impl MatchListState {
             return rect.clear();
         }
 
-        let items = snapshot.matches()[self.layout.selection_range(&self.config)]
+        let items = snapshot.matches()[self.layout.visible_range(&self.config)]
             .iter()
             .map(|&m| unsafe { (snapshot.get_item_unchecked(m.idx), is_queued(m.idx)) });
         if self.config.reversed {

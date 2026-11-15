@@ -6,13 +6,15 @@ use std::ops::Range;
 use crossterm::style::{ContentStyle, StyledContent};
 use memchr::memchr;
 
+use super::Pane;
+
 /// A buffer holding the contents of a single preview pane.
 ///
 /// This is an append-only buffer: to edit an existing buffer, one must [clear](Self::clear) the
 /// entire buffer and start again.
 ///
 /// The buffer consists of a vector of completed lines as well as a final active line. An
-/// empty buffer consists only of an empty active line. There are two main input modes:
+/// empty buffer consists only of an empty active line. There are three main input modes:
 ///
 /// - Segment-based input: [`push_str`](Self::push_str) and
 ///   [`push_styled_str`](Self::push_styled_str). These methods append text to the current active
@@ -36,12 +38,12 @@ use memchr::memchr;
 /// ```
 /// use std::collections::BTreeMap;
 /// use crossterm::style::{ContentStyle, Stylize};
-/// use nucleo_picker::preview::PreviewBuffer;
+/// use nucleo_picker::preview::Buffer;
 ///
 /// // In this example, `kind` and `citation_key` are strings which we know do not contain control
 /// // characters, but the field values may contain newlines or control characters.
 /// fn render_entry(
-///     buffer: &mut PreviewBuffer,
+///     buffer: &mut Buffer,
 ///     kind: &str,
 ///     citation_key: &str,
 ///     fields: &BTreeMap<&str, &str>,
@@ -77,7 +79,7 @@ use memchr::memchr;
 ///     ("title", "A title which is very long and\n           contains an internal newline"),
 ///     ("year", "2025"),
 /// ]);
-/// let mut buffer = PreviewBuffer::new();
+/// let mut buffer = Buffer::new();
 /// render_entry(&mut buffer, "article", "key", &fields);
 /// // @article{key,
 /// //   author = {John Doe},
@@ -102,13 +104,11 @@ use memchr::memchr;
 /// # );
 /// ```
 #[derive(Debug)]
-pub struct PreviewBuffer {
+pub struct Buffer {
     text: String,
     lines: Vec<LineIndex>,
     active_line: LineIndex,
     styles: Vec<StyleSpan>,
-    is_err: bool,
-    line_numbers: bool,
 }
 
 #[derive(Debug, Default)]
@@ -128,18 +128,18 @@ struct StyleSpan {
 /// A line consists of the underlying text (excluding line breaks) as well
 /// as the style spans.
 #[derive(Clone, Copy, Debug)]
-pub struct PreviewLine<'a> {
+pub struct Line<'a> {
     text: &'a str,
     styles: &'a [StyleSpan],
 }
 
-impl Default for PreviewBuffer {
+impl Default for Buffer {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl PreviewBuffer {
+impl Buffer {
     /// Initialize a new buffer consisting of a single empty line.
     ///
     /// This is the same as the [`Default`] implementation, but as a const function.
@@ -152,50 +152,25 @@ impl PreviewBuffer {
                 styles: 0..0,
             },
             styles: Vec::new(),
-            is_err: false,
-            line_numbers: false,
         }
     }
 
-    /// Clear this buffer, retaining the underlying allocations.
+    /// Clear this buffer.
     ///
-    /// This removes all lines and styles (leaving a single empty line), resets the error flag, and
-    /// sets the line-number preference to `false`.
+    /// This removes all lines and styles (leaving a single empty line), but retains the underlying
+    /// allocations.
     pub fn clear(&mut self) {
         self.text.clear();
         self.lines.clear();
         self.styles.clear();
         self.active_line = LineIndex::default();
-        self.is_err = false;
-        self.line_numbers = false;
     }
 
-    /// Set the failure status of the buffer.
-    pub fn set_err(&mut self, is_err: bool) {
-        self.is_err = is_err;
-    }
-
-    /// Get the failure status of the buffer.
-    pub fn is_err(&self) -> bool {
-        self.is_err
-    }
-
-    /// Enable or disable preview pane line-numbers.
-    ///
-    /// The default is `false` (do not display line numbers). Line numbers are displayed in a column
-    /// on the left side of the preview pane and are automatically hidden if the preview pane has less
-    /// than two columns for content.
-    ///
-    /// Note that this is only a default value and the line numbers for individual panes will still
-    /// be toggled while the previewer is running with
-    /// [`PreviewEvent::ToggleLineNumbers`](super::PreviewEvent::ToggleLineNumbers).
-    pub fn set_line_numbers(&mut self, enabled: bool) {
-        self.line_numbers = enabled;
-    }
-
-    /// Returns the line-number display setting for this buffer.
-    pub fn line_numbers(&self) -> bool {
-        self.line_numbers
+    /// Convert into a preview pane with default offset, without line numbers, and with error flag
+    /// set to `false`.
+    #[must_use]
+    pub const fn into_pane(self) -> Pane {
+        Pane::from_buffer(self)
     }
 
     /// Append an unstyled segment to the current line in the buffer.
@@ -282,9 +257,9 @@ impl PreviewBuffer {
     ///
     /// ```
     /// use crossterm::style::{ContentStyle, Stylize};
-    /// use nucleo_picker::preview::PreviewBuffer;
+    /// use nucleo_picker::preview::Buffer;
     ///
-    /// let mut buffer = PreviewBuffer::new();
+    /// let mut buffer = Buffer::new();
     /// let style = ContentStyle::new().green();
     /// buffer.push_styled_text("a\r\nb\tc\n", style);
     /// assert!(buffer.lines().map(|line| line.as_str()).eq(["a", "b␉c", ""]));
@@ -293,7 +268,7 @@ impl PreviewBuffer {
     pub fn push_styled_text(&mut self, text: &str, style: ContentStyle) {
         for chunk in text.split_inclusive('\n') {
             let (line, newline) = match chunk.strip_suffix('\n') {
-                Some(line) => (line.strip_suffix('\r').unwrap_or(line), true),
+                Some(line) => (line.trim_suffix('\r'), true),
                 None => (chunk, false),
             };
             let mut start = 0;
@@ -356,10 +331,12 @@ impl PreviewBuffer {
         self.newline();
     }
 
-    /// Get the `n`th line in the buffer as a string slice, excluding the newline and carriage
+    /// Get the `n`th line as a styled line view, excluding the newline and carriage
     /// return (if any).
+    ///
+    /// The underlying string slice can be obtained with [`Line::as_str`].
     #[inline]
-    pub fn line(&self, index: usize) -> Option<PreviewLine<'_>> {
+    pub fn line(&self, index: usize) -> Option<Line<'_>> {
         let line = if index == self.lines.len() {
             &self.active_line
         } else {
@@ -370,19 +347,19 @@ impl PreviewBuffer {
 
     /// Iterate over all of the lines in this buffer.
     #[inline]
-    pub fn lines(&self) -> impl DoubleEndedIterator<Item = PreviewLine<'_>> + ExactSizeIterator {
+    pub fn lines(&self) -> impl DoubleEndedIterator<Item = Line<'_>> + ExactSizeIterator {
         // An index range preserves exact sizing and constant-time skips in both directions.
         (0..self.lines.len() + 1)
             .map(|index| self.line_view(self.lines.get(index).unwrap_or(&self.active_line)))
     }
 
     #[inline]
-    fn line_view(&self, line: &LineIndex) -> PreviewLine<'_> {
+    fn line_view(&self, line: &LineIndex) -> Line<'_> {
         // SAFETY: Both callers pass a line from this buffer. Its ranges are recorded from
         // buffer lengths and extended only after appending, so they remain ordered and in
         // bounds. Text endpoints are UTF-8 boundaries because only &str values are appended.
         unsafe {
-            PreviewLine {
+            Line {
                 text: self.text.get_unchecked(line.text.clone()),
                 styles: self.styles.get_unchecked(line.styles.clone()),
             }
@@ -390,7 +367,7 @@ impl PreviewBuffer {
     }
 }
 
-impl<'a> PreviewLine<'a> {
+impl<'a> Line<'a> {
     /// Returns the raw text of the current line.
     #[inline]
     pub fn as_str(&self) -> &'a str {

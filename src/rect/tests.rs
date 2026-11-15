@@ -21,47 +21,34 @@ fn movement_uses_local_coordinates_and_stops_at_the_last_row() {
 }
 
 #[test]
-fn rectangle_clearing_respects_the_origin_and_policy() {
-    for (clear, expected) in [
-        (ClearState::Precleared, "\x1b[4;6H"),
-        (
-            ClearState::ToEndOfLine,
-            "\x1b[4;6H\x1b[6G\x1b[K\x1b[5;6H\x1b[6G\x1b[K\x1b[4;6H",
-        ),
-        (
-            ClearState::WithinRect,
-            "\x1b[4;6H\x1b[6G        \x1b[6G\x1b[5;6H\x1b[6G        \x1b[6G\x1b[4;6H",
-        ),
+fn clearing_respects_origin_policy_and_full_width_lines() {
+    for (clear, line_clear) in [
+        (ClearState::Precleared, "\x1b[6G"),
+        (ClearState::ToEndOfLine, "\x1b[6G\x1b[K"),
+        (ClearState::WithinRect, "\x1b[6G        \x1b[6G"),
     ] {
         let mut output = Vec::new();
         CrosstermRect::new(&mut output, area(), clear)
             .unwrap()
             .clear()
             .unwrap();
-        assert_eq!(output, expected.as_bytes());
-    }
-}
-
-#[test]
-fn line_clearing_respects_the_policy_for_each_row() {
-    for clear in [
-        ClearState::Precleared,
-        ClearState::ToEndOfLine,
-        ClearState::WithinRect,
-    ] {
-        let mut output = Vec::new();
-        let mut rect = CrosstermRect::new(&mut output, area(), clear).unwrap();
-        rect.clear_line().unwrap();
-        rect.print("界").unwrap();
-        rect.next_line().unwrap();
-        rect.clear_line().unwrap();
-        rect.print("x").unwrap();
-        let expected = match clear {
-            ClearState::Precleared => "\x1b[6G界\x1b[5;6H\x1b[6Gx",
-            ClearState::ToEndOfLine => "\x1b[6G\x1b[K界\x1b[5;6H\x1b[6G\x1b[Kx",
-            ClearState::WithinRect => "\x1b[6G        \x1b[6G界\x1b[5;6H\x1b[6G        \x1b[6Gx",
+        let expected = if clear == ClearState::Precleared {
+            "\x1b[4;6H".to_owned()
+        } else {
+            format!("\x1b[4;6H{line_clear}\x1b[5;6H{line_clear}\x1b[4;6H")
         };
         assert_eq!(output, expected.as_bytes());
+        for text in ["界", "12345678"] {
+            output.clear();
+            let mut rect = CrosstermRect::new(&mut output, area(), clear).unwrap();
+            rect.clear_line().unwrap();
+            rect.print(text).unwrap();
+            rect.next_line().unwrap();
+            rect.clear_line().unwrap();
+            rect.print("x").unwrap();
+            let expected = format!("{line_clear}{text}\x1b[5;6H{line_clear}x");
+            assert_eq!(output, expected.as_bytes());
+        }
     }
 }
 
@@ -76,16 +63,6 @@ fn spaces_preserve_the_active_style() {
     rect.reset_style().unwrap();
     rect.spaces(0).unwrap();
     assert_eq!(output, b"  \x1b[48;5;8m   \x1b[0m\x1b[0m");
-}
-
-#[test]
-fn full_width_lines_do_not_clear_the_last_printed_cell() {
-    let mut output = Vec::new();
-    let mut rect = CrosstermRect::new(&mut output, area(), ClearState::ToEndOfLine).unwrap();
-    rect.clear_line().unwrap();
-    rect.print("12345678").unwrap();
-    rect.next_line().unwrap();
-    assert_eq!(output, b"\x1b[6G\x1b[K12345678\x1b[5;6H");
 }
 
 #[test]

@@ -1,9 +1,10 @@
 ---
 source: nucleo-picker-vt/tests/scenarios/default.rs
-expression: sr.checkpoint(resolved_name.to_owned())?
+assertion_line: 28
+expression: "& snapshot"
 info:
-  resolved_name: selection-02
-  name_expression: "\"selection-02\""
+  resolved_name: hover-02
+  name_expression: "\"hover-02\""
   sequence: 5
 ---
 version: 1

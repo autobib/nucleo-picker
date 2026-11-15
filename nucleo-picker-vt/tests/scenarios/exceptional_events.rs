@@ -8,6 +8,7 @@ use nucleo_picker::{
 use super::{ScenarioRunner, lines};
 
 #[test]
+#[expect(deprecated)]
 fn exceptional_events_scenario() -> Result<(), Box<dyn Error>> {
     let mut sr = ScenarioRunner::start_multi_with_options(
         "exceptional_events_scenario",
@@ -16,9 +17,9 @@ fn exceptional_events_scenario() -> Result<(), Box<dyn Error>> {
     );
     sr.wait_for_match_complete(24, 24)?;
     sr.send(Event::MatchList(MatchListEvent::Up(2)))?;
-    sr.wait_for(|status| status.selection == Some(2))?;
+    sr.wait_for(|status| status.rank == Some(2))?;
     sr.send(Event::MatchList(MatchListEvent::QueueAbove(usize::MAX)))?;
-    sr.wait_for(|status| status.selection == Some(4) && status.selected_item_count == 3)?;
+    sr.wait_for(|status| status.rank == Some(4) && status.selected_item_count == 3)?;
     sr.send(Event::Select)?;
     assert_eq!(
         sr.finish()?,

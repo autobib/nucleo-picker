@@ -1,7 +1,7 @@
 //! A minimal preview example.
 //!
 //! ```bash
-//! cargo run --release --example preview --features preview
+//! cargo run --release --example preview --features preview-cache
 //! ```
 //!
 //! All data is from Wikipedia.
@@ -10,7 +10,7 @@ use std::{borrow::Cow, io};
 use crossterm::style::{ContentStyle, Stylize};
 use nucleo_picker::{
     Picker,
-    preview::{PreviewBuffer, SyncPreviewer},
+    preview::{Pane, SyncPreviewer},
 };
 
 struct Artist {
@@ -25,7 +25,8 @@ fn render_artist(artist: &Artist) -> Cow<'_, str> {
 }
 
 fn main() -> io::Result<()> {
-    let previewer = SyncPreviewer(|artist: &Artist, buffer: &mut PreviewBuffer| {
+    let previewer = SyncPreviewer(|artist: &Artist, pane: &mut Pane| {
+        let buffer = pane.buffer_mut();
         buffer.push_styled_line(artist.name, ContentStyle::new().bold());
         for (label, value) in [
             ("Born:       ", artist.born),

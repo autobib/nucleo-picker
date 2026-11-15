@@ -4,8 +4,8 @@ use crossterm::style::{ContentStyle, Stylize};
 use nucleo_picker::{
     Picker, Render,
     preview::{
-        Preview, WithPreview,
-        request::{PreviewRequest, PreviewResponse},
+        CachedPreview, Preview,
+        request::{Request, Response},
     },
 };
 
@@ -46,11 +46,7 @@ impl Preview<Color> for ColorPreview {
     // generate the preview with a color swatch
     // and with a header indicating the index at which
     // it was generated
-    fn preview(
-        &mut self,
-        request: PreviewRequest<'_, Color>,
-        _timeout: Duration,
-    ) -> PreviewResponse {
+    fn preview(&mut self, request: Request<'_, Color>, _timeout: Duration) -> Response {
         self.generated += 1;
         let style = match request.item() {
             Color::Red => ContentStyle::new().on_red(),
@@ -59,10 +55,10 @@ impl Preview<Color> for ColorPreview {
             Color::Yellow => ContentStyle::new().on_yellow(),
             Color::Magenta => ContentStyle::new().on_magenta(),
         };
-        let mut buffer = request.ready();
-        let _ = writeln!(buffer.text_writer(), "Preview #{}", self.generated);
-        buffer.push_styled_text("        \n        \n        ", style);
-        PreviewResponse::Ready(buffer)
+        let mut pane = request.ready();
+        let _ = writeln!(pane.text_writer(), "Preview #{}", self.generated);
+        pane.push_styled_text("        \n        \n        ", style);
+        Response::Ready(pane)
     }
 }
 
@@ -79,7 +75,7 @@ fn main() -> io::Result<()> {
 
     // get the selection by running the picker with the previewer
     let selected = picker
-        .as_interface(WithPreview::new_single(&mut previewer))
+        .as_interface(CachedPreview::new_single(&mut previewer))
         .pick()?;
 
     // the lifetime of 'selected' is tied only to the picker itself, so we can now

@@ -20,7 +20,7 @@
 //! }
 //! ```
 
-use std::{convert::Infallible, error::Error as StdError, fmt, io};
+use std::{error::Error as StdError, fmt, io};
 
 // see https://github.com/rust-lang/rust/issues/161699
 #[expect(rustdoc::broken_intra_doc_links)]
@@ -58,7 +58,7 @@ use std::{convert::Infallible, error::Error as StdError, fmt, io};
 /// error present in the `Aborted` variant.
 #[derive(Debug)]
 #[non_exhaustive]
-pub enum PickError<A = Infallible> {
+pub enum PickError<A = !> {
     /// A read or write resulted in an IO error.
     IO(io::Error),
     /// A necessary channel disconnected while the picker was still running.

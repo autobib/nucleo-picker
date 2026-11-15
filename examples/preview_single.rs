@@ -9,8 +9,8 @@ use std::{
 use nucleo_picker::{
     Picker,
     preview::{
-        ItemRef, Preview, PreviewBuffer, PreviewWorker,
-        request::{PreviewRequest, PreviewResponse, QueuedPreviewRequest},
+        ItemRef, Pane, Preview, Worker,
+        request::{QueuedRequest, Request, Response},
     },
     render::PathRenderer,
 };
@@ -18,7 +18,7 @@ use parking_lot::{Condvar, Mutex};
 
 // a single slot for a preview request
 struct State<T> {
-    request: Option<QueuedPreviewRequest<T>>,
+    request: Option<QueuedRequest<T>>,
     closed: bool,
 }
 
@@ -38,7 +38,7 @@ impl<T: Send + Sync + 'static> SinglePreviewer<T> {
     // initialize by spawning a background thread and moving the worker there
     fn from_worker<W>(worker: W) -> io::Result<Self>
     where
-        W: PreviewWorker<T> + Send + 'static,
+        W: Worker<T> + Send + 'static,
     {
         let shared = Arc::new(Shared {
             state: Mutex::new(State {
@@ -57,7 +57,7 @@ impl<T: Send + Sync + 'static> SinglePreviewer<T> {
 }
 
 impl<T: Send + Sync + 'static> Preview<T> for SinglePreviewer<T> {
-    fn preview(&mut self, request: PreviewRequest<'_, T>, _timeout: Duration) -> PreviewResponse {
+    fn preview(&mut self, request: Request<'_, T>, _timeout: Duration) -> Response {
         // the worker may have panicked
         if self.worker.as_ref().unwrap().is_finished() {
             if let Err(panic) = self.worker.take().unwrap().join() {
@@ -66,7 +66,7 @@ impl<T: Send + Sync + 'static> Preview<T> for SinglePreviewer<T> {
             unreachable!("preview worker exited before shutdown");
         }
 
-        // defer the request, and sent the QueuedPreviewRequest to the background thread
+        // defer the request, and sent the QueuedRequest to the background thread
         let (pending, request) = request.defer();
         let previous = self.shared.state.lock().request.replace(request);
 
@@ -77,19 +77,19 @@ impl<T: Send + Sync + 'static> Preview<T> for SinglePreviewer<T> {
         // will never be the case while the picker is running) but it's still good practice to drop
         // outside the mutex
         drop(previous);
-        PreviewResponse::Pending(pending)
+        Response::Pending(pending)
     }
 
-    fn focus_changed(&mut self, item: Option<ItemRef<'_, T>>) {
-        // use focus notifications to pop an outdated request, so the worker
+    fn hover_changed(&mut self, item: Option<ItemRef<'_, T>>) {
+        // use hover-change notifications to pop an outdated request, so the worker
         // doesn't accidentally pick up an outdated request
-        let focused = item.map(|item| item.id());
+        let hovered = item.map(|item| item.id());
         let previous = self
             .shared
             .state
             .lock()
             .request
-            .take_if(|request| Some(request.id()) != focused);
+            .take_if(|request| Some(request.id()) != hovered);
         drop(previous);
     }
 }
@@ -109,11 +109,11 @@ impl<T> Drop for SinglePreviewer<T> {
     }
 }
 
-fn work<T: Send + Sync + 'static, W: PreviewWorker<T>>(shared: &Shared<T>, mut worker: W) {
+fn work<T: Send + Sync + 'static, W: Worker<T>>(shared: &Shared<T>, mut worker: W) {
     // the actual worker thread
 
     // a buffer which we will re-use to avoid allocations
-    let mut buffer = PreviewBuffer::new();
+    let mut pane = Pane::new();
 
     loop {
         // acquire new work
@@ -139,13 +139,13 @@ fn work<T: Send + Sync + 'static, W: PreviewWorker<T>>(shared: &Shared<T>, mut w
         if !request.is_cancelled() {
             // failed publication leaves the previous preview in the buffer, which
             // may have contents
-            buffer.clear();
+            pane.clear();
 
             // make cancellation available cooperatively to the worker and generate the preview
-            if worker.preview(request.item(), &mut buffer, || request.is_cancelled()) {
+            if worker.preview(request.item(), &mut pane, || request.is_cancelled()) {
                 // if the request was cancelled, publication will fail anyway, so we don't need to
                 // bother checking it ourself
-                let _ = request.publish(&mut buffer);
+                let _ = request.publish(&mut pane);
             }
         }
     }
@@ -154,19 +154,19 @@ fn work<T: Send + Sync + 'static, W: PreviewWorker<T>>(shared: &Shared<T>, mut w
 // a simple example generating previews from file contents
 struct FileWorker;
 
-impl PreviewWorker<PathBuf> for FileWorker {
+impl Worker<PathBuf> for FileWorker {
     fn preview(
         &mut self,
         path: &PathBuf,
-        buffer: &mut PreviewBuffer,
+        pane: &mut Pane,
         _is_cancelled: impl Fn() -> bool,
     ) -> bool {
         // don't do this for large files
         match fs::read_to_string(path) {
-            Ok(text) => buffer.push_text(&text),
+            Ok(text) => pane.push_text(&text),
             Err(error) => {
-                buffer.set_err(true);
-                buffer.push_text(&error.to_string());
+                pane.set_err(true);
+                pane.push_text(&error.to_string());
             }
         }
         true

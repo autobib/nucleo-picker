@@ -14,7 +14,7 @@ use crossbeam::channel::{Receiver, Sender, unbounded};
 use super::*;
 use crate::{
     Picker, PickerOptions,
-    preview::{lock::Poll, request::PendingPreview},
+    preview::{lock::Poll, request::Pending},
     render::StrRenderer,
 };
 
@@ -23,7 +23,7 @@ mod scheduling;
 const WAIT: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
-struct Worker {
+struct TestWorker {
     started: Sender<Started>,
     release: Receiver<bool>,
     calls: Cell<usize>,
@@ -36,18 +36,23 @@ struct Started {
     buffer: usize,
 }
 
-impl PreviewWorker<&'static str> for Worker {
+impl Worker<&'static str> for TestWorker {
     fn preview(
         &mut self,
         item: &&'static str,
-        buffer: &mut PreviewBuffer,
+        pane: &mut Pane,
         is_cancelled: impl Fn() -> bool,
     ) -> bool {
+        assert_eq!(pane.offset(), (0, 0));
+        assert!(!pane.line_numbers());
+        assert!(!pane.is_err());
+        pane.set_offset(3, 7);
+        pane.set_line_numbers(true);
+        pane.set_err(true);
+        let buffer = pane.buffer_mut();
         assert_eq!(buffer.lines().len(), 1);
         assert_eq!(buffer.line(0).unwrap().as_str(), "");
-        assert!(!buffer.is_err());
         buffer.push_str(item);
-        buffer.set_err(true);
         self.calls.set(self.calls.get() + 1);
         self.started
             .send(Started {
@@ -72,7 +77,7 @@ fn pool(threads: usize) -> (PoolPreviewer<&'static str>, Receiver<Started>, Send
     let (started_tx, started_rx) = unbounded();
     let (release_tx, release_rx) = unbounded();
     let pool = PoolPreviewer::from_worker(
-        Worker {
+        TestWorker {
             started: started_tx,
             release: release_rx,
             calls: Cell::new(0),
@@ -94,15 +99,15 @@ fn submit(
     pool: &mut PoolPreviewer<&'static str>,
     picker: &Picker<&'static str, StrRenderer>,
     idx: u32,
-    buffer: PreviewBuffer,
-) -> PendingPreview {
-    let request = PreviewRequest {
+    buffer: Buffer,
+) -> Pending {
+    let request = Request {
         buffer,
         epoch: 0,
         snapshot: picker.core.engine.snapshot(),
         id: picker.core.engine.item_id(idx),
     };
-    let PreviewResponse::Pending(pending) = pool.preview(request, Duration::ZERO) else {
+    let Response::Pending(pending) = pool.preview(request, Duration::ZERO) else {
         panic!("pool did not defer request");
     };
     pending
@@ -116,13 +121,17 @@ fn wait_until(mut ready: impl FnMut() -> bool) {
     }
 }
 
-fn completed(pending: PendingPreview) -> Result<PreviewBuffer, PreviewBuffer> {
+#[allow(
+    clippy::result_large_err,
+    reason = "both outcomes return the original buffer for reuse assertions"
+)]
+fn completed(pending: Pending) -> Result<Pane, Buffer> {
     let mut reader = Some(pending.reader);
     let mut result = None;
     wait_until(|| {
         match reader.take().unwrap().poll() {
             Poll::Ready(buffer) => result = Some(Ok(buffer)),
-            Poll::Dropped(buffer) => result = Some(Err(buffer)),
+            Poll::Dropped(pane) => result = Some(Err(pane.into_buffer())),
             Poll::Queued(next) | Poll::Active(next) => reader = Some(next),
         }
         result.is_some()
@@ -130,30 +139,99 @@ fn completed(pending: PendingPreview) -> Result<PreviewBuffer, PreviewBuffer> {
     result.unwrap()
 }
 
-fn ready(pending: PendingPreview) -> PreviewBuffer {
-    completed(pending).unwrap_or_else(|_| panic!("request was dropped"))
+fn ready(pending: Pending) -> Buffer {
+    completed(pending)
+        .unwrap_or_else(|_| panic!("request was dropped"))
+        .into_buffer()
 }
 
 #[test]
 fn from_workers_rejects_empty_input() {
-    let error = PoolPreviewer::from_workers(std::iter::empty::<Worker>())
+    let error = PoolPreviewer::from_workers(std::iter::empty::<TestWorker>())
         .err()
         .expect("empty worker iterator was accepted");
     assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
 }
 
 #[test]
-fn from_workers_runs_non_clone_send_only_workers_from_a_borrowed_iterator() {
-    struct OwnedWorker(Worker);
+fn synchronous_fast_path_preserves_presentation_and_clears_fallbacks_without_reallocating() {
+    let picker = picker();
+    for prefetch in [false, true] {
+        let (pool, started, release) = pool(2);
+        let mut pool = pool.with_sync_preview(|item, pane| {
+            assert_eq!(pane.offset(), (0, 0));
+            assert!(!pane.line_numbers());
+            assert!(!pane.is_err());
+            pane.set_offset(11, 23);
+            pane.set_line_numbers(true);
+            pane.set_err(true);
+            let buffer = pane.buffer_mut();
+            assert_eq!(buffer.lines().len(), 1);
+            assert_eq!(buffer.line(0).unwrap().as_str(), "");
+            buffer.push_text("synchronous\npreview");
+            *item == "first"
+        });
+        let mut buffer = Buffer::new();
+        buffer.push_str("reusable request storage");
+        let allocation = buffer.line(0).unwrap().as_str().as_ptr();
+        buffer.clear();
+        for index in 0..2 {
+            let request = Request {
+                buffer,
+                epoch: 0,
+                snapshot: picker.core.engine.snapshot(),
+                id: picker.core.engine.item_id(index),
+            };
+            let response = if prefetch {
+                pool.prefetch(request, Duration::ZERO).unwrap()
+            } else {
+                pool.preview(request, Duration::ZERO)
+            };
+            let pane = if index == 0 {
+                let Response::Ready(pane) = response else {
+                    panic!("synchronous preview was deferred");
+                };
+                assert!(started.try_recv().is_err());
+                assert_eq!(pane.offset(), (11, 23));
+                assert!(pane.line_numbers());
+                assert!(pane.is_err());
+                assert_eq!(pane.buffer().lines().len(), 2);
+                assert_eq!(pane.buffer().line(0).unwrap().as_str(), "synchronous");
+                assert_eq!(pane.buffer().line(1).unwrap().as_str(), "preview");
+                pane
+            } else {
+                let Response::Pending(pending) = response else {
+                    panic!("incomplete synchronous preview was published");
+                };
+                assert_eq!(started.recv_timeout(WAIT).unwrap().item, "second");
+                let pane = pending.reader.cancel_any();
+                release.send(true).unwrap();
+                assert_eq!(pane.offset(), (0, 0));
+                assert!(!pane.line_numbers());
+                assert!(!pane.is_err());
+                assert_eq!(pane.buffer().lines().len(), 1);
+                assert_eq!(pane.buffer().line(0).unwrap().as_str(), "");
+                pane
+            };
+            assert_eq!(pane.buffer().line(0).unwrap().as_str().as_ptr(), allocation);
+            buffer = pane.into_buffer();
+            buffer.clear();
+        }
+    }
+}
 
-    impl PreviewWorker<&'static str> for OwnedWorker {
+#[test]
+fn from_workers_runs_non_clone_send_only_workers_from_a_borrowed_iterator() {
+    struct OwnedWorker(TestWorker);
+
+    impl Worker<&'static str> for OwnedWorker {
         fn preview(
             &mut self,
             item: &&'static str,
-            buffer: &mut PreviewBuffer,
+            pane: &mut Pane,
             is_cancelled: impl Fn() -> bool,
         ) -> bool {
-            self.0.preview(item, buffer, is_cancelled)
+            self.0.preview(item, pane, is_cancelled)
         }
     }
 
@@ -164,7 +242,7 @@ fn from_workers_runs_non_clone_send_only_workers_from_a_borrowed_iterator() {
     let workers = (0..3).map(|_| {
         assert_eq!(thread::current().id(), caller);
         created.set(created.get() + 1);
-        OwnedWorker(Worker {
+        OwnedWorker(TestWorker {
             started: started_tx.clone(),
             release: release_rx.clone(),
             calls: Cell::new(0),
@@ -177,7 +255,7 @@ fn from_workers_runs_non_clone_send_only_workers_from_a_borrowed_iterator() {
     let mut pending = Vec::new();
     let mut threads = HashSet::new();
     for idx in 0..3 {
-        pending.push(submit(&mut pool, &picker, idx, PreviewBuffer::new()));
+        pending.push(submit(&mut pool, &picker, idx, Buffer::new()));
         let started = started_rx.recv_timeout(WAIT).unwrap();
         assert_eq!(started.call, 1);
         assert_ne!(started.thread, caller);
@@ -209,13 +287,8 @@ fn from_worker_clones_on_the_caller_thread_and_moves_the_original() {
         }
     }
 
-    impl PreviewWorker<&'static str> for CountClones {
-        fn preview(
-            &mut self,
-            _: &&'static str,
-            _: &mut PreviewBuffer,
-            _: impl Fn() -> bool,
-        ) -> bool {
+    impl Worker<&'static str> for CountClones {
+        fn preview(&mut self, _: &&'static str, _: &mut Pane, _: impl Fn() -> bool) -> bool {
             unreachable!();
         }
     }
@@ -278,13 +351,8 @@ fn default_workers_initialize_asynchronously_and_stay_on_their_threads() {
         }
     }
 
-    impl PreviewWorker<&'static str> for DefaultWorker {
-        fn preview(
-            &mut self,
-            item: &&'static str,
-            buffer: &mut PreviewBuffer,
-            _: impl Fn() -> bool,
-        ) -> bool {
+    impl Worker<&'static str> for DefaultWorker {
+        fn preview(&mut self, item: &&'static str, pane: &mut Pane, _: impl Fn() -> bool) -> bool {
             let control = CONTROL.get().unwrap();
             self.calls.set(self.calls.get() + 1);
             control
@@ -296,7 +364,7 @@ fn default_workers_initialize_asynchronously_and_stay_on_their_threads() {
                 })
                 .unwrap();
             control.preview.recv_timeout(WAIT).unwrap();
-            buffer.push_str(item);
+            pane.buffer_mut().push_str(item);
             true
         }
     }
@@ -343,7 +411,7 @@ fn default_workers_initialize_asynchronously_and_stay_on_their_threads() {
         assert!(created.insert(id));
     }
     let picker = picker();
-    let mut pending = vec![submit(&mut pool, &picker, 0, PreviewBuffer::new())];
+    let mut pending = vec![submit(&mut pool, &picker, 0, Buffer::new())];
     assert!(events.try_recv().is_err());
     for _ in 0..3 {
         initialize.send(()).unwrap();
@@ -351,7 +419,7 @@ fn default_workers_initialize_asynchronously_and_stay_on_their_threads() {
     let mut previewed = HashSet::new();
     for idx in 0..3 {
         if idx != 0 {
-            pending.push(submit(&mut pool, &picker, idx, PreviewBuffer::new()));
+            pending.push(submit(&mut pool, &picker, idx, Buffer::new()));
         }
         let Lifecycle::Previewed {
             created,
@@ -373,7 +441,7 @@ fn default_workers_initialize_asynchronously_and_stay_on_their_threads() {
         assert_eq!(ready(pending).line(0).unwrap().as_str(), expected);
     }
 
-    let pending = submit(&mut pool, &picker, 3, PreviewBuffer::new());
+    let pending = submit(&mut pool, &picker, 3, Buffer::new());
     let Lifecycle::Previewed {
         created: id,
         current,
@@ -421,13 +489,8 @@ fn default_worker_panic_releases_requests_and_propagates_on_submission() {
         }
     }
 
-    impl PreviewWorker<&'static str> for PanickingDefault {
-        fn preview(
-            &mut self,
-            _: &&'static str,
-            _: &mut PreviewBuffer,
-            _: impl Fn() -> bool,
-        ) -> bool {
+    impl Worker<&'static str> for PanickingDefault {
+        fn preview(&mut self, _: &&'static str, _: &mut Pane, _: impl Fn() -> bool) -> bool {
             unreachable!();
         }
     }
@@ -438,13 +501,13 @@ fn default_worker_panic_releases_requests_and_propagates_on_submission() {
         PoolPreviewer::with_default_workers::<PanickingDefault>(NonZeroUsize::new(1).unwrap())
             .unwrap();
     let picker = picker();
-    let pending = submit(&mut pool, &picker, 0, PreviewBuffer::new());
+    let pending = submit(&mut pool, &picker, 0, Buffer::new());
     initialize.send(()).unwrap();
 
     assert!(completed(pending).is_err());
     assert!(pool.is_closed());
     let panic = catch_unwind(AssertUnwindSafe(|| {
-        submit(&mut pool, &picker, 1, PreviewBuffer::new())
+        submit(&mut pool, &picker, 1, Buffer::new())
     }))
     .err()
     .expect("initialization panic was not propagated");
@@ -464,13 +527,8 @@ fn shutdown_waits_for_default_initialization() {
         }
     }
 
-    impl PreviewWorker<&'static str> for WaitingDefault {
-        fn preview(
-            &mut self,
-            _: &&'static str,
-            _: &mut PreviewBuffer,
-            _: impl Fn() -> bool,
-        ) -> bool {
+    impl Worker<&'static str> for WaitingDefault {
+        fn preview(&mut self, _: &&'static str, _: &mut Pane, _: impl Fn() -> bool) -> bool {
             unreachable!();
         }
     }
@@ -491,18 +549,25 @@ fn shutdown_waits_for_default_initialization() {
 fn incomplete_previews_are_dropped_and_scratch_buffers_are_cleared_and_reused() {
     struct IncompleteWorker(Option<usize>);
 
-    impl PreviewWorker<&'static str> for IncompleteWorker {
+    impl Worker<&'static str> for IncompleteWorker {
         fn preview(
             &mut self,
             item: &&'static str,
-            buffer: &mut PreviewBuffer,
+            pane: &mut Pane,
             is_cancelled: impl Fn() -> bool,
         ) -> bool {
             assert!(!is_cancelled());
+            assert_eq!(pane.offset(), (0, 0));
+            assert!(!pane.line_numbers());
+            assert!(!pane.is_err());
+            if self.0.is_none() {
+                pane.set_offset(13, 31);
+                pane.set_line_numbers(true);
+                pane.set_err(true);
+            }
+            let buffer = pane.buffer_mut();
             assert_eq!(buffer.lines().len(), 1);
             assert_eq!(buffer.line(0).unwrap().as_str(), "");
-            assert!(!buffer.is_err());
-            assert!(!buffer.line_numbers());
             if let Some(allocation) = self.0 {
                 buffer.push_str(item);
                 assert_eq!(
@@ -512,8 +577,6 @@ fn incomplete_previews_are_dropped_and_scratch_buffers_are_cleared_and_reused() 
                 true
             } else {
                 buffer.push_text("incomplete\npreview");
-                buffer.set_err(true);
-                buffer.set_line_numbers(true);
                 self.0 = Some(buffer.line(0).unwrap().as_str().as_ptr() as usize);
                 false
             }
@@ -522,7 +585,7 @@ fn incomplete_previews_are_dropped_and_scratch_buffers_are_cleared_and_reused() 
 
     let picker = picker();
     let mut pool = PoolPreviewer::from_workers([IncompleteWorker(None)]).unwrap();
-    let mut buffer = PreviewBuffer::new();
+    let mut buffer = Buffer::new();
     buffer.push_str("reusable request buffer");
     let allocation = buffer.line(0).unwrap().as_str().as_ptr();
     buffer.clear();
@@ -532,22 +595,24 @@ fn incomplete_previews_are_dropped_and_scratch_buffers_are_cleared_and_reused() 
     assert_eq!(buffer.line(0).unwrap().as_str().as_ptr(), allocation);
 
     let retry = submit(&mut pool, &picker, 0, buffer);
-    let buffer = ready(retry);
+    let pane = completed(retry).unwrap();
+    assert_eq!(pane.offset(), (0, 0));
+    assert!(!pane.line_numbers());
+    assert!(!pane.is_err());
+    let buffer = pane.buffer();
     assert_eq!(buffer.lines().len(), 1);
     assert_eq!(buffer.line(0).unwrap().as_str(), "first");
-    assert!(!buffer.is_err());
-    assert!(!buffer.line_numbers());
 }
 
 #[test]
 fn reuses_worker_state_and_buffers_after_cancellation_and_publication() {
     let picker = picker();
     let (mut pool, started, release) = pool(1);
-    let first = submit(&mut pool, &picker, 0, PreviewBuffer::new());
+    let first = submit(&mut pool, &picker, 0, Buffer::new());
     let first_started = started.recv_timeout(WAIT).unwrap();
     first.reader.cancel_any();
 
-    let mut recycled = PreviewBuffer::new();
+    let mut recycled = Buffer::new();
     recycled.push_str("allocated storage for the next request");
     let recycled_ptr = recycled.line(0).unwrap().as_str().as_ptr() as usize;
     recycled.clear();
@@ -558,9 +623,12 @@ fn reuses_worker_state_and_buffers_after_cancellation_and_publication() {
     assert_eq!(second_started.thread, first_started.thread);
     assert_eq!(second_started.call, 2);
     release.send(false).unwrap();
-    assert!(ready(second).is_err());
+    let pane = completed(second).unwrap();
+    assert!(pane.is_err());
+    assert_eq!(pane.offset(), (3, 7));
+    assert!(pane.line_numbers());
 
-    let third = submit(&mut pool, &picker, 2, PreviewBuffer::new());
+    let third = submit(&mut pool, &picker, 2, Buffer::new());
     let third_started = started.recv_timeout(WAIT).unwrap();
     assert_eq!(third_started.buffer, recycled_ptr);
     assert_eq!(third_started.call, 3);
@@ -573,16 +641,14 @@ fn bounds_cancelled_backlog_and_drops_queued_work_on_shutdown() {
     let picker = picker();
     let (mut pool, started, release) = pool(2);
     let active = [0, 1].map(|idx| {
-        let pending = submit(&mut pool, &picker, idx, PreviewBuffer::new());
+        let pending = submit(&mut pool, &picker, idx, Buffer::new());
         started.recv_timeout(WAIT).unwrap();
         pending
     });
 
-    let pending: Vec<_> = (0..64)
-        .map(|_| submit(&mut pool, &picker, 1, PreviewBuffer::new()))
-        .collect();
+    let pending = Vec::from_fn(64, |_| submit(&mut pool, &picker, 1, Buffer::new()));
     for _ in 0..1024 {
-        submit(&mut pool, &picker, 2, PreviewBuffer::new())
+        submit(&mut pool, &picker, 2, Buffer::new())
             .reader
             .cancel_any();
     }
@@ -622,10 +688,10 @@ fn worker_panic_releases_requests_and_propagates_on_submission() {
     let picker = picker();
     let (mut pool, started, release) = pool(1);
     assert!(!pool.is_closed());
-    let panicking = submit(&mut pool, &picker, 4, PreviewBuffer::new());
+    let panicking = submit(&mut pool, &picker, 4, Buffer::new());
     started.recv_timeout(WAIT).unwrap();
-    let background = submit(&mut pool, &picker, 1, PreviewBuffer::new());
-    let queued = submit(&mut pool, &picker, 0, PreviewBuffer::new());
+    let background = submit(&mut pool, &picker, 1, Buffer::new());
+    let queued = submit(&mut pool, &picker, 0, Buffer::new());
     release.send(false).unwrap();
 
     assert!(completed(panicking).is_err());
@@ -633,7 +699,7 @@ fn worker_panic_releases_requests_and_propagates_on_submission() {
     assert!(completed(queued).is_err());
     assert!(pool.is_closed());
     let panic = catch_unwind(AssertUnwindSafe(|| {
-        submit(&mut pool, &picker, 1, PreviewBuffer::new())
+        submit(&mut pool, &picker, 1, Buffer::new())
     }))
     .err()
     .expect("worker panic was not propagated");

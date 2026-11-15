@@ -8,6 +8,7 @@ license = "MIT OR Apache-2.0"
 name = "nucleo-picker"
 repository = "https://github.com/autobib/nucleo-picker"
 version = "0.13.0-beta.7"
+rust-version = "1.100"
 
 [workspace]
 default-members = ["."]
@@ -25,8 +26,8 @@ unix-poll = ["crossterm/use-dev-tty"]
 # expose 'custom backend' traits
 # unstable and subject to change on every version bump
 unstable-backend = []
-preview = ["dep:lru"]
-preview-ansi = ["preview", "dep:anstyle-parse"]
+preview-cache = ["dep:lru"]
+preview-ansi = ["dep:anstyle-parse"]
 
 [dependencies]
 anstyle-parse = { version = "1.0", optional = true }
@@ -68,11 +69,11 @@ name = "find"
 
 [[example]]
 name = "find_preview"
-required-features = ["preview"]
+required-features = ["preview-cache"]
 
 [[example]]
 name = "find_preview_full"
-required-features = ["preview"]
+required-features = ["preview-cache"]
 
 [[example]]
 name = "restart"
@@ -92,23 +93,26 @@ required-features = ["serde"]
 
 [[example]]
 name = "preview"
-required-features = ["preview"]
+required-features = ["preview-cache"]
+
+[[example]]
+name = "preview_uncached"
 
 [[example]]
 name = "preview_style"
-required-features = ["preview"]
+required-features = ["preview-cache"]
 
 [[example]]
 name = "preview_single"
-required-features = ["preview"]
+required-features = ["preview-cache"]
 
 [[example]]
 name = "preview_serde"
-required-features = ["serde", "preview"]
+required-features = ["serde", "preview-cache"]
 
 [[example]]
 name = "online_preview"
-required-features = ["preview"]
+required-features = ["preview-cache"]
 
 [[example]]
 name = "options"

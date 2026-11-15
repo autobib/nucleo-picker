@@ -1,4 +1,4 @@
-use std::{convert::Infallible, error::Error, time::Duration};
+use std::{error::Error, time::Duration};
 
 use crossterm::{
     event::{KeyCode, KeyEvent, KeyModifiers},
@@ -6,10 +6,10 @@ use crossterm::{
 };
 use nucleo_picker::{
     PickerOptions,
-    event::{Event, LayoutEvent, MatchListEvent, PromptEvent, keybind_default},
+    event::{Event, LayoutEvent, MatchListEvent, PromptEvent, keybind_single_preview},
     preview::{
-        BoundaryChars, Preview, PreviewBuffer, PreviewEvent, SyncPreviewer,
-        request::{PreviewRequest, PreviewResponse, QueuedPreviewRequest},
+        BoundaryChars, Pane, Preview, PreviewEvent, SyncPreviewer,
+        request::{QueuedRequest, Request, Response},
     },
 };
 use nucleo_picker_vt::{Driver, PaneSnapshot};
@@ -22,7 +22,7 @@ fn start(options: PickerOptions) -> ScenarioRunner {
         "basic",
         lines(),
         options,
-        SyncPreviewer(|item: &String, buffer: &mut PreviewBuffer| buffer.push_str(item)),
+        SyncPreviewer(|item: &String, pane: &mut Pane| pane.buffer_mut().push_str(item)),
     )
 }
 
@@ -189,7 +189,7 @@ fn pane_survives_updates_and_resizes() -> Result<(), Box<dyn Error>> {
         } else {
             MatchListEvent::Up(1)
         }))?;
-        assert_pane(&sr.checkpoint("selection")?, reversed, &["item-01 b…"]);
+        assert_pane(&sr.checkpoint("hover")?, reversed, &["item-01 b…"]);
 
         for (width, height) in [(5, 7), (23, 2), (1, 1)] {
             sr.set_dimensions(width, height)?;
@@ -223,9 +223,11 @@ fn pane_layout_adjustments_and_resizes() -> Result<(), Box<dyn Error>> {
         let mut sr = start_with(
             "pane_layout",
             vec!["item"],
-            PickerOptions::new().preview_size(0.4).reversed(reversed),
-            SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
-                buffer.push_text("a\nb\nc\nd\ne\nf")
+            PickerOptions::new()
+                .preview_dimensions(0.4)
+                .reversed(reversed),
+            SyncPreviewer(|_: &String, pane: &mut Pane| {
+                pane.buffer_mut().push_text("a\nb\nc\nd\ne\nf")
             }),
         );
         let check =
@@ -240,8 +242,9 @@ fn pane_layout_adjustments_and_resizes() -> Result<(), Box<dyn Error>> {
                 );
                 Ok(())
             };
-        let adjust =
-            |ch| keybind_default(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::ALT)).unwrap();
+        let adjust = |ch| {
+            keybind_single_preview(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::ALT)).unwrap()
+        };
         sr.set_dimensions(25, 5)?;
         sr.wait_for_match_complete(1, 1)?;
         check(&mut sr, 10, &["a", "b", "c"])?;
@@ -312,9 +315,9 @@ fn layout_adjustments_do_not_restart_pending_previews() -> Result<(), Box<dyn Er
         None,
         16,
     );
-    let mut buffer = PreviewBuffer::new();
-    buffer.push_str("ready");
-    assert!(active.publish(&mut buffer).is_ok());
+    let mut pane = Pane::new();
+    pane.buffer_mut().push_str("ready");
+    assert!(active.publish(&mut pane).is_ok());
     assert_pane_at_width(
         &sr.checkpoint("published after resize")?,
         false,
@@ -333,7 +336,11 @@ fn layout_adjustments_do_not_restart_pending_previews() -> Result<(), Box<dyn Er
 fn toggle_preview_restores_layout_and_cached_state() -> Result<(), Box<dyn Error>> {
     for reversed in [false, true] {
         let items = vec!["a rather long item name"];
-        let options = || PickerOptions::new().preview_size(0.4).reversed(reversed);
+        let options = || {
+            PickerOptions::new()
+                .preview_dimensions(0.4)
+                .reversed(reversed)
+        };
         let mut plain = ScenarioRunner::start_with_options("plain", items.clone(), options());
         plain.set_dimensions(30, 5)?;
         plain.wait_for_match_complete(1, 1)?;
@@ -345,12 +352,13 @@ fn toggle_preview_restores_layout_and_cached_state() -> Result<(), Box<dyn Error
             "toggle_preview",
             items,
             options(),
-            SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
-                buffer.push_text("a\nb\nc\nd\ne\nf")
+            SyncPreviewer(|_: &String, pane: &mut Pane| {
+                pane.buffer_mut().push_text("a\nb\nc\nd\ne\nf")
             }),
         );
-        let toggle =
-            || keybind_default(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::ALT)).unwrap();
+        let toggle = || {
+            keybind_single_preview(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::ALT)).unwrap()
+        };
         sr.set_dimensions(30, 5)?;
         sr.wait_for_match_complete(1, 1)?;
         sr.send(Event::Layout(LayoutEvent::MoveDividerLeft(1)))?;
@@ -438,14 +446,14 @@ fn hidden_previews_pause_new_requests_and_preserve_outstanding_work() -> Result<
         sr.checkpoint("hidden pending")?;
         let active = active.unwrap_or_else(|| queued.take().unwrap().start().unwrap());
         assert!(!active.is_cancelled());
-        for selection in [1, 2] {
+        for rank in [1, 2] {
             sr.send(Event::MatchList(MatchListEvent::Up(1)))?;
-            sr.wait_for(|status| status.selection == Some(selection))?;
+            sr.wait_for(|status| status.rank == Some(rank))?;
             assert!(receiver.try_recv().is_err());
         }
-        let mut buffer = PreviewBuffer::new();
-        buffer.push_str("completed alpha");
-        assert!(active.publish(&mut buffer).is_ok());
+        let mut pane = Pane::new();
+        pane.buffer_mut().push_str("completed alpha");
+        assert!(active.publish(&mut pane).is_ok());
         sr.checkpoint("published while hidden")?;
         assert!(receiver.try_recv().is_err());
 
@@ -454,9 +462,9 @@ fn hidden_previews_pause_new_requests_and_preserve_outstanding_work() -> Result<
         let queued = receiver.recv_timeout(WAIT)?;
         assert_eq!(queued.item(), "gamma");
         let active = queued.start().unwrap();
-        buffer.clear();
-        buffer.push_str("gamma");
-        assert!(active.publish(&mut buffer).is_ok());
+        pane.clear();
+        pane.buffer_mut().push_str("gamma");
+        assert!(active.publish(&mut pane).is_ok());
         assert_pane(&sr.checkpoint("current ready")?, false, &["gamma"]);
 
         sr.send(Event::MatchList(MatchListEvent::Down(2)))?;
@@ -475,8 +483,8 @@ fn status_toggle_preserves_the_preview_pane() -> Result<(), Box<dyn Error>> {
             "status_with_preview",
             lines(),
             PickerOptions::new().reversed(reversed),
-            SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
-                buffer.push_text("a\nb\nc\nd\ne\nf")
+            SyncPreviewer(|_: &String, pane: &mut Pane| {
+                pane.buffer_mut().push_text("a\nb\nc\nd\ne\nf")
             }),
         );
         sr.set_dimensions(40, 5)?;
@@ -511,7 +519,7 @@ fn layout_configuration_and_events_are_ignored_without_a_preview() -> Result<(),
     let mut sr = ScenarioRunner::start_with_options(
         "layout_without_preview",
         vec!["item"],
-        PickerOptions::new().preview_size(1.0),
+        PickerOptions::new().preview_dimensions(1.0),
     );
     sr.wait_for_match_complete(1, 1)?;
     let before = sr.checkpoint("initial")?;
@@ -532,7 +540,8 @@ fn unicode_clipping_and_styles() -> Result<(), Box<dyn Error>> {
         "unicode_clipping_and_styles",
         vec!["item"],
         PickerOptions::new(),
-        SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
+        SyncPreviewer(|_: &String, pane: &mut Pane| {
+            let buffer = pane.buffer_mut();
             buffer.push_line("12345");
             buffer.push_styled_line("abcdef", ContentStyle::new().green().bold());
             buffer.push_line("界界界");
@@ -589,14 +598,15 @@ fn preview_and_matches_use_the_same_grapheme_widths() -> Result<(), Box<dyn Erro
         "preview_and_matches_use_the_same_grapheme_widths",
         vec!["لاX"],
         PickerOptions::new().highlight_line(true),
-        SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
+        SyncPreviewer(|_: &String, pane: &mut Pane| {
+            let buffer = pane.buffer_mut();
             buffer.push_line("لا");
             buffer.push_line("لاX");
         }),
     );
     sr.type_text("لا")?;
     sr.wait_for_match_complete(1, 1)?;
-    for (width, first, second, selected) in [
+    for (width, first, second, hovered) in [
         (12, "│لا  │", "│لاX │", "▌ لاX "),
         (10, "│لا │", "│لاX│", "▌ لاX"),
         (8, "│لا│", "│ل…│", "▌ ل…"),
@@ -606,11 +616,7 @@ fn preview_and_matches_use_the_same_grapheme_widths() -> Result<(), Box<dyn Erro
         let snapshot = sr.checkpoint(format!("width-{width}"))?;
         assert!(snapshot.text[1].ends_with(first), "{:?}", snapshot.text);
         assert!(snapshot.text[2].ends_with(second), "{:?}", snapshot.text);
-        assert!(
-            snapshot.text[2].starts_with(selected),
-            "{:?}",
-            snapshot.text
-        );
+        assert!(snapshot.text[2].starts_with(hovered), "{:?}", snapshot.text);
         assert!(snapshot.row_flags.iter().all(|row| !row.wrapped));
     }
     sr.send(Event::Quit)?;
@@ -624,7 +630,8 @@ fn style_resets_and_custom_elision() -> Result<(), Box<dyn Error>> {
         "style_resets_and_custom_elision",
         vec!["item"],
         PickerOptions::new().truncation_ellipsis('~'),
-        SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
+        SyncPreviewer(|_: &String, pane: &mut Pane| {
+            let buffer = pane.buffer_mut();
             buffer.push_styled_str("AB", ContentStyle::new().green().on_blue().bold());
             buffer.push_str("C");
             buffer.push_styled_str(
@@ -666,7 +673,7 @@ fn style_resets_and_custom_elision() -> Result<(), Box<dyn Error>> {
         "ascii_elision",
         vec!["abcdef"],
         PickerOptions::new().ascii_compatible(true),
-        SyncPreviewer(|item: &String, buffer: &mut PreviewBuffer| buffer.push_str(item)),
+        SyncPreviewer(|item: &String, pane: &mut Pane| pane.buffer_mut().push_str(item)),
     );
     sr.set_dimensions(10, 5)?;
     sr.wait_for_match_complete(1, 1)?;
@@ -733,7 +740,7 @@ fn boundary_chars() -> Result<(), Box<dyn Error>> {
             "boundary_chars",
             vec!["abcdef"],
             options,
-            SyncPreviewer(|item: &String, buffer: &mut PreviewBuffer| buffer.push_str(item)),
+            SyncPreviewer(|item: &String, pane: &mut Pane| pane.buffer_mut().push_str(item)),
         );
         sr.set_dimensions(10, 5)?;
         sr.wait_for_match_complete(1, 1)?;
@@ -752,7 +759,7 @@ fn boundary_chars() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn line_number_preferences_and_overrides() -> Result<(), Box<dyn Error>> {
+fn line_number_settings() -> Result<(), Box<dyn Error>> {
     let check = |sr: &mut ScenarioRunner, enabled: bool| -> Result<(), Box<dyn Error>> {
         let contents = if enabled {
             ["1 ab", "2 cd"]
@@ -763,12 +770,12 @@ fn line_number_preferences_and_overrides() -> Result<(), Box<dyn Error>> {
         Ok(())
     };
     let mut sr = start_with(
-        "line_number_preferences_and_overrides",
+        "line_number_settings",
         vec!["off", "on"],
         PickerOptions::new(),
-        SyncPreviewer(|item: &String, buffer: &mut PreviewBuffer| {
-            buffer.set_line_numbers(item == "on");
-            buffer.push_text("ab\ncd");
+        SyncPreviewer(|item: &String, pane: &mut Pane| {
+            pane.set_line_numbers(item == "on");
+            pane.buffer_mut().push_text("ab\ncd");
         }),
     );
     sr.set_dimensions(24, 4)?;
@@ -780,9 +787,7 @@ fn line_number_preferences_and_overrides() -> Result<(), Box<dyn Error>> {
         check(&mut sr, base)?;
         sr.send(Event::Preview(PreviewEvent::ToggleLineNumbers))?;
         check(&mut sr, !base)?;
-        sr.send(Event::Preview(PreviewEvent::SetLineNumbers(None)))?;
-        check(&mut sr, base)?;
-        sr.send(Event::Preview(PreviewEvent::SetLineNumbers(Some(!base))))?;
+        sr.send(Event::Preview(PreviewEvent::SetLineNumbers(!base)))?;
         check(&mut sr, !base)?;
     }
     sr.send(Event::MatchList(MatchListEvent::Down(1)))?;
@@ -810,15 +815,16 @@ fn toggle_line_numbers() -> Result<(), Box<dyn Error>> {
         "toggle_line_numbers",
         vec!["item"],
         PickerOptions::new(),
-        SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
-            buffer.set_line_numbers(true);
-            buffer.push_styled_text(
+        SyncPreviewer(|_: &String, pane: &mut Pane| {
+            pane.set_line_numbers(true);
+            pane.buffer_mut().push_styled_text(
                 "alpha\nbeta\ngamma\ndelta\nepsilon",
                 ContentStyle::new().green(),
             );
         }),
     );
-    let toggle = || keybind_default(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
+    let toggle =
+        || keybind_single_preview(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
     sr.set_dimensions(32, 5)?;
     sr.wait_for_match_complete(1, 1)?;
     assert_pane(
@@ -861,9 +867,9 @@ fn horizontal_scroll_preserves_columns_across_navigation_and_layout() -> Result<
         PickerOptions::new()
             .reverse_items(false)
             .sort_results(false),
-        SyncPreviewer(|item: &String, buffer: &mut PreviewBuffer| {
-            buffer.set_line_numbers(true);
-            buffer.push_text(if item == "long" {
+        SyncPreviewer(|item: &String, pane: &mut Pane| {
+            pane.set_line_numbers(true);
+            pane.buffer_mut().push_text(if item == "long" {
                 "abcdefghijklmnop\nxy\n\nuv\n\nabcdefghijklmnop"
             } else {
                 "short"
@@ -931,7 +937,7 @@ fn horizontal_scroll_preserves_columns_across_navigation_and_layout() -> Result<
     sr.send(Event::Layout(LayoutEvent::TogglePreview))?;
     assert_pane(&sr.checkpoint("shown pane")?, false, shifted);
 
-    let key = |code| keybind_default(KeyEvent::new(code, KeyModifiers::SHIFT)).unwrap();
+    let key = |code| keybind_single_preview(KeyEvent::new(code, KeyModifiers::SHIFT)).unwrap();
     sr.send(key(KeyCode::Left))?;
     assert_pane(
         &sr.checkpoint("left one column")?,
@@ -978,8 +984,9 @@ fn horizontal_scroll_clips_styled_graphemes() -> Result<(), Box<dyn Error>> {
         "horizontal_unicode",
         vec!["item"],
         PickerOptions::new().truncation_ellipsis('~'),
-        SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| {
-            buffer.set_line_numbers(true);
+        SyncPreviewer(|_: &String, pane: &mut Pane| {
+            pane.set_line_numbers(true);
+            let buffer = pane.buffer_mut();
             buffer.push_styled_line("ab界cdefgh", ContentStyle::new().green().bold());
             buffer.push_str("a👩");
             buffer.push_styled_str("🏽‍💻", ContentStyle::new().blue());
@@ -992,7 +999,7 @@ fn horizontal_scroll_clips_styled_graphemes() -> Result<(), Box<dyn Error>> {
     );
     sr.set_dimensions(18, 6)?;
     sr.wait_for_match_complete(1, 1)?;
-    let key = |code| keybind_default(KeyEvent::new(code, KeyModifiers::SHIFT)).unwrap();
+    let key = |code| keybind_single_preview(KeyEvent::new(code, KeyModifiers::SHIFT)).unwrap();
     sr.send(key(KeyCode::Right))?;
     let clipped = &["1 ~界c~", "2 ~~bc~", "3 ~bcd~", "4 ~"];
     assert_pane(&sr.checkpoint("inside graphemes")?, false, clipped);
@@ -1044,8 +1051,9 @@ fn numbered_scrolling_and_blank_rows() -> Result<(), Box<dyn Error>> {
         "numbered_scrolling_and_blank_rows",
         vec!["long", "short", "empty"],
         PickerOptions::new(),
-        SyncPreviewer(|item: &String, buffer: &mut PreviewBuffer| {
-            buffer.set_line_numbers(true);
+        SyncPreviewer(|item: &String, pane: &mut Pane| {
+            pane.set_line_numbers(true);
+            let buffer = pane.buffer_mut();
             match item.as_str() {
                 "long" => {
                     for _ in 1..100 {
@@ -1142,22 +1150,17 @@ fn numbered_scrolling_and_blank_rows() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-struct DeferredPreview(std::sync::mpsc::Sender<QueuedPreviewRequest<String>>);
+struct DeferredPreview(std::sync::mpsc::Sender<QueuedRequest<String>>);
 impl Preview<String> for DeferredPreview {
-    fn preview(
-        &mut self,
-        request: PreviewRequest<'_, String>,
-        _timeout: Duration,
-    ) -> PreviewResponse {
+    fn preview(&mut self, request: Request<'_, String>, _timeout: Duration) -> Response {
         if request.item() == "ready" {
-            let mut buffer = request.ready();
-            buffer.set_line_numbers(true);
-            buffer.push_styled_text("first\nsecond\nthird", ContentStyle::new().on_blue());
-            PreviewResponse::Ready(buffer)
+            let mut pane = request.ready().with_line_numbers(true);
+            pane.push_styled_text("first\nsecond\nthird", ContentStyle::new().on_blue());
+            Response::Ready(pane)
         } else {
             let (pending, queued) = request.defer();
             self.0.send(queued).unwrap();
-            PreviewResponse::Pending(pending)
+            Response::Pending(pending)
         }
     }
 }
@@ -1167,7 +1170,7 @@ fn invalidating_the_current_preview_redraws_loading_and_new_contents() -> Result
 {
     for ch in ['r', 'R'] {
         assert!(
-            keybind_default::<Infallible>(KeyEvent::new(
+            keybind_single_preview::<!>(KeyEvent::new(
                 KeyCode::Char(ch),
                 KeyModifiers::CONTROL | KeyModifiers::SHIFT,
             ))
@@ -1183,14 +1186,14 @@ fn invalidating_the_current_preview_redraws_loading_and_new_contents() -> Result
     );
     sr.set_dimensions(30, 5)?;
     sr.wait_for_match_complete(1, 1)?;
-    let mut buffer = PreviewBuffer::new();
-    buffer.push_text("a\nb\nc\nd\ne\nf");
+    let mut pane = Pane::new();
+    pane.buffer_mut().push_text("a\nb\nc\nd\ne\nf");
     assert!(
         receiver
             .recv_timeout(WAIT)?
             .start()
             .unwrap()
-            .publish(&mut buffer)
+            .publish(&mut pane)
             .is_ok()
     );
     assert_pane(&sr.checkpoint("original")?, false, &["a", "b", "c"]);
@@ -1198,13 +1201,15 @@ fn invalidating_the_current_preview_redraws_loading_and_new_contents() -> Result
     sr.send(Event::Preview(PreviewEvent::ToggleLineNumbers))?;
     assert_pane(&sr.checkpoint("scrolled")?, false, &["4 d", "5 e", "6 f"]);
 
-    sr.send(keybind_default(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL)).unwrap())?;
+    sr.send(
+        keybind_single_preview(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL)).unwrap(),
+    )?;
     assert_pane(&sr.checkpoint("refresh pending")?, false, &["Loading..."]);
     let queued = receiver.recv_timeout(WAIT)?;
     assert_eq!(queued.item(), "alpha");
-    buffer.clear();
-    buffer.push_text("new\ntext");
-    assert!(queued.start().unwrap().publish(&mut buffer).is_ok());
+    pane.clear();
+    pane.buffer_mut().push_text("new\ntext");
+    assert!(queued.start().unwrap().publish(&mut pane).is_ok());
     assert_pane(&sr.checkpoint("refreshed")?, false, &["new", "text"]);
     assert!(receiver.try_recv().is_err());
     sr.send(Event::Quit)?;
@@ -1247,11 +1252,11 @@ fn pending_previews_clear_stale_content_and_render_on_publication() -> Result<()
     sr.set_dimensions(30, 6)?;
     assert_eq!(sr.checkpoint("restored pending")?, pending);
     let active = receiver.recv_timeout(WAIT)?.start().unwrap();
-    let mut buffer = PreviewBuffer::new();
+    let mut pane = Pane::new().with_line_numbers(true);
+    let buffer = pane.buffer_mut();
     buffer.push_styled_str("failed", ContentStyle::new().red());
-    buffer.set_err(true);
-    buffer.set_line_numbers(true);
-    assert!(active.publish(&mut buffer).is_ok());
+    pane.set_err(true);
+    assert!(active.publish(&mut pane).is_ok());
     assert_pane_with_border(
         &checkpoint!(sr, "error"),
         false,
@@ -1301,7 +1306,7 @@ fn error_labels_fit_and_respect_boundary_chars() -> Result<(), Box<dyn Error>> {
             "error_labels",
             vec!["error"],
             PickerOptions::new().preview_boundary_chars(chars),
-            SyncPreviewer(|_: &String, buffer: &mut PreviewBuffer| buffer.set_err(true)),
+            SyncPreviewer(|_: &String, pane: &mut Pane| pane.set_err(true)),
         );
         sr.wait_for_match_complete(1, 1)?;
         for top in [
@@ -1353,9 +1358,10 @@ fn error_previews_preserve_contents_and_scrolling() -> Result<(), Box<dyn Error>
         "error_contents",
         vec!["error", "ready"],
         PickerOptions::new(),
-        SyncPreviewer(|item: &String, buffer: &mut PreviewBuffer| {
-            buffer.set_line_numbers(true);
-            buffer.set_err(item == "error");
+        SyncPreviewer(|item: &String, pane: &mut Pane| {
+            pane.set_line_numbers(true);
+            pane.set_err(item == "error");
+            let buffer = pane.buffer_mut();
             buffer.push_styled_str("AB", ContentStyle::new().green().on_blue().bold());
             buffer.push_line("C");
             buffer.push_text("second\nthird\nfourth\nfifth");
@@ -1397,7 +1403,8 @@ fn error_previews_preserve_contents_and_scrolling() -> Result<(), Box<dyn Error>
 }
 
 #[test]
-fn pending_previews_distinguish_no_selection_and_publish_success() -> Result<(), Box<dyn Error>> {
+fn pending_previews_distinguish_no_hovered_item_and_publish_success() -> Result<(), Box<dyn Error>>
+{
     let (sender, receiver) = std::sync::mpsc::channel();
     let mut sr = start_with(
         "pending_success",
@@ -1432,9 +1439,9 @@ fn pending_previews_distinguish_no_selection_and_publish_success() -> Result<(),
         BoundaryChars::ascii(),
         None,
     );
-    let mut buffer = PreviewBuffer::new();
-    buffer.push_str("complete");
-    assert!(active.publish(&mut buffer).is_ok());
+    let mut pane = Pane::new();
+    pane.buffer_mut().push_str("complete");
+    assert!(active.publish(&mut pane).is_ok());
     let ready = sr.checkpoint("published")?;
     assert_pane_with_border(&ready, false, &["complete"], BoundaryChars::ascii(), None);
     assert!(ready.styles.iter().all(|span| span.end <= 15));

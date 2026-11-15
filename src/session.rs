@@ -1,287 +1,540 @@
-//! The internal generic pick implementation
+//! # The picker session
+//!
+//! A *session* is a single interactive call to the picker. The behaviour in a session is
+//! determined by the [`Interface`] of the picker (the type parameter `I` in the definition of the
+//! [`Picker`] struct). The [`Interface`] governs the interactive behaviour of the session (so that
+//! you only pay for interface machinery you actually use) as well as the final return type.
+//!
+//! The picker can be re-used for multiple sessions: the items and query are retained between
+//! sessions (but can be cleared by [restarting](Picker::restart)).
+//!
+//! ## Interfaces
+//!
+//! In order to choose an interface, start with [`Picker::new`] for single-selection.
+//! Use [`Picker::multi`] (or [`Picker::as_multi`]) to change to multiple-selection mode:
+//!
+//! ```no_run
+//! use nucleo_picker::{Picker, render::StrRenderer};
+//!
+//! # fn main() -> std::io::Result<()> {
+//! let mut picker = Picker::new(StrRenderer);
+//! picker.push_batch(["red", "blue", "green"]);
+//!
+//! if let Some(color) = picker.pick()? {
+//!     println!("Selected {color}");
+//! }
+//!
+//! for color in picker.as_multi().pick()? {
+//!     println!("Selected {color}");
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! Independently of the interface, the same three `pick*` methods are always available.
+//!
+//! | Interface | How to get there | Successful return value |
+//! | --- | --- | --- |
+//! | [`Single`] (default) | `Picker::new(renderer)` | `Option<&T>` |
+//! | [`Multi`] | `picker.multi()` | [`Selection<'_, T>`] |
+//! | [`CachedPreview<Single, P>`] | `picker.with_preview(previewer)` | `Option<&T>` |
+//! | [`CachedPreview<Multi, P>`] | `picker.multi().with_preview(previewer)` | [`Selection<'_, T>`] |
+//!
+//! Note that the built-in preview interface requires the `preview-cache` feature. When the picker quits without a
+//! selection, it returns either `None` or an empty [`Selection`]. Also note the built-in [`UncachedPreview`] interface.
+//!
+//! ### Multiple selections
+//!
+//! With the [`Multi`] or [`CachedPreview<Multi, P>`] interface, the interactive picker permits the
+//! user to make multiple selections.
+//!
+//! The `pick*` methods are analogous to the single-selection variants, except additional items can be
+//! queued with the [`MatchListEvent::ToggleDown`](crate::event::MatchListEvent::ToggleDown) and
+//! [`MatchListEvent::ToggleUp`](crate::event::MatchListEvent::ToggleUp) events. The default
+//! keybindings bind these to `⇥` and `shift + ⇥` respectively. In this case, an
+//! [`Event::Select`] is handled slightly differently: if there are no queued selections, this
+//! picks the hovered item, but if there are queued selections, then only the queued selections
+//! are returned.
+//!
+//! If the picker [restarts while running](Event::Restart), the queued item list will be cleared
+//! since the previous items are removed.
+//!
+//! The selected items are returned as a [`Selection`], which is empty if picker exited with
+//! [`Event::Quit`] (or [`Event::QuitPromptEmpty`]), and non-empty if not.
+//!
+//! ### Adding previews
+//!
+//! With the `preview-cache` feature enabled, [`Picker::with_preview`] wraps the current selection mode in
+//! a [`CachedPreview<I, P>`]. Converting between single and multiple selection preserves the
+//! previewer. See [`crate::preview`] for constructing a previewer.
+//!
+//! The corresponding pick methods on the resulting [`Picker`] have same behaviour, except
+//! with an additional preview pane rendered on the right hand side of the screen.
+//! There is also additional handling of events which target the
+//! preview pane in particular.
+//!
+//! The interface itself owns the previewer `P`, but do note that one can pass `&mut P` to borrow an
+//! existing previewer if it is useful for the previewer state to outlive the session.
+//!
+//! ```no_run
+//! # fn main() -> std::io::Result<()> {
+//! # #[cfg(feature = "preview-cache")]
+//! # {
+//! use nucleo_picker::{Picker, CachedPreview, preview::{Pane, SyncPreviewer}, render::StrRenderer};
+//!
+//! let mut picker = Picker::new(StrRenderer);
+//! picker.push_batch(["red", "blue", "green"]);
+//! let mut previewer = SyncPreviewer(|color: &&str, pane: &mut Pane| {
+//!     pane.buffer_mut().push_text(color);
+//! });
+//!
+//! let selected = picker
+//!     .as_interface(CachedPreview::new_single(&mut previewer))
+//!     .pick()?;
+//! # }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! For an owned preview-enabled picker, [`Picker::into_parts`] recovers both the picker and
+//! its previewer. [`Picker::without_preview`] discards the previewer instead.
+//!
+//! ### Emulate single selection using a multi-picker
+//!
+//! It is possible to emulate single selection with multi-picker methods by setting
+//! [`PickerOptions::max_selection_count`](crate::PickerOptions::max_selection_count) to `NonZero::new(1)`. This will force the resulting
+//! [`Selection`] to contain either 0 or 1 element, and you can convert to `Option<&T>` by calling
+//! `next` on the [iterator](Selection::iter).
+//!
+//! Note that the picker interface will be slightly different: it is still possible to
+//! queue at most one picked item using `⇥`. With the single-selection pickers, it is not
+//! possible to queue items at all.
+//!
+//! ## Changing the interface
+//!
+//! Owned conversions such as [`Picker::multi`] and [`Picker::single`] consume the picker and
+//! return a picker (with the same internal items, renderer, query, etc.) with the new interface.
+//! In particular, interface conversions are quite cheap in general. This form is most convenient when all subsequent sessions
+//! use the same interface, or as part of the builder initialization starting with
+//! [`PickerOptions`](crate::PickerOptions).
+//!
+//! ```no_run
+//! # use nucleo_picker::{Picker, render::StrRenderer};
+//! # fn main() -> std::io::Result<()> {
+//! let picker = Picker::new(StrRenderer);
+//! picker.push_batch(["red", "blue", "green"]);
+//! let mut picker = picker.multi();
+//! let selected = picker.pick()?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! It is also possible to temporarily change the interface using borrowing conversions which return
+//! a [`PickerRef`]. These methods are named like `as_*`, such as [`Picker::as_multi`] and [`Picker::as_single`].
+//! A [`PickerRef`] view mutably borrows the original picker's state and its `pick*` methods consume
+//! the view. The original picker's interface is preserved and the query and item changes during
+//! the session affect the original picker. The selection returned by a [`PickerRef`] borrows
+//! only from the original picker.
+//!
+//! ```no_run
+//! use nucleo_picker::{Picker, error::PickError, render::StrRenderer};
+//!
+//! # fn main() -> Result<(), PickError> {
+//! let mut picker = Picker::new(StrRenderer);
+//! picker.push_batch(["red", "blue", "green"]);
+//!
+//! // borrow as a multi-selection picker without consuming
+//! // the original picker. the selection lifetime is independent
+//! // of the view type
+//! for color in picker.as_multi().pick()? {
+//!     println!("{color}");
+//! }
+//!
+//! // the original picker is still a single-selection picker
+//! if let Some(color) = picker.pick()? {
+//!     println!("{color}");
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! In order to explicitly choose an interface, use [`Picker::with_interface`] or [`Picker::as_interface`].
+//!
+//! ## Picker generics
+//!
+//! In most cases, the picker generic parameters can be inferred from the renderer, inserted items,
+//! and the conversion methods directly. Regardless, here is an overview of the type parameters of a
+//! [`Picker<T, R, I>`] and [`PickerRef<'a, T, R, I>`]:
+//!
+//! - `T` is the *item type*. Running the picker requires
+//!   `T: Send + Sync + 'static`. Selected items are borrowed from the picker.
+//! - `R` is the *renderer*, implementing [`Render<T>`].
+//! - `I` is the *session interface*, defaulting to [`Single`]. Interactive methods require
+//!   `I: Interface<T>`. Headless methods such as [`Picker::filter`] are independent of the
+//!   interface.
+//! - `'a` in `PickerRef<'a, T, R, I>` is the lifetime of the mutable borrow of the
+//!   original picker. Its `pick*` methods return `I::Output<'a>`.
+//!
+//! In most cases you can use one of the provided interfaces. To customize how
+//! items are displayed, implement [`Render`] or [`Preview`]; to customize IO, use
+//! [`Picker::pick_with_keybind`] or [`Picker::pick_with_io`].
+//!
+//! ### Writing code which is generic over a picker
+//!
+//! The [`Interface`] trait also helps to write code which is generic over any picker. The
+//! associated [`Interface::Output<'a>`] type implements [`IntoIterator`], with the resulting
+//! iterator being an [`ExactSizeIterator`].
+//!
+//! ```no_run
+//! use nucleo_picker::{Interface, Picker, Render, error::PickError};
+//!
+//! fn print_selection<T, R, I>(picker: &mut Picker<T, R, I>) -> Result<(), PickError>
+//! where
+//!     T: Send + Sync + 'static + std::fmt::Display,
+//!     R: Render<T>,
+//!     I: Interface<T>,
+//! {
+//!     for item in picker.pick()? {
+//!         println!("{item}");
+//!     }
+//!     Ok(())
+//! }
+//! ```
 
+mod context;
+mod core;
+mod item;
+mod matches;
+mod redraw;
+mod run;
 #[cfg(test)]
 mod tests;
 
-use std::time::{Duration, Instant};
-
-use crate::{
-    PickerCore, Render, Terminal,
-    component::{Component, PreviewComponent},
-    error::PickError,
-    event::{Event, EventSource, PickerStatus, RecvError},
-    frame::{Frame, Redraw},
-    match_engine::MatchEngine,
-    match_list::{MatchList, Queued},
-    prompt::Prompt,
-    status_line::StatusLine,
-    terminal::TerminalSession,
+use std::{
+    io::{self, BufWriter, IsTerminal},
+    num::NonZero,
+    time::Instant,
 };
 
-enum SelectionTarget {
-    None,
-    Current(u32),
-    Queued,
+use crossterm::event::KeyEvent;
+
+#[cfg(feature = "preview-cache")]
+pub use crate::interface::{CachedPreview, CachedPreviewState};
+pub use crate::interface::{
+    Multi, MultiState, PickerRef, Single, UncachedPreview, UncachedPreviewState,
+};
+pub use crate::rect::Dimensions;
+pub use context::Context;
+pub(crate) use core::PickerCore;
+pub use item::{ItemId, ItemRef, OwnedItem};
+pub use matches::Matches;
+pub use redraw::Redraw;
+
+#[cfg(all(doc, feature = "preview-cache"))]
+use crate::preview::Preview;
+use crate::preview::{Content, PreviewEvent};
+#[cfg(doc)]
+use crate::{Picker, Selection};
+use crate::{
+    Render,
+    error::PickError,
+    event::{Event, EventSource, StdinReader},
+    terminal::CrosstermTerminal,
+};
+
+/// Generics for the picker interface.
+///
+/// This trait constrains the type parameter `I` of [`Picker`] when used interactively.
+/// Morally, the [`Interface`] defines *the behaviour of the interactive picker*. This includes:
+///
+/// 1. [`Single`]-selection and [`Multi`]-selection modes, which allows queuing selections in the
+///    interactive interface and sets the return type (the `Output` type parameter) as
+///    [`Option<&T>`] or [`Selection<'_, T>`] respectively.
+/// 2. Preview-enabled pickers (via [`CachedPreview`]) which render item
+///    previews in a separate pane.
+///
+/// Read the [module documentation](self) for an overview and more details.
+///
+/// # Interface call order
+///
+/// The [`Picker`] drives an interface implementation in order to produce the interactive picker.
+/// The picker drives the loop until [completion](#completion-and-errors) (i.e. if a selection is
+/// made, the picker quits, or there is an error).
+///
+/// ## Initialization
+///
+/// When the session starts, the following call sequence is made.
+///
+/// 1. The match engine is updated with any changes which were processed in the background.
+/// 2. [`init`](Self::init) is called once. The preview pane is enabled according to [`PREVIEW`](Self::PREVIEW)
+///    and is dimensionless.
+/// 3. The terminal is initialized.
+/// 4. [`before_frame`](Self::before_frame) is called with the initial hovered item.
+/// 5. [`queue_status`](Self::queue_status) is called to update the status line.
+/// 6. Terminal dimensions are queried and resizes are propagated, for instance via
+///    [`preview_resize`](Self::preview_resize) if the preview pane is enabled.
+/// 7. The first full frame is drawn.
+/// 8. [`after_frame`](Self::after_frame) is called. The draw mask is used for the next frame.
+///
+/// ## Frame loop
+///
+/// On each frame:
+///
+/// 1. A bounded batch of events is processed. Events which cause the picker to exit are immediately
+///    processed. This updates the prompt and match list, reparses if the query changed, and updates
+///    the match engine.
+/// 2. [`before_frame`](Self::before_frame) is called.
+/// 3. [`queue_status`](Self::queue_status) is called to update the status line.
+/// 4. Check for pending redraws either from events or as required by the interface. If a resize is
+///    required, a full redraw is done. If [`PREVIEW`](Self::PREVIEW) is true,
+///    [`preview_resize`](Self::preview_resize) is called with the new dimensions (or `None` if the
+///    preview pane is hidden).
+/// 5. Draw the components.
+/// 6. If a status request can be processed, call [`queue_status`](Self::queue_status).
+/// 7. [`after_frame`](Self::after_frame) is called. Its redraw mask is carried over to the next
+///    frame.
+///
+/// Note that the frame hooks ([`before_frame`](Self::before_frame) and
+/// [`after_frame`](Self::after_frame)) are run on all frames, independently of whether or not
+/// changes were made.
+///
+/// ## Completion and errors
+///
+/// After an exit or error while processing events, the driver records any changes in the underlying
+/// picker, attempts to clean up the terminal, and then calls [`on_end`](Self::on_end). If the exit
+/// and cleanup succeeds, [`finish`](Self::finish) is called.
+///
+/// Abnormal exit during panics will still result in attempted terminal cleanup but
+/// will not result in usual interface cleanup methods from being called.
+pub trait Interface<T>: Sized {
+    /// Arbitrary state which persists for exactly one session.
+    type State;
+
+    /// Whether this interface provides a preview pane.
+    const PREVIEW: bool = false;
+
+    /// The output of the picker after selection.
+    type Output<'a>: IntoIterator<Item = &'a T, IntoIter: ExactSizeIterator>
+    where
+        T: 'a;
+
+    /// Initialize the state after initial match-list updates.
+    ///
+    /// The provided [`Context`] is the shared first frame context which is also passed to the call
+    /// to [`before_frame`](Self::before_frame) which occurs during initialization.
+    fn init(&mut self, cx: &Context<'_, T>) -> Self::State;
+
+    /// Process a restart event.
+    ///
+    /// The provided [`Context`] corresponds to the *previous* generation at the moment that the
+    /// restart event was processed.
+    fn on_restart(&mut self, _state: &mut Self::State, _cx: &Context<'_, T>) {}
+
+    /// Perform cleanup at the end of the session.
+    ///
+    /// This takes place before converting output in [`finish`](Self::finish) and also before
+    /// propagating errors.
+    fn on_end(&mut self, _state: &mut Self::State) {}
+
+    /// Returns if a given identifier is a queued item.
+    fn is_queued(&self, _state: &Self::State, _id: ItemId) -> bool {
+        false
+    }
+
+    /// The current number of queued items and the limit, if queueing is supported.
+    ///
+    /// `None` means queueing is unsupported by this interface. This is used to render the marker
+    /// in the status line.
+    fn queue_status(&self, _state: &Self::State) -> Option<QueueStatus> {
+        None
+    }
+
+    /// Process an event which modifies the item queue, returning whether or not there were changes
+    /// to the queue.
+    fn on_queue(
+        &mut self,
+        _state: &mut Self::State,
+        _event: QueueEvent<'_, T>,
+        _cx: &Context<'_, T>,
+    ) -> bool {
+        false
+    }
+
+    /// Generate the output on completion.
+    ///
+    /// This method is called after [`on_end`](Self::on_end) when handling one of the standard [exit types](Exit),
+    /// including selection or quit.
+    fn finish<'items>(
+        &mut self,
+        state: Self::State,
+        exit: Exit,
+        cx: Context<'items, T>,
+    ) -> Self::Output<'items>;
+
+    /// Perform work before rendering the frame, after processing matches and navigation.
+    ///
+    /// This method is called on every frame, regardless of whether changes occurred or not. The
+    /// resulting redraw mask influences the subsequent screen redraw.
+    fn before_frame(
+        &mut self,
+        _state: &mut Self::State,
+        _cx: &Context<'_, T>,
+        _matches_changed: bool,
+        _deadline: Instant,
+    ) -> Redraw {
+        Redraw::NONE
+    }
+
+    /// Perform work after rendering the frame.
+    // TODO: add more details here, including on the frame geometry (?)
+    fn after_frame(
+        &mut self,
+        _state: &mut Self::State,
+        _cx: &Context<'_, T>,
+        _deadline: Instant,
+    ) -> Redraw {
+        Redraw::NONE
+    }
+
+    /// Return the current preview pane.
+    ///
+    /// If the preview pane is [enabled](Self::PREVIEW), this is usually the rendered preview pane corresponding to the current item. If the preview pane is not enabled, this value is ignored and the implementation should just return [`Content::Empty`]. This is the default value.
+    fn preview_content<'a>(&'a self, _state: &'a Self::State) -> Content<'a> {
+        Content::Empty
+    }
+
+    /// Handle a preview event.
+    ///
+    /// The preview event is only forwarded if the preview pane is enabled and not hidden.
+    /// Use the returned [`Redraw`] mask if the screen needs to be redrawn.
+    fn preview_event(
+        &mut self,
+        _state: &mut Self::State,
+        _event: PreviewEvent,
+        _cx: &Context<'_, T>,
+    ) -> Redraw {
+        Redraw::NONE
+    }
+
+    /// Update the dimensions of the preview pane.
+    ///
+    /// These are the dimensions of the drawable area of the preview pane (including width and
+    /// height 0 if the preview pane if the preview pane is very small), or `None` if the preview
+    /// pane is hidden.
+    fn preview_resize(&mut self, _state: &mut Self::State, _size: Option<Dimensions>) {}
+
+    /// The default keybindings for this interface.
+    ///
+    /// This method is generic over the abort type `A` for compatibility with arbitrary application
+    /// errors. Interfaces use this to specialize event handling to only emit events which this
+    /// specific interface requires. See the
+    /// [keybind specialization documentation](crate::event::keybind_default#specialized-bindings)
+    /// for more details.
+    fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>> {
+        crate::event::keybind_default(key)
+    }
 }
 
-impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
-    pub(crate) fn pick_impl<E, W, Q: Queued, P>(
-        &mut self,
-        mut event_source: E,
-        writer: &mut W,
-        mut preview: P,
-    ) -> Result<Q::Output<'_, T>, PickError<E::AbortErr>>
-    where
-        E: EventSource,
-        W: Terminal,
-        P: PreviewComponent<T> + Component<MatchEngine<T, R>>,
-    {
-        let engine = &mut self.engine;
-        // Headless updates defer layout work until the next interactive session.
-        if std::mem::take(&mut self.list_state.items_changed) {
-            self.list_state
-                .layout
-                .update_items(engine.snapshot(), &self.list_state.config);
-        }
-        let mut prompt = Prompt::new(&mut self.prompt, &self.chars);
-        let mut list = MatchList::new(
-            &mut self.list_state,
-            &self.chars,
-            Q::init(self.max_selection_count),
-        );
-        let mut status_line = StatusLine::new(&self.chars);
-        let mut terminal = TerminalSession::new(writer);
-        terminal.init()?;
+/// The status on successful session exit.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Exit {
+    /// The session quit without making a selection.
+    Quit,
+    /// The session quit and requested a selection. The given item, if any, is the hovered at the time of
+    /// processing the exit.
+    Selected(Option<ItemId>),
+}
 
-        let mut frame_start = Instant::now();
-        list.flush(engine);
-        let initial = engine.update(5);
-        list.update(engine, initial.items_changed, false);
-        status_line.update(
-            initial,
-            list.queued().count(self.max_selection_count),
-            false,
-        );
-        #[cfg(feature = "preview")]
-        let preview_ratio = P::ENABLED.then_some(self.preview_config.ratio);
-        #[cfg(not(feature = "preview"))]
-        let preview_ratio = None;
-        let mut frame = Frame::new(terminal.size()?, self.reversed, preview_ratio);
-        frame.resize(
-            engine,
-            &mut prompt,
-            &mut list,
-            &mut status_line,
-            &mut preview,
-        );
-        if P::ENABLED && frame.preview_enabled() {
-            preview.update(list.selection(engine), engine, frame_start + self.interval);
-        }
-        frame.draw(
-            engine,
-            &mut prompt,
-            &mut list,
-            &mut status_line,
-            &mut preview,
-            &mut terminal,
-            Redraw::full(),
-        )?;
-        if P::ENABLED && frame.preview_enabled() {
-            preview.prefetch(engine, frame_start + self.interval);
-        }
+/// The queue status, as returned by [`Interface::queue_status`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct QueueStatus {
+    /// The current number of queued items.
+    pub count: u32,
+    /// The maximum number of queued items, with `None` meaning that there is no limit.
+    pub limit: Option<NonZero<u32>>,
+}
 
-        let mut frame_number = 0_u64;
-        let mut handle_status = None;
-        let mut changed_since_status = true;
-        let selection = 'selection: loop {
-            // whether the preview was enabled on the previous frame
-            let preview_was_enabled = frame.preview_enabled();
-            let mut force_redraw = false;
-            let frame_deadline = frame_start + self.interval;
-            // this is a deadline with a 1ms bonus so that we always have a bit of time to
-            // process extra events even if there is almost no time left
-            let drain_deadline = frame_deadline.max(Instant::now()) + Duration::from_millis(1);
-            loop {
-                // for ordinary receives, we timeout with the usual frame_deadline grace period
-                // but if we get an event immediately, we make sure to process events for at least
-                // 1ms extra in order to drain some events from a very overactive event queue
-                let event = match event_source.try_recv() {
-                    Err(RecvError::Timeout) => {
-                        let now = Instant::now();
-                        // on a force redraw don't wait for more events: immediately handle the
-                        // redraw. this can reduce rendering flashes (where the terminal repaints
-                        // before the layout is updated)
-                        if force_redraw || now >= frame_deadline {
-                            break;
-                        }
-                        event_source.recv_timeout(frame_deadline - now)
-                    }
-                    event => event,
-                };
+/// An event which modifies the list of queued items.
+pub enum QueueEvent<'a, T> {
+    /// Toggle a single item.
+    Toggle(ItemRef<'a, T>),
+    /// Remove an item from the queue.
+    Remove(ItemId),
+    /// A request to queue all currently matching items.
+    Matches,
+    /// Clear the queue.
+    Clear,
+}
 
-                let event = match event {
-                    Ok(event) => event,
-                    Err(RecvError::Timeout) => break,
-                    Err(RecvError::Disconnected) => break 'selection Err(PickError::Disconnected),
-                    Err(RecvError::IO(err)) => break 'selection Err(PickError::IO(err)),
-                };
+/// Matching progress after matching updates.
+///
+/// This is returned by [`Picker::update_matches`](crate::Picker::update_matches). The counts display up-to-date information
+/// as available with [`Picker::matches`](crate::Picker::matches). Use [`is_complete`](Self::is_complete) for a convenience
+/// check that matching is complete.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MatchStatus {
+    /// Whether there were any changes to the [`Matches`].
+    pub items_changed: bool,
+    /// The number of items in the [`Matches`]
+    pub matched_item_count: u32,
+    /// The total number of match candidates.
+    pub item_count: u32,
+    /// Whether there is matching work to be done.
+    pub matching: bool,
+    /// Whether there are any remaining live injectors.
+    pub injecting: bool,
+}
 
-                match event {
-                    Event::Prompt(event) => prompt.handle(event),
-                    Event::MatchList(event) => list.handle(event, engine),
-                    Event::Layout(event) => frame.handle(event),
-                    #[cfg(feature = "preview")]
-                    Event::Preview(event) => {
-                        if P::ENABLED && frame.preview_enabled() {
-                            // we have a previewer (i.e.: inside a PreviewPicker) and moreover
-                            // the frame has not been hidden by the user.
-
-                            // note that this not check *visibility* of the preview frame
-                            // since that would bleed state from the frame logic everywhere
-                            // which is a lot of complexity which is only required for
-                            // unrealistically tiny terminals
-                            preview.handle(
-                                event,
-                                list.event_selection(engine)
-                                    .map(|n| engine.idx_from_match(n)),
-                            );
-                        }
-                    }
-                    Event::Redraw => force_redraw = true,
-                    Event::Quit => break 'selection Ok(SelectionTarget::None),
-                    Event::QuitPromptEmpty => {
-                        prompt.flush();
-                        if prompt.contents().is_empty() {
-                            break 'selection Ok(SelectionTarget::None);
-                        }
-                    }
-                    Event::Select => {
-                        if !list.queued().is_empty() {
-                            break 'selection Ok(SelectionTarget::Queued);
-                        }
-                        if let Some(n) = list.event_selection(engine) {
-                            break 'selection Ok(SelectionTarget::Current(n));
-                        }
-                    }
-                    Event::Status { id } => handle_status = Some(id),
-                    Event::Restart => match self.restart_notifier {
-                        Some(ref notifier) => {
-                            preview.restart();
-                            engine.restart();
-                            list.restart(engine);
-                            let injector = engine.injector();
-                            if notifier.push(injector).is_err() {
-                                break 'selection Err(PickError::Disconnected);
-                            }
-                        }
-                        None => break 'selection Err(PickError::Disconnected),
-                    },
-                    Event::UserInterrupt => break 'selection Err(PickError::UserInterrupted),
-                    Event::Abort(err) => break 'selection Err(PickError::Aborted(err)),
-                }
-                if Instant::now() >= drain_deadline {
-                    break;
-                }
-            }
-            frame_start = Instant::now();
-            frame_number = frame_number.wrapping_add(1);
-            let background_frame =
-                frame_number.is_multiple_of(self.background_frame_frequency.get() as u64);
-            // prompt first, since this drives all of the other changes
-            let prompt_change = prompt.update();
-
-            // make sure that the buffered changes target the match engine
-            // *before* it updates
-            list.flush(engine);
-            if prompt_change.contents_changed {
-                engine.reparse(prompt.contents());
-            }
-
-            // then update the match engine
-            let status = engine.update(2 * self.interval.as_millis() as u64 / 3);
-
-            // update other components with the new prompt/engine state and process redraws
-            let mut redraw = Redraw {
-                prompt: prompt_change.needs_redraw,
-                list: list.update(engine, status.items_changed, prompt_change.contents_changed),
-                status: status_line.update(
-                    status,
-                    list.queued().count(self.max_selection_count),
-                    background_frame,
-                ) && frame.status_enabled(),
-                preview: P::ENABLED
-                    && frame.preview_enabled()
-                    && preview.update(list.selection(engine), engine, frame_start + self.interval),
-            };
-
-            if P::ENABLED && preview_was_enabled && !frame.preview_enabled() {
-                // this is only used to process `hide` events within the previewer;
-                // currently this controls the 'focus_changed' event
-                preview.hide();
-            }
-
-            // a redraw was externally requested
-            if force_redraw {
-                redraw = Redraw::full();
-            }
-
-            let changed = frame.render(
-                engine,
-                &mut prompt,
-                &mut list,
-                &mut status_line,
-                &mut preview,
-                &mut terminal,
-                redraw,
-            )?;
-
-            changed_since_status |= changed;
-            terminal.end_frame(changed)?;
-
-            // handle the status event but do not fail if the status notifier
-            // is disconnected
-            if let Some(id) = handle_status.take()
-                && let Some(ref notifier) = self.status_notifier
-            {
-                let (width, height) = frame.dimensions();
-                let _ = notifier.push(PickerStatus {
-                    id,
-                    query: prompt.contents().to_owned(),
-                    changed: std::mem::take(&mut changed_since_status),
-                    frame_changed: changed,
-                    selection: list.selection(engine),
-                    item_count: status.item_count,
-                    selected_item_count: list.queued().len(),
-                    matched_item_count: status.matched_item_count,
-                    width,
-                    height,
-                    matching: status.matching,
-                    injecting: status.injecting,
-                });
-            }
-            if P::ENABLED && frame.preview_enabled() {
-                preview.prefetch(engine, frame_start + self.interval);
-            }
-        };
-
-        list.flush(engine);
-        if prompt.update().contents_changed {
-            engine.reparse(prompt.contents());
-        }
-        terminal.finish()?;
-
-        // process and return the selection
-        let selection = selection?;
-        let mut queued = list.into_queue();
-        match selection {
-            SelectionTarget::None => {
-                queued.clear();
-                Ok(queued.into_selection(engine.snapshot()))
-            }
-            SelectionTarget::Current(n) => {
-                Ok(queued.into_only_selection(engine.snapshot(), engine.idx_from_match(n)))
-            }
-            SelectionTarget::Queued => Ok(queued.into_selection(engine.snapshot())),
-        }
+impl MatchStatus {
+    /// Returns if all input has been received and match work has been done.
+    ///
+    /// This is `!self.matching && !self.injecting`: in other words, all input must be
+    /// received and all matching work must be complete against the current query.
+    #[must_use]
+    pub fn is_complete(&self) -> bool {
+        !self.matching && !self.injecting
     }
+}
+
+#[inline]
+pub(crate) fn pick_with_keybind<'a, T, R, I, F>(
+    core: &'a mut PickerCore<T, R>,
+    interface: &mut I,
+    keybind: F,
+) -> Result<I::Output<'a>, PickError>
+where
+    T: Send + Sync + 'static,
+    R: Render<T>,
+    I: Interface<T>,
+    F: FnMut(KeyEvent) -> Option<Event>,
+{
+    let stderr = io::stderr().lock();
+    if stderr.is_terminal() {
+        pick_with_io(
+            core,
+            interface,
+            StdinReader::new(keybind),
+            &mut BufWriter::new(stderr),
+        )
+    } else {
+        Err(PickError::NotInteractive)
+    }
+}
+
+#[inline]
+pub(crate) fn pick_with_io<'a, T, R, I, E, W>(
+    core: &'a mut PickerCore<T, R>,
+    interface: &mut I,
+    event_source: E,
+    writer: &mut W,
+) -> Result<I::Output<'a>, PickError<E::AbortErr>>
+where
+    T: Send + Sync + 'static,
+    R: Render<T>,
+    I: Interface<T>,
+    E: EventSource,
+    W: io::Write,
+{
+    core.pick_impl(event_source, &mut CrosstermTerminal::new(writer), interface)
 }

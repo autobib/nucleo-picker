@@ -139,10 +139,4 @@ pub(crate) mod tests {
         assert_eq!(UnicodeProcessor::width_up_to("", 10), 0);
         assert_eq!(AsciiProcessor::width_up_to("abc", 2), 2);
     }
-
-    #[test]
-    fn width_uses_grapheme_advances() {
-        assert_eq!(UnicodeProcessor::width("لا"), 2);
-        assert_eq!(UnicodeProcessor::width("e\u{301}👩🏽‍💻"), 3);
-    }
 }

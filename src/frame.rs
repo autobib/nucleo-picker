@@ -4,7 +4,8 @@
 use crate::{
     Terminal,
     component::Component,
-    rect::{Area, ClearState, CrosstermRect, Rect},
+    rect::{Area, ClearState, CrosstermRect, Dimensions, Rect},
+    session::Redraw,
 };
 use crossterm::{
     QueueableCommand,
@@ -26,38 +27,37 @@ pub enum LayoutEvent {
     ///
     /// When the preview is hidden, the preview cache is preserved but events which target
     /// the preview have no effect.
-    #[cfg(feature = "preview")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     TogglePreview,
     /// Move the divider between the match list and the previewer to the left.
-    #[cfg(feature = "preview")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     MoveDividerLeft(u16),
     /// Move the divider between the match list and the previewer to the right.
-    #[cfg(feature = "preview")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     MoveDividerRight(u16),
 }
 
-#[derive(Clone, Copy, Default)]
-pub(crate) struct Redraw {
-    pub prompt: bool,
-    pub list: bool,
-    pub status: bool,
-    pub preview: bool,
+pub(crate) trait Contents {
+    fn prompt(&mut self) -> impl Component;
+    fn list(&mut self) -> impl Component;
+    fn status(&mut self) -> impl Component;
+    fn preview(&mut self) -> impl Component;
+    fn preview_resize(&mut self, area: Option<Area>);
 }
 
-impl Redraw {
-    pub fn any(self) -> bool {
-        self.prompt || self.list || self.status || self.preview
+#[cfg(test)]
+impl<P: Component, L: Component, S: Component, V: Component> Contents for (P, L, S, V) {
+    fn prompt(&mut self) -> impl Component {
+        &mut self.0
     }
-    pub fn full() -> Self {
-        Self {
-            prompt: true,
-            list: true,
-            status: true,
-            preview: true,
-        }
+    fn list(&mut self) -> impl Component {
+        &mut self.1
+    }
+    fn status(&mut self) -> impl Component {
+        &mut self.2
+    }
+    fn preview(&mut self) -> impl Component {
+        &mut self.3
+    }
+    fn preview_resize(&mut self, area: Option<Area>) {
+        self.3.resize(area.unwrap_or_default());
     }
 }
 
@@ -65,7 +65,7 @@ impl Redraw {
 ///
 /// The frame consists of sub-areas for the match list, prompt, status, and preview.
 pub(crate) struct Frame {
-    size: (u16, u16),
+    dimensions: Dimensions,
     reversed: bool,
     status_hidden: bool,
     preview_ratio: Option<f64>,
@@ -81,9 +81,9 @@ impl Frame {
     /// initialize a new frame.
     ///
     /// `preview_ratio = None` means that the preview pane is not displayed at all
-    pub fn new(size: (u16, u16), reversed: bool, preview_ratio: Option<f64>) -> Self {
+    pub fn new(dimensions: Dimensions, reversed: bool, preview_ratio: Option<f64>) -> Self {
         let mut frame = Self {
-            size,
+            dimensions,
             reversed,
             status_hidden: false,
             preview_ratio,
@@ -99,8 +99,8 @@ impl Frame {
     }
 
     /// The dimensions of the frame.
-    pub fn dimensions(&self) -> (u16, u16) {
-        self.size
+    pub fn dimensions(&self) -> Dimensions {
+        self.dimensions
     }
 
     pub fn preview_enabled(&self) -> bool {
@@ -114,24 +114,21 @@ impl Frame {
     pub fn handle(&mut self, event: LayoutEvent) {
         match event {
             LayoutEvent::ToggleStatus => {
-                self.status_hidden = !self.status_hidden;
+                self.status_hidden.toggle();
                 self.layout();
                 // TODO: maybe limit redraws only to match list / status line instead
                 self.pending_resize = true;
             }
-            #[cfg(feature = "preview")]
             LayoutEvent::TogglePreview => {
                 if self.preview_ratio.is_some() {
-                    self.preview_hidden = !self.preview_hidden;
+                    self.preview_hidden.toggle();
                     self.layout();
                     self.pending_resize = true;
                 }
             }
-            #[cfg(feature = "preview")]
             LayoutEvent::MoveDividerLeft(columns) => {
                 self.pending_resize |= self.shift_preview(i32::from(columns));
             }
-            #[cfg(feature = "preview")]
             LayoutEvent::MoveDividerRight(columns) => {
                 self.pending_resize |= self.shift_preview(-i32::from(columns));
             }
@@ -140,27 +137,26 @@ impl Frame {
 
     /// Update the size of the frame, returning `true` if the frame size changed and a redraw is
     /// required.
-    fn update_size(&mut self, size: (u16, u16)) -> bool {
-        if size == self.size {
+    fn update_dimensions(&mut self, dimensions: Dimensions) -> bool {
+        if dimensions == self.dimensions {
             return false;
         }
-        self.size = size;
+        self.dimensions = dimensions;
         self.layout();
         true
     }
 
-    #[cfg(feature = "preview")]
     fn shift_preview(&mut self, columns: i32) -> bool {
         if self.preview.is_empty() {
             return false;
         }
         let width = i32::from(self.preview.width)
             .saturating_add(columns)
-            .clamp(3, i32::from(self.size.0) - 3) as u16;
+            .clamp(3, i32::from(self.dimensions.width) - 3) as u16;
         if width == self.preview.width {
             return false;
         }
-        self.preview_ratio = Some(f64::from(width) / f64::from(self.size.0));
+        self.preview_ratio = Some(f64::from(width) / f64::from(self.dimensions.width));
         self.layout();
         true
     }
@@ -180,7 +176,7 @@ impl Frame {
         //    incrementally causes ratio rounding)
         // 7. Adjustments which do not result in a change (e.g. against a limit) do not adjust the
         //    ratio.
-        let (mut width, height) = self.size;
+        let Dimensions { mut width, height } = self.dimensions;
         self.preview = if let Some(ratio) = self.preview_ratio
             && !self.preview_hidden
             && width >= 6
@@ -231,82 +227,51 @@ impl Frame {
     }
 
     /// Resize all of the frame components.
-    pub fn resize<S, P: Component<S>, L: Component<S>, C: Component<S>, V: Component<S>>(
-        &mut self,
-        engine: &S,
-        prompt: &mut P,
-        list: &mut L,
-        status: &mut C,
-        preview: &mut V,
-    ) {
-        prompt.resize(self.prompt, engine);
-        list.resize(self.list, engine);
-        status.resize(self.status, engine);
-        preview.resize(self.preview, engine);
+    pub fn resize(&mut self, contents: &mut impl Contents) {
+        contents.prompt().resize(self.prompt);
+        contents.list().resize(self.list);
+        contents.status().resize(self.status);
+        contents.preview_resize(self.preview_enabled().then_some(self.preview));
         self.pending_resize = false;
     }
 
     /// Check terminal size, resize components, and perform necessary redraws.
     ///
     /// Returns whether a redraw actually occurred.
-    #[allow(clippy::too_many_arguments)]
-    pub fn render<S, P, L, C, V, W>(
+    pub fn render<W: Terminal>(
         &mut self,
-        engine: &S,
-        prompt: &mut P,
-        list: &mut L,
-        status: &mut C,
-        preview: &mut V,
+        contents: &mut impl Contents,
         writer: &mut W,
         mut redraw: Redraw,
-    ) -> io::Result<bool>
-    where
-        P: Component<S>,
-        L: Component<S>,
-        C: Component<S>,
-        V: Component<S>,
-        W: Terminal,
-    {
-        if !redraw.any() && !self.pending_resize {
+    ) -> io::Result<bool> {
+        if redraw == Redraw::NONE && !self.pending_resize {
             // we don't need to check for a resize in this path since the resize
             // should have been propagated by a Redraw event
             return Ok(false);
         }
-        self.pending_resize |= self.update_size(writer.size()?);
+        self.pending_resize |= self.update_dimensions(writer.dimensions()?);
         if self.pending_resize {
             // resize immediately before drawing, so that the draw can take into account the new
             // size
-            self.resize(engine, prompt, list, status, preview);
-            redraw = Redraw::full();
+            self.resize(contents);
+            redraw = Redraw::FULL;
         }
-        self.draw(engine, prompt, list, status, preview, writer, redraw)?;
+        self.draw(contents, writer, redraw)?;
         Ok(true)
     }
 
     /// Draw the contents of the frame.
-    #[allow(clippy::too_many_arguments)]
-    pub fn draw<S, P, L, C, V, W>(
+    pub fn draw<W: Terminal>(
         &self,
-        engine: &S,
-        prompt: &mut P,
-        list: &mut L,
-        status: &mut C,
-        preview: &mut V,
+        contents: &mut impl Contents,
         writer: &mut W,
         mut redraw: Redraw,
-    ) -> io::Result<()>
-    where
-        P: Component<S>,
-        L: Component<S>,
-        C: Component<S>,
-        V: Component<S>,
-        W: Terminal,
-    {
-        if self.size.0 == 0 || self.size.1 == 0 {
+    ) -> io::Result<()> {
+        if self.dimensions.width == 0 || self.dimensions.height == 0 {
             return Ok(());
         }
         let clear = if redraw.prompt && redraw.list && redraw.status {
-            redraw = Redraw::full();
+            redraw = Redraw::FULL;
             ClearState::Precleared
         } else if self.preview.is_empty() {
             ClearState::ToEndOfLine
@@ -322,18 +287,18 @@ impl Frame {
                 .queue(Clear(ClearType::All))?;
         }
         if redraw.list {
-            draw_component(list, engine, writer, self.list, clear)?;
+            draw_component(&mut contents.list(), writer, self.list, clear)?;
         }
         if redraw.status {
-            draw_component(status, engine, writer, self.status, clear)?;
+            draw_component(&mut contents.status(), writer, self.status, clear)?;
         }
         if redraw.prompt {
-            draw_component(prompt, engine, writer, self.prompt, clear)?;
+            draw_component(&mut contents.prompt(), writer, self.prompt, clear)?;
         }
         if redraw.preview {
-            draw_component(preview, engine, writer, self.preview, clear)?;
+            draw_component(&mut contents.preview(), writer, self.preview, clear)?;
         }
-        if let Some(cursor) = prompt.cursor(engine) {
+        if let Some(cursor) = contents.prompt().cursor() {
             writer.queue(MoveTo(
                 self.prompt.column + cursor.column,
                 self.prompt.row + cursor.row,
@@ -345,9 +310,8 @@ impl Frame {
 }
 
 /// Draw a component to the screen in the provided area with the given clear policy.
-fn draw_component<S, C: Component<S>, W: io::Write + ?Sized>(
+fn draw_component<C: Component, W: io::Write + ?Sized>(
     component: &mut C,
-    engine: &S,
     writer: &mut W,
     area: Area,
     clear: ClearState,
@@ -357,7 +321,7 @@ fn draw_component<S, C: Component<S>, W: io::Write + ?Sized>(
     };
     rect.reset_style()?;
     rect.move_to(0, 0)?;
-    component.draw(engine, &mut rect)?;
+    component.draw(&mut rect)?;
     rect.reset_style()
 }
 

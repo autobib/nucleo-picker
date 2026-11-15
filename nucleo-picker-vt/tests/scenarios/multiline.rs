@@ -8,15 +8,13 @@ use nucleo_picker::{
 use super::ScenarioRunner;
 
 fn multiline() -> Vec<String> {
-    (0..24)
-        .map(|index| match index % 3 {
-            0 => format!("item-{index:02}"),
-            1 => format!("item-{index:02}\n  detail-{index:02}-a"),
-            _ => format!(
-                "item-{index:02}\n  detail-{index:02}-a\n  detail-{index:02}-b\n  detail-{index:02}-c"
-            ),
-        })
-        .collect()
+    Vec::from_fn(24, |index| match index % 3 {
+        0 => format!("item-{index:02}"),
+        1 => format!("item-{index:02}\n  detail-{index:02}-a"),
+        _ => format!(
+            "item-{index:02}\n  detail-{index:02}-a\n  detail-{index:02}-b\n  detail-{index:02}-c"
+        ),
+    })
 }
 
 fn run_multiline_scenario_with_layout(
@@ -83,7 +81,7 @@ fn run_multiline_scenario_with_layout(
     sr.set_dimensions(60, 16)?;
     let restored = checkpoint!(sr, "default-restore-60x16");
     sr.send(Event::MatchList(movement(forward_up, 1)))?;
-    sr.wait_for(|status| status.selection == Some(2))?;
+    sr.wait_for(|status| status.rank == Some(2))?;
     sr.send(Event::MatchList(movement(!forward_up, 1)))?;
     assert_eq!(sr.checkpoint("default-restored-60x16")?, restored);
     sr.send(Event::Quit)?;

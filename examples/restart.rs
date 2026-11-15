@@ -4,7 +4,6 @@
 //! one of the options, or press `ctrl + r` to receive a new list of random integers.
 
 use std::{
-    convert::Infallible,
     io::{self, IsTerminal},
     process::exit,
     thread::spawn,
@@ -13,7 +12,7 @@ use std::{
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use nucleo_picker::{
     Picker,
-    event::{Event, StdinReader, keybind_default},
+    event::{Event, StdinReader, keybind_single},
     render::DisplayRenderer,
 };
 use rand::{RngExt, distr::StandardUniform};
@@ -67,9 +66,9 @@ fn main() -> io::Result<()> {
             // we create the restart event on `ctrl + r`. since this invalidates existing
             // injectors, a new injector is immediately sent to the observer which we are watching
             // in the other thread
-            Some(Event::<Infallible>::Restart)
+            Some(Event::<!>::Restart)
         }
-        e => keybind_default(e),
+        e => keybind_single(e),
     });
 
     match picker.pick_with_io(event_source, &mut stderr)? {

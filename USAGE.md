@@ -27,8 +27,7 @@ For example:
 - `\ ` matches the literal space ` `.
 - `\\` and `\a` match, respectively, literal `\\` and `\a`.
 - The query `fo\$ ^bar` means that we match for strings which contain `fo$` (or similar), and which begin with the exact string `bar`.
-- `a\$b` is a literal `\$b`.
-
+- `a\$b` is fuzzy-matched `a\$b`.
 
 ## Keyboard shortcuts
 Generally speaking, we attempt to follow the bash-like or vim-like keyboard shortcut conventions.
@@ -43,9 +42,9 @@ ctrl + c                           | Abort
 ⏎                                  | Select and Quit
 esc, ctrl + g, ctrl + q            | Quit (no selection)
 ctrl + d                           | Quit If Query Empty (no selection)
-↑, ctrl + k, ctrl + p              | Selection Up
-↓, ctrl + j, ctrl + n, shift + ⏎   | Selection Down
-ctrl + 0                           | Reset Selection Scroll
+↑, ctrl + k, ctrl + p              | Hover Up
+↓, ctrl + j, ctrl + n, shift + ⏎   | Hover Down
+ctrl + 0                           | Reset Hover Scroll
 ←, ctrl + b                        | Cursor Left
 →, ctrl + f                        | Cursor Right
 alt + b                            | Cursor Word Left
@@ -62,8 +61,8 @@ There are also special keybindings which are only enabled in multi-selection mod
 
 Keybindings                        | Action
 -----------------------------------|--------------------
-shift + ⇥                          | Toggle Queue And Selection Up
-⇥                                  | Toggle Queue And Selection Down
+shift + ⇥                          | Toggle Queue And Hover Up
+⇥                                  | Toggle Queue And Hover Down
 ctrl + =                           | Queue All Matches
 ctrl + -                           | Unqueue All
 

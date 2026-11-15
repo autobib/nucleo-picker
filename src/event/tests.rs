@@ -4,7 +4,7 @@ use std::sync::mpsc;
 struct TestEvents<F>(F);
 
 impl<F: FnMut(Duration) -> Result<Event, RecvError>> EventSource for TestEvents<F> {
-    type AbortErr = Infallible;
+    type AbortErr = !;
 
     fn recv_timeout(&mut self, duration: Duration) -> Result<Event, RecvError> {
         (self.0)(duration)

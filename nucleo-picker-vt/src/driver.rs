@@ -25,6 +25,7 @@ use nucleo_picker::{
     error::PickError,
     event::{Event, Observer, PickerStatus, PromptEvent},
     render::StrRenderer,
+    session::Dimensions,
 };
 use oneshot::Receiver as OneshotReceiver;
 
@@ -142,7 +143,7 @@ impl PickerTerminal for GhosttyBackend {
         execute!(self, DisableBracketedPaste, LeaveAlternateScreen)
     }
 
-    fn size(&mut self) -> io::Result<(u16, u16)> {
+    fn dimensions(&mut self) -> io::Result<Dimensions> {
         let requested = self.requested_size.get();
         if requested != self.applied_size {
             self.terminal
@@ -150,7 +151,8 @@ impl PickerTerminal for GhosttyBackend {
                 .map_err(io::Error::other)?;
             self.applied_size = requested;
         }
-        Ok(requested)
+        let (width, height) = requested;
+        Ok(Dimensions { width, height })
     }
 
     fn end_frame(&mut self, _changed: bool) -> io::Result<()> {
@@ -196,7 +198,7 @@ impl Driver {
         })
     }
 
-    #[cfg(feature = "preview")]
+    #[cfg(feature = "preview-cache")]
     pub fn start_with_preview<T: Into<String>, P>(
         items: Vec<T>,
         options: PickerOptions,
@@ -369,7 +371,7 @@ impl Driver {
     ) -> Result<PickerStatus, Error> {
         self.resize(width, height)?;
         self.wait_for(timeout, |status| {
-            (status.width, status.height) == (width, height)
+            status.dimensions == Dimensions { width, height }
         })
     }
 
@@ -419,7 +421,7 @@ mod tests {
 
     #[test]
     fn status_synchronizes_rapid_events_and_overwrites() -> Result<(), Box<dyn StdError>> {
-        let items = (0..24).map(|index| format!("item-{index:02}")).collect();
+        let items = Vec::from_fn(24, |index| format!("item-{index:02}"));
         let mut driver = Driver::start_with_options(items, PickerOptions::new());
         driver.wait_for_match_complete(WAIT, 24, 24)?;
         driver.send(Event::Prompt(PromptEvent::Insert('i')))?;
@@ -457,7 +459,13 @@ mod tests {
 
         backend.init()?;
         assert_eq!(backend.terminal.active_screen()?, Screen::Alternate);
-        assert_eq!(backend.size()?, (20, 8));
+        assert_eq!(
+            backend.dimensions()?,
+            Dimensions {
+                width: 20,
+                height: 8
+            }
+        );
         assert_eq!(
             (backend.terminal.cols()?, backend.terminal.rows()?),
             (20, 8)
@@ -472,7 +480,13 @@ mod tests {
         assert!(result_rx.recv_timeout(WAIT)??.cursor.position.unwrap().x > 0);
 
         requested_size.set(12, 4);
-        assert_eq!(backend.size()?, (12, 4));
+        assert_eq!(
+            backend.dimensions()?,
+            Dimensions {
+                width: 12,
+                height: 4
+            }
+        );
         assert_eq!(
             (backend.terminal.cols()?, backend.terminal.rows()?),
             (12, 4)

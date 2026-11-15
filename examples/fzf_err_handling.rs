@@ -94,7 +94,7 @@ fn main() -> io::Result<()> {
         Ok(None) => exit(1),
         Err(e) => {
             // the 'factor' convenience method splits the error into a
-            // `Result<A, PickError<Infallible>>`; so we just need to handle our application error.
+            // `Result<A, PickError<!>>`; so we just need to handle our application error.
             match e.factor()? {
                 AppError::Key(io_err) => eprintln!("IO error during keyboard input: {io_err}"),
                 AppError::Stdin(io_err) => {

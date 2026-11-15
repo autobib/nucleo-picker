@@ -1,262 +1,353 @@
-use std::io::{self, BufWriter, IsTerminal};
+#[cfg(feature = "preview-cache")]
+pub(crate) mod cache;
+#[cfg(feature = "preview-cache")]
+pub(crate) mod controller;
+mod picker_ref;
+mod selection;
+mod uncached;
+
+use std::num::NonZero;
+#[cfg(feature = "preview-cache")]
+use std::time::Instant;
 
 use crossterm::event::KeyEvent;
 
+pub use picker_ref::PickerRef;
+pub use selection::{MultiState, Selection, SelectionIntoIter};
+pub use uncached::{UncachedPreview, UncachedPreviewState};
+
 use crate::{
-    PickerCore, Render, Selection, Terminal,
-    component::NoPreview,
-    error::PickError,
-    event::{Event, EventSource, StdinReader, keybind_default, keybind_no_multi},
-    match_list::SelectedIndices,
-    terminal::CrosstermTerminal,
+    Picker,
+    event::{Event, keybind_single},
+    session::{Context, Exit, Interface, PickerCore},
 };
-
-pub(crate) mod sealed {
-    use super::*;
-
-    pub trait State<T>: Sized {
-        fn default_keybind(key: KeyEvent) -> Option<Event>;
-
-        fn run<'a, R, E, W>(
-            &mut self,
-            core: &'a mut PickerCore<T, R>,
-            event_source: E,
-            terminal: &mut W,
-        ) -> Result<<Self as Interface<T>>::Output<'a>, PickError<E::AbortErr>>
-        where
-            T: Send + Sync + 'static,
-            Self: Interface<T>,
-            R: Render<T>,
-            E: EventSource,
-            W: Terminal;
-    }
-}
-
-/// Generics for the picker interface.
-///
-/// This trait constrains the type parameter `I` of [`Picker`](crate::Picker) when used interactively.
-/// Morally, the [`Interface`] defines *the behaviour of the interactive picker*. This includes:
-///
-/// 1. [`Single`]-selection and [`Multi`]-selection modes, which allows queuing selections in the
-///    interactive interface and sets the return type (the `Output` type parameter) as
-///    [`Option<&T>`] or [`Selection<'_, T>`] respectively.
-/// 2. Preview-enabled pickers (via [`WithPreview`](crate::preview::WithPreview)) which render item
-///    previews in a separate pane.
-///
-/// This trait is sealed and cannot be implemented outside this library.
-pub trait Interface<T>: sealed::State<T> {
-    /// The output of the picker after selection. This is an [`Option<&T>`] for single-selection
-    /// pickers and [`Selection<'_, T>`] for multi-selection pickers.
-    type Output<'a>: IntoIterator<Item = &'a T, IntoIter: ExactSizeIterator>
-    where
-        T: 'a;
-}
+#[cfg(feature = "preview-cache")]
+use crate::{
+    event::keybind_passthrough_preview,
+    preview::{Content, DEFAULT_CACHE_SIZE, Preview, PreviewEvent},
+    session::{Dimensions, ItemId, QueueEvent, QueueStatus, Redraw},
+};
+#[cfg(feature = "preview-cache")]
+use controller::PreviewState;
 
 /// The single-selection picker interface.
 ///
-/// Read the [interface docs](Interface) or the [picker variants docs](crate::Picker#picker-variants) for
-/// more details.
+/// Read the [module-level docs](crate::session) or the [interface docs](Interface) for more details.
 pub struct Single;
 
 /// The multiple-selection picker interface.
 ///
-/// Read the [interface docs](Interface) or the [picker variants docs](crate::Picker#picker-variants) for
-/// more details.
-pub struct Multi;
-
-/// A temporary view of a picker with a different interface.
+/// Initialize using [`Multi::new`] or the [`Default`] implementation.
 ///
-/// The view type is a one-off type with the same [`pick`](Self::pick),
-/// [`pick_with_keybind`](Self::pick_with_keybind), and [`pick_with_io`](Self::pick_with_io) methods
-/// as a [`Picker`](crate::Picker), with the only difference that these methods take `self` instead of
-/// `&mut self` and can therefore only be used a single time.
-///
-/// This is essentially a wrapper around an `&'a mut Picker`, and the returned output is tied to the
-/// `'a` lifetime of the original picker instead of the view type itself.
-///
-/// ```no_run
-/// use nucleo_picker::{Picker, Render, Selection, error::PickError};
-///
-/// // accept a single-selection picker but run it in multiple selection
-/// // mode. note that the returned `Selection` has lifetime tied to the original
-/// // picker
-/// fn pick_as_multi<'a, T, R>(
-///     picker: &'a mut Picker<T, R>,
-/// ) -> Result<Selection<'a, T>, PickError>
-/// where
-///     T: Send + Sync + 'static,
-///     R: Render<T>,
-/// {
-///     picker.as_multi().pick()
-/// }
-/// ```
-pub struct PickerRef<'a, T, R, I = Single> {
-    pub(crate) core: &'a mut PickerCore<T, R>,
-    pub(crate) interface: I,
+/// Read the [module-level docs](crate::session) or the [interface docs](Interface) for more details.
+#[derive(Clone, Copy, Default)]
+pub struct Multi {
+    pub(crate) max_selection_count: Option<NonZero<u32>>,
 }
 
-impl<'a, T, R, I> PickerRef<'a, T, R, I> {
-    /// Change the interface of this view type.
+impl Multi {
+    /// Initialize a new multi-selection interface with no bound on the number of selections.
     #[must_use]
     #[inline]
-    pub fn with_interface<J>(self, interface: J) -> PickerRef<'a, T, R, J> {
-        PickerRef {
-            core: self.core,
-            interface,
+    pub const fn new() -> Self {
+        Self {
+            max_selection_count: None,
         }
     }
-}
 
-impl<'a, T, R, I> PickerRef<'a, T, R, I>
-where
-    T: Send + Sync + 'static,
-    R: Render<T>,
-    I: Interface<T>,
-{
-    /// Run the picker interactively with sensible defaults.
+    /// The maximum number of items that can be selected in the picker.
     ///
-    /// See the documentation for [`Picker::pick`](crate::Picker::pick) for more details on the behaviour.
+    /// If `None`, no bound is applied; otherwise, use the provided bound. This is a `u32` since
+    /// the picker cannot hold more than [`u32::MAX`] items.
+    #[must_use]
     #[inline]
-    pub fn pick(self) -> Result<I::Output<'a>, PickError> {
-        self.pick_with_keybind(I::default_keybind)
-    }
-
-    /// Run the picker interactively using custom keybindings.
-    ///
-    /// See the documentation for [`Picker::pick_with_keybind`](crate::Picker::pick_with_keybind) for
-    /// more details on the behaviour.
-    #[inline]
-    pub fn pick_with_keybind<F>(mut self, keybind: F) -> Result<I::Output<'a>, PickError>
-    where
-        F: FnMut(KeyEvent) -> Option<Event>,
-    {
-        pick_with_keybind(self.core, &mut self.interface, keybind)
-    }
-
-    /// Run the picker interactively with a custom event source and writer.
-    ///
-    /// See the documentation for [`Picker::pick_with_io`](crate::Picker::pick_with_io) for more details
-    /// on the behaviour.
-    #[inline]
-    pub fn pick_with_io<E, W>(
-        mut self,
-        event_source: E,
-        writer: &mut W,
-    ) -> Result<I::Output<'a>, PickError<E::AbortErr>>
-    where
-        E: EventSource,
-        W: io::Write,
-    {
-        pick_with_io(self.core, &mut self.interface, event_source, writer)
-    }
-
-    /// Run the picker interactively with a custom event source and generic terminal backend.
-    #[cfg(feature = "unstable-backend")]
-    #[doc(hidden)]
-    #[inline]
-    pub fn pick_with_terminal_io<E, W>(
-        mut self,
-        event_source: E,
-        terminal: &mut W,
-    ) -> Result<I::Output<'a>, PickError<E::AbortErr>>
-    where
-        E: EventSource,
-        W: Terminal,
-    {
-        self.interface.run(self.core, event_source, terminal)
+    pub const fn max_selection_count(mut self, maximum: Option<NonZero<u32>>) -> Self {
+        self.max_selection_count = maximum;
+        self
     }
 }
 
-#[inline]
-pub(crate) fn pick_with_keybind<'a, T, R, I, F>(
-    core: &'a mut PickerCore<T, R>,
-    interface: &mut I,
-    keybind: F,
-) -> Result<I::Output<'a>, PickError>
-where
-    T: Send + Sync + 'static,
-    R: Render<T>,
-    I: Interface<T>,
-    F: FnMut(KeyEvent) -> Option<Event>,
-{
-    let stderr = io::stderr().lock();
-    if stderr.is_terminal() {
-        pick_with_io(
-            core,
+/// The picker [interface](Interface) which displays item previews.
+///
+/// The type parameter `I` is any base interface. For instance, this is likely either [`Single`] or [`Multi`].
+/// This interface owns the previewer itself, but do note that if `P` implements
+/// [`Preview`], then so does `&mut P`, which can avoid destruction of stateful previewers when
+/// relevant. The corresponding [`Interface`] implementation overrides the preview interface method
+/// of the base interface and forwards the remaining calls.
+///
+/// The base interface `I` should probably not implement a previewer. This wrapper type will likely
+/// still function correctly but will result in additional unnecessary overhead.
+///
+/// In most cases, you don't need this type directly: first construct a [`Picker`], then
+/// call [`Picker::with_preview`].
+///
+/// Read the [module-level docs](crate::session) or the [interface docs](Interface) for more details.
+///
+/// # Preview cache
+///
+/// ## Standard cache
+///
+/// This interface stores generated previews along with scroll position in an LRU cache. This means that
+/// the internal previewer may not be called to generate the preview pane if previewing already
+/// succeeded earlier. The cache is cleared when processing a [restart event](Event::Restart).
+/// See the [`Preview`] docs for more detail.
+///
+/// The buffers are reused within a given session and are dropped on exit or restart.
+///
+/// When the preview is hidden (for instance, with
+/// [`LayoutEvent::TogglePreview`](crate::event::LayoutEvent::TogglePreview)), the cache is preserved
+/// and pending requests continue to be handled, but no new preview requests will be made
+/// automatically. Note that all preview-related events (such as pane movement and refresh) are
+/// ignored while hidden.
+///
+/// ## Prefetch cache
+///
+/// The preview implementation `P` may decide that prefetch is worthwhile (see [`Preview::prefetch`]
+/// and [`Preview::prefetch_limit`]), in which case the picker will also maintain an internal
+/// prefetch cache, separate from the main cache. The prefetch cache will be 2 times the size of [`Preview::prefetch_limit`].
+#[cfg(feature = "preview-cache")]
+#[cfg_attr(docsrs, doc(cfg(feature = "preview-cache")))]
+pub struct CachedPreview<I, P> {
+    pub(crate) interface: I,
+    pub(crate) previewer: P,
+    pub(crate) cache_size: Option<NonZero<usize>>,
+}
+
+/// Composite state used by [`CachedPreview`].
+///
+/// This contains state of the base interface along with extra state used by the preview pane.
+#[cfg(feature = "preview-cache")]
+#[cfg_attr(docsrs, doc(cfg(feature = "preview-cache")))]
+pub struct CachedPreviewState<S> {
+    pub(crate) interface: S,
+    pub(crate) preview: PreviewState,
+}
+
+#[cfg(feature = "preview-cache")]
+impl<I, P> CachedPreview<I, P> {
+    /// Wrap an interface with a new interface that generates previews.
+    #[must_use]
+    #[inline]
+    pub fn new(interface: I, previewer: P) -> Self {
+        Self {
             interface,
-            StdinReader::new(keybind),
-            &mut BufWriter::new(stderr),
-        )
-    } else {
-        Err(PickError::NotInteractive)
+            previewer,
+            cache_size: DEFAULT_CACHE_SIZE,
+        }
+    }
+
+    /// Set the cache capacity of the main preview cache.
+    ///
+    /// The default value if this struct is newly created is `128`, but if this interface was constructed
+    /// from picker, the default value given to [`PickerOptions::preview_cache_size`](crate::PickerOptions::preview_cache_size)
+    /// is used as the default instead.
+    #[must_use]
+    #[inline]
+    pub const fn cache_size(mut self, size: Option<NonZero<usize>>) -> Self {
+        self.cache_size = size;
+        self
+    }
+
+    /// Get a reference to the inner interface.
+    #[must_use]
+    #[inline]
+    pub const fn inner(&self) -> &I {
+        &self.interface
+    }
+
+    /// Get a mutable reference to the inner interface.
+    #[must_use]
+    #[inline]
+    pub const fn inner_mut(&mut self) -> &mut I {
+        &mut self.interface
     }
 }
 
-#[inline]
-pub(crate) fn pick_with_io<'a, T, R, I, E, W>(
-    core: &'a mut PickerCore<T, R>,
-    interface: &mut I,
-    event_source: E,
-    writer: &mut W,
-) -> Result<I::Output<'a>, PickError<E::AbortErr>>
-where
-    T: Send + Sync + 'static,
-    R: Render<T>,
-    I: Interface<T>,
-    E: EventSource,
-    W: io::Write,
-{
-    interface.run(core, event_source, &mut CrosstermTerminal::new(writer))
+#[cfg(feature = "preview-cache")]
+impl<P> CachedPreview<Single, P> {
+    /// Initialize a new preview interface in single-selection mode.
+    #[must_use]
+    #[inline]
+    pub fn new_single(previewer: P) -> Self {
+        Self::new(Single, previewer)
+    }
+}
+
+#[cfg(feature = "preview-cache")]
+impl<P> CachedPreview<Multi, P> {
+    /// Initialize a new preview interface in multi-selection mode.
+    #[must_use]
+    #[inline]
+    pub fn new_multi(previewer: P) -> Self {
+        Self::new(Multi::new(), previewer)
+    }
 }
 
 impl<T: Send + Sync + 'static> Interface<T> for Single {
+    type State = ();
     type Output<'a> = Option<&'a T>;
-}
-
-impl<T: Send + Sync + 'static> sealed::State<T> for Single {
-    #[inline]
-    fn default_keybind(key: KeyEvent) -> Option<Event> {
-        keybind_no_multi(key)
-    }
 
     #[inline]
-    fn run<'a, R, E, W>(
+    fn init(&mut self, _cx: &Context<'_, T>) {}
+
+    #[inline]
+    fn finish<'items>(
         &mut self,
-        core: &'a mut PickerCore<T, R>,
-        event_source: E,
-        terminal: &mut W,
-    ) -> Result<<Self as Interface<T>>::Output<'a>, PickError<E::AbortErr>>
-    where
-        R: Render<T>,
-        E: EventSource,
-        W: Terminal,
-    {
-        core.pick_impl::<_, _, (), _>(event_source, terminal, NoPreview)
-    }
-}
-
-impl<T: Send + Sync + 'static> Interface<T> for Multi {
-    type Output<'a> = Selection<'a, T>;
-}
-
-impl<T: Send + Sync + 'static> sealed::State<T> for Multi {
-    #[inline]
-    fn default_keybind(key: KeyEvent) -> Option<Event> {
-        keybind_default(key)
+        (): (),
+        exit: Exit,
+        cx: Context<'items, T>,
+    ) -> Self::Output<'items> {
+        match exit {
+            Exit::Quit | Exit::Selected(None) => None,
+            Exit::Selected(Some(id)) => {
+                let item = cx
+                    .matches()
+                    .item(id)
+                    .expect("selected item is not in the output context");
+                Some(item.value())
+            }
+        }
     }
 
     #[inline]
-    fn run<'a, R, E, W>(
+    fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>> {
+        keybind_single(key)
+    }
+}
+
+#[cfg(feature = "preview-cache")]
+impl<T: Send + Sync + 'static, I: Interface<T>, P: Preview<T>> Interface<T>
+    for CachedPreview<I, P>
+{
+    type State = CachedPreviewState<I::State>;
+    type Output<'a> = I::Output<'a>;
+
+    const PREVIEW: bool = true;
+
+    fn init(&mut self, cx: &Context<'_, T>) -> Self::State {
+        CachedPreviewState {
+            interface: self.interface.init(cx),
+            preview: PreviewState::new(self.cache_size, self.previewer.prefetch_limit()),
+        }
+    }
+
+    fn on_restart(&mut self, state: &mut Self::State, cx: &Context<'_, T>) {
+        self.interface.on_restart(&mut state.interface, cx);
+        state.preview.restart(&mut self.previewer);
+    }
+
+    fn on_end(&mut self, state: &mut Self::State) {
+        self.interface.on_end(&mut state.interface);
+        state.preview.end(&mut self.previewer);
+    }
+
+    #[inline]
+    fn is_queued(&self, state: &Self::State, id: ItemId) -> bool {
+        self.interface.is_queued(&state.interface, id)
+    }
+
+    #[inline]
+    fn queue_status(&self, state: &Self::State) -> Option<QueueStatus> {
+        self.interface.queue_status(&state.interface)
+    }
+
+    #[inline]
+    fn on_queue(
         &mut self,
-        core: &'a mut PickerCore<T, R>,
-        event_source: E,
-        terminal: &mut W,
-    ) -> Result<<Self as Interface<T>>::Output<'a>, PickError<E::AbortErr>>
-    where
-        R: Render<T>,
-        E: EventSource,
-        W: Terminal,
-    {
-        core.pick_impl::<_, _, SelectedIndices, _>(event_source, terminal, NoPreview)
+        state: &mut Self::State,
+        event: QueueEvent<'_, T>,
+        cx: &Context<'_, T>,
+    ) -> bool {
+        self.interface.on_queue(&mut state.interface, event, cx)
+    }
+
+    fn finish<'items>(
+        &mut self,
+        state: Self::State,
+        exit: Exit,
+        cx: Context<'items, T>,
+    ) -> Self::Output<'items> {
+        self.interface.finish(state.interface, exit, cx)
+    }
+
+    fn before_frame(
+        &mut self,
+        state: &mut Self::State,
+        cx: &Context<'_, T>,
+        matches_changed: bool,
+        deadline: Instant,
+    ) -> Redraw {
+        let mut redraw =
+            self.interface
+                .before_frame(&mut state.interface, cx, matches_changed, deadline);
+        if state
+            .preview
+            .update(&mut self.previewer, cx, matches_changed, deadline)
+        {
+            redraw |= Redraw::PREVIEW;
+        }
+        redraw
+    }
+
+    fn after_frame(
+        &mut self,
+        state: &mut Self::State,
+        cx: &Context<'_, T>,
+        deadline: Instant,
+    ) -> Redraw {
+        let redraw = self
+            .interface
+            .after_frame(&mut state.interface, cx, deadline);
+        state
+            .preview
+            .update_prefetch(&mut self.previewer, cx, deadline);
+        redraw
+    }
+
+    fn preview_content<'a>(&'a self, state: &'a Self::State) -> Content<'a> {
+        state.preview.content()
+    }
+
+    fn preview_event(
+        &mut self,
+        state: &mut Self::State,
+        event: PreviewEvent,
+        cx: &Context<'_, T>,
+    ) -> Redraw {
+        if state
+            .preview
+            .handle_event(cx.hovered().map(|item| item.id().index), event)
+        {
+            Redraw::PREVIEW
+        } else {
+            Redraw::NONE
+        }
+    }
+
+    fn preview_resize(&mut self, state: &mut Self::State, size: Option<Dimensions>) {
+        state.preview.resize(size);
+    }
+
+    #[inline]
+    fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>> {
+        I::keybind_default(key).or_else(|| keybind_passthrough_preview(key).ok())
+    }
+}
+
+impl<T, R> PickerCore<T, R> {
+    #[inline]
+    pub(crate) fn with_interface<I>(self, interface: I) -> Picker<T, R, I> {
+        Picker {
+            core: self,
+            interface,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn as_interface<I>(&mut self, interface: I) -> PickerRef<'_, T, R, I> {
+        PickerRef {
+            core: self,
+            interface,
+        }
     }
 }

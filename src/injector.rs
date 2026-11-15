@@ -15,16 +15,17 @@ use super::Render;
 ///
 /// Each injector is essentially a shared handle to the underlying item pool, and in particular
 /// represents *the potential for new items to be added to the picker*. In particular, if any
-/// injectors are still live:
+/// injectors for the current picker and restart generation are still live:
 ///
 /// - The picker will display an input spinner.
-/// - [`Picker::filter`](super::Picker::filter) will be blocked from running.
+/// - [`Picker::filter`](super::Picker::filter) will return `None`.
 ///
 /// Note that handles can also be present inside an [`Observer`](super::Observer) when the picker
 /// restarts. See [`Picker::restart`](super::Picker::restart) and
 /// [`Event::Restart`](super::event::Event::Restart) for more details on injector invalidation.
 ///
 /// ## `DeserializeSeed` implementation
+///
 /// If your items are being read from an external source and deserialized within the
 /// [`serde`](::serde) framework, you may find it convenient to enable the `serde` optional feature.
 /// With this feature enabled, an injector implements

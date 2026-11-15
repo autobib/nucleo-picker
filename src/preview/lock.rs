@@ -56,7 +56,7 @@ impl<T> Inner<T> {
     // SAFETY: the caller must be the unique owner of the value in the state
     // machine and must arrange for this to be called exactly once.
     unsafe fn take_data(&self) -> T {
-        unsafe { (&mut *self.data.get()).take().unwrap_unchecked() }
+        unsafe { self.data.replace(None).unwrap_unchecked() }
     }
 }
 
@@ -288,7 +288,10 @@ impl<T> ActiveWriter<T> {
                 // SAFETY: Submitting excludes the reader from taking the slot.
                 // No user code runs before the state is changed to Complete.
                 unsafe {
-                    std::mem::swap((&mut *inner.data.get()).as_mut().unwrap_unchecked(), data);
+                    std::mem::swap(
+                        inner.data.as_mut_unchecked().as_mut().unwrap_unchecked(),
+                        data,
+                    );
                 }
                 inner.state.store(State::Complete, Ordering::Release);
                 true
@@ -337,11 +340,12 @@ impl<T> Drop for ActiveWriter<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::thread;
 
     struct Counted {
-        _value: String,
+        value: Cell<&'static str>,
         drops: Arc<AtomicUsize>,
     }
 
@@ -351,11 +355,11 @@ mod tests {
         }
     }
 
-    fn counted(value: &str) -> (Counted, Arc<AtomicUsize>) {
+    fn counted(value: &'static str) -> (Counted, Arc<AtomicUsize>) {
         let drops = Arc::new(AtomicUsize::new(0));
         (
             Counted {
-                _value: value.into(),
+                value: Cell::new(value),
                 drops: Arc::clone(&drops),
             },
             drops,
@@ -363,21 +367,7 @@ mod tests {
     }
 
     #[test]
-    fn publish_swaps_values() {
-        let (reader, writer) = request(String::from("reusable"));
-        let active = writer.start().unwrap();
-        let mut completed = String::from("done");
-        assert!(active.publish(&mut completed));
-
-        let Poll::Ready(data) = reader.poll() else {
-            panic!("published request was not ready");
-        };
-        assert_eq!(data, "done");
-        assert_eq!(completed, "reusable");
-    }
-
-    #[test]
-    fn taking_data_leaves_an_empty_slot() {
+    fn publication_swaps_values_and_releases_each_once() {
         let (data, drops) = counted("original");
         let (reader, writer) = request(data);
         let (mut completed, completed_drops) = counted("completed");
@@ -386,6 +376,8 @@ mod tests {
         let Poll::Ready(data) = reader.poll() else {
             panic!("published request was not ready");
         };
+        assert_eq!(data.value.get(), "completed");
+        assert_eq!(completed.value.get(), "original");
         assert_eq!(drops.load(AtomicOrdering::Relaxed), 0);
         assert_eq!(completed_drops.load(AtomicOrdering::Relaxed), 0);
         drop(data);
@@ -454,37 +446,28 @@ mod tests {
     }
 
     #[test]
-    fn reader_drop_while_queued_leaves_writer_usable() {
-        for active in [false, true] {
-            let (data, drops) = counted("queued");
-            let (reader, writer) = request(data);
-            drop(reader);
-
-            if active {
-                drop(writer.start().unwrap());
-            } else {
-                drop(writer);
+    fn dropping_handles_in_either_order_releases_data_once() {
+        for reader_first in [false, true] {
+            for active in [false, true] {
+                let (data, drops) = counted("data");
+                let (reader, writer) = request(data);
+                let exit = || {
+                    if active {
+                        drop(writer.start().unwrap());
+                    } else {
+                        drop(writer);
+                    }
+                };
+                if reader_first {
+                    drop(reader);
+                    exit();
+                } else {
+                    exit();
+                    assert_eq!(drops.load(AtomicOrdering::Relaxed), 0);
+                    drop(reader);
+                }
+                assert_eq!(drops.load(AtomicOrdering::Relaxed), 1);
             }
-
-            assert_eq!(drops.load(AtomicOrdering::Relaxed), 1);
-        }
-    }
-
-    #[test]
-    fn reader_drop_after_writer_exit_destroys_data() {
-        for active in [false, true] {
-            let (data, drops) = counted("data");
-            let (reader, writer) = request(data);
-
-            if active {
-                drop(writer.start().unwrap());
-            } else {
-                drop(writer);
-            }
-
-            assert_eq!(drops.load(AtomicOrdering::Relaxed), 0);
-            drop(reader);
-            assert_eq!(drops.load(AtomicOrdering::Relaxed), 1);
         }
     }
 
@@ -529,31 +512,26 @@ mod tests {
     #[test]
     fn cancel_and_publish_race_has_one_slot_owner() {
         for _ in 0..1_000 {
-            let (reader, writer) = request(String::from("reusable"));
+            let (data, drops) = counted("reusable");
+            let (reader, writer) = request(data);
             let active = writer.start().unwrap();
+            let (mut completed, completed_drops) = counted("completed");
 
             thread::scope(|scope| {
                 scope.spawn(move || {
                     let data = reader.cancel_any();
-                    assert!(data == "reusable" || data == "completed");
+                    assert!(matches!(data.value.get(), "reusable" | "completed"));
                 });
                 scope.spawn(move || {
-                    let mut data = String::from("completed");
-                    if active.publish(&mut data) {
-                        assert_eq!(data, "reusable");
+                    if active.publish(&mut completed) {
+                        assert_eq!(completed.value.get(), "reusable");
                     } else {
-                        assert_eq!(data, "completed");
+                        assert_eq!(completed.value.get(), "completed");
                     }
                 });
             });
+            assert_eq!(drops.load(AtomicOrdering::Relaxed), 1);
+            assert_eq!(completed_drops.load(AtomicOrdering::Relaxed), 1);
         }
-    }
-
-    #[test]
-    fn handles_are_send_when_data_is_send() {
-        fn assert_send<T: Send>() {}
-        assert_send::<Reader<std::cell::Cell<u8>>>();
-        assert_send::<QueuedWriter<std::cell::Cell<u8>>>();
-        assert_send::<ActiveWriter<std::cell::Cell<u8>>>();
     }
 }

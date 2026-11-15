@@ -1,4 +1,7 @@
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    mem::DropGuard,
+};
 
 use crossterm::{
     event::{DisableBracketedPaste, EnableBracketedPaste},
@@ -8,8 +11,10 @@ use crossterm::{
     },
 };
 
+use crate::rect::Dimensions;
+
 #[cfg(all(test, feature = "unstable-backend"))]
-mod panic_test;
+mod lifecycle_test;
 #[cfg(all(test, feature = "unstable-backend"))]
 mod size_test;
 
@@ -34,7 +39,7 @@ pub trait Terminal: Write {
     ///
     /// This method is only called immediately writes are required, and may not be called on each
     /// frame.
-    fn size(&mut self) -> io::Result<(u16, u16)>;
+    fn dimensions(&mut self) -> io::Result<Dimensions>;
 
     /// Begin rendering a frame.
     ///
@@ -55,7 +60,7 @@ pub trait Terminal: Write {
 
     /// A callback executed at the end of each frame.
     ///
-    /// This method is called on every frame, whether or not it was rendered. The boolean indicates
+    /// This method is called on every frame (except initialization), whether or not it was rendered. The boolean indicates
     /// if there were logical changes to the picker state since the previous frame.
     ///
     /// If `changed` is `false`, writes definitely did not occur. If `changed` is true, it is
@@ -106,80 +111,17 @@ impl<W: Write> Terminal for CrosstermTerminal<'_, W> {
     }
 
     #[inline]
-    fn size(&mut self) -> io::Result<(u16, u16)> {
-        size()
+    fn dimensions(&mut self) -> io::Result<Dimensions> {
+        let (width, height) = size()?;
+        Ok(Dimensions { width, height })
     }
 }
 
 /// A drop guard to increase the odds that the terminal is cleaned up on error or panic.
-pub(crate) struct TerminalSession<'a, T: Terminal> {
+pub(crate) fn session<'a, T: Terminal>(
     terminal: &'a mut T,
-    cleanup: bool,
-}
-
-impl<'a, T: Terminal> TerminalSession<'a, T> {
-    pub(crate) fn new(terminal: &'a mut T) -> Self {
-        Self {
-            terminal,
-            cleanup: true,
-        }
-    }
-
-    pub(crate) fn finish(&mut self) -> io::Result<()> {
-        let result = self.terminal.cleanup();
-        self.cleanup = false;
-        result
-    }
-}
-
-impl<T: Terminal> Write for TerminalSession<'_, T> {
-    #[inline]
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.terminal.write(buf)
-    }
-
-    #[inline]
-    fn flush(&mut self) -> io::Result<()> {
-        self.terminal.flush()
-    }
-}
-
-impl<T: Terminal> Terminal for TerminalSession<'_, T> {
-    #[inline]
-    fn init(&mut self) -> io::Result<()> {
-        self.terminal.init()
-    }
-
-    #[inline]
-    fn cleanup(&mut self) -> io::Result<()> {
-        self.finish()
-    }
-
-    #[inline]
-    fn size(&mut self) -> io::Result<(u16, u16)> {
-        self.terminal.size()
-    }
-
-    #[inline]
-    fn begin_render(&mut self) -> io::Result<()> {
-        self.terminal.begin_render()
-    }
-
-    #[inline]
-    fn end_render(&mut self) -> io::Result<()> {
-        self.terminal.end_render()
-    }
-
-    #[inline]
-    fn end_frame(&mut self, changed: bool) -> io::Result<()> {
-        self.terminal.end_frame(changed)
-    }
-}
-
-impl<T: Terminal> Drop for TerminalSession<'_, T> {
-    fn drop(&mut self) {
-        if self.cleanup {
-            let _ = self.terminal.cleanup();
-        }
-    }
+) -> DropGuard<&'a mut T, impl FnOnce(&'a mut T)> {
+    DropGuard::new(terminal, |terminal: &mut T| {
+        let _ = terminal.cleanup();
+    })
 }
