@@ -20,9 +20,8 @@ fn context_tracks_rank_identity_and_match_publication() {
     assert_eq!(cx.query(), "ta");
     #[cfg(feature = "preview")]
     assert!(cx.preview_dimensions().is_none());
-    let revision = cx.match_revision();
     picker.push_batch(["alpha", "beta", "delta"]);
-    assert!(Context::new(&picker.core.engine).match_revision() == revision);
+    assert!(Context::new(&picker.core.engine).matches().is_empty());
     picker.filter().unwrap();
     let cx = Context::new(&picker.core.engine);
     assert!(cx.hovered().is_none());
@@ -33,24 +32,25 @@ fn context_tracks_rank_identity_and_match_publication() {
     assert_eq!(cx.matches().ids().nth(1), Some(hovered.id()));
     assert_eq!(hovered.value(), &"delta");
     assert_eq!(hovered.id(), picker.core.engine.item_id(2));
-    let published = cx.match_revision();
-    assert!(published != revision);
+    let ids: Vec<_> = cx.matches().ids().collect();
     picker.filter().unwrap();
-    assert!(Context::new(&picker.core.engine).match_revision() == published);
+    assert!(
+        Context::new(&picker.core.engine)
+            .matches()
+            .ids()
+            .eq(ids.iter().copied())
+    );
 
     picker.update_query("delta");
     let cx = Context::new(&picker.core.engine).with_rank(Some(0));
     assert_eq!(cx.query(), "delta");
     assert_eq!(cx.hovered().unwrap().value(), &"beta");
     assert_eq!(cx.matches().len(), 2);
-    assert!(cx.match_revision() == published);
+    assert!(cx.matches().ids().eq(ids));
 
     let start = Instant::now();
     loop {
-        let before = Context::new(&picker.core.engine).match_revision();
         let status = picker.update_matches(Duration::from_millis(5));
-        let after = Context::new(&picker.core.engine).match_revision();
-        assert_eq!(before != after, status.items_changed);
         if !status.matching {
             break;
         }
@@ -58,23 +58,17 @@ fn context_tracks_rank_identity_and_match_publication() {
         std::thread::yield_now();
     }
     let cx = Context::new(&picker.core.engine).with_rank(Some(0));
-    assert!(cx.match_revision() != published);
     assert_eq!(cx.hovered().unwrap().value(), &"delta");
-    let before_restart = cx.match_revision();
     let old_id = cx.hovered().unwrap().id();
 
     picker.restart();
     let cx = Context::new(&picker.core.engine);
-    assert!(cx.match_revision() != before_restart);
     assert_eq!(cx.matches().len(), 0);
     assert!(cx.matches().item(old_id).is_none());
-    let restarted = cx.match_revision();
     picker.restart();
-    assert!(Context::new(&picker.core.engine).match_revision() != restarted);
     picker.push_batch(["replacement"]);
     picker.filter().unwrap();
     let cx = Context::new(&picker.core.engine).with_rank(Some(0));
-    assert!(cx.match_revision() != restarted);
     assert_eq!(cx.hovered().unwrap().value(), &"replacement");
 
     picker.update_query("absent");
@@ -116,7 +110,6 @@ struct Observation {
     hovered: Option<ItemId>,
     rank: Option<u32>,
     query: String,
-    revision: u64,
     matches: Vec<ItemId>,
     #[cfg(feature = "preview")]
     preview_dimensions: Option<(u16, u16)>,
@@ -128,7 +121,6 @@ impl Observation {
             hovered: cx.hovered().map(|item| item.id()),
             rank: cx.rank(),
             query: cx.query().to_owned(),
-            revision: cx.match_revision(),
             matches: cx.matches().ids().collect(),
             #[cfg(feature = "preview")]
             preview_dimensions: cx
@@ -249,7 +241,6 @@ fn events_observe_buffered_navigation_and_only_submitted_queries() {
             assert_eq!(observation.hovered, Some(ids[rank as usize]));
             assert_eq!(observation.query, query);
             assert_eq!(observation.matches, ids);
-            assert!(observation.revision == observations[0].revision);
             #[cfg(feature = "preview")]
             assert_eq!(observation.preview_dimensions, None);
         }
@@ -270,7 +261,6 @@ fn queued_selection_retains_the_buffered_hover_and_exit_context() {
         picker.push_batch(["alpha", "beta", "delta"]);
         picker.filter().unwrap();
         let ids: Vec<_> = picker.matches().ids().collect();
-        let revision = Context::new(&picker.core.engine).match_revision();
         let toggle = if reversed {
             MatchListEvent::ToggleDown(1)
         } else {
@@ -299,7 +289,6 @@ fn queued_selection_retains_the_buffered_hover_and_exit_context() {
         assert_eq!(output.cx.hovered().unwrap().id(), ids[1]);
         assert_eq!(output.cx.rank(), Some(1));
         assert_eq!(output.cx.query(), "absent");
-        assert_eq!(output.cx.match_revision(), revision);
         assert!(output.cx.matches().ids().eq(ids));
         assert!(output.into_iter().copied().eq(["beta"]));
         assert_eq!(picker.query(), "absent");
@@ -367,10 +356,11 @@ mod preview {
     impl PreviewProbe<'_> {
         fn observe<T: Send + Sync + 'static>(&mut self, phase: &'static str, cx: &Context<'_, T>) {
             let observation = Observation::new(cx);
-            assert_eq!(
-                observation.preview_dimensions,
-                Some((self.size.width, self.size.height))
-            );
+            if let Some(size) = observation.preview_dimensions {
+                assert_eq!(size, (self.size.width, self.size.height));
+            } else {
+                assert_eq!(phase, "update");
+            }
             self.observations.push((phase, observation));
         }
     }
@@ -392,7 +382,7 @@ mod preview {
             self.observe("event", cx);
         }
 
-        fn update(&mut self, cx: &Context<'_, T>, _: Instant) -> bool {
+        fn update(&mut self, cx: &Context<'_, T>, _: bool, _: Instant) -> bool {
             self.observe("update", cx);
             false
         }
@@ -447,23 +437,23 @@ mod preview {
             .unwrap();
 
         let expected = [
-            ("update", 0, (8, 6)),
-            ("prefetch", 0, (8, 6)),
-            ("event", 1, (8, 6)),
-            ("event", 1, (8, 6)),
-            ("update", 1, (8, 6)),
-            ("prefetch", 1, (10, 6)),
-            ("event", 1, (0, 0)),
-            ("update", 1, (0, 0)),
-            ("prefetch", 1, (10, 6)),
+            ("update", 0, Some((8, 6))),
+            ("prefetch", 0, Some((8, 6))),
+            ("event", 1, Some((8, 6))),
+            ("event", 1, Some((8, 6))),
+            ("update", 1, Some((8, 6))),
+            ("prefetch", 1, Some((10, 6))),
+            ("update", 1, None),
+            ("event", 1, Some((0, 0))),
+            ("update", 1, Some((0, 0))),
+            ("prefetch", 1, Some((10, 6))),
         ];
         assert_eq!(previews.len(), expected.len());
         for ((phase, observation), (expected_phase, rank, size)) in previews.iter().zip(expected) {
             assert_eq!(*phase, expected_phase);
             assert_eq!(observation.rank, Some(rank));
             assert_eq!(observation.hovered, Some(ids[rank as usize]));
-            assert_eq!(observation.preview_dimensions, Some(size));
-            assert!(observation.revision == previews[0].1.revision);
+            assert_eq!(observation.preview_dimensions, size);
         }
         assert_eq!(queued.len(), 4);
         for (observation, size) in queued.iter().zip([None, None, Some((0, 0)), Some((10, 6))]) {

@@ -8,8 +8,6 @@ use crate::match_engine::MatchEngine;
 pub struct Context<'items, T> {
     matches: Matches<'items, T>,
     query: &'items str,
-    #[cfg(any(test, feature = "preview"))]
-    match_revision: u64,
     rank: Option<u32>,
     #[cfg(feature = "preview")]
     preview_dimensions: Option<Dimensions>,
@@ -20,8 +18,6 @@ impl<'items, T: Send + Sync + 'static> Context<'items, T> {
         Self {
             matches: Matches::new(engine),
             query: engine.query(),
-            #[cfg(any(test, feature = "preview"))]
-            match_revision: engine.match_revision(),
             rank: None,
             #[cfg(feature = "preview")]
             preview_dimensions: None,
@@ -37,12 +33,6 @@ impl<'items, T: Send + Sync + 'static> Context<'items, T> {
     pub(crate) fn with_preview(mut self, size: Option<Dimensions>) -> Self {
         self.preview_dimensions = size;
         self
-    }
-
-    /// A token to track the snapshot generation.
-    #[cfg(any(test, feature = "preview"))]
-    pub(crate) fn match_revision(&self) -> u64 {
-        self.match_revision
     }
 
     /// Returns the hovered item, or none if the match list is empty.

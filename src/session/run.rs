@@ -67,12 +67,11 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
             &mut status_line,
             &mut preview,
         );
-        if P::ENABLED && frame.preview_enabled() {
-            preview.update(
-                &context(engine, list.rank(engine), &frame),
-                frame_start + self.interval,
-            );
-        }
+        preview.update(
+            &context(engine, list.rank(engine), &frame),
+            true,
+            frame_start + self.interval,
+        );
         frame.draw(
             &(&*engine, &queued),
             &mut prompt,
@@ -92,6 +91,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
         let mut frame_number = 0_u64;
         let mut handle_status = None;
         let mut changed_since_status = true;
+        let mut matches_changed = false;
         let exit = 'selection: loop {
             // whether the preview was enabled on the previous frame
             let preview_was_enabled = frame.preview_enabled();
@@ -170,6 +170,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                         Some(ref notifier) => {
                             preview.restart();
                             engine.restart();
+                            matches_changed = true;
                             let cx = context(engine, None, &frame);
                             list.restart(&cx);
                             queued.on_queue(QueueEvent::Clear, &cx);
@@ -203,6 +204,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
 
             // then update the match engine
             let status = engine.update(2 * self.interval.as_millis() as u64 / 3);
+            matches_changed |= status.items_changed;
 
             // update other components with the new prompt/engine state and process redraws
             let mut redraw = Redraw {
@@ -213,12 +215,12 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                     queued.count().map(|count| (as_u32(count), queued.limit())),
                     background_frame,
                 ) && frame.status_enabled(),
-                preview: P::ENABLED
-                    && frame.preview_enabled()
-                    && preview.update(
-                        &context(engine, list.rank(engine), &frame),
-                        frame_start + self.interval,
-                    ),
+                preview: preview.update(
+                    &context(engine, list.rank(engine), &frame),
+                    std::mem::take(&mut matches_changed),
+                    frame_start + self.interval,
+                ) && P::ENABLED
+                    && frame.preview_enabled(),
             };
 
             if P::ENABLED && preview_was_enabled && !frame.preview_enabled() {

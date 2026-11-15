@@ -89,7 +89,7 @@ fn preview_events_use_context_identity_and_interior_geometry() {
             width: 4,
             height: 3,
         }));
-    session.update(&cx, Instant::now());
+    session.update(&cx, true, Instant::now());
     session.handle(PreviewEvent::PageDown(1), &cx);
     let cached = session.state.cache.peek(&1).unwrap();
     assert_eq!(cached.pane().unwrap().offset(), (0, 3));
@@ -716,7 +716,7 @@ fn lines_and_pages_saturate_in_order_and_preserve_columns() {
             width: 20,
             height: 8,
         }));
-    assert!(session.update(&cx, Instant::now()));
+    assert!(session.update(&cx, true, Instant::now()));
     let cached = session.state.cache.peek_mut(&0).unwrap();
     cached.pane_mut().unwrap().set_offset(9, 0);
     for (event, row) in [
@@ -744,14 +744,17 @@ fn lines_and_pages_saturate_in_order_and_preserve_columns() {
             session.state.cached().unwrap().pane().unwrap().offset(),
             (9, row)
         );
-        assert_eq!(session.update(&cx, Instant::now()), previous != (9, row));
+        assert_eq!(
+            session.update(&cx, false, Instant::now()),
+            previous != (9, row)
+        );
     }
     for lines in [1, 3, 8] {
         let mut session = preview_pane(TestPreviewer {
             lines,
             ..TestPreviewer::default()
         });
-        assert!(session.update(&cx, Instant::now()));
+        assert!(session.update(&cx, true, Instant::now()));
         for event in [
             PreviewEvent::Down(1),
             PreviewEvent::PageDown(usize::MAX),
@@ -763,7 +766,7 @@ fn lines_and_pages_saturate_in_order_and_preserve_columns() {
                 session.state.cached().unwrap().pane().unwrap().offset(),
                 (0, 0)
             );
-            assert!(!session.update(&cx, Instant::now()));
+            assert!(!session.update(&cx, false, Instant::now()));
         }
     }
 }
@@ -800,7 +803,10 @@ fn zero_sized_panes_only_suppress_movement_at_zero_width() {
                 session.state.cached().unwrap().pane().unwrap().offset(),
                 expected
             );
-            assert_eq!(session.update(&cx, Instant::now()), expected != (7, 2));
+            assert_eq!(
+                session.update(&cx, false, Instant::now()),
+                expected != (7, 2)
+            );
         }
     }
 }
@@ -916,12 +922,14 @@ fn owned_state_preserves_requests_until_end_or_drop() {
             prefetch_defer: true,
             ..TestPreviewer::default()
         };
-        let cx = Context::new(&picker.core.engine).with_rank(Some(0));
+        let cx = Context::new(&picker.core.engine)
+            .with_rank(Some(0))
+            .with_preview(Some(Dimensions::default()));
         let (mut state, active) = {
             let mut state = PreviewState::new(None, previewer.prefetch_limit());
-            assert!(state.update(&mut previewer, &cx, Instant::now()));
+            assert!(state.update(&mut previewer, &cx, true, Instant::now()));
             let active = previewer.take_request("alpha").start().unwrap();
-            assert!(!state.update(&mut previewer, &cx, Instant::now()));
+            assert!(!state.update(&mut previewer, &cx, false, Instant::now()));
             state.update_prefetch(&mut previewer, &cx, deadline());
             (state, active)
         };
@@ -929,7 +937,7 @@ fn owned_state_preserves_requests_until_end_or_drop() {
         assert!(!active.is_cancelled());
         assert_eq!(previewer.prefetched, ["beta"]);
         assert!(!previewer.queued[0].is_cancelled());
-        assert!(!state.update(&mut previewer, &cx, Instant::now()));
+        assert!(!state.update(&mut previewer, &cx, false, Instant::now()));
         assert_eq!(previewer.requested, ["alpha"]);
         if end {
             state.end(&mut previewer);
@@ -1005,7 +1013,7 @@ fn line_number_events_preserve_raw_offsets_and_only_redraw_on_changes() {
                 line_numbers: base,
                 ..TestPreviewer::default()
             });
-            assert!(session.update(&cx, Instant::now()));
+            assert!(session.update(&cx, true, Instant::now()));
             let cached = session.state.cache.peek_mut(&0).unwrap();
             let pane = cached.pane_mut().unwrap();
             assert_eq!(pane.line_numbers(), base);
@@ -1022,8 +1030,8 @@ fn line_number_events_preserve_raw_offsets_and_only_redraw_on_changes() {
                 assert_eq!(pane.line_numbers(), expected);
                 assert_eq!(pane.offset(), (usize::MAX, usize::MAX));
                 assert_eq!(pane.buffer().line(0).unwrap().as_str(), "alpha");
-                assert_eq!(session.update(&cx, Instant::now()), changed);
-                assert!(!session.update(&cx, Instant::now()));
+                assert_eq!(session.update(&cx, false, Instant::now()), changed);
+                assert!(!session.update(&cx, false, Instant::now()));
             }
             assert_eq!(session.previewer.requested, ["alpha"]);
         }

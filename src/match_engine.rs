@@ -35,8 +35,6 @@ pub(crate) struct MatchEngine<T, R> {
     case_matching: NucleoCaseMatching,
     normalization: NucleoNormalization,
     generation: u32,
-    #[cfg(any(test, feature = "preview"))]
-    match_revision: u64,
 }
 
 impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
@@ -76,17 +74,10 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
             needs_tick,
             nucleo_is_running: false,
             generation: 0,
-            #[cfg(any(test, feature = "preview"))]
-            match_revision: 0,
         }
     }
     pub fn snapshot(&self) -> &nc::Snapshot<T> {
         self.nucleo.snapshot()
-    }
-
-    #[cfg(any(test, feature = "preview"))]
-    pub fn match_revision(&self) -> u64 {
-        self.match_revision
     }
 
     pub fn query(&self) -> &str {
@@ -141,10 +132,6 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
             .checked_add(1)
             .expect("picker item generation exhausted");
         self.nucleo.restart(true);
-        #[cfg(any(test, feature = "preview"))]
-        {
-            self.match_revision = self.match_revision.wrapping_add(1);
-        }
         self.needs_tick.store(true, Ordering::Relaxed);
     }
 
@@ -197,10 +184,6 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
             self.needs_tick.store(false, Ordering::Relaxed);
             // Wait directly on the workers rather than gating ticks on their notifications.
             let status = self.nucleo.tick(u64::MAX);
-            #[cfg(any(test, feature = "preview"))]
-            if status.changed {
-                self.match_revision = self.match_revision.wrapping_add(1);
-            }
             items_changed |= status.changed;
             self.nucleo_is_running = status.running;
             if !status.running {
@@ -219,11 +202,6 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
         }
         let items_changed = if self.needs_tick.swap(false, Ordering::Relaxed) {
             let status = self.nucleo.tick(millis);
-            #[cfg(any(test, feature = "preview"))]
-            if status.changed {
-                self.match_revision = self.match_revision.wrapping_add(1);
-            }
-
             self.nucleo_is_running = status.running;
             status.changed
         } else {

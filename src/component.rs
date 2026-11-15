@@ -44,7 +44,7 @@ pub(crate) trait PreviewComponent<T>: Component<()> {
     #[cfg(feature = "preview")]
     fn handle(&mut self, event: PreviewEvent, cx: &Context<'_, T>);
 
-    fn update(&mut self, cx: &Context<'_, T>, deadline: Instant) -> bool;
+    fn update(&mut self, cx: &Context<'_, T>, matches_changed: bool, deadline: Instant) -> bool;
 
     fn prefetch(&mut self, cx: &Context<'_, T>, deadline: Instant);
 
@@ -71,7 +71,7 @@ impl<T> PreviewComponent<T> for NoPreview {
     const ENABLED: bool = false;
     #[cfg(feature = "preview")]
     fn handle(&mut self, _event: PreviewEvent, _cx: &Context<'_, T>) {}
-    fn update(&mut self, _cx: &Context<'_, T>, _deadline: Instant) -> bool {
+    fn update(&mut self, _cx: &Context<'_, T>, _matches_changed: bool, _deadline: Instant) -> bool {
         false
     }
     fn prefetch(&mut self, _cx: &Context<'_, T>, _deadline: Instant) {}
@@ -98,8 +98,8 @@ impl<T, C: PreviewComponent<T>> PreviewComponent<T> for &mut C {
     fn handle(&mut self, event: PreviewEvent, cx: &Context<'_, T>) {
         (**self).handle(event, cx);
     }
-    fn update(&mut self, cx: &Context<'_, T>, deadline: Instant) -> bool {
-        (**self).update(cx, deadline)
+    fn update(&mut self, cx: &Context<'_, T>, matches_changed: bool, deadline: Instant) -> bool {
+        (**self).update(cx, matches_changed, deadline)
     }
     fn prefetch(&mut self, cx: &Context<'_, T>, deadline: Instant) {
         (**self).prefetch(cx, deadline);

@@ -14,6 +14,7 @@ mod context;
 mod preview;
 mod run;
 mod selection;
+mod updates;
 
 #[derive(Default)]
 struct TestTerminal {
@@ -76,10 +77,8 @@ impl<F: FnMut(Duration) -> Result<Event, RecvError>> EventSource for TestEvents<
     }
 }
 
-#[cfg(feature = "preview")]
 struct FrameEvents<F>(F);
 
-#[cfg(feature = "preview")]
 impl<F: FnMut() -> Result<Event<&'static str>, RecvError>> EventSource for FrameEvents<F> {
     type AbortErr = &'static str;
 
@@ -93,7 +92,6 @@ impl<F: FnMut() -> Result<Event<&'static str>, RecvError>> EventSource for Frame
     }
 }
 
-#[cfg(feature = "preview")]
 fn frame_events(
     events: impl IntoIterator<Item = Result<Event<&'static str>, RecvError>>,
 ) -> impl EventSource<AbortErr = &'static str> {

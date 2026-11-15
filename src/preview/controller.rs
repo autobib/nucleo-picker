@@ -79,7 +79,8 @@ impl PreviewState {
             prefetch: NonZero::new(prefetch_limit.saturating_mul(2)).map(|capacity| Prefetch {
                 cache: new_cache(capacity),
                 count: prefetch_limit,
-                cycle: None,
+                rank: None,
+                dirty: false,
                 next: 0,
                 queued: None,
             }),
@@ -128,10 +129,17 @@ impl PreviewState {
         &mut self,
         previewer: &mut P,
         cx: &Context<'_, T>,
+        matches_changed: bool,
         deadline: Instant,
     ) -> bool {
+        if let Some(prefetch) = &mut self.prefetch {
+            prefetch.dirty |= matches_changed;
+        }
+        if cx.preview_dimensions().is_none() {
+            return false;
+        }
         self.update_current(previewer, cx, deadline);
-        self.sync_prefetch(cx.rank(), cx.match_revision());
+        self.sync_prefetch(cx.rank());
         std::mem::take(&mut self.pending_redraw)
     }
 
@@ -202,14 +210,13 @@ impl PreviewState {
         cached.state = Some(state);
     }
 
-    fn sync_prefetch(&mut self, rank: Option<u32>, revision: u64) {
+    fn sync_prefetch(&mut self, rank: Option<u32>) {
         let Some(prefetch) = &mut self.prefetch else {
             return;
         };
         // a hovered prefetch was already moved to the main cache by update_current
-        let cycle = rank.map(|rank| (rank, revision));
-        if prefetch.cycle != cycle {
-            prefetch.cycle = cycle;
+        if prefetch.rank != rank || prefetch.dirty {
+            prefetch.rank = rank;
             prefetch.next = 0;
             if let Some(idx) = prefetch.queued.take()
                 && let Some(cached) = prefetch.cache.peek_mut(&idx)
@@ -217,6 +224,7 @@ impl PreviewState {
                 cached.state = cached.state.take().map(RequestState::cancel_queued);
             }
         }
+        prefetch.dirty = false;
     }
 
     fn update_prefetch<T: Send + Sync + 'static, P: Preview<T>>(
@@ -225,10 +233,13 @@ impl PreviewState {
         cx: &Context<'_, T>,
         deadline: Instant,
     ) {
+        if cx.preview_dimensions().is_none() {
+            return;
+        }
         let Some(prefetch) = &mut self.prefetch else {
             return;
         };
-        let Some((rank, _)) = prefetch.cycle else {
+        let Some(rank) = prefetch.rank else {
             return;
         };
         let matches = cx.matches();
@@ -390,7 +401,8 @@ impl PreviewState {
         self.cache.clear();
         if let Some(prefetch) = &mut self.prefetch {
             prefetch.cache.clear();
-            prefetch.cycle = None;
+            prefetch.rank = None;
+            prefetch.dirty = false;
             prefetch.queued = None;
         }
         self.spare = Buffer::new();
@@ -425,8 +437,9 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewComponent<T> for PreviewCon
             .handle_event(cx.hovered().map(|item| item.id().index), event, size);
     }
 
-    fn update(&mut self, cx: &Context<'_, T>, deadline: Instant) -> bool {
-        self.state.update(&mut self.previewer, cx, deadline)
+    fn update(&mut self, cx: &Context<'_, T>, matches_changed: bool, deadline: Instant) -> bool {
+        self.state
+            .update(&mut self.previewer, cx, matches_changed, deadline)
     }
 
     fn prefetch(&mut self, cx: &Context<'_, T>, deadline: Instant) {
@@ -478,7 +491,8 @@ fn timeout(deadline: Instant) -> Duration {
 struct Prefetch {
     cache: LruCache<u32, Cached>,
     count: usize,
-    cycle: Option<(u32, u64)>,
+    rank: Option<u32>,
+    dirty: bool,
     next: u32,
     queued: Option<u32>,
 }

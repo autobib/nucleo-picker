@@ -97,7 +97,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewController<T, P> {
         let cx = Context::new(engine)
             .with_rank(rank)
             .with_preview(Some(interior_dimensions(self.state.area)));
-        let redraw = self.update(&cx, deadline);
+        let redraw = self.update(&cx, false, deadline);
         self.prefetch(&cx, deadline);
         redraw
     }
@@ -111,7 +111,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewController<T, P> {
         let cx = Context::new(engine)
             .with_rank(rank)
             .with_preview(Some(interior_dimensions(self.state.area)));
-        self.update(&cx, deadline)
+        self.update(&cx, false, deadline)
     }
 
     pub(crate) fn handle_at(&mut self, event: PreviewEvent, hovered: Option<u32>) {
