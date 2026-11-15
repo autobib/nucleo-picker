@@ -7,8 +7,8 @@ keywords = ["cli"]
 license = "MIT OR Apache-2.0"
 name = "nucleo-picker"
 repository = "https://github.com/autobib/nucleo-picker"
+version = "0.13.0-beta.9"
 rust-version = "1.100"
-version = "0.12.2"
 
 [workspace]
 default-members = ["."]
