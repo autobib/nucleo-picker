@@ -6,7 +6,9 @@ use std::{
 };
 
 use nucleo_picker::{
-    Injector, MatchStatus, Picker, PickerOptions, render::StrRenderer, session::Matches,
+    Injector, Picker, PickerOptions,
+    render::StrRenderer,
+    session::{MatchStatus, Matches},
 };
 
 fn options() -> PickerOptions {

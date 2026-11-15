@@ -19,7 +19,10 @@ use nucleo::{
 
 #[cfg(all(test, feature = "preview"))]
 use crate::session::ItemRef;
-use crate::{Injector, MatchStatus, Render, session::ItemId};
+use crate::{
+    Injector, Render,
+    session::{ItemId, MatchStatus},
+};
 
 pub(crate) struct MatchEngine<T, R> {
     /// The internal matcher engine.

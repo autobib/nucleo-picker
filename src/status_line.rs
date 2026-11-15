@@ -4,9 +4,10 @@ use crossterm::style::{Attribute, Color};
 use unicode_width::UnicodeWidthChar;
 
 use crate::{
-    MatchStatus, PickerChars,
+    PickerChars,
     component::Component,
     rect::{Area, Rect},
+    session::MatchStatus,
 };
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]

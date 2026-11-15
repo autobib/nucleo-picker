@@ -54,7 +54,6 @@ mod core;
 pub mod error;
 pub mod event;
 mod frame;
-mod headless;
 mod incremental;
 mod injector;
 mod match_engine;
@@ -89,10 +88,9 @@ use crate::{
     match_engine::MatchEngine,
     match_list::{MatchListConfig, MatchListState},
     prompt::{PromptConfig, PromptState},
-    session::Matches,
+    session::{MatchStatus, Matches},
 };
 
-pub use crate::headless::MatchStatus;
 pub use crate::injector::Injector;
 pub use crate::match_list::{Selection, SelectionIntoIter};
 #[cfg(feature = "preview")]
