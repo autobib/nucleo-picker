@@ -91,21 +91,21 @@ fn pool(threads: usize) -> (PoolPreviewer<&'static str>, Receiver<Started>, Send
 fn picker() -> Picker<&'static str, StrRenderer> {
     let mut picker = PickerOptions::new().picker(StrRenderer);
     picker.push_batch(["first", "second", "third", "fourth", "panic"]);
-    wait_until(|| !picker.core.engine.update(5).matching);
+    picker.filter().unwrap();
     picker
 }
 
 fn submit(
     pool: &mut PoolPreviewer<&'static str>,
     picker: &Picker<&'static str, StrRenderer>,
-    idx: u32,
+    rank: u32,
     buffer: Buffer,
 ) -> Pending {
     let request = Request {
         buffer,
         epoch: 0,
-        snapshot: picker.core.engine.snapshot(),
-        id: picker.core.engine.item_id(idx),
+        matches: picker.matches(),
+        id: picker.matches().get(rank as usize).unwrap().id(),
     };
     let Response::Pending(pending) = pool.preview(request, Duration::ZERO) else {
         panic!("pool did not defer request");
@@ -175,19 +175,19 @@ fn synchronous_fast_path_preserves_presentation_and_clears_fallbacks_without_rea
         buffer.push_str("reusable request storage");
         let allocation = buffer.line(0).unwrap().as_str().as_ptr();
         buffer.clear();
-        for index in 0..2 {
+        for rank in 0_u32..2 {
             let request = Request {
                 buffer,
                 epoch: 0,
-                snapshot: picker.core.engine.snapshot(),
-                id: picker.core.engine.item_id(index),
+                matches: picker.matches(),
+                id: picker.matches().get(rank as usize).unwrap().id(),
             };
             let response = if prefetch {
                 pool.prefetch(request, Duration::ZERO).unwrap()
             } else {
                 pool.preview(request, Duration::ZERO)
             };
-            let pane = if index == 0 {
+            let pane = if rank == 0 {
                 let Response::Ready(pane) = response else {
                     panic!("synchronous preview was deferred");
                 };

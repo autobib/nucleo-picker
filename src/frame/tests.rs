@@ -65,7 +65,7 @@ where
     V: Interface<String>,
 {
     let mut picker = Picker::<String, _>::new(StrRenderer);
-    let mut state = preview.init(&Context::new(&picker.core.engine));
+    let mut state = preview.init(&Context::new(picker.matches()));
     let mut prompt = Prompt::new(&mut picker.core.prompt, &picker.core.chars);
     let mut list = MatchList::new(&mut picker.core.list_state, &picker.core.chars);
     let mut status_line = StatusLine::new(&picker.core.chars);

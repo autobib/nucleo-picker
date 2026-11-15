@@ -22,24 +22,17 @@
 //! the [restart
 //! example](https://github.com/autobib/nucleo-picker/blob/master/examples/restart.rs).
 
-mod bind;
-pub(crate) use bind::keybind_passthrough_preview;
-
 use std::{
     io,
-    marker::PhantomData,
-    sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError},
+    sync::mpsc::{Receiver, RecvTimeoutError, TryRecvError},
     time::Duration,
 };
 
-use crossterm::event::{KeyEvent, poll, read};
-
-use self::bind::convert_crossterm_event;
-
+pub use crate::input::{StdinEventSender, StdinReader};
 #[expect(deprecated)]
-pub use self::bind::keybind_no_multi;
-pub use self::bind::{keybind_default, keybind_multi, keybind_single};
-pub use self::bind::{keybind_multi_preview, keybind_single_preview};
+pub use crate::keybind::keybind_no_multi;
+pub use crate::keybind::{keybind_default, keybind_multi, keybind_single};
+pub use crate::keybind::{keybind_multi_preview, keybind_single_preview};
 pub use crate::preview::PreviewEvent;
 pub use crate::{
     frame::LayoutEvent, match_list::MatchListEvent, observer::Observer, prompt::PromptEvent,
@@ -442,143 +435,6 @@ impl<A> EventSource for Receiver<Event<A>> {
             TryRecvError::Empty => RecvError::Timeout,
             TryRecvError::Disconnected => RecvError::Disconnected,
         })
-    }
-}
-
-/// An [`EventSource`] implementation which reads events from the terminal and maps key
-/// events to events using a keybinding closure.
-///
-/// The default implementation uses the [`keybind_default`] function for keybindings.
-///
-/// ## Customizing keybindings
-///
-/// The default keybindings are documented
-/// [here](https://github.com/autobib/nucleo-picker/blob/master/USAGE.md#keyboard-shortcuts). When
-/// modifying keybindings, if you are targeting Windows as a platform, you probably want to check
-/// for [`KeyEventKind::Press`](crossterm::event::KeyEventKind::Press) or you may get duplicated
-/// events.
-///
-/// ## Example
-///
-/// Use [`keybind_single`] to simplify your implementation of keybindings:
-///
-/// ```
-/// use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-/// use nucleo_picker::event::{keybind_single, Event, StdinReader};
-///
-/// /// Keybindings which use single-selection keybindings, but instead of interrupting on `ctrl + c`,
-/// /// performs a normal quit action. Generic over all possible `Event` type parameters
-/// /// for flexibility.
-/// fn keybind_no_interrupt<A>(key_event: KeyEvent) -> Option<Event<A>> {
-///     match key_event {
-///         KeyEvent {
-///             kind: KeyEventKind::Press,
-///             modifiers: KeyModifiers::CONTROL,
-///             code: KeyCode::Char('c'),
-///             ..
-///         } => Some(Event::Quit),
-///         e => keybind_single(e),
-///     }
-/// }
-/// ```
-pub struct StdinReader<A = !, F = fn(KeyEvent) -> Option<Event<A>>> {
-    keybind: F,
-    _abort: PhantomData<A>,
-}
-
-impl<A> Default for StdinReader<A> {
-    fn default() -> Self {
-        Self::new(keybind_default)
-    }
-}
-
-impl<A, F: FnMut(KeyEvent) -> Option<Event<A>>> StdinReader<A, F> {
-    /// Create a new [`StdinReader`] with keybindings provided by the given closure.
-    pub fn new(keybind: F) -> Self {
-        Self {
-            keybind,
-            _abort: PhantomData,
-        }
-    }
-}
-
-impl<A, F: FnMut(KeyEvent) -> Option<Event<A>>> EventSource for StdinReader<A, F> {
-    type AbortErr = A;
-
-    fn recv_timeout(&mut self, duration: Duration) -> Result<Event<A>, RecvError> {
-        if poll(duration)?
-            && let Some(event) = convert_crossterm_event(read()?, &mut self.keybind)
-        {
-            return Ok(event);
-        }
-        Err(RecvError::Timeout)
-    }
-}
-
-/// A wrapper for a [`Sender`] which reads events from the terminal and sends them to the
-/// channel.
-///
-/// The internal implementation is identical to the [`StdinReader`] struct, but instead of
-/// generating the events directly, sends them to the channel.
-pub struct StdinEventSender<A = !, F = fn(KeyEvent) -> Option<Event<A>>> {
-    sender: Sender<Event<A>>,
-    keybind: F,
-}
-
-impl<A> StdinEventSender<A> {
-    /// Initialize a new [`StdinEventSender`] with default keybindings in the provided channel.
-    #[must_use]
-    pub fn with_default_keybindings(sender: Sender<Event<A>>) -> Self {
-        Self {
-            sender,
-            keybind: keybind_default,
-        }
-    }
-}
-
-impl<A, F: Fn(KeyEvent) -> Option<Event<A>>> StdinEventSender<A, F> {
-    /// Watch for terminal IO events until either the receiver is dropped (in which case `Ok(())` is returned),
-    /// or there is an IO error while reading from standard input. This method will block the
-    /// current thread until the channel disconnects or a read fails.
-    ///
-    /// This method is only compatible with keybindings which do not mutate internal state. For a
-    /// version which permits mutation, see [`watch_mut`](Self::watch_mut).
-    pub fn watch(&self) -> io::Result<()> {
-        loop {
-            if let Some(event) = convert_crossterm_event(read()?, &self.keybind)
-                && self.sender.send(event).is_err()
-            {
-                return Ok(());
-            }
-        }
-    }
-}
-
-impl<A, F: FnMut(KeyEvent) -> Option<Event<A>>> StdinEventSender<A, F> {
-    /// Initialize a new [`StdinEventSender`] with the given keybindings in the provided channel.
-    pub fn new(sender: Sender<Event<A>>, keybind: F) -> Self {
-        Self { sender, keybind }
-    }
-
-    /// Convert into the inner [`Sender<Event>`] to send further events when finished.
-    pub fn into_sender(self) -> Sender<Event<A>> {
-        self.sender
-    }
-
-    /// Watch for events until either the receiver is dropped (in which case `Ok(())` is returned),
-    /// or there is an IO error while reading from standard input. This method will block the
-    /// current thread until the channel disconnects or a read fails.
-    ///
-    /// If the mutable self reference is inconvenient and your keybindings do not mutate internal
-    /// state, use [`watch`](Self::watch).
-    pub fn watch_mut(&mut self) -> io::Result<()> {
-        loop {
-            if let Some(event) = convert_crossterm_event(read()?, &mut self.keybind)
-                && self.sender.send(event).is_err()
-            {
-                return Ok(());
-            }
-        }
     }
 }
 

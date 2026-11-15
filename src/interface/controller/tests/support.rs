@@ -2,7 +2,6 @@ use super::super::*;
 use crate::{
     Picker, PickerOptions,
     interface::{CachedPreview, CachedPreviewState, Single},
-    match_engine::MatchEngine,
     preview::{
         DEFAULT_CACHE_SIZE, ItemId, ItemRef, interior_dimensions,
         request::{ActiveRequest, QueuedRequest, Response},
@@ -204,13 +203,13 @@ pub(crate) fn deadline() -> Instant {
 }
 
 impl<P: Preview<&'static str>> TestSession<P> {
-    pub(crate) fn run_frame<R>(
+    pub(crate) fn run_frame(
         &mut self,
         rank: Option<u32>,
-        engine: &MatchEngine<&'static str, R>,
+        matches: Matches<'_, &'static str>,
         deadline: Instant,
     ) -> bool {
-        let cx = Context::new(engine)
+        let cx = Context::new(matches)
             .with_rank(rank)
             .with_preview_enabled(true);
         let redraw = self.update(&cx, false, deadline);
@@ -218,19 +217,19 @@ impl<P: Preview<&'static str>> TestSession<P> {
         redraw
     }
 
-    pub(crate) fn update_at<R>(
+    pub(crate) fn update_at(
         &mut self,
         rank: Option<u32>,
-        engine: &MatchEngine<&'static str, R>,
+        matches: Matches<'_, &'static str>,
         deadline: Instant,
     ) -> bool {
-        let cx = Context::new(engine)
+        let cx = Context::new(matches)
             .with_rank(rank)
             .with_preview_enabled(true);
         self.update(&cx, false, deadline)
     }
 
-    pub(crate) fn handle_at(&mut self, event: PreviewEvent, hovered: Option<u32>) -> bool {
+    pub(crate) fn handle_at(&mut self, event: PreviewEvent, hovered: Option<ItemId>) -> bool {
         self.state.preview.handle_event(hovered, event)
     }
 }
@@ -328,13 +327,7 @@ impl Preview<&'static str> for TestPreviewer {
 pub(crate) fn settle<I>(picker: &mut Picker<&'static str, StrRenderer, I>) {
     let start = std::time::Instant::now();
     loop {
-        let status = picker.core.engine.update(5);
-        if status.items_changed {
-            picker.core.list_state.layout.update_items(
-                picker.core.engine.snapshot(),
-                &picker.core.list_state.config,
-            );
-        }
+        let status = picker.update_matches(Duration::from_millis(5));
         if !status.matching {
             break;
         }
@@ -352,21 +345,11 @@ pub(crate) fn picker(
         .picker(StrRenderer);
     picker.push_batch(items);
     settle(&mut picker);
-    picker.core.list_state.layout.resize(
-        picker.core.engine.snapshot(),
-        8,
-        &picker.core.list_state.config,
-    );
     picker
 }
 
-pub(crate) fn hovered_index(picker: &Picker<&'static str, StrRenderer>) -> Option<u32> {
-    picker
-        .core
-        .list_state
-        .layout
-        .rank(picker.core.engine.snapshot())
-        .map(|n| picker.core.engine.idx_from_match(n))
+pub(crate) fn id_at<I>(picker: &Picker<&'static str, StrRenderer, I>, rank: u32) -> ItemId {
+    picker.matches().get(rank as usize).unwrap().id()
 }
 
 pub(crate) fn preview_pane<P: Preview<&'static str>>(previewer: P) -> TestSession<P> {
@@ -377,17 +360,14 @@ pub(crate) fn update(
     application: &mut TestSession<TestPreviewer>,
     picker: &mut Picker<&'static str, StrRenderer>,
 ) -> bool {
-    let rank = picker
-        .core
-        .list_state
-        .layout
-        .rank(picker.core.engine.snapshot());
-    application.update_at(rank, &picker.core.engine, Instant::now())
+    let matches = picker.matches();
+    let rank = (!matches.is_empty()).then_some(0);
+    application.update_at(rank, matches, Instant::now())
 }
 
 #[cfg(feature = "unstable-backend")]
 impl<P> TestSession<P> {
-    pub(crate) fn test_cache(&mut self) -> &mut LruCache<u32, Cached> {
+    pub(crate) fn test_cache(&mut self) -> &mut LruCache<ItemId, Cached> {
         &mut self.state.preview.cache
     }
 

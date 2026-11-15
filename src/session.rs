@@ -186,13 +186,13 @@
 //! iterator being an [`ExactSizeIterator`].
 //!
 //! ```no_run
-//! use nucleo_picker::{Interface, Picker, Render, error::PickError};
+//! use nucleo_picker::{Interface, KeybindDefault, Picker, Render, error::PickError};
 //!
 //! fn print_selection<T, R, I>(picker: &mut Picker<T, R, I>) -> Result<(), PickError>
 //! where
 //!     T: Send + Sync + 'static + std::fmt::Display,
 //!     R: Render<T>,
-//!     I: Interface<T>,
+//!     I: Interface<T> + KeybindDefault,
 //! {
 //!     for item in picker.pick()? {
 //!         println!("{item}");
@@ -202,7 +202,6 @@
 //! ```
 
 mod context;
-mod core;
 mod item;
 mod matches;
 mod redraw;
@@ -210,13 +209,7 @@ mod run;
 #[cfg(test)]
 mod tests;
 
-use std::{
-    io::{self, BufWriter, IsTerminal},
-    num::NonZero,
-    time::Instant,
-};
-
-use crossterm::event::KeyEvent;
+use std::{num::NonZero, time::Instant};
 
 #[cfg(feature = "preview-cache")]
 pub use crate::interface::{CachedPreview, CachedPreviewState};
@@ -225,22 +218,17 @@ pub use crate::interface::{
 };
 pub use crate::rect::Dimensions;
 pub use context::Context;
-pub(crate) use core::PickerCore;
 pub use item::{ItemId, ItemRef, OwnedItem};
 pub use matches::Matches;
 pub use redraw::Redraw;
 
+#[cfg(doc)]
+use crate::event::Event;
 #[cfg(all(doc, feature = "preview-cache"))]
 use crate::preview::Preview;
 use crate::preview::{Content, PreviewEvent};
 #[cfg(doc)]
-use crate::{Picker, Selection};
-use crate::{
-    Render,
-    error::PickError,
-    event::{Event, EventSource, StdinReader},
-    terminal::CrosstermTerminal,
-};
+use crate::{Picker, Render, Selection};
 
 /// Generics for the picker interface.
 ///
@@ -422,17 +410,6 @@ pub trait Interface<T>: Sized {
     /// height 0 if the preview pane if the preview pane is very small), or `None` if the preview
     /// pane is hidden.
     fn preview_resize(&mut self, _state: &mut Self::State, _size: Option<Dimensions>) {}
-
-    /// The default keybindings for this interface.
-    ///
-    /// This method is generic over the abort type `A` for compatibility with arbitrary application
-    /// errors. Interfaces use this to specialize event handling to only emit events which this
-    /// specific interface requires. See the
-    /// [keybind specialization documentation](crate::event::keybind_default#specialized-bindings)
-    /// for more details.
-    fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>> {
-        crate::event::keybind_default(key)
-    }
 }
 
 /// The status on successful session exit.
@@ -495,46 +472,4 @@ impl MatchStatus {
     pub fn is_complete(&self) -> bool {
         !self.matching && !self.injecting
     }
-}
-
-#[inline]
-pub(crate) fn pick_with_keybind<'a, T, R, I, F>(
-    core: &'a mut PickerCore<T, R>,
-    interface: &mut I,
-    keybind: F,
-) -> Result<I::Output<'a>, PickError>
-where
-    T: Send + Sync + 'static,
-    R: Render<T>,
-    I: Interface<T>,
-    F: FnMut(KeyEvent) -> Option<Event>,
-{
-    let stderr = io::stderr().lock();
-    if stderr.is_terminal() {
-        pick_with_io(
-            core,
-            interface,
-            StdinReader::new(keybind),
-            &mut BufWriter::new(stderr),
-        )
-    } else {
-        Err(PickError::NotInteractive)
-    }
-}
-
-#[inline]
-pub(crate) fn pick_with_io<'a, T, R, I, E, W>(
-    core: &'a mut PickerCore<T, R>,
-    interface: &mut I,
-    event_source: E,
-    writer: &mut W,
-) -> Result<I::Output<'a>, PickError<E::AbortErr>>
-where
-    T: Send + Sync + 'static,
-    R: Render<T>,
-    I: Interface<T>,
-    E: EventSource,
-    W: io::Write,
-{
-    core.pick_impl(event_source, &mut CrosstermTerminal::new(writer), interface)
 }

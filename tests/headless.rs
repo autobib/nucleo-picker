@@ -6,7 +6,7 @@ use std::{
 };
 
 use nucleo_picker::{
-    Injector, Picker, PickerOptions,
+    Driver, DriverOptions, Injector, Picker, PickerOptions,
     render::StrRenderer,
     session::{MatchStatus, Matches},
 };
@@ -15,6 +15,49 @@ fn options() -> PickerOptions {
     PickerOptions::new()
         .threads(NonZero::new(1))
         .sort_results(false)
+}
+
+#[test]
+fn driver_supports_headless_matching_and_reuse_without_an_interface() {
+    const OPTIONS: DriverOptions = DriverOptions::new()
+        .threads(NonZero::new(1))
+        .sort_results(false)
+        .reverse_items(true);
+
+    let mut driver = OPTIONS.query("^a").driver(StrRenderer);
+    driver.extend(["alpha", "beta", "apricot"].map(str::to_owned));
+    assert!(
+        driver
+            .filter()
+            .unwrap()
+            .iter()
+            .map(|item| item.value().as_str())
+            .eq(["apricot", "alpha"])
+    );
+    let id = driver.matches().get(0).unwrap().id();
+    let retained = driver.matches().owned_item(id).unwrap();
+    assert!(driver.update_matches(Duration::ZERO).is_complete());
+
+    driver.update_query("^beta$");
+    assert_eq!(driver.filter().unwrap().get(0).unwrap().value(), "beta");
+    driver.reset_renderer(StrRenderer);
+    assert_eq!(driver.query(), "^beta$");
+    assert!(driver.matches().is_empty());
+    driver.push_batch(["beta".to_owned()]);
+    assert_eq!(driver.filter().unwrap().len(), 1);
+    assert!(driver.matches().item(id).is_none());
+
+    driver.restart();
+    assert_eq!(driver.query(), "");
+    let observer = driver.injector_observer(true);
+    observer.recv().unwrap().push("new".to_owned());
+    assert_eq!(driver.filter().unwrap().get(0).unwrap().value(), "new");
+    drop(driver);
+    assert_eq!(retained.item_ref().value(), "apricot");
+
+    let mut driver = Driver::new(StrRenderer);
+    driver.push_batch(["default"]);
+    assert_eq!(driver.filter().unwrap().get(0).unwrap().value(), &"default");
 }
 
 fn update_until(

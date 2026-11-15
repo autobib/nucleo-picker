@@ -351,7 +351,7 @@ fn preview_adapter_combines_redraw_masks_and_preserves_them_while_hidden() {
         picker: &Picker<&'static str, StrRenderer>,
         mut interface: I,
     ) {
-        let mut state = interface.init(&Context::new(&picker.core.engine));
+        let mut state = interface.init(&Context::new(picker.matches()));
         let deadline = Instant::now();
         for (enabled, rank, changed) in [
             (true, 0, true),
@@ -360,7 +360,7 @@ fn preview_adapter_combines_redraw_masks_and_preserves_them_while_hidden() {
             (false, 1, false),
             (true, 1, true),
         ] {
-            let cx = Context::new(&picker.core.engine)
+            let cx = Context::new(picker.matches())
                 .with_rank(Some(rank))
                 .with_preview_enabled(enabled);
             let expected = if changed {

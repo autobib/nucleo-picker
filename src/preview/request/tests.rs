@@ -1,5 +1,5 @@
 use super::*;
-use crate::{Picker, preview::lock::Poll, render::StrRenderer};
+use crate::{Picker, preview::lock::Poll, render::StrRenderer, session::Context};
 use std::{
     collections::{BTreeSet, HashMap},
     sync::{
@@ -8,12 +8,13 @@ use std::{
     },
 };
 
-fn request<T: Send + Sync + 'static, R>(picker: &Picker<T, R>, index: u32) -> Request<'_, T> {
+fn request<T: Send + Sync + 'static, R>(picker: &Picker<T, R>, rank: u32) -> Request<'_, T> {
+    let matches = picker.matches();
     Request {
         buffer: Buffer::new(),
         epoch: 0,
-        snapshot: picker.core.engine.snapshot(),
-        id: picker.core.engine.item_id(index),
+        matches,
+        id: matches.get(rank as usize).unwrap().id(),
     }
 }
 
@@ -35,7 +36,8 @@ fn request_transitions_preserve_identity_and_publication() {
     let id = item.id();
     assert_eq!(request.id(), id);
     assert!(std::ptr::eq(request.item(), item.value()));
-    let hovered = picker.core.engine.item_ref(0).unwrap();
+    let cx = Context::new(picker.matches()).with_rank(Some(0));
+    let hovered = cx.hovered().unwrap();
     assert_eq!(hovered.id(), id);
     assert!(std::ptr::eq(hovered.value(), item.value()));
     let (pending, queued) = request.defer();
@@ -76,7 +78,7 @@ fn failed_publication_preserves_item_id_and_buffer() {
     for publish_before_restart in [false, true] {
         let mut picker = Picker::new(StrRenderer);
         picker.push_batch([String::from("alpha")]);
-        while picker.core.engine.update(5).matching {}
+        picker.filter().unwrap();
         let request = request(&picker, 0);
         let id = request.id();
         let item = request.item() as *const String;
@@ -157,7 +159,7 @@ fn cancelled_request_retains_item_and_id_after_restart_and_picker_drop() {
         picker.push_batch([Item {
             dropped: Arc::clone(&dropped),
         }]);
-        while picker.core.engine.update(5).matching {}
+        picker.filter().unwrap();
         let original = request(&picker, 0);
         let id = original.id();
         let (pending, queued) = original.defer();

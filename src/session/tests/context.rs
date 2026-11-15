@@ -15,11 +15,11 @@ fn context_tracks_rank_identity_and_match_publication() {
         .sort_results(false)
         .query("ta")
         .picker(StrRenderer);
-    assert!(!Context::new(&picker.core.engine).preview_enabled());
+    assert!(!Context::new(picker.matches()).preview_enabled());
     picker.push_batch(["alpha", "beta", "delta"]);
-    assert!(Context::new(&picker.core.engine).matches().is_empty());
+    assert!(Context::new(picker.matches()).matches().is_empty());
     picker.filter().unwrap();
-    let cx = Context::new(&picker.core.engine);
+    let cx = Context::new(picker.matches());
     assert!(cx.hovered().is_none());
     assert_eq!(cx.rank(), None);
     let cx = cx.with_rank(Some(1));
@@ -31,14 +31,14 @@ fn context_tracks_rank_identity_and_match_publication() {
     let ids: Vec<_> = cx.matches().ids().collect();
     picker.filter().unwrap();
     assert!(
-        Context::new(&picker.core.engine)
+        Context::new(picker.matches())
             .matches()
             .ids()
             .eq(ids.iter().copied())
     );
 
     picker.update_query("delta");
-    let cx = Context::new(&picker.core.engine).with_rank(Some(0));
+    let cx = Context::new(picker.matches()).with_rank(Some(0));
     assert_eq!(cx.hovered().unwrap().value(), &"beta");
     assert_eq!(cx.matches().len(), 2);
     assert!(cx.matches().ids().eq(ids));
@@ -52,23 +52,23 @@ fn context_tracks_rank_identity_and_match_publication() {
         assert!(start.elapsed() < Duration::from_secs(5));
         std::thread::yield_now();
     }
-    let cx = Context::new(&picker.core.engine).with_rank(Some(0));
+    let cx = Context::new(picker.matches()).with_rank(Some(0));
     assert_eq!(cx.hovered().unwrap().value(), &"delta");
     let old_id = cx.hovered().unwrap().id();
 
     picker.restart();
-    let cx = Context::new(&picker.core.engine);
+    let cx = Context::new(picker.matches());
     assert_eq!(cx.matches().len(), 0);
     assert!(cx.matches().item(old_id).is_none());
     picker.restart();
     picker.push_batch(["replacement"]);
     picker.filter().unwrap();
-    let cx = Context::new(&picker.core.engine).with_rank(Some(0));
+    let cx = Context::new(picker.matches()).with_rank(Some(0));
     assert_eq!(cx.hovered().unwrap().value(), &"replacement");
 
     picker.update_query("absent");
     picker.filter().unwrap();
-    let cx = Context::new(&picker.core.engine).with_rank(Some(0));
+    let cx = Context::new(picker.matches()).with_rank(Some(0));
     assert!(cx.hovered().is_none());
     assert_eq!(cx.rank(), None);
 }
@@ -83,7 +83,7 @@ fn shared_matches_and_item_borrows_outlive_the_context() {
     picker.filter().unwrap();
 
     let (matches, hovered, mut items, mut ids) = {
-        let cx = Context::new(&picker.core.engine).with_rank(Some(1));
+        let cx = Context::new(picker.matches()).with_rank(Some(1));
         let matches = cx.matches();
         (
             matches,
@@ -370,7 +370,7 @@ fn events_observe_buffered_navigation_and_published_matches() {
             .picker(StrRenderer);
         picker.push_batch(["alpha", "beta", "delta"]);
         picker.filter().unwrap();
-        let ids: Vec<_> = Context::new(&picker.core.engine).matches().ids().collect();
+        let ids: Vec<_> = picker.matches().ids().collect();
         let navigate = if reversed {
             MatchListEvent::Down(1)
         } else {
@@ -456,13 +456,15 @@ fn queued_selection_retains_the_buffered_hover_and_exit_context() {
 #[test]
 fn selection_without_a_hovered_item_requires_queued_items() {
     for has_queued in [false, true] {
-        let mut picker = PickerOptions::new().query("absent").picker(StrRenderer);
+        let mut picker = PickerOptions::new().picker(StrRenderer);
         picker.push_batch(["alpha"]);
+        let initial = picker.filter().unwrap().get(0).unwrap().id();
+        picker.update_query("absent");
         picker.filter().unwrap();
         let mut observations = Vec::new();
         let mut probe = QueueProbe::new(&mut observations);
         if has_queued {
-            probe.initial = Some(picker.core.engine.item_id(0));
+            probe.initial = Some(initial);
         }
         let mut events = [Event::Select, Event::Quit].into_iter();
         let output = picker
@@ -575,7 +577,7 @@ mod preview {
             .picker(StrRenderer);
         picker.push_batch(["alpha", "beta"]);
         picker.filter().unwrap();
-        let ids: Vec<_> = Context::new(&picker.core.engine).matches().ids().collect();
+        let ids: Vec<_> = picker.matches().ids().collect();
         let events = [
             Ok(Event::MatchList(MatchListEvent::Up(1))),
             Ok(Event::Preview(PreviewEvent::Refresh)),

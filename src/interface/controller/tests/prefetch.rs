@@ -30,7 +30,7 @@ fn prefetch_configuration_is_sampled_once_per_session_across_restarts() {
     let mut session = preview_pane(&mut previewer);
     assert!(session.state.preview.prefetch.is_none());
     for rank in [0, 1, 2, 1, 0] {
-        session.run_frame(Some(rank), &picker.core.engine, deadline());
+        session.run_frame(Some(rank), picker.matches(), deadline());
     }
     assert!(session.interface.previewer.prefetched.is_empty());
     assert_eq!(session.interface.previewer.requested, ["a", "b", "c"]);
@@ -42,7 +42,7 @@ fn prefetch_configuration_is_sampled_once_per_session_across_restarts() {
     session.interface.previewer.prefetch_limit = 0;
     for _ in 0..2 {
         for _ in 0..3 {
-            session.run_frame(Some(0), &picker.core.engine, deadline());
+            session.run_frame(Some(0), picker.matches(), deadline());
         }
         session.restart();
     }
@@ -56,10 +56,10 @@ fn prefetch_configuration_is_sampled_once_per_session_across_restarts() {
 fn neighbours_are_prefetched_in_priority_order_without_redrawing() {
     let picker = picker(["a", "b", "c", "d", "e", "f"]);
     let mut session = pane(3);
-    assert!(session.run_frame(Some(2), &picker.core.engine, Instant::now()));
+    assert!(session.run_frame(Some(2), picker.matches(), Instant::now()));
     assert!(session.interface.previewer.prefetched.is_empty());
     for frame in 0..8 {
-        assert!(!session.run_frame(Some(2), &picker.core.engine, deadline()));
+        assert!(!session.run_frame(Some(2), picker.matches(), deadline()));
         assert_eq!(
             session.interface.previewer.prefetched.len(),
             (frame + 1).min(3)
@@ -78,7 +78,7 @@ fn queued_requests_gate_prefetch_but_active_requests_do_not() {
     session.interface.previewer.defer = true;
     session.interface.previewer.prefetch_defer = true;
     for _ in 0..3 {
-        session.run_frame(Some(2), &picker.core.engine, deadline());
+        session.run_frame(Some(2), picker.matches(), deadline());
     }
     assert!(session.interface.previewer.prefetched.is_empty());
     let hovered = session
@@ -89,7 +89,7 @@ fn queued_requests_gate_prefetch_but_active_requests_do_not() {
         .unwrap();
 
     for _ in 0..3 {
-        session.run_frame(Some(2), &picker.core.engine, deadline());
+        session.run_frame(Some(2), picker.matches(), deadline());
     }
     assert_eq!(session.interface.previewer.prefetched, ["d"]);
     let first = session
@@ -98,7 +98,7 @@ fn queued_requests_gate_prefetch_but_active_requests_do_not() {
         .take_request("d")
         .start()
         .unwrap();
-    session.run_frame(Some(2), &picker.core.engine, deadline());
+    session.run_frame(Some(2), picker.matches(), deadline());
     assert_eq!(session.interface.previewer.prefetched, ["d", "b"]);
     let second = session
         .interface
@@ -106,7 +106,7 @@ fn queued_requests_gate_prefetch_but_active_requests_do_not() {
         .take_request("b")
         .start()
         .unwrap();
-    session.run_frame(Some(2), &picker.core.engine, deadline());
+    session.run_frame(Some(2), picker.matches(), deadline());
     assert_eq!(session.interface.previewer.prefetched, ["d", "b", "e"]);
     assert!(!hovered.is_cancelled());
     assert!(!first.is_cancelled());
@@ -122,7 +122,7 @@ fn queued_requests_gate_prefetch_but_active_requests_do_not() {
             .start()
             .unwrap(),
     );
-    session.run_frame(Some(2), &picker.core.engine, deadline());
+    session.run_frame(Some(2), picker.matches(), deadline());
     assert_eq!(session.interface.previewer.prefetched, ["d", "b", "e", "a"]);
 }
 
@@ -132,10 +132,10 @@ fn navigation_cancels_stale_prefetch_before_submitting_the_new_neighbour() {
         let picker = picker(["a", "b", "c", "d"]);
         let mut session = pane(1);
         session.interface.previewer.prefetch_defer = true;
-        session.run_frame(Some(0), &picker.core.engine, deadline());
+        session.run_frame(Some(0), picker.matches(), deadline());
         let outdated = session.interface.previewer.take_request("b");
         session.interface.previewer.defer = deferred;
-        session.update_at(rank, &picker.core.engine, Instant::now());
+        session.update_at(rank, picker.matches(), Instant::now());
         assert!(outdated.is_cancelled());
         assert_eq!(session.interface.previewer.prefetched, ["b"]);
         if rank.is_some() {
@@ -149,7 +149,7 @@ fn navigation_cancels_stale_prefetch_before_submitting_the_new_neighbour() {
                         .unwrap(),
                 );
             }
-            session.run_frame(rank, &picker.core.engine, deadline());
+            session.run_frame(rank, picker.matches(), deadline());
             assert_eq!(session.interface.previewer.prefetched, ["b", "d"]);
             assert!(!session.interface.previewer.take_request("d").is_cancelled());
         }
@@ -165,15 +165,15 @@ fn hovering_prefetched_items_reuses_started_work_and_retries_unfinished_requests
         let picker = picker(["a", "b", "c", "d"]);
         let mut session = pane(1);
         session.interface.previewer.prefetch_defer = true;
-        session.run_frame(Some(0), &picker.core.engine, deadline());
+        session.run_frame(Some(0), picker.matches(), deadline());
         let (queued, active) = stage.prepare(session.interface.previewer.take_request("b"));
         let mut expected = vec!["a"];
         if detour {
-            session.run_frame(Some(2), &picker.core.engine, deadline());
+            session.run_frame(Some(2), picker.matches(), deadline());
             expected.push("c");
         }
         session.interface.previewer.defer = true;
-        session.run_frame(Some(1), &picker.core.engine, deadline());
+        session.run_frame(Some(1), picker.matches(), deadline());
         if !matches!(stage, Stage::Active | Stage::Published) {
             expected.push("b");
             publish(
@@ -192,7 +192,7 @@ fn hovering_prefetched_items_reuses_started_work_and_retries_unfinished_requests
             assert!(!active.is_cancelled());
             publish(active);
         }
-        session.run_frame(Some(1), &picker.core.engine, deadline());
+        session.run_frame(Some(1), picker.matches(), deadline());
         assert_eq!(
             session.contents(),
             ["b"],
@@ -207,7 +207,7 @@ fn hovering_prefetched_items_reuses_started_work_and_retries_unfinished_requests
                 .as_ref()
                 .unwrap()
                 .cache
-                .contains(&1)
+                .contains(&id_at(&picker, 1))
         );
     }
 }
@@ -218,12 +218,12 @@ fn refresh_before_hovering_invalidates_prefetched_results_and_requests() {
         let picker = picker(["a", "b"]);
         let mut session = pane(1);
         session.interface.previewer.prefetch_defer = stage.is_some();
-        session.run_frame(Some(0), &picker.core.engine, deadline());
+        session.run_frame(Some(0), picker.matches(), deadline());
         let (queued, active) = stage.map_or((None, None), |stage| {
             stage.prepare(session.interface.previewer.take_request("b"))
         });
 
-        session.handle_at(PreviewEvent::Refresh, Some(1));
+        session.handle_at(PreviewEvent::Refresh, Some(id_at(&picker, 1)));
         assert_eq!(session.interface.previewer.requested, ["a"]);
         if let Some(queued) = queued {
             assert!(queued.is_cancelled());
@@ -237,9 +237,9 @@ fn refresh_before_hovering_invalidates_prefetched_results_and_requests() {
         }
 
         session.interface.previewer.lines = 2;
-        assert!(session.run_frame(Some(1), &picker.core.engine, deadline()));
+        assert!(session.run_frame(Some(1), picker.matches(), deadline()));
         assert_eq!(session.contents(), ["b", "b"], "stage={stage:?}");
-        assert!(!session.run_frame(Some(1), &picker.core.engine, deadline()));
+        assert!(!session.run_frame(Some(1), picker.matches(), deadline()));
         assert_eq!(session.interface.previewer.requested, ["a", "b"]);
     }
 }
@@ -252,15 +252,15 @@ fn declining_prefetch_preserves_queued_foreground_requests() {
         prefetch_limit: 4,
         ..TestPreviewer::default()
     });
-    session.run_frame(Some(0), &picker.core.engine, deadline());
+    session.run_frame(Some(0), picker.matches(), deadline());
     let queued = session.interface.previewer.take_request("a");
 
     session.interface.previewer.defer = false;
-    session.run_frame(Some(1), &picker.core.engine, deadline());
+    session.run_frame(Some(1), picker.matches(), deadline());
     assert!(!queued.is_cancelled());
 
     publish(queued.start().unwrap());
-    session.run_frame(Some(0), &picker.core.engine, deadline());
+    session.run_frame(Some(0), picker.matches(), deadline());
     assert_eq!(session.interface.previewer.requested, ["a", "b"]);
     assert_eq!(session.contents(), ["a"]);
 }
@@ -283,17 +283,22 @@ fn prefetch_preserves_main_cache_recency_and_scroll() {
         ..Area::default()
     });
     for rank in [1, 2, 0] {
-        session.run_frame(Some(rank), &picker.core.engine, Instant::now());
+        session.run_frame(Some(rank), picker.matches(), Instant::now());
         if rank == 1 {
-            session.handle_at(PreviewEvent::Down(7), Some(1));
+            session.handle_at(PreviewEvent::Down(7), Some(id_at(&picker, 1)));
         }
     }
-    session.run_frame(Some(0), &picker.core.engine, deadline());
+    session.run_frame(Some(0), picker.matches(), deadline());
     assert!(session.interface.previewer.prefetched.is_empty());
-    let cached = session.state.preview.cache.peek(&1).unwrap();
+    let cached = session
+        .state
+        .preview
+        .cache
+        .peek(&id_at(&picker, 1))
+        .unwrap();
     assert_eq!(cached.pane().unwrap().offset().1, 7);
     for rank in [3, 2, 1] {
-        session.run_frame(Some(rank), &picker.core.engine, Instant::now());
+        session.run_frame(Some(rank), picker.matches(), Instant::now());
     }
     assert_eq!(
         session.interface.previewer.requested,
@@ -318,14 +323,14 @@ fn dropped_prefetches_retry_after_navigation() {
         let picker = picker(["a", "b", "c"]);
         let mut session = pane(1);
         session.interface.previewer.prefetch_defer = true;
-        session.run_frame(Some(0), &picker.core.engine, deadline());
+        session.run_frame(Some(0), picker.matches(), deadline());
         stage.prepare(session.interface.previewer.take_request("b"));
         for _ in 0..3 {
-            session.run_frame(Some(0), &picker.core.engine, deadline());
+            session.run_frame(Some(0), picker.matches(), deadline());
         }
         assert_eq!(session.interface.previewer.prefetched, ["b"]);
-        session.run_frame(Some(2), &picker.core.engine, Instant::now());
-        session.run_frame(Some(0), &picker.core.engine, deadline());
+        session.run_frame(Some(2), picker.matches(), Instant::now());
+        session.run_frame(Some(0), picker.matches(), deadline());
         assert_eq!(session.interface.previewer.prefetched, ["b", "b"]);
         publish(
             session
@@ -335,8 +340,8 @@ fn dropped_prefetches_retry_after_navigation() {
                 .start()
                 .unwrap(),
         );
-        session.run_frame(Some(0), &picker.core.engine, deadline());
-        session.run_frame(Some(1), &picker.core.engine, deadline());
+        session.run_frame(Some(0), picker.matches(), deadline());
+        session.run_frame(Some(1), picker.matches(), deadline());
         assert_eq!(session.interface.previewer.requested, ["a", "c"]);
         assert_eq!(session.contents(), ["b"]);
     }
@@ -348,7 +353,7 @@ fn rejected_prefetches_retry_after_match_changes() {
     let mut session = pane(3);
     session.interface.previewer.prefetch_enabled = false;
     for _ in 0..4 {
-        session.run_frame(Some(0), &picker.core.engine, deadline());
+        session.run_frame(Some(0), picker.matches(), deadline());
     }
     assert_eq!(session.interface.previewer.prefetched, ["b", "c", "d"]);
     assert!(
@@ -363,24 +368,24 @@ fn rejected_prefetches_retry_after_match_changes() {
     );
     session.interface.previewer.prefetch_enabled = true;
     for _ in 0..3 {
-        session.run_frame(Some(0), &picker.core.engine, deadline());
+        session.run_frame(Some(0), picker.matches(), deadline());
     }
     assert_eq!(session.interface.previewer.prefetched, ["b", "c", "d"]);
     picker.push_batch(["e"]);
     settle(&mut picker);
-    let cx = Context::new(&picker.core.engine)
+    let cx = Context::new(picker.matches())
         .with_rank(Some(0))
         .with_preview_enabled(true);
     assert!(!session.update(&cx, true, deadline()));
     for _ in 0..3 {
-        session.run_frame(Some(0), &picker.core.engine, deadline());
+        session.run_frame(Some(0), picker.matches(), deadline());
     }
     assert_eq!(
         session.interface.previewer.prefetched,
         ["b", "c", "d", "b", "c", "d"]
     );
     for (rank, item) in [(1, "b"), (2, "c"), (3, "d")] {
-        session.run_frame(Some(rank), &picker.core.engine, deadline());
+        session.run_frame(Some(rank), picker.matches(), deadline());
         assert_eq!(session.contents(), [item]);
     }
     assert_eq!(session.interface.previewer.requested, ["a"]);
@@ -394,7 +399,7 @@ fn rejected_prefetch_preserves_cached_results_and_active_work() {
         session.interface.previewer.prefetch_defer = deferred;
         let mut active = Vec::new();
         for (rank, item) in [(0, "b"), (2, "d")] {
-            session.run_frame(Some(rank), &picker.core.engine, deadline());
+            session.run_frame(Some(rank), picker.matches(), deadline());
             if deferred {
                 active.push(
                     session
@@ -409,7 +414,7 @@ fn rejected_prefetch_preserves_cached_results_and_active_work() {
 
         session.interface.previewer.prefetch_enabled = false;
         for _ in 0..3 {
-            session.run_frame(Some(4), &picker.core.engine, deadline());
+            session.run_frame(Some(4), picker.matches(), deadline());
         }
         assert_eq!(session.interface.previewer.prefetched, ["b", "d", "f"]);
         for request in active {
@@ -417,7 +422,7 @@ fn rejected_prefetch_preserves_cached_results_and_active_work() {
             publish(request);
         }
         for (rank, item) in [(1, "b"), (3, "d")] {
-            session.run_frame(Some(rank), &picker.core.engine, Instant::now());
+            session.run_frame(Some(rank), picker.matches(), Instant::now());
             assert_eq!(session.contents(), [item]);
         }
         assert_eq!(session.interface.previewer.requested, ["a", "c", "e"]);
@@ -431,19 +436,19 @@ fn hidden_match_changes_retain_retries_for_an_unchanged_neighbour_window() {
         let mut session = pane(1);
         session.interface.previewer.prefetch_enabled = stage.is_some();
         session.interface.previewer.prefetch_defer = stage.is_some();
-        session.run_frame(Some(0), &picker.core.engine, deadline());
+        session.run_frame(Some(0), picker.matches(), deadline());
         if let Some(stage) = stage {
             stage.prepare(session.interface.previewer.take_request("b"));
         }
         for _ in 0..2 {
-            session.run_frame(Some(0), &picker.core.engine, deadline());
+            session.run_frame(Some(0), picker.matches(), deadline());
         }
         assert_eq!(session.interface.previewer.prefetched, ["b"]);
 
         picker.push_batch(["d"]);
         settle(&mut picker);
         session.hide();
-        let hidden = Context::new(&picker.core.engine).with_rank(Some(0));
+        let hidden = Context::new(picker.matches()).with_rank(Some(0));
         for changed in [true, false, false] {
             assert!(!session.update(&hidden, changed, deadline()));
             session.prefetch(&hidden, deadline());
@@ -454,7 +459,7 @@ fn hidden_match_changes_retain_retries_for_an_unchanged_neighbour_window() {
         session.interface.previewer.prefetch_enabled = true;
         session.interface.previewer.prefetch_defer = false;
         for _ in 0..3 {
-            assert!(!session.run_frame(Some(0), &picker.core.engine, deadline()));
+            assert!(!session.run_frame(Some(0), picker.matches(), deadline()));
         }
         assert_eq!(
             session.interface.previewer.prefetched,
@@ -462,7 +467,7 @@ fn hidden_match_changes_retain_retries_for_an_unchanged_neighbour_window() {
             "stage={stage:?}"
         );
         assert_eq!(session.interface.previewer.requested, ["a"]);
-        session.run_frame(Some(1), &picker.core.engine, deadline());
+        session.run_frame(Some(1), picker.matches(), deadline());
         assert_eq!(session.contents(), ["b"]);
         assert_eq!(session.interface.previewer.requested, ["a"]);
     }
@@ -510,7 +515,7 @@ fn hovered_prefetch_is_promoted_before_queued_work_is_cancelled() {
             },
             active: None,
         });
-        session.run_frame(Some(0), &picker.core.engine, deadline());
+        session.run_frame(Some(0), picker.matches(), deadline());
         let rank = if matches_changed {
             picker.update_query("beta");
             settle(&mut picker);
@@ -518,7 +523,7 @@ fn hovered_prefetch_is_promoted_before_queued_work_is_cancelled() {
         } else {
             1
         };
-        let cx = Context::new(&picker.core.engine)
+        let cx = Context::new(picker.matches())
             .with_rank(Some(rank))
             .with_preview_enabled(true);
         assert!(session.update(&cx, matches_changed, deadline()));
@@ -539,7 +544,7 @@ fn immediately_dropped_prefetches_are_accepted_at_most_once_per_update() {
     session.interface.previewer.prefetch_defer = true;
     session.interface.previewer.drop_requests = true;
     for count in 1..=8 {
-        session.run_frame(Some(0), &picker.core.engine, deadline());
+        session.run_frame(Some(0), picker.matches(), deadline());
         assert_eq!(session.interface.previewer.prefetched.len(), count.min(3));
     }
     assert_eq!(session.interface.previewer.prefetched, ["b", "c", "d"]);
@@ -554,11 +559,11 @@ fn cached_and_rejected_neighbours_consume_the_per_frame_check_budget() {
         session.interface.previewer.prefetch_enabled = cached;
         if cached {
             for idx in 1..=checks as u32 {
-                session.run_frame(Some(idx), &picker.core.engine, Instant::now());
+                session.run_frame(Some(idx), picker.matches(), Instant::now());
             }
         }
         for expected in counts {
-            session.run_frame(Some(0), &picker.core.engine, deadline());
+            session.run_frame(Some(0), picker.matches(), deadline());
             assert_eq!(
                 session.interface.previewer.prefetched.len(),
                 expected,
@@ -624,7 +629,7 @@ fn declined_buffers_are_reused_through_borrowed_previewers() {
         ..TestPreviewer::default()
     };
     let mut session = preview_pane(&mut previewer);
-    session.run_frame(Some(0), &picker.core.engine, Instant::now());
+    session.run_frame(Some(0), picker.matches(), Instant::now());
     session.state.preview.spare.push_str("reusable buffer");
     let pointer = session
         .state
@@ -635,7 +640,7 @@ fn declined_buffers_are_reused_through_borrowed_previewers() {
         .as_str()
         .as_ptr();
     for _ in 0..2 {
-        session.run_frame(Some(0), &picker.core.engine, deadline());
+        session.run_frame(Some(0), picker.matches(), deadline());
     }
     assert!(
         session
@@ -668,8 +673,8 @@ fn default_prefetch_returns_the_original_buffer_without_rendering() {
     let request = Request {
         buffer,
         epoch: 0,
-        snapshot: picker.core.engine.snapshot(),
-        id: picker.core.engine.item_id(0),
+        matches: picker.matches(),
+        id: id_at(&picker, 0),
     };
     let Err(buffer) = previewer.prefetch(request, Duration::ZERO) else {
         panic!("default prefetch accepted the request");
@@ -685,15 +690,15 @@ fn filtering_replaces_neighbours_without_regenerating_the_current_preview() {
         let mut picker = picker(["alpha", "beta", "alpine", "alphabet"]);
         let mut session = pane(1);
         session.interface.previewer.prefetch_defer = deferred;
-        session.run_frame(Some(0), &picker.core.engine, deadline());
+        session.run_frame(Some(0), picker.matches(), deadline());
         let outdated = deferred.then(|| session.interface.previewer.take_request("beta"));
         picker.update_query("al");
         settle(&mut picker);
-        let cx = Context::new(&picker.core.engine)
+        let cx = Context::new(picker.matches())
             .with_rank(Some(0))
             .with_preview_enabled(true);
         assert!(!session.update(&cx, true, deadline()));
-        session.run_frame(Some(0), &picker.core.engine, deadline());
+        session.run_frame(Some(0), picker.matches(), deadline());
         if let Some(outdated) = outdated {
             assert!(outdated.is_cancelled());
             publish(
@@ -707,7 +712,7 @@ fn filtering_replaces_neighbours_without_regenerating_the_current_preview() {
         }
         assert_eq!(session.interface.previewer.prefetched, ["beta", "alpine"]);
         assert_eq!(session.interface.previewer.hovered, [Some("alpha")]);
-        session.run_frame(Some(1), &picker.core.engine, Instant::now());
+        session.run_frame(Some(1), picker.matches(), Instant::now());
         assert_eq!(session.contents(), ["alpine"]);
         assert_eq!(session.interface.previewer.requested, ["alpha"]);
     }
@@ -724,15 +729,15 @@ fn prefetch_eviction_and_hovered_item_promotion_reuse_buffers() {
             ..TestPreviewer::default()
         },
     );
-    session.run_frame(Some(0), &picker.core.engine, deadline());
+    session.run_frame(Some(0), picker.matches(), deadline());
     let cache = &session.state.preview.prefetch.as_ref().unwrap().cache;
-    let first = allocation(cache.peek(&1).unwrap());
+    let first = allocation(cache.peek(&id_at(&picker, 1)).unwrap());
     for rank in [3, 6] {
-        session.run_frame(Some(rank), &picker.core.engine, deadline());
+        session.run_frame(Some(rank), picker.matches(), deadline());
     }
     let cache = &session.state.preview.prefetch.as_ref().unwrap().cache;
     assert_eq!(cache.len(), 2);
-    assert!(!cache.contains(&1));
+    assert!(!cache.contains(&id_at(&picker, 1)));
     assert_eq!(
         session
             .state
@@ -744,10 +749,17 @@ fn prefetch_eviction_and_hovered_item_promotion_reuse_buffers() {
             .as_ptr(),
         first
     );
-    let promoted = allocation(cache.peek(&7).unwrap());
-    session.run_frame(Some(7), &picker.core.engine, deadline());
+    let promoted = allocation(cache.peek(&id_at(&picker, 7)).unwrap());
+    session.run_frame(Some(7), picker.matches(), deadline());
     assert_eq!(
-        allocation(session.state.preview.cache.peek(&7).unwrap()),
+        allocation(
+            session
+                .state
+                .preview
+                .cache
+                .peek(&id_at(&picker, 7))
+                .unwrap()
+        ),
         promoted
     );
     assert!(
@@ -758,9 +770,9 @@ fn prefetch_eviction_and_hovered_item_promotion_reuse_buffers() {
             .as_ref()
             .unwrap()
             .cache
-            .contains(&7)
+            .contains(&id_at(&picker, 7))
     );
-    session.run_frame(Some(4), &picker.core.engine, deadline());
+    session.run_frame(Some(4), picker.matches(), deadline());
     assert_eq!(session.interface.previewer.requested, ["a", "d", "g"]);
     assert_eq!(
         session.interface.previewer.prefetched,
@@ -771,7 +783,12 @@ fn prefetch_eviction_and_hovered_item_promotion_reuse_buffers() {
         Some(&promoted)
     );
     assert_eq!(session.state.preview.cache.len(), 1);
-    let cached = session.state.preview.cache.peek(&4).unwrap();
+    let cached = session
+        .state
+        .preview
+        .cache
+        .peek(&id_at(&picker, 4))
+        .unwrap();
     assert_eq!(cached.pane().unwrap().offset(), (0, 0));
 }
 
@@ -780,21 +797,21 @@ fn eviction_cancels_active_prefetches() {
     let picker = picker(["a", "b", "c", "d", "e", "f"]);
     let mut session = pane(1);
     session.interface.previewer.prefetch_defer = true;
-    session.run_frame(Some(0), &picker.core.engine, deadline());
+    session.run_frame(Some(0), picker.matches(), deadline());
     let first = session
         .interface
         .previewer
         .take_request("b")
         .start()
         .unwrap();
-    session.run_frame(Some(2), &picker.core.engine, deadline());
+    session.run_frame(Some(2), picker.matches(), deadline());
     let second = session
         .interface
         .previewer
         .take_request("d")
         .start()
         .unwrap();
-    session.run_frame(Some(4), &picker.core.engine, deadline());
+    session.run_frame(Some(4), picker.matches(), deadline());
     assert!(first.is_cancelled());
     assert!(!second.is_cancelled());
     let mut buffer = Buffer::new();

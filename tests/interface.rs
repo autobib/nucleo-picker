@@ -8,7 +8,7 @@ use std::{
 };
 
 use nucleo_picker::{
-    Interface, Multi, PickerOptions, Single, Terminal, UncachedPreview,
+    DriverOptions, Interface, Multi, PickerOptions, Single, Terminal, UncachedPreview,
     event::{Event, EventSource, LayoutEvent, MatchListEvent, RecvError},
     preview::{Content, Pane, PreviewEvent},
     render::StrRenderer,
@@ -72,6 +72,161 @@ impl<I: Iterator<Item = Result<Event<&'static str>, RecvError>>> EventSource for
 
     fn recv_timeout(&mut self, _: Duration) -> Result<Event<Self::AbortErr>, RecvError> {
         self.0.next().expect("event script exhausted")
+    }
+}
+
+#[test]
+fn driver_output_outlives_a_temporary_interface() {
+    struct Last<'a>(&'a Cell<bool>);
+
+    impl Interface<String> for Last<'_> {
+        type State = ();
+        type Output<'a> = Option<&'a String>;
+
+        fn init(&mut self, _: &Context<'_, String>) {}
+
+        fn on_end(&mut self, _: &mut ()) {
+            self.0.set(true);
+        }
+
+        fn finish<'a>(&mut self, (): (), exit: Exit, cx: Context<'a, String>) -> Self::Output<'a> {
+            assert!(self.0.get());
+            assert!(matches!(exit, Exit::Selected(Some(_))));
+            cx.matches().iter().next_back().map(|item| item.value())
+        }
+    }
+
+    let mut driver = DriverOptions::new().sort_results(false).driver(StrRenderer);
+    driver.push_batch(["alpha", "beta"].map(str::to_owned));
+    driver.filter().unwrap();
+    let selected = {
+        let ended = Cell::new(false);
+        let mut interface = Last(&ended);
+        let mut terminal = TestTerminal::default();
+        driver
+            .pick_with_terminal_io(
+                &mut interface,
+                Script([Ok(Event::Select)].into_iter()),
+                &mut terminal,
+            )
+            .unwrap()
+    };
+    assert_eq!(selected.unwrap(), "beta");
+
+    driver.update_query("^alpha$");
+    driver.filter().unwrap();
+    let selected = driver
+        .pick_with_terminal_io(
+            &mut Single,
+            Script([Ok(Event::Select)].into_iter()),
+            &mut TestTerminal::default(),
+        )
+        .unwrap();
+    assert_eq!(selected.unwrap(), "alpha");
+}
+
+#[test]
+fn selection_defaults_survive_picker_and_view_conversions() {
+    const OPTIONS: PickerOptions = PickerOptions::new()
+        .threads(NonZero::new(1))
+        .sort_results(false)
+        .max_selection_count(NonZero::new(1));
+
+    fn events() -> impl EventSource<AbortErr = &'static str> {
+        Script(
+            [
+                Ok(Event::MatchList(MatchListEvent::QueueMatches)),
+                Ok(Event::Select),
+            ]
+            .into_iter(),
+        )
+    }
+
+    let mut picker = OPTIONS
+        .picker(StrRenderer)
+        .multi()
+        .single()
+        .with_interface(Single);
+    picker.push_batch(["alpha", "beta"]);
+    picker.filter().unwrap();
+    let selected = picker
+        .as_multi()
+        .pick_with_terminal_io(events(), &mut TestTerminal::default())
+        .unwrap();
+    assert!(selected.into_iter().copied().eq(["alpha"]));
+
+    let mut picker = picker.multi();
+    let selected = picker
+        .pick_with_terminal_io(events(), &mut TestTerminal::default())
+        .unwrap();
+    assert!(selected.into_iter().copied().eq(["alpha"]));
+
+    let selected = picker
+        .as_single()
+        .with_interface(Multi::new())
+        .pick_with_terminal_io(events(), &mut TestTerminal::default())
+        .unwrap();
+    assert!(selected.into_iter().copied().eq(["alpha", "beta"]));
+}
+
+#[cfg(feature = "preview-cache")]
+#[test]
+fn preview_defaults_survive_rewrapping_and_borrowed_conversions() {
+    use nucleo_picker::preview::SyncPreviewer;
+
+    for capacity in [NonZero::new(1), NonZero::new(2), None] {
+        let generated = RefCell::new(Vec::new());
+        let previewer = SyncPreviewer(|item: &&'static str, pane: &mut Pane| {
+            generated.borrow_mut().push(*item);
+            pane.push_text(item);
+        });
+        let options = DriverOptions::new()
+            .threads(NonZero::new(1))
+            .sort_results(false)
+            .frame_interval(Duration::from_secs(5));
+        let picker = PickerOptions::from(options)
+            .max_selection_count(NonZero::new(1))
+            .preview_cache_size(capacity)
+            .picker(StrRenderer)
+            .with_preview(previewer)
+            .multi()
+            .single();
+        let (picker, previewer) = picker.into_parts();
+        let mut picker = picker
+            .with_preview(())
+            .without_preview()
+            .with_preview(previewer)
+            .multi();
+        picker.push_batch(["alpha", "beta"]);
+        picker.filter().unwrap();
+
+        let selected = picker
+            .as_single()
+            .multi()
+            .single()
+            .multi()
+            .pick_with_terminal_io(
+                Script(
+                    [
+                        Ok(Event::MatchList(MatchListEvent::Up(1))),
+                        Err(RecvError::Timeout),
+                        Ok(Event::MatchList(MatchListEvent::Down(1))),
+                        Err(RecvError::Timeout),
+                        Ok(Event::MatchList(MatchListEvent::QueueMatches)),
+                        Ok(Event::Select),
+                    ]
+                    .into_iter(),
+                ),
+                &mut TestTerminal::default(),
+            )
+            .unwrap();
+        assert!(selected.into_iter().copied().eq(["alpha"]));
+        let expected = if capacity == NonZero::new(1) {
+            &["alpha", "beta", "alpha"][..]
+        } else {
+            &["alpha", "beta"][..]
+        };
+        assert_eq!(&*generated.borrow(), expected);
     }
 }
 

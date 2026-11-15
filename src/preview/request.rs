@@ -104,12 +104,12 @@
 //!
 //! The item for which the preview was originally requested is always available using an associated
 //! `item` method; see [`Request::item`], [`QueuedRequest::item`], and
-//! [`ActiveRequest::item`]. Internally, the requests use atomic reference counting to
+//! [`ActiveRequest::item`]. Internally, the the deferred request types use atomic reference counting to
 //! hold on to the underlying item pool (shared with the picker) as long as any request is
 //! not dropped. This means that the items will remain in memory even if the picker shuts down,
 //! if there are any remaining requests which have not been dropped.
 
-use nucleo::{DetachedItem, Snapshot};
+use crate::session::{Matches, OwnedItem};
 use std::fmt;
 
 use super::{
@@ -136,7 +136,7 @@ pub enum Response {
 pub struct Request<'a, T> {
     pub(crate) buffer: Buffer,
     pub(crate) epoch: u64,
-    pub(crate) snapshot: &'a Snapshot<T>,
+    pub(crate) matches: Matches<'a, T>,
     pub(crate) id: ItemId,
 }
 
@@ -145,8 +145,7 @@ pub struct Request<'a, T> {
 /// See the [module-level documentation](crate::preview::request) for more detail.
 pub struct QueuedRequest<T> {
     writer: QueuedWriter<Pane>,
-    item: DetachedItem<T>,
-    id: ItemId,
+    item: OwnedItem<T>,
 }
 
 /// A preview request that is currently being processed.
@@ -154,8 +153,7 @@ pub struct QueuedRequest<T> {
 /// See the [module-level documentation](crate::preview::request) for more detail.
 pub struct ActiveRequest<T> {
     writer: ActiveWriter<Pane>,
-    item: DetachedItem<T>,
-    id: ItemId,
+    item: OwnedItem<T>,
 }
 
 /// A preview request that was cancelled by the picker.
@@ -163,8 +161,7 @@ pub struct ActiveRequest<T> {
 /// This retains the original item and keeps the item pool alive until dropped. See the
 /// [module-level documentation](crate::preview::request) for more detail.
 pub struct CancelledRequest<T> {
-    item: DetachedItem<T>,
-    id: ItemId,
+    item: OwnedItem<T>,
 }
 
 /// A subscription to a pending preview.
@@ -198,23 +195,19 @@ impl<'a, T: Send + Sync + 'static> Request<'a, T> {
         let Self {
             buffer,
             epoch,
-            snapshot,
+            matches,
             id,
         } = self;
-        // SAFETY: the request index is initialized in this snapshot, whose borrow prevents restart.
-        let item = unsafe { snapshot.get_detached_item_unchecked(id.index) };
+        // SAFETY: the request index is initialized in this matches, whose borrow prevents restart.
+        let item = unsafe { matches.owned_item_unchecked(id) };
         let (reader, writer) = request(buffer.into_pane());
-        (
-            Pending { reader, epoch },
-            QueuedRequest { writer, item, id },
-        )
+        (Pending { reader, epoch }, QueuedRequest { writer, item })
     }
 
     /// The item corresponding to the request.
     #[inline]
     pub fn item(&self) -> &'a T {
-        // SAFETY: the index is guaranteed to be valid for this snapshot
-        unsafe { self.snapshot.get_item_unchecked(self.id.index).data }
+        self.item_ref().value()
     }
 
     /// Returns a unique identifier for the item in this request.
@@ -225,7 +218,8 @@ impl<'a, T: Send + Sync + 'static> Request<'a, T> {
     /// Returns the item corresponding to this request along with its identifier.
     #[inline]
     pub fn item_ref(&self) -> ItemRef<'a, T> {
-        ItemRef::new(self.id, self.item())
+        // SAFETY: the index is guaranteed to be valid for the matches view
+        unsafe { self.matches.item_unchecked(self.id) }
     }
 }
 
@@ -238,10 +232,10 @@ impl<T: Send + Sync + 'static> QueuedRequest<T> {
     ///
     /// This method fails if the picker cancelled the request before it could start.
     pub fn start(self) -> Result<ActiveRequest<T>, CancelledRequest<T>> {
-        let Self { writer, item, id } = self;
+        let Self { writer, item } = self;
         match writer.start() {
-            Some(writer) => Ok(ActiveRequest { writer, item, id }),
-            None => Err(CancelledRequest { item, id }),
+            Some(writer) => Ok(ActiveRequest { writer, item }),
+            None => Err(CancelledRequest { item }),
         }
     }
 
@@ -267,18 +261,18 @@ impl<T: Send + Sync + 'static> QueuedRequest<T> {
     /// The item corresponding to the request.
     #[inline]
     pub fn item(&self) -> &T {
-        self.item.item().data
+        self.item.value()
     }
 
     /// Returns a unique identifier for the item in this request.
     pub fn id(&self) -> ItemId {
-        self.id
+        self.item.id()
     }
 
     /// Returns the item corresponding to this request along with its identifier.
     #[inline]
     pub fn item_ref(&self) -> ItemRef<'_, T> {
-        ItemRef::new(self.id, self.item())
+        self.item.item_ref()
     }
 }
 
@@ -294,11 +288,11 @@ impl<T: Send + Sync + 'static> ActiveRequest<T> {
     /// request. If this method returns `Err`, it means that the request was cancelled, in which
     /// case the pane is unmodified.
     pub fn publish(self, pane: &mut Pane) -> Result<(), CancelledRequest<T>> {
-        let Self { writer, item, id } = self;
+        let Self { writer, item } = self;
         if writer.publish(pane) {
             Ok(())
         } else {
-            Err(CancelledRequest { item, id })
+            Err(CancelledRequest { item })
         }
     }
 
@@ -320,18 +314,18 @@ impl<T: Send + Sync + 'static> ActiveRequest<T> {
     /// The item corresponding to the request.
     #[inline]
     pub fn item(&self) -> &T {
-        self.item.item().data
+        self.item.value()
     }
 
     /// Returns a unique identifier for the item in this request.
     pub fn id(&self) -> ItemId {
-        self.id
+        self.item.id()
     }
 
     /// Returns the item corresponding to this request along with its identifier.
     #[inline]
     pub fn item_ref(&self) -> ItemRef<'_, T> {
-        ItemRef::new(self.id, self.item())
+        self.item.item_ref()
     }
 }
 
@@ -339,25 +333,25 @@ impl<T: Send + Sync + 'static> CancelledRequest<T> {
     /// Returns the item corresponding to this request.
     #[inline]
     pub fn item(&self) -> &T {
-        self.item.item().data
+        self.item.value()
     }
 
     /// Returns a unique identifier for the item in this request.
     pub fn id(&self) -> ItemId {
-        self.id
+        self.item.id()
     }
 
     /// Returns the item corresponding to this request along with its identifier.
     #[inline]
     pub fn item_ref(&self) -> ItemRef<'_, T> {
-        ItemRef::new(self.id, self.item())
+        self.item.item_ref()
     }
 }
 
 impl<T> fmt::Debug for CancelledRequest<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CancelledRequest")
-            .field("id", &self.id)
+            .field("id", &self.item.id())
             .finish_non_exhaustive()
     }
 }

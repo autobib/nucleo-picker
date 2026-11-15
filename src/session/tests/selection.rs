@@ -20,7 +20,7 @@ fn pick_multi<'a>(
         sender.send(event).unwrap();
     }
     drop(sender);
-    let mut interface = picker.core.multi_defaults;
+    let mut interface = picker.defaults.multi;
     picker
         .core
         .pick_impl(receiver, &mut TestTerminal::default(), &mut interface)
@@ -101,7 +101,7 @@ fn restart_clears_queued_items_before_reusing_indices() {
         .picker(StrRenderer);
     picker.push_batch(["original"]);
     picker.filter().unwrap();
-    let original = picker.core.engine.item_id(0);
+    let original = picker.matches().get(0).unwrap().id();
     let injectors = picker.injector_observer(false);
     let statuses = picker.status_observer();
     let mut initial = [
@@ -134,7 +134,7 @@ fn restart_clears_queued_items_before_reusing_indices() {
         .unwrap();
     assert!(selected.into_iter().copied().eq(["replacement"]));
 
-    let cx = Context::new(&picker.core.engine);
+    let cx = Context::new(picker.matches());
     assert!(cx.matches().item(original).is_none());
     let replacement = cx.matches().ids().next().unwrap();
     assert_ne!(replacement, original);

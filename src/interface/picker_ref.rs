@@ -2,16 +2,17 @@ use std::io;
 
 use crossterm::event::KeyEvent;
 
-use super::Single;
 #[cfg(feature = "preview-cache")]
 use super::{CachedPreview, Multi};
+use super::{InterfaceDefaults, Single};
 #[cfg(feature = "unstable-backend")]
 use crate::Terminal;
 use crate::{
-    Render,
+    Driver, KeybindDefault, Render,
     error::PickError,
     event::{Event, EventSource},
-    session::{Interface, PickerCore, pick_with_io, pick_with_keybind},
+    input,
+    session::Interface,
 };
 
 /// A temporary view of a picker with a different interface.
@@ -41,8 +42,9 @@ use crate::{
 /// }
 /// ```
 pub struct PickerRef<'a, T, R, I = Single> {
-    pub(crate) core: &'a mut PickerCore<T, R>,
+    pub(crate) core: &'a mut Driver<T, R>,
     pub(crate) interface: I,
+    pub(crate) defaults: InterfaceDefaults,
 }
 
 impl<'a, T, R, I> PickerRef<'a, T, R, I>
@@ -55,8 +57,11 @@ where
     ///
     /// See the documentation for [`Picker::pick`](crate::Picker::pick) for more details on the behaviour.
     #[inline]
-    pub fn pick(self) -> Result<I::Output<'a>, PickError> {
-        self.pick_with_keybind(I::keybind_default)
+    pub fn pick(mut self) -> Result<I::Output<'a>, PickError>
+    where
+        I: KeybindDefault,
+    {
+        input::pick(self.core, &mut self.interface)
     }
 
     /// Run the picker interactively using custom keybindings.
@@ -68,7 +73,7 @@ where
     where
         F: FnMut(KeyEvent) -> Option<Event>,
     {
-        pick_with_keybind(self.core, &mut self.interface, keybind)
+        input::pick_with_keybind(self.core, &mut self.interface, keybind)
     }
 
     /// Run the picker interactively with a custom event source and writer.
@@ -85,7 +90,8 @@ where
         E: EventSource,
         W: io::Write,
     {
-        pick_with_io(self.core, &mut self.interface, event_source, writer)
+        self.core
+            .pick_with_io(&mut self.interface, event_source, writer)
     }
 
     /// Run the picker interactively with a custom event source and generic terminal backend.
@@ -102,7 +108,7 @@ where
         W: Terminal,
     {
         self.core
-            .pick_impl(event_source, terminal, &mut self.interface)
+            .pick_with_terminal_io(&mut self.interface, event_source, terminal)
     }
 }
 
@@ -114,6 +120,7 @@ impl<'a, T, R, I> PickerRef<'a, T, R, I> {
         PickerRef {
             core: self.core,
             interface,
+            defaults: self.defaults,
         }
     }
 }
@@ -127,11 +134,12 @@ impl<'a, T, R, P> PickerRef<'a, T, R, CachedPreview<Single, P>> {
     pub fn multi(self) -> PickerRef<'a, T, R, CachedPreview<Multi, P>> {
         PickerRef {
             interface: CachedPreview {
-                interface: self.core.multi_defaults,
+                interface: self.defaults.multi,
                 previewer: self.interface.previewer,
                 cache_size: self.interface.cache_size,
             },
             core: self.core,
+            defaults: self.defaults,
         }
     }
 }
@@ -150,6 +158,7 @@ impl<'a, T, R, P> PickerRef<'a, T, R, CachedPreview<Multi, P>> {
                 previewer: self.interface.previewer,
                 cache_size: self.interface.cache_size,
             },
+            defaults: self.defaults,
         }
     }
 }
@@ -164,6 +173,7 @@ impl<'a, T, R, I, P> PickerRef<'a, T, R, CachedPreview<I, P>> {
         PickerRef {
             core: self.core,
             interface: self.interface.interface,
+            defaults: self.defaults,
         }
     }
 
@@ -174,6 +184,7 @@ impl<'a, T, R, I, P> PickerRef<'a, T, R, CachedPreview<I, P>> {
             PickerRef {
                 core: self.core,
                 interface: self.interface.interface,
+                defaults: self.defaults,
             },
             self.interface.previewer,
         )

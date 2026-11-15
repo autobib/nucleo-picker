@@ -4,7 +4,9 @@ use crossterm::event::KeyEvent;
 
 use super::{Multi, Single};
 use crate::{
-    event::{Event, keybind_passthrough_preview},
+    KeybindDefault,
+    event::Event,
+    keybind::keybind_passthrough_preview,
     preview::{Content, Pane, PreviewEvent},
     session::{Context, Dimensions, Exit, Interface, ItemId, QueueEvent, QueueStatus, Redraw},
 };
@@ -239,7 +241,9 @@ where
             state.pane.viewport(state.size).clamp_vertical();
         }
     }
+}
 
+impl<I: KeybindDefault, F> KeybindDefault for UncachedPreview<I, F> {
     #[inline]
     fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>> {
         I::keybind_default(key).or_else(|| keybind_passthrough_preview(key).ok())

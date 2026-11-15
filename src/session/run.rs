@@ -5,9 +5,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use super::{Context, Exit, Interface, PickerCore, Redraw};
+use super::{Context, Exit, Interface, Matches, Redraw};
 use crate::{
-    Render, Terminal,
+    Driver, Render, Terminal,
     component::Component,
     error::PickError,
     event::{Event, EventSource, PickerStatus, RecvError},
@@ -20,7 +20,7 @@ use crate::{
     terminal::session,
 };
 
-impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
+impl<T: Send + Sync + 'static, R: Render<T>> Driver<T, R> {
     pub(crate) fn pick_impl<E, W, I: Interface<T>>(
         &mut self,
         mut event_source: E,
@@ -47,7 +47,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
         let initial = engine.update(match_budget);
         list.update(engine, initial.items_changed, false);
         let has_preview = I::PREVIEW;
-        let cx = Context::new(engine)
+        let cx = Context::new(Matches::new(engine))
             .with_rank(list.rank(engine))
             .with_preview_enabled(has_preview);
         let mut session_state = DropGuard::new(
@@ -343,7 +343,7 @@ fn context<'items, T: Send + Sync + 'static, R>(
     rank: Option<u32>,
     frame: &Frame,
 ) -> Context<'items, T> {
-    Context::new(engine)
+    Context::new(Matches::new(engine))
         .with_rank(rank)
         .with_preview_enabled(frame.preview_enabled())
 }

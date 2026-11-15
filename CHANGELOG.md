@@ -33,7 +33,6 @@ In short, this release:
 - Built-in keybindings have been reorganized:
   - `keybind_no_multi` has been deprecated and replaced by `keybind_single`
   - There are also preview-specific bindings: `keybind_single_preview` and `keybind_multi_preview`
-  - The interface exposes its keybindings with `Interface::keybind_default`.
 - The events `MatchListEvent::QueueAbove` and `MatchListEvent::QueueBelow` have been deprecated.
 - `PickerOptions::selection_indicator` has been renamed to `PickerOptions::hover_indicator`.
 

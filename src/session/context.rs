@@ -1,7 +1,6 @@
 use super::{ItemRef, Matches};
-use crate::match_engine::MatchEngine;
 
-/// Read-only access to picker context.
+/// Read-only access to match engine context.
 // TODO: write more docs; session observation; direct item access through Matches
 pub struct Context<'items, T> {
     matches: Matches<'items, T>,
@@ -10,19 +9,31 @@ pub struct Context<'items, T> {
 }
 
 impl<'items, T: Send + Sync + 'static> Context<'items, T> {
-    pub(crate) fn new<R>(engine: &'items MatchEngine<T, R>) -> Self {
+    /// Initialize from a snapshot of [`Matches`] from a picker.
+    ///
+    /// The rank is initially set to `None` and the preview pane is recorded as disabled. Set these
+    /// values using [`with_rank`](Self::with_rank) and
+    /// [`with_preview_enabled`](Self::with_preview_enabled).
+    #[must_use]
+    #[inline]
+    pub(crate) fn new(matches: Matches<'items, T>) -> Self {
         Self {
-            matches: Matches::new(engine),
+            matches,
             rank: None,
             preview_enabled: false,
         }
     }
 
+    /// Set the rank to a given index.
+    #[must_use]
+    #[inline]
     pub(crate) fn with_rank(mut self, rank: Option<u32>) -> Self {
         self.rank = rank.filter(|&rank| (rank as usize) < self.matches.len());
         self
     }
 
+    #[must_use]
+    #[inline]
     pub(crate) fn with_preview_enabled(mut self, enabled: bool) -> Self {
         self.preview_enabled = enabled;
         self
@@ -48,7 +59,7 @@ impl<'items, T: Send + Sync + 'static> Context<'items, T> {
 
     /// Return a view of the currently matching items in the picker.
     ///
-    /// The returned [`Matches`] struct has lifetime tied only to the picker and can be used to
+    /// The returned [`Matches`] struct has lifetime tied to the underlying item storage and can be used to
     /// access picker items and iterate over the matches in this context.
     #[must_use]
     #[inline]

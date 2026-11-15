@@ -9,13 +9,13 @@ const QUIET: Duration = Duration::from_millis(50);
 fn prefetch(
     pool: &mut PoolPreviewer<&'static str>,
     picker: &Picker<&'static str, StrRenderer>,
-    idx: u32,
+    rank: u32,
 ) -> Pending {
     let request = Request {
         buffer: Buffer::new(),
         epoch: 0,
-        snapshot: picker.core.engine.snapshot(),
-        id: picker.core.engine.item_id(idx),
+        matches: picker.matches(),
+        id: picker.matches().get(rank as usize).unwrap().id(),
     };
     let Ok(Response::Pending(pending)) = pool.prefetch(request, Duration::ZERO) else {
         panic!("pool did not accept prefetch");
@@ -30,12 +30,12 @@ fn background_work_preserves_capacity_for_the_next_hovered_request() {
         let (pool, started, release) = pool(2);
         let shared = Arc::clone(&pool.pool.shared);
         let mut pane = TestSession::new(DEFAULT_CACHE_SIZE, pool.with_prefetch_limit(2));
-        pane.run_frame(Some(0), &picker.core.engine, support::deadline());
+        pane.run_frame(Some(0), picker.matches(), support::deadline());
         assert_eq!(started.recv_timeout(WAIT).unwrap().item, "first");
         if !foreground {
             release.send(false).unwrap();
             wait_until(|| {
-                pane.run_frame(Some(0), &picker.core.engine, support::deadline());
+                pane.run_frame(Some(0), picker.matches(), support::deadline());
                 match started.try_recv() {
                     Ok(started) => {
                         assert_eq!(started.item, "second");
@@ -45,19 +45,19 @@ fn background_work_preserves_capacity_for_the_next_hovered_request() {
                 }
             });
         }
-        pane.run_frame(Some(0), &picker.core.engine, support::deadline());
+        pane.run_frame(Some(0), picker.matches(), support::deadline());
         let (rank, expected) = if foreground {
             (2, "third")
         } else {
             (3, "fourth")
         };
-        pane.run_frame(Some(rank), &picker.core.engine, Instant::now());
+        pane.run_frame(Some(rank), picker.matches(), Instant::now());
         let next = started.recv_timeout(WAIT).unwrap();
         for _ in 0..2 {
             release.send(false).unwrap();
         }
         wait_until(|| shared.state.lock().idle_workers == 2);
-        pane.run_frame(Some(rank), &picker.core.engine, Instant::now());
+        pane.run_frame(Some(rank), picker.matches(), Instant::now());
         assert_eq!(next.item, expected);
         assert_eq!(pane.contents(), [expected]);
     }
@@ -70,11 +70,11 @@ fn reopening_the_pane_promotes_the_queued_hovered_item() {
         let (pool, started, release) = pool(1);
         let shared = Arc::clone(&pool.pool.shared);
         let mut pane = TestSession::new(DEFAULT_CACHE_SIZE, pool.with_prefetch_limit(prefetch));
-        pane.run_frame(Some(0), &picker.core.engine, support::deadline());
+        pane.run_frame(Some(0), picker.matches(), support::deadline());
         assert_eq!(started.recv_timeout(WAIT).unwrap().item, "first");
-        pane.run_frame(Some(1), &picker.core.engine, support::deadline());
+        pane.run_frame(Some(1), picker.matches(), support::deadline());
         pane.hide();
-        pane.run_frame(Some(1), &picker.core.engine, support::deadline());
+        pane.run_frame(Some(1), picker.matches(), support::deadline());
 
         release.send(false).unwrap();
         let next = started
@@ -82,7 +82,7 @@ fn reopening_the_pane_promotes_the_queued_hovered_item() {
             .expect("reopened preview remained queued despite an idle worker");
         release.send(false).unwrap();
         wait_until(|| shared.state.lock().idle_workers == 1);
-        pane.run_frame(Some(1), &picker.core.engine, support::deadline());
+        pane.run_frame(Some(1), picker.matches(), support::deadline());
         assert_eq!(next.item, "second");
         assert_eq!(pane.contents(), ["second"]);
     }
@@ -90,7 +90,7 @@ fn reopening_the_pane_promotes_the_queued_hovered_item() {
 
 #[test]
 fn hovered_item_changes_without_submission_demote_the_urgent_request() {
-    for hovered in [None, Some(0)] {
+    for hovered in [None, Some(0_u32)] {
         let picker = picker();
         let (mut pool, started, release) = pool(2);
         let first = submit(&mut pool, &picker, 0, Buffer::new());
@@ -99,7 +99,7 @@ fn hovered_item_changes_without_submission_demote_the_urgent_request() {
         started.recv_timeout(WAIT).unwrap();
 
         let outdated = submit(&mut pool, &picker, 2, Buffer::new());
-        pool.hover_changed(hovered.and_then(|idx| picker.core.engine.item_ref(idx)));
+        pool.hover_changed(hovered.and_then(|rank| picker.matches().get(rank as usize)));
         let background = prefetch(&mut pool, &picker, 3);
         release.send(false).unwrap();
         let early = started.recv_timeout(QUIET).ok();
@@ -138,11 +138,11 @@ fn synchronous_previews_demote_queued_work_and_preserve_the_reserved_worker() {
             }
         }));
     for rank in 0..2 {
-        pane.run_frame(Some(rank), &picker.core.engine, support::deadline());
+        pane.run_frame(Some(rank), picker.matches(), support::deadline());
         started.recv_timeout(WAIT).unwrap();
     }
-    pane.run_frame(Some(2), &picker.core.engine, support::deadline());
-    pane.run_frame(Some(3), &picker.core.engine, support::deadline());
+    pane.run_frame(Some(2), picker.matches(), support::deadline());
+    pane.run_frame(Some(3), picker.matches(), support::deadline());
     assert_eq!(pane.contents(), ["sync"]);
 
     release.send(false).unwrap();
@@ -175,8 +175,8 @@ fn a_single_worker_only_runs_current_demand_and_preserves_declined_buffers() {
         Request {
             buffer,
             epoch: 0,
-            snapshot: picker.core.engine.snapshot(),
-            id: picker.core.engine.item_id(0),
+            matches: picker.matches(),
+            id: picker.matches().get(0).unwrap().id(),
         },
         Duration::ZERO,
     );
@@ -216,8 +216,8 @@ fn disabling_pool_prefetch_preserves_buffers_and_foreground_work() {
         Request {
             buffer,
             epoch: 0,
-            snapshot: picker.core.engine.snapshot(),
-            id: picker.core.engine.item_id(0),
+            matches: picker.matches(),
+            id: picker.matches().get(0).unwrap().id(),
         },
         Duration::ZERO,
     ) else {
@@ -243,7 +243,7 @@ fn current_demand_precedes_lifo_background_work_and_cancelled_jobs_are_skipped()
         let outdated = submit(&mut pool, &picker, 2, Buffer::new());
         let older_prefetch = prefetch(&mut pool, &picker, 3);
         let mut hovered = Some(submit(&mut pool, &picker, 0, Buffer::new()));
-        pool.hover_changed(picker.core.engine.item_ref(0));
+        pool.hover_changed(picker.matches().get(0));
         prefetch(&mut pool, &picker, 3).reader.cancel_any();
         let newer_prefetch = prefetch(&mut pool, &picker, 1);
         assert!(completed(older_prefetch).is_err());

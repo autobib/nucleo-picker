@@ -18,7 +18,7 @@ use crate::{
     },
     rect::Area,
     render::StrRenderer,
-    session::Dimensions,
+    session::{Dimensions, ItemId},
 };
 
 #[derive(Default)]
@@ -80,10 +80,10 @@ impl Terminal for TestTerminal {
     }
 }
 
-fn offset(session: &mut TestSession<TestPreviewer>, idx: u32) -> (usize, usize) {
+fn offset(session: &mut TestSession<TestPreviewer>, id: ItemId) -> (usize, usize) {
     session
         .test_cache()
-        .peek(&idx)
+        .peek(&id)
         .unwrap()
         .pane()
         .unwrap()
@@ -165,12 +165,14 @@ fn buffered_navigation_scroll_and_refresh_target_the_event_hovered_item() {
             .picker(StrRenderer);
         picker.push_batch(["alpha", "beta"]);
         settle(&mut picker);
+        let alpha = id_at(&picker, 0);
+        let beta = id_at(&picker, 1);
         let mut session = preview_pane(TestPreviewer {
             lines: 30,
             ..TestPreviewer::default()
         });
         if cached {
-            session.update_at(Some(1), &picker.core.engine, Instant::now());
+            session.update_at(Some(1), picker.matches(), Instant::now());
         }
         let next = if reversed {
             MatchListEvent::Down
@@ -197,11 +199,11 @@ fn buffered_navigation_scroll_and_refresh_target_the_event_hovered_item() {
             .core
             .pick_impl(events, &mut TestTerminal::default(), &mut session)
             .unwrap();
-        assert_eq!(offset(&mut session, 0), (0, 3), "{case}");
+        assert_eq!(offset(&mut session, alpha), (0, 3), "{case}");
         if cached {
-            assert_eq!(offset(&mut session, 1), (0, 7), "{case}");
+            assert_eq!(offset(&mut session, beta), (0, 7), "{case}");
         } else {
-            assert!(!session.test_cache().contains(&1), "{case}");
+            assert!(!session.test_cache().contains(&beta), "{case}");
         }
         assert_eq!(
             session.test_previewer().requested,
@@ -227,8 +229,8 @@ fn buffered_navigation_scroll_and_refresh_target_the_event_hovered_item() {
             .core
             .pick_impl(events, &mut terminal, &mut session)
             .unwrap();
-        assert_eq!(offset(&mut session, 0), (0, 3), "{case}");
-        assert_eq!(offset(&mut session, 1), (0, 0), "{case}");
+        assert_eq!(offset(&mut session, alpha), (0, 3), "{case}");
+        assert_eq!(offset(&mut session, beta), (0, 0), "{case}");
         assert_eq!(
             session.test_previewer().requested,
             if cached {
@@ -266,11 +268,12 @@ fn refresh_does_not_run_the_previewer_before_a_following_quit() {
 
 #[test]
 fn scrolling_uses_item_ids_and_only_redraws_the_preview() {
-    for (case, items, query, idx, item) in [
+    for (case, items, query, initial_rank, item) in [
         ("unfiltered", &["alpha"][..], "", 0, "alpha"),
         ("filtered", &["alpha", "beta"][..], "beta", 1, "beta"),
     ] {
         let mut picker = picker(items.iter().copied());
+        let id = id_at(&picker, initial_rank);
         picker.update_query(query);
         settle(&mut picker);
         let mut session = preview_pane(TestPreviewer {
@@ -287,8 +290,8 @@ fn scrolling_uses_item_ids_and_only_redraws_the_preview() {
             .core
             .pick_impl(events, &mut terminal, &mut session)
             .unwrap();
-        assert_eq!(offset(&mut session, idx), (0, 8), "{case}");
-        assert!(!session.test_cache().contains(&(1 - idx)), "{case}");
+        assert_eq!(offset(&mut session, id), (0, 8), "{case}");
+        assert_eq!(session.test_cache().len(), 1, "{case}");
         assert_eq!(terminal.changed, [true], "{case}");
         let output = String::from_utf8(terminal.output).unwrap();
         if query.is_empty() {
@@ -311,7 +314,7 @@ fn scrolling_uses_item_ids_and_only_redraws_the_preview() {
             .pick_impl(events, &mut TestTerminal::default(), &mut session)
             .unwrap();
         assert_eq!(
-            offset(&mut session, idx),
+            offset(&mut session, id),
             (0, 21),
             "{case}: bottom saturation"
         );
@@ -323,6 +326,8 @@ fn scrolling_uses_item_ids_and_only_redraws_the_preview() {
 fn pending_navigation_and_scrolling_wait_for_idle_completion() {
     for size in [(20, 10), (30, 12)] {
         let mut picker = picker(["alpha", "beta"]);
+        let alpha = id_at(&picker, 0);
+        let beta = id_at(&picker, 1);
         let status = picker.status_observer();
         let mut session = preview_pane(TestPreviewer {
             defer: true,
@@ -342,10 +347,10 @@ fn pending_navigation_and_scrolling_wait_for_idle_completion() {
             .pick_impl(events, &mut terminal, &mut session)
             .unwrap();
         assert!(
-            session.test_cache().peek(&0).unwrap().pane().is_none(),
+            session.test_cache().peek(&alpha).unwrap().pane().is_none(),
             "{size:?}"
         );
-        assert!(!session.test_cache().contains(&1), "{size:?}");
+        assert!(!session.test_cache().contains(&beta), "{size:?}");
         let previewer = session.test_previewer();
         assert_eq!(previewer.requested, ["alpha"], "{size:?}");
         assert_eq!(previewer.hovered, [Some("alpha")], "{size:?}");
@@ -388,7 +393,7 @@ fn pending_navigation_and_scrolling_wait_for_idle_completion() {
             }
         );
         assert_eq!(terminal.changed, [false, true, true, false], "{size:?}");
-        assert_eq!(offset(&mut session, 0), (0, 1), "{size:?}");
+        assert_eq!(offset(&mut session, alpha), (0, 1), "{size:?}");
         assert_eq!(session.test_previewer().requested, ["alpha"], "{size:?}");
 
         let output = String::from_utf8(terminal.output).unwrap();
@@ -438,6 +443,7 @@ fn redraw_checks_terminal_size_after_preview_generation() {
 #[test]
 fn resizing_retained_previews_preserves_hover_and_updates_page_height() {
     let mut picker = picker(["alpha"]);
+    let alpha = id_at(&picker, 0);
     let mut session = preview_pane(TestPreviewer {
         lines: 30,
         ..TestPreviewer::default()
@@ -448,8 +454,8 @@ fn resizing_retained_previews_preserves_hover_and_updates_page_height() {
         height: 6,
         ..Area::default()
     });
-    session.handle_at(PreviewEvent::Down(usize::MAX), Some(0));
-    assert_eq!(offset(&mut session, 0), (0, 26));
+    session.handle_at(PreviewEvent::Down(usize::MAX), Some(alpha));
+    assert_eq!(offset(&mut session, alpha), (0, 26));
 
     picker
         .core
@@ -459,7 +465,7 @@ fn resizing_retained_previews_preserves_hover_and_updates_page_height() {
             &mut session,
         )
         .unwrap();
-    assert_eq!(offset(&mut session, 0), (0, 22), "initial layout");
+    assert_eq!(offset(&mut session, alpha), (0, 22), "initial layout");
 
     for (case, sizes, scroll, expected) in [
         ("narrow", [(20, 10), (5, 10)], PreviewEvent::Down(1), 22),
@@ -480,7 +486,7 @@ fn resizing_retained_previews_preserves_hover_and_updates_page_height() {
             .core
             .pick_impl(events, &mut terminal, &mut session)
             .unwrap();
-        assert_eq!(offset(&mut session, 0), (0, expected), "{case}");
+        assert_eq!(offset(&mut session, alpha), (0, expected), "{case}");
         let previewer = session.test_previewer();
         assert_eq!(previewer.hovered, [Some("alpha")], "{case}");
         assert_eq!(previewer.requested, ["alpha"], "{case}");
@@ -490,6 +496,7 @@ fn resizing_retained_previews_preserves_hover_and_updates_page_height() {
 #[test]
 fn resizing_clamps_cached_previews_before_they_are_revisited() {
     let mut picker = picker(["alpha", "beta"]);
+    let alpha = id_at(&picker, 0);
     let mut session = preview_pane(TestPreviewer {
         lines: 30,
         ..TestPreviewer::default()
@@ -500,8 +507,8 @@ fn resizing_clamps_cached_previews_before_they_are_revisited() {
         height: 10,
         ..Area::default()
     });
-    session.handle_at(PreviewEvent::Down(usize::MAX), Some(0));
-    assert_eq!(offset(&mut session, 0), (0, 22));
+    session.handle_at(PreviewEvent::Down(usize::MAX), Some(alpha));
+    assert_eq!(offset(&mut session, alpha), (0, 22));
     picker.core.list_state.layout.set_rank(
         picker.core.engine.snapshot(),
         1,
@@ -519,7 +526,7 @@ fn resizing_clamps_cached_previews_before_they_are_revisited() {
             &mut session,
         )
         .unwrap();
-    assert_eq!(offset(&mut session, 0), (0, 18));
+    assert_eq!(offset(&mut session, alpha), (0, 18));
     picker
         .core
         .pick_impl(
@@ -532,7 +539,7 @@ fn resizing_clamps_cached_previews_before_they_are_revisited() {
             &mut session,
         )
         .unwrap();
-    assert_eq!(offset(&mut session, 0), (0, 18));
+    assert_eq!(offset(&mut session, alpha), (0, 18));
     assert_eq!(session.test_previewer().requested, ["alpha", "beta"]);
 }
 
@@ -540,6 +547,7 @@ fn resizing_clamps_cached_previews_before_they_are_revisited() {
 fn zero_sized_panes_ignore_scrolling() {
     for size in [(0, 10), (5, 10), (20, 2), (20, 0)] {
         let mut picker = picker(["alpha"]);
+        let alpha = id_at(&picker, 0);
         let mut session = preview_pane(TestPreviewer {
             lines: 30,
             ..TestPreviewer::default()
@@ -558,7 +566,7 @@ fn zero_sized_panes_ignore_scrolling() {
             .core
             .pick_impl(events, &mut terminal, &mut session)
             .unwrap();
-        assert_eq!(offset(&mut session, 0), (0, 0), "{size:?}");
+        assert_eq!(offset(&mut session, alpha), (0, 0), "{size:?}");
         let previewer = session.test_previewer();
         assert_eq!(previewer.hovered, [Some("alpha")], "{size:?}");
         assert_eq!(previewer.requested, ["alpha"], "{size:?}");

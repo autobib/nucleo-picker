@@ -17,8 +17,6 @@ use nucleo::{
     pattern::{CaseMatching as NucleoCaseMatching, Normalization as NucleoNormalization},
 };
 
-#[cfg(all(test, feature = "preview-cache"))]
-use crate::session::ItemRef;
 use crate::{
     Injector, Render,
     session::{ItemId, MatchStatus},
@@ -106,13 +104,6 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
             generation: self.generation,
             index,
         }
-    }
-
-    #[cfg(all(test, feature = "preview-cache"))]
-    pub fn item_ref(&self, index: u32) -> Option<ItemRef<'_, T>> {
-        self.snapshot()
-            .get_item(index)
-            .map(|item| ItemRef::new(self.item_id(index), item.data))
     }
 
     pub fn renderer(&self) -> &R {

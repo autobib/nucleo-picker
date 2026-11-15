@@ -225,19 +225,19 @@ mod tests {
             event::MatchListEvent,
             match_list::MatchList,
             render::StrRenderer,
-            session::{Context, Interface, Multi},
+            session::{Context, Interface, Matches, Multi},
         };
 
         let mut picker = Picker::new(StrRenderer);
         picker.extend(["a", "b"]);
-        while picker.core.engine.update(5).matching {}
+        picker.filter().unwrap();
         picker.core.list_state.layout.update_items(
             picker.core.engine.snapshot(),
             &picker.core.list_state.config,
         );
         let mut list = MatchList::new(&mut picker.core.list_state, &picker.core.chars);
         let mut interface = Multi::new();
-        let mut queued = interface.init(&Context::new(&picker.core.engine));
+        let mut queued = interface.init(&Context::new(Matches::new(&picker.core.engine)));
         let mut status = StatusLine::new(&picker.core.chars);
         assert!(status.update(
             picker.core.engine.update(5),
@@ -267,7 +267,7 @@ mod tests {
                     event,
                     &mut interface,
                     &mut queued,
-                    &Context::new(&picker.core.engine),
+                    &Context::new(Matches::new(&picker.core.engine)),
                 );
             }
             list.flush(&picker.core.engine);

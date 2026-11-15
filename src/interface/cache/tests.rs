@@ -4,12 +4,13 @@ use crate::preview::request::{QueuedRequest, Request};
 fn polled_queued_request() -> (Pending, QueuedRequest<&'static str>) {
     let mut picker = crate::Picker::new(crate::render::StrRenderer);
     picker.push_batch(["alpha"]);
-    while picker.core.engine.update(5).matching {}
+    picker.filter().unwrap();
+    let matches = picker.matches();
     let (pending, queued) = Request {
         buffer: Buffer::new(),
         epoch: 1,
-        snapshot: picker.core.engine.snapshot(),
-        id: picker.core.engine.item_id(0),
+        matches,
+        id: matches.get(0).unwrap().id(),
     }
     .defer();
     let RequestState::Pending(pending) = RequestState::Pending(pending).poll() else {

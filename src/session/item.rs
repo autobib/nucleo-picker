@@ -5,12 +5,21 @@
 /// contract is upheld across restarts and across different pickers using a small amount of atomic
 /// global state.
 ///
-/// Note that ordering has no relationship to ranking or the order in which items were received by
-/// the picker; it is only provided for convenience of use.
+/// Within a single generation, the order corresponds to the order in which items were received by
+/// the picker. Order across generations is unspecified.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ItemId {
     pub(crate) generation: u32,
     pub(crate) index: u32,
+}
+
+impl ItemId {
+    /// Check if this identifier is of the same generation as another identifier.
+    #[must_use]
+    #[inline]
+    pub const fn same_generation(self, other: Self) -> bool {
+        self.generation == other.generation
+    }
 }
 
 /// A picker item along with its identifier.
@@ -56,15 +65,27 @@ pub struct OwnedItem<T> {
     item: nucleo::DetachedItem<T>,
 }
 
-impl<T: Send + Sync + 'static> OwnedItem<T> {
+impl<T> OwnedItem<T> {
     #[inline]
     pub(super) fn new(id: ItemId, item: nucleo::DetachedItem<T>) -> Self {
         Self { id, item }
     }
 
+    /// Returns the underlying item's original idenitifier.
+    #[inline]
+    pub fn id(&self) -> ItemId {
+        self.id
+    }
+
+    /// Borrow the underlying item.
+    #[inline]
+    pub fn value(&self) -> &T {
+        self.item.item().data
+    }
+
     /// Returns a reference to the item.
     #[inline]
     pub fn item_ref(&self) -> ItemRef<'_, T> {
-        ItemRef::new(self.id, self.item.item().data)
+        ItemRef::new(self.id(), self.value())
     }
 }

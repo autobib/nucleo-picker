@@ -238,14 +238,14 @@ mod tests {
     use crate::{
         Picker,
         render::StrRenderer,
-        session::{Exit, Multi, Single},
+        session::{Exit, Matches, Multi, Single},
     };
     use std::num::NonZero;
 
     fn picker() -> Picker<&'static str, StrRenderer> {
         let mut picker = Picker::new(StrRenderer);
         picker.extend(["a", "b", "c", "d"]);
-        while picker.core.engine.update(5).matching {}
+        picker.filter().unwrap();
         picker.core.list_state.layout.update_items(
             picker.core.engine.snapshot(),
             &picker.core.list_state.config,
@@ -269,7 +269,7 @@ mod tests {
             picker.core.list_state.config.reversed = reversed;
             let mut list = MatchList::new(&mut picker.core.list_state, &picker.core.chars);
             let mut interface = Multi::new().max_selection_count(NonZero::new(1));
-            let mut queued = interface.init(&Context::new(&picker.core.engine));
+            let mut queued = interface.init(&Context::new(Matches::new(&picker.core.engine)));
             let toggle = if reversed {
                 MatchListEvent::ToggleDown
             } else {
@@ -284,7 +284,7 @@ mod tests {
                 navigate(1),
                 &mut interface,
                 &mut queued,
-                &Context::new(&picker.core.engine),
+                &Context::new(Matches::new(&picker.core.engine)),
             );
             assert!(update(&mut list, &mut picker.core.engine));
             assert_eq!(list.rank(&picker.core.engine), Some(1));
@@ -297,13 +297,13 @@ mod tests {
                 MatchListEvent::Reset,
                 &mut interface,
                 &mut queued,
-                &Context::new(&picker.core.engine),
+                &Context::new(Matches::new(&picker.core.engine)),
             );
             list.handle(
                 toggle(1),
                 &mut interface,
                 &mut queued,
-                &Context::new(&picker.core.engine),
+                &Context::new(Matches::new(&picker.core.engine)),
             );
             assert_eq!(list.event_rank(&picker.core.engine), Some(1));
             assert_eq!(
@@ -318,7 +318,7 @@ mod tests {
                 toggle(1),
                 &mut interface,
                 &mut queued,
-                &Context::new(&picker.core.engine),
+                &Context::new(Matches::new(&picker.core.engine)),
             );
             assert_eq!(list.event_rank(&picker.core.engine), Some(1));
             assert_eq!(
@@ -327,7 +327,7 @@ mod tests {
             );
             assert!(!update(&mut list, &mut picker.core.engine));
 
-            let cx = Context::new(&picker.core.engine);
+            let cx = Context::new(Matches::new(&picker.core.engine));
             list.handle(MatchListEvent::Reset, &mut interface, &mut queued, &cx);
             list.handle(toggle(2), &mut interface, &mut queued, &cx);
             assert_eq!(list.event_rank(&picker.core.engine), Some(2));
@@ -346,15 +346,12 @@ mod tests {
             for increasing in [false, true] {
                 let mut picker = picker();
                 picker.core.list_state.config.reversed = reversed;
-                let cx = Context::new(&picker.core.engine);
+                let cx = Context::new(Matches::new(&picker.core.engine));
                 let (start, last) = if increasing { (0, 1) } else { (3, 2) };
                 let mut interface = Multi::new().max_selection_count(NonZero::new(2));
                 let mut queued = interface.init(&cx);
                 for index in [start, last] {
-                    let item = cx
-                        .matches()
-                        .item(picker.core.engine.item_id(index))
-                        .unwrap();
+                    let item = cx.matches().get(index as usize).unwrap();
                     assert!(interface.on_queue(&mut queued, QueueEvent::Toggle(item), &cx));
                 }
                 let mut list = MatchList::new(&mut picker.core.list_state, &picker.core.chars);
@@ -390,7 +387,7 @@ mod tests {
         for reversed in [false, true] {
             let mut picker = picker();
             picker.core.list_state.config.reversed = reversed;
-            let cx = Context::new(&picker.core.engine);
+            let cx = Context::new(Matches::new(&picker.core.engine));
             let mut list = MatchList::new(&mut picker.core.list_state, &picker.core.chars);
             let mut queued = ();
             let navigate = if reversed {

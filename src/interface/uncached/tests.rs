@@ -14,7 +14,7 @@ fn context<'a>(
     picker: &'a Picker<&'static str, StrRenderer>,
     rank: Option<u32>,
 ) -> Context<'a, &'static str> {
-    Context::new(&picker.core.engine)
+    Context::new(picker.matches())
         .with_rank(rank)
         .with_preview_enabled(true)
 }
@@ -338,33 +338,35 @@ fn keybindings_preserve_base_overrides_and_add_preview_fallbacks() {
         ) -> Self::Output<'items> {
             None
         }
+    }
 
+    impl KeybindDefault for Base {
         fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>> {
             if key == KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL) {
                 Some(Event::Quit)
             } else {
-                <Multi as Interface<&str>>::keybind_default(key)
+                <Multi as KeybindDefault>::keybind_default(key)
             }
         }
     }
 
     type Adapter = UncachedPreview<Base, fn(&&str, &mut Pane)>;
     assert!(matches!(
-        <Adapter as Interface<&str>>::keybind_default::<()>(KeyEvent::new(
+        <Adapter as KeybindDefault>::keybind_default::<()>(KeyEvent::new(
             KeyCode::Char('r'),
             KeyModifiers::CONTROL,
         )),
         Some(Event::Quit),
     ));
     assert!(matches!(
-        <Adapter as Interface<&str>>::keybind_default::<()>(KeyEvent::new(
+        <Adapter as KeybindDefault>::keybind_default::<()>(KeyEvent::new(
             KeyCode::Down,
             KeyModifiers::SHIFT,
         )),
         Some(Event::Preview(PreviewEvent::Down(1))),
     ));
     assert!(matches!(
-        <Adapter as Interface<&str>>::keybind_default::<()>(KeyEvent::new(
+        <Adapter as KeybindDefault>::keybind_default::<()>(KeyEvent::new(
             KeyCode::Tab,
             KeyModifiers::NONE,
         )),
