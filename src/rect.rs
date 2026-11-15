@@ -11,7 +11,7 @@ use crossterm::{
     terminal::{Clear, ClearType},
 };
 
-/// The dimensions of a rectangle in the terminal, measured in columns.
+/// The dimensions of a rectangle in the terminal, measured in terminal cells..
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Dimensions {
     /// The width of the rectangle in terminal columns.

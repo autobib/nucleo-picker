@@ -96,10 +96,6 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
         self.nucleo.snapshot()
     }
 
-    pub fn query(&self) -> &str {
-        &self.prompt
-    }
-
     pub fn generation(&self) -> u32 {
         self.generation
     }

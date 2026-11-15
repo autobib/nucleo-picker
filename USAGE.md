@@ -27,8 +27,7 @@ For example:
 - `\ ` matches the literal space ` `.
 - `\\` and `\a` match, respectively, literal `\\` and `\a`.
 - The query `fo\$ ^bar` means that we match for strings which contain `fo$` (or similar), and which begin with the exact string `bar`.
-- `a\$b` is a literal `\$b`.
-
+- `a\$b` is fuzzy-matched `a\$b`.
 
 ## Keyboard shortcuts
 Generally speaking, we attempt to follow the bash-like or vim-like keyboard shortcut conventions.

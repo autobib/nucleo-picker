@@ -2,15 +2,16 @@ use std::io;
 
 use crossterm::event::KeyEvent;
 
-use super::{Interface, Single, pick_with_io, pick_with_keybind};
+use super::Single;
 #[cfg(feature = "preview")]
 use super::{Multi, WithPreview};
 #[cfg(feature = "unstable-backend")]
 use crate::Terminal;
 use crate::{
-    PickerCore, Render,
+    Render,
     error::PickError,
     event::{Event, EventSource},
+    session::{Interface, PickerCore, pick_with_io, pick_with_keybind},
 };
 
 /// A temporary view of a picker with a different interface.

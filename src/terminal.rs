@@ -60,7 +60,7 @@ pub trait Terminal: Write {
 
     /// A callback executed at the end of each frame.
     ///
-    /// This method is called on every frame, whether or not it was rendered. The boolean indicates
+    /// This method is called on every frame (except initialization), whether or not it was rendered. The boolean indicates
     /// if there were logical changes to the picker state since the previous frame.
     ///
     /// If `changed` is `false`, writes definitely did not occur. If `changed` is true, it is

@@ -1,6 +1,7 @@
 use super::super::*;
 use crate::{
     Picker, PickerOptions,
+    interface::{Single, WithPreview, WithPreviewState},
     match_engine::MatchEngine,
     preview::{
         DEFAULT_CACHE_SIZE, ItemId, ItemRef, interior_dimensions,
@@ -8,7 +9,7 @@ use crate::{
     },
     rect::Area,
     render::StrRenderer,
-    session::{Exit, Interface, Redraw, Single, WithPreview, WithPreviewState},
+    session::{Exit, Interface, Redraw},
 };
 
 pub(crate) struct TestSession<P> {

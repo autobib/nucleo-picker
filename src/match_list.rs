@@ -22,7 +22,6 @@ mod component;
 mod draw;
 mod item;
 mod layout;
-mod selection;
 mod span;
 mod state;
 mod unicode;
@@ -31,14 +30,13 @@ mod unicode;
 mod tests;
 
 pub(crate) use component::{MatchList, MatchListView};
-pub use selection::{MultiState, QueueEvent, Selection, SelectionIntoIter};
 pub(crate) use state::MatchListState;
 
 /// An event that changes the hovered item and the selection queue.
 ///
 /// # Multi-selection events
 ///
-/// The following events are only handled by the picker in [multiple selection mode](crate::Picker#multiple-selections):
+/// The following events are only handled by the built-in picker interfaces in [multiple selection mode](crate::session#multiple-selections):
 ///
 /// - [`ToggleUp`](MatchListEvent::ToggleUp)
 /// - [`ToggleDown`](MatchListEvent::ToggleDown)
@@ -48,7 +46,7 @@ pub(crate) use state::MatchListState;
 ///
 /// In this case, the corresponding movements are conditional: they will only be performed if the
 /// resulting (un)queue action is successful. This is relevant if the [selection count is
-/// bounded](crate::PickerOptions::max_selection_count) is bounded, since additional items cannot
+/// bounded](crate::PickerOptions::max_selection_count), since additional items cannot
 /// be added to the selection queue if the bound is reached, in which case the hovered item will not
 /// move.
 #[derive(Debug, PartialEq, Eq)]

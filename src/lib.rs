@@ -50,12 +50,12 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod component;
-mod core;
 pub mod error;
 pub mod event;
 mod frame;
 mod incremental;
 mod injector;
+mod interface;
 mod match_engine;
 mod match_list;
 mod observer;
@@ -82,22 +82,23 @@ use observer::Observer;
 use preview::{BoundaryChars, DEFAULT_CACHE_SIZE, PreviewConfig};
 
 use crate::{
-    core::PickerCore,
     error::PickError,
     event::{Event, EventSource, PickerStatus},
     match_engine::MatchEngine,
     match_list::{MatchListConfig, MatchListState},
     prompt::{PromptConfig, PromptState},
-    session::{MatchStatus, Matches},
+    session::{MatchStatus, Matches, PickerCore},
 };
 
 pub use crate::injector::Injector;
-pub use crate::match_list::{Selection, SelectionIntoIter};
 #[cfg(feature = "preview")]
 #[doc(inline)]
-pub use crate::session::WithPreview;
+pub use crate::interface::WithPreview;
 #[doc(inline)]
-pub use crate::session::{Interface, Multi, PickerRef, Single};
+pub use crate::interface::{Multi, PickerRef, Single};
+pub use crate::interface::{Selection, SelectionIntoIter};
+#[doc(inline)]
+pub use crate::session::Interface;
 
 #[cfg(feature = "unstable-backend")]
 pub use terminal::Terminal;
@@ -584,12 +585,12 @@ impl PickerOptions {
     /// the picker cannot hold more than [`u32::MAX`] items.
     ///
     /// The default is `None`.
-    //
-    // TODO: fix this doc; oudated. detail propagation to the Multi interface
-    // This bound is only relevant when allowing [multiple selections](Picker#multiple-selections)
-    // and has no impact on single selection mode. The returned [`Selection`] will contain at
-    // most `maximum` items. The picker will not allow the selection of additional items if the maximum
-    // is reached.
+    ///
+    /// # Interface default
+    ///
+    /// This is the value propagated to into [`Multi`] by [`multi`](Picker::multi) and
+    /// [`as_multi`](Picker::as_multi). Note that separately constructing the interface will ignore
+    /// this option.
     #[must_use]
     #[inline]
     pub const fn max_selection_count(mut self, maximum: Option<NonZero<u32>>) -> Self {
@@ -890,7 +891,12 @@ impl PickerOptions {
     /// For fast (synchronous-only) previewers, setting a cache size of 1 can be useful to reduce
     /// allocations. Note however that the cache is also used to store scroll state, so a cache size
     /// of 1 will lose the scroll position every time the hovered item changes.
-    // TODO: Fix this doc; construction default for convenience Picker::with_preview calls; explicitly supplied WithPreview adapters use their own cache_size setting.
+    ///
+    /// # Interface default
+    ///
+    /// This is the value propagated to into [`WithPreview`] by
+    /// [`with_preview`](Picker::with_preview). Note that separately constructing the interface will ignore
+    /// this option.
     #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     #[must_use]
     #[inline]
@@ -942,7 +948,7 @@ impl PickerOptions {
 ///
 /// - [multiple selections](session#multiple-selections)
 /// - [adding previews](session#adding-previews)
-/// - [changing the iterface](session#changing-the-interface)
+/// - [changing the interface](session#changing-the-interface)
 /// - [generics](session#picker-generics)
 ///
 /// ## Headless (non-interactive) use
@@ -991,8 +997,8 @@ impl PickerOptions {
 /// ## A note on memory usage
 ///
 /// Initializing a picker is a moderately expensive operation since the internal match engine uses
-/// an arena-based memory approach to minimize allocator overhead during matching.
-/// his memory is initialized when the picker is created.
+/// an arena-based memory approach to minimize allocator overhead during matching. This memory is
+/// allocated when the picker is created.
 ///
 /// To re-use the picker with reduced start-up costs, use [`Picker::restart`]. This allocates space
 /// for the new items but reuses matching infrastructure.
@@ -1095,7 +1101,8 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     /// This method also fails with:
     ///
     /// 1. [`PickError::NotInteractive`] if stderr is not interactive.
-    /// 2. [`PickError::UserInterrupted`] if the user presses `ctrl + c`.
+    /// 2. [`PickError::UserInterrupted`] if the user presses `ctrl + c` (in the built-in
+    ///    keybindings).
     ///
     /// This method will **never** return [`PickError::Disconnected`].
     #[inline]
@@ -1145,7 +1152,7 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     }
 
     /// Run the picker interactively with a custom event source and writer, returning the selected
-    /// item, if any.
+    /// items as determined by the interface.
     ///
     /// The picker is rendered using the given writer. In most situations, you want to check that
     /// the writer is interactive using, for instance, [`IsTerminal`](io::IsTerminal). The picker reads
@@ -1165,6 +1172,8 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     ///    [`Event::UserInterrupt`].
     /// 3. The error will be [`PickError::Aborted`] if the [`Picker`] receives an
     ///    [`Event::Abort`].
+    /// 4. If [`Event::Restart`] is processed without a live injector observer, the error returned
+    ///    will be [`PickError::Disconnected`].
     ///
     /// This method will **never** return [`PickError::NotInteractive`] since interactivity checks
     /// are not done.
@@ -1223,8 +1232,10 @@ impl<T, R> Picker<T, R, Multi> {
 impl<T, R, I> Picker<T, R, I> {
     /// Get a picker variant which also generates previews.
     ///
-    /// The original picker and the previewer can be recovered using
-    /// [`Picker::into_parts`].
+    /// The original picker and the previewer can be recovered using [`Picker::into_parts`]. Note
+    /// that this method can be called even if the interface already contains a previewer; this can
+    /// create unnecessary overhead and should be avoided but will not result in incorrect
+    /// behaviour.
     #[cfg(feature = "preview")]
     #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
     #[inline]
@@ -1375,8 +1386,8 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     /// all injectors are dropped.
     ///
     /// When previews are enabled, the old items will also only drop when all deferred preview
-    /// requests (perhaps owned by the previewer) are dropped as well. See the [preview request
-    /// documentation](crate::preview::request) for more details.
+    /// requests (perhaps owned by the previewer) and [owned items](crate::session::OwnedItem) are dropped
+    /// as well. See the [preview request documentation](crate::preview::request) for more details.
     ///
     /// This method is mainly useful for re-using the picker for multiple matches since the
     /// internal memory buffers used for matching and scoring are preserved. To restart the
@@ -1582,9 +1593,6 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
 /// Deprecated multi-selection methods. Use [`Picker::multi`] or [`Picker::as_multi`] instead.
 impl<T: Send + Sync + 'static, R> Picker<T, R> {
     /// Open the interactive picker prompt and return the picked items, if any.
-    ///
-    /// This method permits the user to select multiple items, but is otherwise identical to [`pick`](Self::pick). See those docs as well as the
-    /// [docs on multiple selections](Picker#multiple-selections) for more detail.
     #[inline]
     #[deprecated(since = "0.13.0", note = "Use `as_multi().pick()` instead")]
     pub fn pick_multi(&mut self) -> Result<Selection<'_, T>, PickError>
@@ -1596,9 +1604,6 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
 
     /// Open the interactive picker prompt and return the picked item, if any. The provided
     /// keybindings are used in the interactive picker.
-    ///
-    /// This method permits the user to select multiple items, but is otherwise identical to [`pick_with_keybind`](Self::pick_with_keybind). See those docs as well as the
-    /// [docs on multiple selections](Picker#multiple-selections) for more detail.
     #[inline]
     #[deprecated(
         since = "0.13.0",
@@ -1614,9 +1619,6 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
 
     /// Run the picker interactively with a custom event source and writer, allowing the user to
     /// select multiple items.
-    ///
-    /// This is otherwise identical to [`pick_with_io`](Self::pick_with_io); see those docs as well
-    /// as the [docs on multiple selections](Picker#multiple-selections) for more detail.
     #[deprecated(since = "0.13.0", note = "Use `as_multi().pick_with_io(...)` instead")]
     #[inline]
     pub fn pick_multi_with_io<E, W>(
@@ -1634,9 +1636,6 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
 
     /// Run the picker interactively with a custom event source and terminal backend, allowing the
     /// user to select multiple items.
-    ///
-    /// This is the same as [`pick_multi_with_io`](Self::pick_multi_with_io) but in addition defers
-    /// terminal-specific implementation to the passed [`Terminal`].
     #[cfg(feature = "unstable-backend")]
     #[doc(hidden)]
     #[deprecated(

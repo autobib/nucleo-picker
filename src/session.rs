@@ -1,10 +1,9 @@
 //! # The picker session
 //!
-//! A *session* is a single interactive call to one of the core picker methods: [`Picker::pick`],
-//! [`Picker::pick_with_keybind`], and [`Picker::pick_with_io`]. The behaviour in a session is
+//! A *session* is a single interactive call to the picker. The behaviour in a session is
 //! determined by the [`Interface`] of the picker (the type parameter `I` in the definition of the
 //! [`Picker`] struct). The [`Interface`] governs the interactive behaviour of the session (so that
-//! you only pay for interface machinery you actully use) as well as the final return type.
+//! you only pay for interface machinery you actually use) as well as the final return type.
 //!
 //! The picker can be re-used for multiple sessions: the items and query are retained between
 //! sessions (but can be cleared by [restarting](Picker::restart)).
@@ -115,7 +114,7 @@
 //!
 //! Owned conversions such as [`Picker::multi`] and [`Picker::single`] consume the picker and
 //! return a picker (with the same internal items, renderer, query, etc.) with the new interface.
-//! In particular, interface conversions are zero-cost. This form is most convenient when all subsequent sessions
+//! In particular, interface conversions are quite cheap in general. This form is most convenient when all subsequent sessions
 //! use the same interface, or as part of the builder initialization starting with
 //! [`PickerOptions`](crate::PickerOptions).
 //!
@@ -133,7 +132,7 @@
 //! It is also possible to temporarily change the interface using borrowing conversions which return
 //! a [`PickerRef`]. These methods are named like `as_*`, such as [`Picker::as_multi`] and [`Picker::as_single`].
 //! A [`PickerRef`] view mutably borrows the original picker's state and its `pick*` methods consume
-//! the view. The original picker's interface is preserved and the query and item changes duriong
+//! the view. The original picker's interface is preserved and the query and item changes during
 //! the session affect the original picker. The selection returned by a [`PickerRef`] borrows
 //! only from the original picker.
 //!
@@ -163,7 +162,7 @@
 //!
 //! ## Picker generics
 //!
-//! In most cases, the picker generic paramters can be inferred from the renderer, inserted items,
+//! In most cases, the picker generic parameters can be inferred from the renderer, inserted items,
 //! and the conversion methods directly. Regardless, here is an overview of the type parameters of a
 //! [`Picker<T, R, I>`] and [`PickerRef<'a, T, R, I>`]:
 //!
@@ -203,9 +202,9 @@
 //! ```
 
 mod context;
+mod core;
 mod item;
 mod matches;
-mod picker_ref;
 mod redraw;
 mod run;
 #[cfg(test)]
@@ -219,26 +218,27 @@ use std::{
 
 use crossterm::event::KeyEvent;
 
-pub use crate::match_list::{MultiState, QueueEvent};
+pub use crate::interface::{Multi, MultiState, PickerRef, Single};
+#[cfg(feature = "preview")]
+pub use crate::interface::{WithPreview, WithPreviewState};
 pub use crate::rect::Dimensions;
 pub use context::Context;
+pub(crate) use core::PickerCore;
 pub use item::{ItemId, ItemRef, OwnedItem};
 pub use matches::Matches;
-pub use picker_ref::PickerRef;
 pub use redraw::Redraw;
 
+#[cfg(all(doc, feature = "preview"))]
+use crate::preview::Preview;
+#[cfg(feature = "preview")]
+use crate::preview::{Content, PreviewEvent};
 #[cfg(doc)]
 use crate::{Picker, Selection};
 use crate::{
-    PickerCore, Render,
+    Render,
     error::PickError,
-    event::{Event, EventSource, StdinReader, keybind_single},
+    event::{Event, EventSource, StdinReader},
     terminal::CrosstermTerminal,
-};
-#[cfg(feature = "preview")]
-use crate::{
-    event::keybind_passthrough_preview,
-    preview::{Content, DEFAULT_CACHE_SIZE, Preview, PreviewEvent, controller::PreviewState},
 };
 
 /// Generics for the picker interface.
@@ -263,17 +263,18 @@ use crate::{
 /// ## Initialization
 ///
 /// When the picker starts up, the following call sequence is made.
+/// `Context` no longer exposes it.]
 ///
-/// 1. [`init`](Self::init) is called once with context containing the query and match snapshot,
+/// 1. [`init`](Self::init) is called once with context containing a snapshot of the matches,
 ///    with no hovered item. The preview pane is enabled according to `HAS_PREVIEW` and is
 ///    dimensionless.
-/// 2. The match engine is updated with any changes which were processed in the background and the
-///    terminal is setup.
+/// 2. The terminal is initialized and the match engine is updated with any changes which were processed
+///    in the background.
 /// 3. Terminal dimensions are queried and resizes are propagated, for instance via
 ///    [`preview_resize`](Self::preview_resize) if the preview pane is enabled.
 /// 4. [`before_frame`](Self::before_frame) is called with the initial hovered item.
-/// 5. [`queued_count`](Self::queued_count) and [`queue_limit`](Self::queue_limit) are called to
-///    update the status line.
+/// 5. [`queued_count`](Self::queued_count) and [`queue_limit`](Self::queue_limit) (if the queued
+///    count is not `None`) are called to update the status line.
 /// 6. The first full frame is drawn.
 /// 7. [`after_frame`](Self::after_frame) is called. The draw mask is used for the next frame.
 ///
@@ -285,11 +286,12 @@ use crate::{
 ///    processed. This updates the prompt and match list, reparses if the query changed, and updates
 ///    the match engine.
 /// 2. [`before_frame`](Self::before_frame) is called.
-/// 3. [`queued_count`](Self::queued_count) and [`queue_limit`](Self::queue_limit) are called to
-///    update the status line.
+/// 3. [`queued_count`](Self::queued_count) and [`queue_limit`](Self::queue_limit) (if the queued
+///    count is not `None`) are called to update the status line.
 /// 4. Check for pending redraws either from events or as required by the interface. If a resize is
-///    required, a full redraw is done. If [`HAS_PREVIEW`](Self::HAS_PREVIEW) is true, the new size
-///    [`preview_resize`](Self::preview_resize) with the new dimensions.
+///    required, a full redraw is done. If [`HAS_PREVIEW`](Self::HAS_PREVIEW) is true,
+///    [`preview_resize`](Self::preview_resize) is called with the new dimensions (or `None` if the
+///    preview pane is hidden).
 /// 5. Draw the components.
 /// 6. If a status request can be processed, call [`queued_count`](Self::queued_count).
 /// 7. [`after_frame`](Self::after_frame) is called. Its redraw mask is carried over to the next
@@ -305,7 +307,7 @@ use crate::{
 /// picker, attempts to clean up the terminal, and then calls [`on_end`](Self::on_end). If the exit
 /// and cleanup succeeds, [`finish`](Self::finish) is called.
 ///
-/// Abnormal exit (for instance with IO errors) will still result in attempted terminal cleanup but
+/// Abnormal exit during panics will still result in attempted terminal cleanup but
 /// will not result in usual interface cleanup methods from being called.
 pub trait Interface<T>: Sized {
     /// Arbitrary state which persists for exactly one session.
@@ -344,7 +346,7 @@ pub trait Interface<T>: Sized {
 
     /// The current number of queued items.
     ///
-    /// `None` means queueing is disabled entirely; `Some(n)` indicates the number of queued
+    /// `None` means queueing is unsupported by this interface; `Some(n)` indicates the number of queued
     /// items.
     fn queued_count(&self, _state: &Self::State) -> Option<usize> {
         None
@@ -415,7 +417,7 @@ pub trait Interface<T>: Sized {
 
     /// Handle a preview event.
     ///
-    /// The preview event is only forwarded if the preview pane is [enabled](Self::HAS_PREVIEW).
+    /// The preview event is only forwarded if the preview pane is enabled and not hidden.
     /// Use the returned [`Redraw`] mask if the screen needs to be redrawn.
     #[cfg(feature = "preview")]
     #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
@@ -430,7 +432,8 @@ pub trait Interface<T>: Sized {
 
     /// Update the dimensions of the preview pane.
     ///
-    /// These are the dimensions of the drawable area of the preview pane, or `None` if the preview
+    /// These are the dimensions of the drawable area of the preview pane (including width and
+    /// height 0 if the preview pane if the preview pane is very small), or `None` if the preview
     /// pane is hidden.
     #[cfg(feature = "preview")]
     #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
@@ -456,6 +459,18 @@ pub enum Exit {
     /// The session quit and requested a selection. The given item, if any, is the hovered at the time of
     /// processing the exit.
     Selected(Option<ItemId>),
+}
+
+/// An event which modifies the list of queued items.
+pub enum QueueEvent<'a, T> {
+    /// Toggle a single item.
+    Toggle(ItemRef<'a, T>),
+    /// Remove an item from the queue.
+    Remove(ItemId),
+    /// A request to queue all currently matching items.
+    Matches,
+    /// Clear the queue.
+    Clear,
 }
 
 /// Matching progress after matching updates.
@@ -486,300 +501,6 @@ impl MatchStatus {
     #[must_use]
     pub fn is_complete(&self) -> bool {
         !self.matching && !self.injecting
-    }
-}
-
-/// The single-selection picker interface.
-///
-/// Read the [module-level docs](self) or the [interface docs](Interface) for more details.
-pub struct Single;
-
-/// The multiple-selection picker interface.
-///
-/// Initialize using [`Multi::new`] or the [`Default`] implementation.
-///
-/// Read the [module-level docs](self) or the [interface docs](Interface) for more details.
-#[derive(Clone, Copy, Default)]
-pub struct Multi {
-    pub(crate) max_selection_count: Option<NonZero<u32>>,
-}
-
-impl Multi {
-    /// Initialize a new multi-selection interface with no bound on the number of selections.
-    #[must_use]
-    #[inline]
-    pub const fn new() -> Self {
-        Self {
-            max_selection_count: None,
-        }
-    }
-
-    /// The maximum number of items that can be selected in the picker.
-    ///
-    /// If `None`, no bound is applied; otherwise, use the provided bound. This is a `u32` since
-    /// the picker cannot hold more than [`u32::MAX`] items.
-    #[must_use]
-    #[inline]
-    pub const fn max_selection_count(mut self, maximum: Option<NonZero<u32>>) -> Self {
-        self.max_selection_count = maximum;
-        self
-    }
-}
-
-/// The picker [interface](Interface) which displays item previews.
-///
-/// The type parameter `I` is the base interface, which in practice is either [`Single`] or
-/// [`Multi`]. This interface owns the previewer itself, but do note that if `P` implements
-/// [`Preview`], then so does `&mut P`, which can avoid destruction of stateful previewers when
-/// relevant. The corresponding [`Interface`] implementation overrides the preview interface method
-/// of the base interface and forwards the remaining calls.
-///
-/// In most cases, you don't need this type directly: first construct a [`Picker`], then
-/// call [`Picker::with_preview`].
-///
-/// Read the [module-level docs](self) or the [interface docs](Interface) for more details.
-///
-/// # Preview cache
-///
-/// ## Standard cache
-///
-/// This interface stores generated previews along with scroll position in an LRU cache. This means that
-/// the internal previewer may not be called to generate the preview pane if previewing already
-/// succeeded earlier. The cache is cleared when processing a [restart event](Event::Restart).
-/// See the [`Preview`] docs for more detail.
-///
-/// The buffers are reused within a given session and are dropped on exit or restart.
-///
-/// When the preview is hidden (for instance, with
-/// [`LayoutEvent::TogglePreview`](crate::event::LayoutEvent::TogglePreview)), the cache is preserved
-/// and pending requests continue to be handled, but no new preview requests will be made
-/// automatically. Note that all preview-related events (such as pane movement and refresh) are
-/// ignored while hidden.
-///
-/// ## Prefetch cache
-///
-/// The preview implementation `P` may decide that prefetch is worthwhile (see [`Preview::prefetch`]
-/// and [`Preview::prefetch_limit`]), in which case the picker will also maintain an internal
-/// prefetch cache, separate from the main cache. The prefetch cache will be 2 times the size of [`Preview::prefetch_limit`].
-#[cfg(feature = "preview")]
-#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
-pub struct WithPreview<I, P> {
-    pub(crate) interface: I,
-    pub(crate) previewer: P,
-    pub(crate) cache_size: Option<NonZero<usize>>,
-}
-
-/// Composite state used by [`WithPreview`].
-///
-/// This contains state of the base interface along with extra state used by the preview pane.
-#[cfg(feature = "preview")]
-#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
-pub struct WithPreviewState<S> {
-    pub(crate) interface: S,
-    pub(crate) preview: PreviewState,
-}
-
-#[cfg(feature = "preview")]
-impl<I, P> WithPreview<I, P> {
-    /// Wrap an interface with a new interface that generates previews.
-    #[must_use]
-    #[inline]
-    pub fn new(interface: I, previewer: P) -> Self {
-        Self {
-            interface,
-            previewer,
-            cache_size: DEFAULT_CACHE_SIZE,
-        }
-    }
-
-    /// Set the cache capacity of the main preview cache.
-    ///
-    /// The default value if this struct is newly created is `128`, but if this interface was constructed
-    /// from picker, the default value given to [`PickerOptions::preview_cache_size`](crate::PickerOptions::preview_cache_size)
-    /// is used as the default instead.
-    #[must_use]
-    #[inline]
-    pub const fn cache_size(mut self, size: Option<NonZero<usize>>) -> Self {
-        self.cache_size = size;
-        self
-    }
-}
-
-#[cfg(feature = "preview")]
-impl<P> WithPreview<Single, P> {
-    /// Initialize a new preview interface in single-selection mode.
-    #[must_use]
-    #[inline]
-    pub fn new_single(previewer: P) -> Self {
-        Self::new(Single, previewer)
-    }
-}
-
-#[cfg(feature = "preview")]
-impl<P> WithPreview<Multi, P> {
-    /// Initialize a new preview interface in multi-selection mode.
-    #[must_use]
-    #[inline]
-    pub fn new_multi(previewer: P) -> Self {
-        Self::new(Multi::new(), previewer)
-    }
-}
-
-impl<T: Send + Sync + 'static> Interface<T> for Single {
-    type State = ();
-    type Output<'a> = Option<&'a T>;
-
-    #[inline]
-    fn init(&mut self, _cx: &Context<'_, T>) {}
-
-    #[inline]
-    fn finish<'items>(
-        &mut self,
-        (): (),
-        exit: Exit,
-        cx: Context<'items, T>,
-    ) -> Self::Output<'items> {
-        match exit {
-            Exit::Quit | Exit::Selected(None) => None,
-            Exit::Selected(Some(id)) => {
-                let item = cx
-                    .matches()
-                    .item(id)
-                    .expect("selected item is not in the output context");
-                Some(item.value())
-            }
-        }
-    }
-
-    #[inline]
-    fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>> {
-        keybind_single(key)
-    }
-}
-
-#[cfg(feature = "preview")]
-impl<T: Send + Sync + 'static, I: Interface<T>, P: Preview<T>> Interface<T> for WithPreview<I, P> {
-    type State = WithPreviewState<I::State>;
-    type Output<'a> = I::Output<'a>;
-
-    const HAS_PREVIEW: bool = true;
-
-    fn init(&mut self, cx: &Context<'_, T>) -> Self::State {
-        assert!(
-            !I::HAS_PREVIEW,
-            "preview adapters require a preview-free base"
-        );
-        WithPreviewState {
-            interface: self.interface.init(cx),
-            preview: PreviewState::new(self.cache_size, self.previewer.prefetch_limit()),
-        }
-    }
-
-    fn on_restart(&mut self, state: &mut Self::State, cx: &Context<'_, T>) {
-        self.interface.on_restart(&mut state.interface, cx);
-        state.preview.restart(&mut self.previewer);
-    }
-
-    fn on_end(&mut self, state: &mut Self::State) {
-        self.interface.on_end(&mut state.interface);
-        state.preview.end(&mut self.previewer);
-    }
-
-    #[inline]
-    fn is_queued(&self, state: &Self::State, id: ItemId) -> bool {
-        self.interface.is_queued(&state.interface, id)
-    }
-
-    #[inline]
-    fn queued_count(&self, state: &Self::State) -> Option<usize> {
-        self.interface.queued_count(&state.interface)
-    }
-
-    #[inline]
-    fn queue_limit(&self, state: &Self::State) -> Option<NonZero<u32>> {
-        self.interface.queue_limit(&state.interface)
-    }
-
-    #[inline]
-    fn on_queue(
-        &mut self,
-        state: &mut Self::State,
-        event: QueueEvent<'_, T>,
-        cx: &Context<'_, T>,
-    ) -> bool {
-        self.interface.on_queue(&mut state.interface, event, cx)
-    }
-
-    fn finish<'items>(
-        &mut self,
-        state: Self::State,
-        exit: Exit,
-        cx: Context<'items, T>,
-    ) -> Self::Output<'items> {
-        self.interface.finish(state.interface, exit, cx)
-    }
-
-    fn before_frame(
-        &mut self,
-        state: &mut Self::State,
-        cx: &Context<'_, T>,
-        matches_changed: bool,
-        deadline: Instant,
-    ) -> Redraw {
-        let mut redraw =
-            self.interface
-                .before_frame(&mut state.interface, cx, matches_changed, deadline);
-        if state
-            .preview
-            .update(&mut self.previewer, cx, matches_changed, deadline)
-        {
-            redraw |= Redraw::PREVIEW;
-        }
-        redraw
-    }
-
-    fn after_frame(
-        &mut self,
-        state: &mut Self::State,
-        cx: &Context<'_, T>,
-        deadline: Instant,
-    ) -> Redraw {
-        let redraw = self
-            .interface
-            .after_frame(&mut state.interface, cx, deadline);
-        state
-            .preview
-            .update_prefetch(&mut self.previewer, cx, deadline);
-        redraw
-    }
-
-    fn preview_content<'a>(&'a self, state: &'a Self::State) -> Content<'a> {
-        state.preview.content()
-    }
-
-    fn preview_event(
-        &mut self,
-        state: &mut Self::State,
-        event: PreviewEvent,
-        cx: &Context<'_, T>,
-    ) -> Redraw {
-        if state
-            .preview
-            .handle_event(cx.hovered().map(|item| item.id().index), event)
-        {
-            Redraw::PREVIEW
-        } else {
-            Redraw::NONE
-        }
-    }
-
-    fn preview_resize(&mut self, state: &mut Self::State, size: Option<Dimensions>) {
-        state.preview.resize(size);
-    }
-
-    #[inline]
-    fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>> {
-        I::keybind_default(key).or_else(|| keybind_passthrough_preview(key).ok())
     }
 }
 

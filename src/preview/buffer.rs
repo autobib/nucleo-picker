@@ -14,7 +14,7 @@ use super::Pane;
 /// entire buffer and start again.
 ///
 /// The buffer consists of a vector of completed lines as well as a final active line. An
-/// empty buffer consists only of an empty active line. There are two main input modes:
+/// empty buffer consists only of an empty active line. There are three main input modes:
 ///
 /// - Segment-based input: [`push_str`](Self::push_str) and
 ///   [`push_styled_str`](Self::push_styled_str). These methods append text to the current active
@@ -331,8 +331,10 @@ impl Buffer {
         self.newline();
     }
 
-    /// Get the `n`th line in the buffer as a string slice, excluding the newline and carriage
+    /// Get the `n`th line as a styled line view, excluding the newline and carriage
     /// return (if any).
+    ///
+    /// The underlying string slice can be obtained with [`Line::as_str`].
     #[inline]
     pub fn line(&self, index: usize) -> Option<Line<'_>> {
         let line = if index == self.lines.len() {

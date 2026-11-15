@@ -134,10 +134,10 @@ pub enum Response {
 ///
 /// See the [module-level documentation](crate::preview::request) for more detail.
 pub struct Request<'a, T> {
-    pub(super) buffer: Buffer,
-    pub(super) epoch: u64,
-    pub(super) snapshot: &'a Snapshot<T>,
-    pub(super) id: ItemId,
+    pub(crate) buffer: Buffer,
+    pub(crate) epoch: u64,
+    pub(crate) snapshot: &'a Snapshot<T>,
+    pub(crate) id: ItemId,
 }
 
 /// A preview request waiting to be processed.
@@ -172,8 +172,8 @@ pub struct CancelledRequest<T> {
 /// This is the type which should be returned to the picker if a [`Preview`](super::Preview)
 /// implementation wishes to defer preview generation.
 pub struct Pending {
-    pub(super) reader: Reader<Pane>,
-    pub(super) epoch: u64,
+    pub(crate) reader: Reader<Pane>,
+    pub(crate) epoch: u64,
 }
 
 impl<'a, T: Send + Sync + 'static> Request<'a, T> {
@@ -181,9 +181,9 @@ impl<'a, T: Send + Sync + 'static> Request<'a, T> {
     ///
     /// # Reducing allocations
     ///
-    /// It is valid for the caller to allocate a new [`Buffer`] and return it
+    /// It is valid for the caller to allocate a new [`Pane`] and return it
     /// directly, ignoring the preview request. However, it is encouraged to re-use the
-    /// [`Buffer`] obtained using this method since the buffer may be recycled from previous
+    /// [`Pane`] obtained using this method since the pane may be recycled from previous
     /// requests, decreasing allocation overhead.
     pub fn ready(self) -> Pane {
         self.buffer.into_pane()

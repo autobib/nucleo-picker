@@ -4,7 +4,7 @@ use super::{TestEvents, TestTerminal};
 use crate::{
     PickerOptions,
     event::{Event, MatchListEvent, PromptEvent},
-    match_list::SelectionIntoIter,
+    interface::SelectionIntoIter,
     render::StrRenderer,
     session::{Context, Exit, Interface, ItemId, Multi, MultiState, QueueEvent},
 };
@@ -15,10 +15,8 @@ fn context_tracks_rank_identity_and_match_publication() {
         .sort_results(false)
         .query("ta")
         .picker(StrRenderer);
-    let cx = Context::new(&picker.core.engine);
-    assert_eq!(cx.query(), "ta");
     #[cfg(feature = "preview")]
-    assert!(!cx.preview_enabled());
+    assert!(!Context::new(&picker.core.engine).preview_enabled());
     picker.push_batch(["alpha", "beta", "delta"]);
     assert!(Context::new(&picker.core.engine).matches().is_empty());
     picker.filter().unwrap();
@@ -42,7 +40,6 @@ fn context_tracks_rank_identity_and_match_publication() {
 
     picker.update_query("delta");
     let cx = Context::new(&picker.core.engine).with_rank(Some(0));
-    assert_eq!(cx.query(), "delta");
     assert_eq!(cx.hovered().unwrap().value(), &"beta");
     assert_eq!(cx.matches().len(), 2);
     assert!(cx.matches().ids().eq(ids));
@@ -108,7 +105,6 @@ fn shared_matches_and_item_borrows_outlive_the_context() {
 struct Observation {
     hovered: Option<ItemId>,
     rank: Option<u32>,
-    query: String,
     matches: Vec<ItemId>,
     #[cfg(feature = "preview")]
     preview_enabled: bool,
@@ -119,7 +115,6 @@ impl Observation {
         Self {
             hovered: cx.hovered().map(|item| item.id()),
             rank: cx.rank(),
-            query: cx.query().to_owned(),
             matches: cx.matches().ids().collect(),
             #[cfg(feature = "preview")]
             preview_enabled: cx.preview_enabled(),
@@ -279,13 +274,11 @@ fn initialization_and_restart_observe_the_retained_and_previous_generations() {
             assert_eq!(init.matches, ids);
             assert_eq!(init.hovered, None);
             assert_eq!(init.rank, None);
-            assert_eq!(init.query, "ta");
             #[cfg(feature = "preview")]
             assert_eq!(init.preview_enabled, PREVIEW);
             assert_eq!(restart.hovered, Some(ids[1]));
             assert_eq!(restart.rank, Some(1));
             assert_eq!(&restart.matches[..ids.len()], ids.as_slice());
-            assert_eq!(restart.query, "ta");
             assert_eq!(empty_restart.hovered, None);
             assert_eq!(empty_restart.rank, None);
             assert!(empty_restart.matches.is_empty());
@@ -364,7 +357,7 @@ fn custom_output_outlives_a_temporary_picker_ref_and_its_interface_borrows() {
 }
 
 #[test]
-fn events_observe_buffered_navigation_and_only_submitted_queries() {
+fn events_observe_buffered_navigation_and_published_matches() {
     for reversed in [false, true] {
         let mut picker = PickerOptions::new()
             .sort_results(false)
@@ -401,14 +394,9 @@ fn events_observe_buffered_navigation_and_only_submitted_queries() {
         assert_eq!(selected.exit, Exit::Selected(Some(ids[1])));
         assert!(selected.into_iter().copied().eq(["delta"]));
         assert_eq!(observations.len(), 3);
-        for (observation, rank, query) in [
-            (&observations[0], 0, "ta"),
-            (&observations[1], 1, "ta"),
-            (&observations[2], 1, "absent"),
-        ] {
+        for (observation, rank) in observations.iter().zip([0, 1, 1]) {
             assert_eq!(observation.rank, Some(rank));
             assert_eq!(observation.hovered, Some(ids[rank as usize]));
-            assert_eq!(observation.query, query);
             assert_eq!(observation.matches, ids);
             #[cfg(feature = "preview")]
             assert!(!observation.preview_enabled);
@@ -456,7 +444,6 @@ fn queued_selection_retains_the_buffered_hover_and_exit_context() {
         assert_eq!(output.exit, Exit::Selected(Some(ids[1])));
         assert_eq!(output.cx.hovered().unwrap().id(), ids[1]);
         assert_eq!(output.cx.rank(), Some(1));
-        assert_eq!(output.cx.query(), "absent");
         assert!(output.cx.matches().ids().eq(ids));
         assert!(output.into_iter().copied().eq(["beta"]));
         assert_eq!(picker.query(), "absent");
@@ -487,7 +474,6 @@ fn selection_without_a_hovered_item_requires_queued_items() {
 
         assert!(output.cx.hovered().is_none());
         assert_eq!(output.cx.rank(), None);
-        assert_eq!(output.cx.query(), "absent");
         assert!(output.cx.matches().is_empty());
         if has_queued {
             assert_eq!(output.exit, Exit::Selected(None));

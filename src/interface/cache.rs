@@ -1,4 +1,4 @@
-use super::{
+use crate::preview::{
     Buffer, Pane, lock,
     request::{Pending, Response},
 };

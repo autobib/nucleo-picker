@@ -1,7 +1,7 @@
 use super::*;
-use crate::preview::{
-    DEFAULT_CACHE_SIZE,
-    controller::tests::support::{self, TestSession},
+use crate::{
+    interface::controller::tests::support::{self, TestSession},
+    preview::DEFAULT_CACHE_SIZE,
 };
 
 const QUIET: Duration = Duration::from_millis(50);

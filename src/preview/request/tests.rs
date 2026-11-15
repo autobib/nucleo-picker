@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     Picker,
-    preview::{cache::RequestState, controller::tests::support::picker},
+    interface::{cache::RequestState, controller::tests::support::picker},
     render::StrRenderer,
 };
 use std::{
@@ -122,7 +122,7 @@ fn ids_distinguish_duplicate_items_and_survive_appends() {
     let mut map = HashMap::from([(first, "first"), (second, "second")]);
     assert_eq!(map.len(), 2);
     picker.push_batch(["same"]);
-    crate::preview::controller::tests::support::settle(&mut picker);
+    crate::interface::controller::tests::support::settle(&mut picker);
     assert_eq!(map[&request(&picker, 0).id()], "first");
     assert_eq!(map[&request(&picker, 1).id()], "second");
     let third = request(&picker, 2).id();

@@ -7,23 +7,12 @@ use std::{
     num::NonZero,
 };
 
+use super::Multi;
 use crate::{
     event::{Event, keybind_multi},
-    session::{Context, Exit, Interface, ItemId, ItemRef, Matches, Multi},
+    session::{Context, Exit, Interface, ItemId, Matches, QueueEvent},
 };
 use crossterm::event::KeyEvent;
-
-/// An event which modifies the list of queued items.
-pub enum QueueEvent<'a, T> {
-    /// Toggle a single item.
-    Toggle(ItemRef<'a, T>),
-    /// Remove an item from the queue.
-    Remove(ItemId),
-    /// Select all items.
-    Matches,
-    /// Clear the queue.
-    Clear,
-}
 
 impl<T: Send + Sync + 'static> Interface<T> for Multi {
     type State = MultiState;
@@ -222,7 +211,7 @@ impl MultiState {
 ///
 /// This is the selection type of the `pick*` methods of the multi-selection picker variants.
 /// Iterate over the picked items with [`iter`](Self::iter) or using `IntoIterator`. Also see the documentation
-/// for [multiple selections](crate::Picker#multiple-selections)
+/// for [multiple selections](crate::session#multiple-selections)
 ///
 /// The lifetime of the selection is bound to the lifetime of the picker from which it originated.
 pub struct Selection<'a, T: Send + Sync + 'static> {
@@ -310,7 +299,7 @@ impl<T: Send + Sync + 'static> ExactSizeIterator for SelectionIntoIter<'_, T> {}
 impl<T: Send + Sync + 'static> FusedIterator for SelectionIntoIter<'_, T> {}
 
 impl<'a, T: Send + Sync + 'static> Selection<'a, T> {
-    /// Returns an iterator over the other selected items.
+    /// Returns an iterator over the selected items.
     ///
     /// The iterator contains each selected item exactly once, sorted by index based on the order
     /// in which the picker received the items. If multiple threads populate the picker, the

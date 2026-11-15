@@ -5,9 +5,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use super::{Context, Exit, Interface, Redraw};
+use super::{Context, Exit, Interface, PickerCore, Redraw};
 use crate::{
-    PickerCore, Render, Terminal,
+    Render, Terminal,
     component::Component,
     error::PickError,
     event::{Event, EventSource, PickerStatus, RecvError},

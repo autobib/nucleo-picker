@@ -217,8 +217,7 @@ pub enum Event<A = !> {
     Abort(A),
     /// Redraw the screen.
     Redraw,
-    /// Quit the picker by selecting either the queued selections or the hovered item if no
-    /// selections are queued.
+    /// Quit the picker by selecting items.
     Select,
     /// Request a status update from the picker.
     Status {
@@ -453,7 +452,7 @@ impl<A> EventSource for Receiver<Event<A>> {
     }
 }
 
-/// An [`EventSource`] implementation which reads events from [`io::Stdin`] and maps key
+/// An [`EventSource`] implementation which reads events from the terminal and maps key
 /// events to events using a keybinding closure.
 ///
 /// The default implementation uses the [`keybind_default`] function for keybindings.
@@ -523,7 +522,7 @@ impl<A, F: FnMut(KeyEvent) -> Option<Event<A>>> EventSource for StdinReader<A, F
     }
 }
 
-/// A wrapper for a [`Sender`] which reads events from standard input and sends them to the
+/// A wrapper for a [`Sender`] which reads events from the terminal and sends them to the
 /// channel.
 ///
 /// The internal implementation is identical to the [`StdinReader`] struct, but instead of

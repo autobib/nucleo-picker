@@ -1,9 +1,8 @@
-use super::{
-    Buffer, Content, ItemId, ItemRef, Preview, PreviewEvent,
-    cache::{Cached, RequestState},
-    request::Request,
+use super::cache::{Cached, RequestState};
+use crate::{
+    preview::{Buffer, Content, Preview, PreviewEvent, request::Request},
+    session::{Context, Dimensions, ItemId, ItemRef},
 };
-use crate::session::{Context, Dimensions};
 use lru::LruCache;
 use std::{
     num::NonZero,

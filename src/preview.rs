@@ -90,10 +90,8 @@
 #[cfg(feature = "preview-ansi")]
 mod ansi;
 mod buffer;
-mod cache;
-pub(crate) mod controller;
 mod draw;
-mod lock;
+pub(crate) mod lock;
 mod pane;
 mod pool;
 pub mod request;
@@ -104,7 +102,9 @@ use std::{num::NonZero, time::Duration};
 use crate::rect::{Area, Dimensions};
 
 #[doc(inline)]
-pub use crate::session::{ItemId, ItemRef, WithPreview};
+pub use crate::interface::WithPreview;
+#[doc(inline)]
+pub use crate::session::{ItemId, ItemRef};
 #[cfg(feature = "preview-ansi")]
 pub use ansi::{AnsiState, AnsiWriter};
 pub use buffer::{Buffer, Line};
@@ -392,7 +392,7 @@ pub trait Preview<T> {
     ///
     /// Similarly to [`preview`](Self::preview), this method must not block for too long or the
     /// picker will lag. The [`Duration`] is a timeout suggested by the picker and depends on the
-    /// frame budget; it will always be at least 2ms.
+    /// frame budget.
     ///
     /// ## Prefetch call sequence
     ///

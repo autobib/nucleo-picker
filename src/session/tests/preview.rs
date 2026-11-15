@@ -11,9 +11,9 @@ use crate::{
     PickerOptions, Terminal,
     error::PickError,
     event::{Event, EventSource, LayoutEvent, MatchListEvent, RecvError},
+    interface::controller::tests::support::*,
     preview::{
         Buffer, Pane, Preview, PreviewEvent, SyncPreviewer,
-        controller::tests::support::*,
         request::{QueuedRequest, Request, Response},
     },
     rect::Area,

@@ -64,7 +64,7 @@ pub fn keybind_default<A>(key_event: KeyEvent) -> Option<Event<A>> {
 
 /// Keybindings which do not emit [multi-selection events](MatchListEvent#multi-selection-events).
 ///
-/// This wrapper type has been deprecated in favour of [`keybind_single`] and [`keybind_single_preview`].
+/// This function has been deprecated in favour of [`keybind_single`] and [`keybind_single_preview`].
 #[deprecated(
     since = "0.13.0",
     note = "Use `keybind_single` or `keybind_single_preview` instead"

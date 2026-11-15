@@ -15,7 +15,6 @@ use crate::{
 
 struct Update {
     matches_changed: bool,
-    query: String,
     hovered: Option<ItemId>,
     matches: Vec<ItemId>,
     deadline: Instant,
@@ -52,7 +51,6 @@ impl<T: Send + Sync + 'static, const ENABLED: bool> Interface<T> for Probe<'_, E
     ) -> Redraw {
         self.0.borrow_mut().push(Update {
             matches_changed,
-            query: cx.query().to_owned(),
             hovered: cx.hovered().map(|item| item.id()),
             matches: cx.matches().ids().collect(),
             deadline,
@@ -68,7 +66,6 @@ impl<T: Send + Sync + 'static, const ENABLED: bool> Interface<T> for Probe<'_, E
         let last = updates.last_mut().unwrap();
         assert_eq!(last.deadline, deadline);
         assert_eq!(last.after_frame.replace(deadline), None);
-        assert_eq!(last.query, cx.query());
         assert_eq!(last.hovered, cx.hovered().map(|item| item.id()));
         assert!(cx.matches().ids().eq(last.matches.iter().copied()));
         self.1
@@ -205,7 +202,7 @@ fn query_submission_and_injection_notify_only_when_matches_are_published() {
     let updates = updates.borrow();
     assert!(updates[0].matches_changed);
     assert!(!updates.last().unwrap().matches_changed);
-    assert_eq!(updates[1].query, "beta");
+    assert_eq!(picker.query(), "beta");
     assert_eq!(
         updates
             .iter()
