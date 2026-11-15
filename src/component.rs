@@ -35,19 +35,10 @@ pub(crate) trait Component<E> {
     }
 }
 
-pub(crate) trait PreviewComponent<T> {
-    type State;
-
-    // this is a bit hacky: mostly we try to feature-gate the preview component but
-    // if the preview feature is enabled, one can still use the usual picker, in which case
-    // we don't want any runtime cost
-    const ENABLED: bool = false;
-
-    fn init(&mut self) -> Self::State;
-
+pub(crate) trait PreviewComponent<T, S> {
     fn component(
         &mut self,
-        _state: &mut Self::State,
+        _state: &mut S,
         _chars: &PickerChars,
         #[cfg(feature = "preview")] _config: &PreviewConfig,
     ) -> impl Component<()> {
@@ -56,11 +47,11 @@ pub(crate) trait PreviewComponent<T> {
 
     /// Handle a preview event
     #[cfg(feature = "preview")]
-    fn handle(&mut self, _state: &mut Self::State, _event: PreviewEvent, _cx: &Context<'_, T>) {}
+    fn handle(&mut self, _state: &mut S, _event: PreviewEvent, _cx: &Context<'_, T>) {}
 
     fn update(
         &mut self,
-        _state: &mut Self::State,
+        _state: &mut S,
         _cx: &Context<'_, T>,
         _matches_changed: bool,
         _deadline: Instant,
@@ -68,15 +59,10 @@ pub(crate) trait PreviewComponent<T> {
         false
     }
 
-    fn prefetch(&mut self, _state: &mut Self::State, _cx: &Context<'_, T>, _deadline: Instant) {}
+    fn prefetch(&mut self, _state: &mut S, _cx: &Context<'_, T>, _deadline: Instant) {}
 
     /// Do extra processing when a preview frame is hidden.
-    fn hide(&mut self, _state: &mut Self::State) {}
-
-    /// Do extra processing when a restart event is received.
-    fn restart(&mut self, _state: &mut Self::State) {}
-
-    fn end(&mut self, _state: &mut Self::State) {}
+    fn hide(&mut self, _state: &mut S) {}
 }
 
 #[cfg(feature = "preview")]
@@ -91,13 +77,6 @@ impl Component<()> for NoPreview {
     }
 }
 
-impl<T> PreviewComponent<T> for NoPreview {
-    type State = ();
-
-    fn init(&mut self) {}
-}
-
-#[cfg(test)]
 impl<E, C: Component<E>> Component<E> for &mut C {
     fn resize(&mut self, area: Area, engine: &E) {
         (**self).resize(area, engine);
@@ -107,5 +86,19 @@ impl<E, C: Component<E>> Component<E> for &mut C {
     }
     fn cursor(&self, engine: &E) -> Option<Position> {
         (**self).cursor(engine)
+    }
+}
+
+impl<E, C: Component<E>> Component<()> for (C, E) {
+    fn resize(&mut self, area: Area, _: &()) {
+        self.0.resize(area, &self.1);
+    }
+
+    fn draw<D: Rect>(&mut self, _: &(), rect: &mut D) -> io::Result<()> {
+        self.0.draw(&self.1, rect)
+    }
+
+    fn cursor(&self, _: &()) -> Option<Position> {
+        self.0.cursor(&self.1)
     }
 }

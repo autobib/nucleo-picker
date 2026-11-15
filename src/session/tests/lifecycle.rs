@@ -10,9 +10,8 @@ use crate::{
     Picker, PickerOptions, Terminal,
     component::PreviewComponent,
     event::{Event, RecvError},
-    match_list::Queued,
     render::StrRenderer,
-    session::{Context, Dimensions, Exit},
+    session::{Context, Dimensions, Exit, Interface, Single},
 };
 
 type Log = RefCell<Vec<&'static str>>;
@@ -36,6 +35,7 @@ struct Probe<'a> {
 struct State<'a> {
     log: &'a Log,
     session: usize,
+    ended: bool,
 }
 
 impl Drop for State<'_> {
@@ -44,54 +44,52 @@ impl Drop for State<'_> {
     }
 }
 
-impl<'a, T> PreviewComponent<T> for Probe<'a> {
+impl<'a, T: Send + Sync + 'static> Interface<T> for Probe<'a> {
     type State = State<'a>;
+    type Output<'items> = Option<&'items T>;
 
-    fn init(&mut self) -> Self::State {
+    fn init(&mut self, _: &Context<'_, T>) -> Self::State {
         self.log.borrow_mut().push("init");
         assert_ne!(self.panic_at, PanicAt::Init);
         self.sessions += 1;
         State {
             log: self.log,
             session: self.sessions,
+            ended: false,
         }
     }
 
-    fn update(&mut self, state: &mut Self::State, _: &Context<'_, T>, _: bool, _: Instant) -> bool {
-        assert_eq!(state.session, self.sessions);
-        assert_ne!(self.panic_at, PanicAt::Update);
-        false
-    }
-
-    fn restart(&mut self, state: &mut Self::State) {
+    fn on_restart(&mut self, state: &mut Self::State, _: &Context<'_, T>) {
         assert_eq!(state.session, self.sessions);
         self.log.borrow_mut().push("restart");
     }
 
-    fn end(&mut self, state: &mut Self::State) {
+    fn on_end(&mut self, state: &mut Self::State) {
         assert_eq!(state.session, self.sessions);
+        assert!(!std::mem::replace(&mut state.ended, true));
         self.log.borrow_mut().push("end");
         assert_ne!(self.panic_at, PanicAt::End);
     }
-}
-
-struct OutputProbe<'a> {
-    log: &'a Log,
-    panic_at: PanicAt,
-}
-
-impl Queued for OutputProbe<'_> {
-    type Output<'items, T: Send + Sync + 'static> = Option<&'items T>;
-
-    fn on_select<'items, T: Send + Sync + 'static>(
-        self,
+    fn finish<'items>(
+        &mut self,
+        state: Self::State,
         exit: Exit,
         cx: Context<'items, T>,
-    ) -> Self::Output<'items, T> {
-        assert_eq!(self.log.borrow().last(), Some(&"drop state"));
+    ) -> Self::Output<'items> {
+        assert_eq!(state.session, self.sessions);
+        assert!(state.ended);
+        assert_eq!(self.log.borrow().last(), Some(&"end"));
         self.log.borrow_mut().push("finish");
         assert_ne!(self.panic_at, PanicAt::Finish);
-        ().on_select(exit, cx)
+        Single.finish((), exit, cx)
+    }
+}
+
+impl<'a, T> PreviewComponent<T, State<'a>> for Probe<'a> {
+    fn update(&mut self, state: &mut State<'a>, _: &Context<'_, T>, _: bool, _: Instant) -> bool {
+        assert_eq!(state.session, self.sessions);
+        assert_ne!(self.panic_at, PanicAt::Update);
+        false
     }
 }
 
@@ -189,25 +187,16 @@ fn cleanup_runs_once_before_output_and_on_terminal_errors() {
             let result = picker.core.pick_impl(
                 frame_events([Err(RecvError::Timeout), Ok(exit)]),
                 &mut TestTerminal { log: &log, failure },
-                OutputProbe {
-                    log: &log,
-                    panic_at: PanicAt::Never,
-                },
                 &mut probe,
             );
-            let mut expected = vec![
-                "init",
-                "terminal init",
-                "terminal cleanup",
-                "end",
-                "drop state",
-            ];
+            let mut expected = vec!["init", "terminal init", "terminal cleanup", "end"];
             if failure == Failure::None {
                 assert_eq!(result.unwrap().copied(), select.then_some("alpha"));
                 expected.push("finish");
             } else {
                 assert!(matches!(result, Err(crate::error::PickError::IO(_))));
             }
+            expected.push("drop state");
             assert_eq!(*log.borrow(), expected, "{failure:?}, select={select}");
         }
         assert_eq!(probe.sessions, 2 * (session + 1));
@@ -229,10 +218,6 @@ fn event_errors_end_the_session_without_output_conversion() {
             &mut TestTerminal {
                 log: &log,
                 failure: Failure::None,
-            },
-            OutputProbe {
-                log: &log,
-                panic_at: PanicAt::Never,
             },
             &mut Probe {
                 log: &log,
@@ -267,10 +252,6 @@ fn restart_preserves_state_until_session_cleanup() {
                 log: &log,
                 failure: Failure::None,
             },
-            OutputProbe {
-                log: &log,
-                panic_at: PanicAt::Never,
-            },
             &mut Probe {
                 log: &log,
                 panic_at: PanicAt::Never,
@@ -287,8 +268,8 @@ fn restart_preserves_state_until_session_cleanup() {
             "restart",
             "terminal cleanup",
             "end",
-            "drop state",
             "finish",
+            "drop state",
         ]
     );
 }
@@ -314,10 +295,6 @@ fn unwinding_drops_state_without_reentering_lifecycle_hooks() {
                     log: &log,
                     failure: Failure::None,
                 },
-                OutputProbe {
-                    log: &log,
-                    panic_at,
-                },
                 &mut Probe {
                     log: &log,
                     panic_at,
@@ -332,10 +309,10 @@ fn unwinding_drops_state_without_reentering_lifecycle_hooks() {
             if matches!(panic_at, PanicAt::End | PanicAt::Finish) {
                 expected.push("end");
             }
-            expected.push("drop state");
             if panic_at == PanicAt::Finish {
                 expected.push("finish");
             }
+            expected.push("drop state");
         }
         assert_eq!(*log.borrow(), expected, "{panic_at:?}");
     }

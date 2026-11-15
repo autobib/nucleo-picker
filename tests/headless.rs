@@ -148,6 +148,53 @@ fn ranked_items_and_ids_follow_configured_match_order() {
 }
 
 #[test]
+fn item_identifiers_distinguish_pickers_and_item_types() {
+    let mut first = options().picker(StrRenderer);
+    first.push_batch(["first", "last"]);
+    let first_id = first.filter().unwrap().get(0).unwrap().id();
+    let retained = first.matches().owned_item(first_id).unwrap();
+
+    let mut second = options().picker(StrRenderer);
+    second.push_batch(["second"]);
+    let second_id = second.filter().unwrap().get(0).unwrap().id();
+
+    let mut third = options().picker(StrRenderer);
+    third.push_batch(["third".to_owned()]);
+    let third_id = third.filter().unwrap().get(0).unwrap().id();
+
+    assert_ne!(first_id, second_id);
+    assert_ne!(first_id, third_id);
+    assert_ne!(second_id, third_id);
+    for id in first.matches().ids() {
+        assert!(second.matches().item(id).is_none());
+        assert!(second.matches().owned_item(id).is_none());
+        assert!(third.matches().item(id).is_none());
+        assert!(third.matches().owned_item(id).is_none());
+    }
+    assert!(first.matches().item(second_id).is_none());
+    assert!(first.matches().item(third_id).is_none());
+    assert!(second.matches().item(third_id).is_none());
+    assert!(third.matches().item(second_id).is_none());
+
+    for picker in [&mut first, &mut second] {
+        picker.restart();
+        picker.push_batch(["replacement"]);
+        let matches = picker.filter().unwrap();
+        let replacement = matches.get(0).unwrap().id();
+        for old in [retained.item_ref().id(), second_id, third_id] {
+            assert_ne!(replacement, old);
+            assert!(matches.item(old).is_none());
+            assert!(matches.owned_item(old).is_none());
+        }
+    }
+    assert_ne!(
+        first.matches().get(0).unwrap().id(),
+        second.matches().get(0).unwrap().id()
+    );
+    assert_eq!(retained.item_ref().value(), &"first");
+}
+
+#[test]
 fn item_lookup_survives_filtering_and_owned_items_survive_restart() {
     let mut picker = options().picker(StrRenderer);
     picker.push_batch(["original", "other"].map(str::to_owned));

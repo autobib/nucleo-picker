@@ -7,6 +7,7 @@ use crate::{
         request::{ActiveRequest, QueuedRequest, Response},
     },
     render::StrRenderer,
+    session::{Exit, Single},
 };
 
 pub(crate) struct TestSession<P> {
@@ -27,7 +28,10 @@ impl<P: Preview<&'static str>> TestSession<P> {
     }
 
     pub(crate) fn handle(&mut self, event: PreviewEvent, cx: &Context<'_, &'static str>) {
-        WithPreview::new_single(&mut self.previewer).handle(&mut self.state, event, cx);
+        if let Some(size) = cx.preview_dimensions() {
+            self.state
+                .handle_event(cx.hovered().map(|item| item.id().index), event, size);
+        }
     }
 
     pub(crate) fn update(
@@ -36,48 +40,52 @@ impl<P: Preview<&'static str>> TestSession<P> {
         matches_changed: bool,
         deadline: Instant,
     ) -> bool {
-        WithPreview::new_single(&mut self.previewer).update(
-            &mut self.state,
-            cx,
-            matches_changed,
-            deadline,
-        )
+        self.state
+            .update(&mut self.previewer, cx, matches_changed, deadline)
     }
 
     pub(crate) fn prefetch(&mut self, cx: &Context<'_, &'static str>, deadline: Instant) {
-        WithPreview::new_single(&mut self.previewer).prefetch(&mut self.state, cx, deadline);
+        self.state
+            .update_prefetch(&mut self.previewer, cx, deadline);
     }
 
     pub(crate) fn hide(&mut self) {
-        PreviewComponent::<&'static str>::hide(
-            &mut WithPreview::new_single(&mut self.previewer),
-            &mut self.state,
-        );
+        self.state.set_hovered(&mut self.previewer, None);
     }
 
     pub(crate) fn restart(&mut self) {
-        PreviewComponent::<&'static str>::restart(
-            &mut WithPreview::new_single(&mut self.previewer),
-            &mut self.state,
-        );
+        self.state.restart(&mut self.previewer);
     }
 
     pub(crate) fn end(&mut self) {
-        PreviewComponent::<&'static str>::end(
-            &mut WithPreview::new_single(&mut self.previewer),
-            &mut self.state,
-        );
+        self.state.end(&mut self.previewer);
     }
 }
 
-impl<P: Preview<&'static str>> PreviewComponent<&'static str> for TestSession<P> {
+impl<P: Preview<&'static str>> Interface<&'static str> for TestSession<P> {
     // Event-loop tests retain previews between runs and inspect state before explicit cleanup.
     type State = ();
+    type Output<'items> = Option<&'items &'static str>;
 
-    const ENABLED: bool = true;
+    const HAS_PREVIEW: bool = true;
 
-    fn init(&mut self) {}
+    fn init(&mut self, _: &Context<'_, &'static str>) {}
 
+    fn on_restart(&mut self, _: &mut (), _: &Context<'_, &'static str>) {
+        self.restart();
+    }
+
+    fn finish<'items>(
+        &mut self,
+        (): (),
+        exit: Exit,
+        cx: Context<'items, &'static str>,
+    ) -> Self::Output<'items> {
+        Single.finish((), exit, cx)
+    }
+}
+
+impl<P: Preview<&'static str>> PreviewComponent<&'static str, ()> for TestSession<P> {
     fn component(
         &mut self,
         _: &mut (),
@@ -111,10 +119,6 @@ impl<P: Preview<&'static str>> PreviewComponent<&'static str> for TestSession<P>
 
     fn hide(&mut self, _: &mut ()) {
         self.hide();
-    }
-
-    fn restart(&mut self, _: &mut ()) {
-        self.restart();
     }
 }
 

@@ -1,11 +1,11 @@
 use super::{Frame, LayoutEvent, Redraw};
 use crate::{
     Picker, Terminal,
-    component::{Component, NoPreview, PreviewComponent},
+    component::{Component, NoPreview},
     match_list::MatchList,
     prompt::Prompt,
     render::StrRenderer,
-    session::Dimensions,
+    session::{Context, Dimensions, Interface, Single},
     status_line::StatusLine,
 };
 use std::io::{self, Write};
@@ -58,46 +58,40 @@ fn dimensions((width, height): (u16, u16)) -> Dimensions {
 }
 
 fn render_at_size(redraw: Redraw, size: (u16, u16)) -> String {
-    render_with(redraw, size, NoPreview)
+    render_with(redraw, size, Single)
 }
 fn render_with<V>(redraw: Redraw, size: (u16, u16), mut preview: V) -> String
 where
-    V: PreviewComponent<String>,
+    V: Interface<String>,
 {
     let mut picker = Picker::<String, _>::new(StrRenderer);
+    let mut state = preview.init(&Context::new(&picker.core.engine));
     let mut prompt = Prompt::new(&mut picker.core.prompt, &picker.core.chars);
     let mut list = MatchList::new(&mut picker.core.list_state, &picker.core.chars);
     let mut status_line = StatusLine::new(&picker.core.chars);
-    let mut frame = Frame::new(dimensions(size), false, V::ENABLED.then_some(0.5));
-    let mut state = preview.init();
+    #[cfg(feature = "preview")]
+    let ratio = V::HAS_PREVIEW.then_some(0.5);
+    #[cfg(not(feature = "preview"))]
+    let ratio = None;
+    let mut frame = Frame::new(dimensions(size), false, ratio);
     let mut component = preview.component(
         &mut state,
         &picker.core.chars,
         #[cfg(feature = "preview")]
         &picker.core.preview_config,
     );
-    frame.resize(
-        &(&picker.core.engine, &()),
+    let mut contents = (
         &mut prompt,
-        &mut list,
+        (&mut list, (&picker.core.engine, &Single, &())),
         &mut status_line,
         &mut component,
     );
+    frame.resize(&mut contents);
     let mut terminal = TestTerminal {
         dimensions: dimensions(size),
         ..TestTerminal::default()
     };
-    frame
-        .draw(
-            &(&picker.core.engine, &()),
-            &mut prompt,
-            &mut list,
-            &mut status_line,
-            &mut component,
-            &mut terminal,
-            redraw,
-        )
-        .unwrap();
+    frame.draw(&mut contents, &mut terminal, redraw).unwrap();
     assert!(!terminal.rendering);
     String::from_utf8(terminal.output).unwrap()
 }
@@ -244,11 +238,7 @@ fn render_applies_terminal_resize_to_all_components_before_drawing() {
                 assert_eq!(
                     frame
                         .render(
-                            &(),
-                            &mut prompt,
-                            &mut list,
-                            &mut status,
-                            &mut preview,
+                            &mut (&mut prompt, &mut list, &mut status, &mut preview),
                             &mut terminal,
                             Redraw {
                                 prompt: redraw,
@@ -330,11 +320,7 @@ fn render_pending(frame: &mut Frame) -> bool {
     };
     frame
         .render(
-            &(),
-            &mut NoPreview,
-            &mut NoPreview,
-            &mut NoPreview,
-            &mut NoPreview,
+            &mut (NoPreview, NoPreview, NoPreview, NoPreview),
             &mut terminal,
             Redraw::default(),
         )

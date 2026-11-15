@@ -11,7 +11,7 @@ use crate::{
     component::PreviewComponent,
     event::{Event, MatchListEvent, PromptEvent, RecvError},
     render::StrRenderer,
-    session::{Context, ItemId},
+    session::{Context, Exit, Interface, ItemId, Single},
 };
 
 struct Update {
@@ -25,13 +25,26 @@ struct Update {
 
 struct Probe<'a, const ENABLED: bool>(&'a RefCell<Vec<Update>>);
 
-impl<T: Send + Sync + 'static, const ENABLED: bool> PreviewComponent<T> for Probe<'_, ENABLED> {
+impl<T: Send + Sync + 'static, const ENABLED: bool> Interface<T> for Probe<'_, ENABLED> {
     type State = ();
+    type Output<'items> = Option<&'items T>;
 
-    const ENABLED: bool = ENABLED;
+    #[cfg(feature = "preview")]
+    const HAS_PREVIEW: bool = ENABLED;
 
-    fn init(&mut self) {}
+    fn init(&mut self, _: &Context<'_, T>) {}
 
+    fn finish<'items>(
+        &mut self,
+        (): (),
+        exit: Exit,
+        cx: Context<'items, T>,
+    ) -> Self::Output<'items> {
+        Single.finish((), exit, cx)
+    }
+}
+
+impl<T: Send + Sync + 'static, const ENABLED: bool> PreviewComponent<T, ()> for Probe<'_, ENABLED> {
     fn update(
         &mut self,
         _: &mut (),
@@ -81,7 +94,6 @@ fn initial_idle_and_navigation_frames_notify_even_without_preview() {
                         Ok(Event::Quit),
                     ]),
                     &mut TestTerminal::default(),
-                    (),
                     &mut probe,
                 )
                 .unwrap();
@@ -128,7 +140,6 @@ fn restart_notifications_coalesce_and_clear_after_delivery() {
                 Ok(Event::Quit),
             ]),
             &mut TestTerminal::default(),
-            (),
             &mut Probe::<false>(&updates),
         )
         .unwrap();
@@ -176,7 +187,6 @@ fn query_submission_and_injection_notify_only_when_matches_are_published() {
         .pick_impl(
             events,
             &mut TestTerminal::default(),
-            (),
             &mut Probe::<false>(&updates),
         )
         .unwrap();
@@ -237,7 +247,6 @@ fn hidden_frames_receive_match_notifications_without_replaying_them_on_reveal() 
         .pick_impl(
             events,
             &mut TestTerminal::default(),
-            (),
             &mut Probe::<true>(&updates),
         )
         .unwrap();

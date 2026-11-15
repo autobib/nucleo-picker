@@ -217,6 +217,7 @@ use std::{
 
 use crossterm::event::KeyEvent;
 
+pub use crate::match_list::{MultiState, QueueEvent};
 pub use crate::rect::Dimensions;
 pub use context::Context;
 pub use item::{ItemId, ItemRef, OwnedItem};
@@ -224,54 +225,19 @@ pub use matches::Matches;
 pub use picker_ref::PickerRef;
 
 #[cfg(doc)]
-use crate::Picker;
+use crate::{Picker, Selection};
 use crate::{
-    PickerCore, Render, Selection, Terminal,
+    PickerCore, Render,
     component::PreviewComponent,
     error::PickError,
-    event::{Event, EventSource, StdinReader, keybind_multi, keybind_single},
-    match_list::SelectedIndices,
+    event::{Event, EventSource, StdinReader, keybind_single},
     terminal::CrosstermTerminal,
 };
 #[cfg(feature = "preview")]
 use crate::{
-    event::{keybind_multi_preview, keybind_single_preview},
-    preview::{DEFAULT_CACHE_SIZE, Preview},
+    event::keybind_passthrough_preview,
+    preview::{DEFAULT_CACHE_SIZE, Preview, controller::PreviewState},
 };
-
-mod sealed {
-    use super::*;
-
-    pub(crate) trait State<T>: Sized + PreviewComponent<T> {
-        type Queued: for<'a> crate::match_list::Queued<Output<'a, T> = <Self as Interface<T>>::Output<'a>>
-        where
-            T: Send + Sync + 'static,
-            Self: Interface<T>;
-
-        fn make_queue(&self) -> Self::Queued
-        where
-            T: Send + Sync + 'static,
-            Self: Interface<T>;
-
-        #[inline]
-        fn run<'a, R, E, W>(
-            &mut self,
-            core: &'a mut PickerCore<T, R>,
-            event_source: E,
-            terminal: &mut W,
-        ) -> Result<<Self as Interface<T>>::Output<'a>, PickError<E::AbortErr>>
-        where
-            T: Send + Sync + 'static,
-            Self: Interface<T>,
-            R: Render<T>,
-            E: EventSource,
-            W: Terminal,
-        {
-            let queued = self.make_queue();
-            core.pick_impl(event_source, terminal, queued, self)
-        }
-    }
-}
 
 /// Generics for the picker interface.
 ///
@@ -288,12 +254,77 @@ mod sealed {
 ///
 /// Read the [module documentation](self) for an overview and more details.
 #[allow(private_bounds)]
-pub trait Interface<T>: sealed::State<T> {
+pub trait Interface<T>: Sized + PreviewComponent<T, Self::State> {
+    /// Arbitrary state which persists for exactly one session.
+    type State;
+
+    /// Whether this interface provides a preview pane.
+    #[cfg(feature = "preview")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
+    const HAS_PREVIEW: bool = false;
+
     /// The output of the picker after selection. This is an [`Option<&T>`] for single-selection
     /// pickers and [`Selection<'_, T>`] for multi-selection pickers.
     type Output<'a>: IntoIterator<Item = &'a T, IntoIter: ExactSizeIterator>
     where
         T: 'a;
+
+    /// Initialize the state before any matching and layout computations.
+    fn init(&mut self, cx: &Context<'_, T>) -> Self::State;
+
+    /// Process a restart event.
+    ///
+    /// The provided [`Context`] corresponds to the *previous* generation at the moment that the
+    /// restart event was processed.
+    fn on_restart(&mut self, _state: &mut Self::State, _cx: &Context<'_, T>) {}
+
+    /// Perform cleanup at the end of the session.
+    ///
+    /// This takes place before converting output in [`finish`](Self::finish) and also before
+    /// propagating errors.
+    fn on_end(&mut self, _state: &mut Self::State) {}
+
+    /// Returns if a given identifier is a queued item.
+    fn is_queued(&self, _state: &Self::State, _id: ItemId) -> bool {
+        false
+    }
+
+    /// The current number of queued items.
+    ///
+    /// `None` means queueing is disabled entirely; `Some(n)` indicates the number of queued
+    /// items.
+    fn queued_count(&self, _state: &Self::State) -> Option<usize> {
+        None
+    }
+
+    /// The maximum number of queued items permitted by this interface, or `None` if unlimited.
+    ///
+    /// This is used to render the marker in the status line.
+    fn queue_limit(&self, _state: &Self::State) -> Option<NonZero<u32>> {
+        None
+    }
+
+    /// Process an event which modifies the item queue, returning whether or not there were changes
+    /// to the queue.
+    fn on_queue(
+        &mut self,
+        _state: &mut Self::State,
+        _event: QueueEvent<'_, T>,
+        _cx: &Context<'_, T>,
+    ) -> bool {
+        false
+    }
+
+    /// Generate the output on completion.
+    ///
+    /// This method is called after [`on_end`](Self::on_end) when handling one of the standard [exit types](Exit),
+    /// including selection or quit.
+    fn finish<'items>(
+        &mut self,
+        state: Self::State,
+        exit: Exit,
+        cx: Context<'items, T>,
+    ) -> Self::Output<'items>;
 
     /// The default keybindings for this interface.
     ///
@@ -302,7 +333,9 @@ pub trait Interface<T>: sealed::State<T> {
     /// specific interface requires. See the
     /// [keybind specialization documentation](crate::event::keybind_default#specialized-bindings)
     /// for more details.
-    fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>>;
+    fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>> {
+        crate::event::keybind_default(key)
+    }
 }
 
 /// The status on successful session exit.
@@ -310,9 +343,8 @@ pub trait Interface<T>: sealed::State<T> {
 pub enum Exit {
     /// The session quit without making a selection.
     Quit,
-    /// The session quit and made a selection. `None` indicates that the selection only includes
-    /// queued items, and `Some(ItemId)` indicates that the selection also includes the given
-    /// identifier.
+    /// The session quit and requested a selection. The given item, if any, is the hovered at the time of
+    /// processing the exit.
     Selected(Option<ItemId>),
 }
 
@@ -359,7 +391,7 @@ pub struct Single;
 /// Read the [module-level docs](self) or the [interface docs](Interface) for more details.
 #[derive(Clone, Copy, Default)]
 pub struct Multi {
-    max_selection_count: Option<NonZero<u32>>,
+    pub(crate) max_selection_count: Option<NonZero<u32>>,
 }
 
 impl Multi {
@@ -389,7 +421,8 @@ impl Multi {
 /// The type parameter `I` is the base interface, which in practice is either [`Single`] or
 /// [`Multi`]. This interface owns the previewer itself, but do note that if `P` implements
 /// [`Preview`], then so does `&mut P`, which can avoid destruction of stateful previewers when
-/// relevant.
+/// relevant. The corresponding [`Interface`] implementation overrides the preview interface method
+/// of the base interface and forwards the remaining calls.
 ///
 /// In most cases, you don't need this type directly: first construct a [`Picker`], then
 /// call [`Picker::with_preview`].
@@ -424,6 +457,16 @@ pub struct WithPreview<I, P> {
     pub(crate) interface: I,
     pub(crate) previewer: P,
     pub(crate) cache_size: Option<NonZero<usize>>,
+}
+
+/// Composite state used by [`WithPreview`].
+///
+/// This contains state of the base interface along with extra state used by the preview pane.
+#[cfg(feature = "preview")]
+#[cfg_attr(docsrs, doc(cfg(feature = "preview")))]
+pub struct WithPreviewState<S> {
+    pub(crate) interface: S,
+    pub(crate) preview: PreviewState,
 }
 
 #[cfg(feature = "preview")]
@@ -473,7 +516,30 @@ impl<P> WithPreview<Multi, P> {
 }
 
 impl<T: Send + Sync + 'static> Interface<T> for Single {
+    type State = ();
     type Output<'a> = Option<&'a T>;
+
+    #[inline]
+    fn init(&mut self, _cx: &Context<'_, T>) {}
+
+    #[inline]
+    fn finish<'items>(
+        &mut self,
+        (): (),
+        exit: Exit,
+        cx: Context<'items, T>,
+    ) -> Self::Output<'items> {
+        match exit {
+            Exit::Quit | Exit::Selected(None) => None,
+            Exit::Selected(Some(id)) => {
+                let item = cx
+                    .matches()
+                    .item(id)
+                    .expect("selected item is not in the output context");
+                Some(item.value())
+            }
+        }
+    }
 
     #[inline]
     fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>> {
@@ -481,82 +547,75 @@ impl<T: Send + Sync + 'static> Interface<T> for Single {
     }
 }
 
-impl<T: Send + Sync + 'static> sealed::State<T> for Single {
-    type Queued = ();
+impl<T> PreviewComponent<T, ()> for Single {}
+
+impl<T> PreviewComponent<T, MultiState> for Multi {}
+
+#[cfg(feature = "preview")]
+impl<T: Send + Sync + 'static, I: Interface<T>, P: Preview<T>> Interface<T> for WithPreview<I, P> {
+    type State = WithPreviewState<I::State>;
+    type Output<'a> = I::Output<'a>;
+
+    const HAS_PREVIEW: bool = true;
+
+    fn init(&mut self, cx: &Context<'_, T>) -> Self::State {
+        assert!(
+            !I::HAS_PREVIEW,
+            "preview adapters require a preview-free base"
+        );
+        WithPreviewState {
+            interface: self.interface.init(cx),
+            preview: PreviewState::new(self.cache_size, self.previewer.prefetch_limit()),
+        }
+    }
+
+    fn on_restart(&mut self, state: &mut Self::State, cx: &Context<'_, T>) {
+        self.interface.on_restart(&mut state.interface, cx);
+        state.preview.restart(&mut self.previewer);
+    }
+
+    fn on_end(&mut self, state: &mut Self::State) {
+        self.interface.on_end(&mut state.interface);
+        state.preview.end(&mut self.previewer);
+    }
 
     #[inline]
-    fn make_queue(&self) -> Self::Queued {}
-}
-
-impl<T> PreviewComponent<T> for Single {
-    type State = ();
+    fn is_queued(&self, state: &Self::State, id: ItemId) -> bool {
+        self.interface.is_queued(&state.interface, id)
+    }
 
     #[inline]
-    fn init(&mut self) {}
-}
+    fn queued_count(&self, state: &Self::State) -> Option<usize> {
+        self.interface.queued_count(&state.interface)
+    }
 
-impl<T: Send + Sync + 'static> Interface<T> for Multi {
-    type Output<'a> = Selection<'a, T>;
+    #[inline]
+    fn queue_limit(&self, state: &Self::State) -> Option<NonZero<u32>> {
+        self.interface.queue_limit(&state.interface)
+    }
+
+    #[inline]
+    fn on_queue(
+        &mut self,
+        state: &mut Self::State,
+        event: QueueEvent<'_, T>,
+        cx: &Context<'_, T>,
+    ) -> bool {
+        self.interface.on_queue(&mut state.interface, event, cx)
+    }
+
+    fn finish<'items>(
+        &mut self,
+        state: Self::State,
+        exit: Exit,
+        cx: Context<'items, T>,
+    ) -> Self::Output<'items> {
+        self.interface.finish(state.interface, exit, cx)
+    }
 
     #[inline]
     fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>> {
-        keybind_multi(key)
-    }
-}
-
-impl<T: Send + Sync + 'static> sealed::State<T> for Multi {
-    type Queued = SelectedIndices;
-
-    #[inline]
-    fn make_queue(&self) -> Self::Queued {
-        SelectedIndices::new(self.max_selection_count)
-    }
-}
-
-impl<T> PreviewComponent<T> for Multi {
-    type State = ();
-
-    #[inline]
-    fn init(&mut self) {}
-}
-
-#[cfg(feature = "preview")]
-impl<T: Send + Sync + 'static, P: Preview<T>> Interface<T> for WithPreview<Single, P> {
-    type Output<'a> = Option<&'a T>;
-
-    #[inline]
-    fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>> {
-        keybind_single_preview(key)
-    }
-}
-
-#[cfg(feature = "preview")]
-impl<T: Send + Sync + 'static, P: Preview<T>> sealed::State<T> for WithPreview<Single, P> {
-    type Queued = ();
-
-    #[inline]
-    fn make_queue(&self) -> Self::Queued {
-        sealed::State::<T>::make_queue(&self.interface);
-    }
-}
-
-#[cfg(feature = "preview")]
-impl<T: Send + Sync + 'static, P: Preview<T>> Interface<T> for WithPreview<Multi, P> {
-    type Output<'a> = Selection<'a, T>;
-
-    #[inline]
-    fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>> {
-        keybind_multi_preview(key)
-    }
-}
-
-#[cfg(feature = "preview")]
-impl<T: Send + Sync + 'static, P: Preview<T>> sealed::State<T> for WithPreview<Multi, P> {
-    type Queued = SelectedIndices;
-
-    #[inline]
-    fn make_queue(&self) -> Self::Queued {
-        sealed::State::<T>::make_queue(&self.interface)
+        I::keybind_default(key).or_else(|| keybind_passthrough_preview(key).ok())
     }
 }
 
@@ -599,5 +658,5 @@ where
     E: EventSource,
     W: io::Write,
 {
-    interface.run(core, event_source, &mut CrosstermTerminal::new(writer))
+    core.pick_impl(event_source, &mut CrosstermTerminal::new(writer), interface)
 }

@@ -64,6 +64,31 @@ impl Redraw {
     }
 }
 
+pub(crate) trait Contents {
+    fn prompt(&mut self) -> impl Component<()>;
+    fn list(&mut self) -> impl Component<()>;
+    fn status(&mut self) -> impl Component<()>;
+    fn preview(&mut self) -> impl Component<()>;
+}
+
+#[cfg(test)]
+impl<P: Component<()>, L: Component<()>, S: Component<()>, V: Component<()>> Contents
+    for (P, L, S, V)
+{
+    fn prompt(&mut self) -> impl Component<()> {
+        &mut self.0
+    }
+    fn list(&mut self) -> impl Component<()> {
+        &mut self.1
+    }
+    fn status(&mut self) -> impl Component<()> {
+        &mut self.2
+    }
+    fn preview(&mut self) -> impl Component<()> {
+        &mut self.3
+    }
+}
+
 /// The entire terminal frame.
 ///
 /// The frame consists of sub-areas for the match list, prompt, status, and preview.
@@ -243,18 +268,11 @@ impl Frame {
     }
 
     /// Resize all of the frame components.
-    pub fn resize<S, P: Component<()>, L: Component<S>, C: Component<()>, V: Component<()>>(
-        &mut self,
-        engine: &S,
-        prompt: &mut P,
-        list: &mut L,
-        status: &mut C,
-        preview: &mut V,
-    ) {
-        prompt.resize(self.prompt, &());
-        list.resize(self.list, engine);
-        status.resize(self.status, &());
-        preview.resize(self.preview, &());
+    pub fn resize(&mut self, contents: &mut impl Contents) {
+        contents.prompt().resize(self.prompt, &());
+        contents.list().resize(self.list, &());
+        contents.status().resize(self.status, &());
+        contents.preview().resize(self.preview, &());
         #[cfg(feature = "preview")]
         {
             self.preview_dimensions = interior_dimensions(self.preview);
@@ -265,24 +283,12 @@ impl Frame {
     /// Check terminal size, resize components, and perform necessary redraws.
     ///
     /// Returns whether a redraw actually occurred.
-    #[allow(clippy::too_many_arguments)]
-    pub fn render<S, P, L, C, V, W>(
+    pub fn render<W: Terminal>(
         &mut self,
-        engine: &S,
-        prompt: &mut P,
-        list: &mut L,
-        status: &mut C,
-        preview: &mut V,
+        contents: &mut impl Contents,
         writer: &mut W,
         mut redraw: Redraw,
-    ) -> io::Result<bool>
-    where
-        P: Component<()>,
-        L: Component<S>,
-        C: Component<()>,
-        V: Component<()>,
-        W: Terminal,
-    {
+    ) -> io::Result<bool> {
         if !redraw.any() && !self.pending_resize {
             // we don't need to check for a resize in this path since the resize
             // should have been propagated by a Redraw event
@@ -292,32 +298,20 @@ impl Frame {
         if self.pending_resize {
             // resize immediately before drawing, so that the draw can take into account the new
             // size
-            self.resize(engine, prompt, list, status, preview);
+            self.resize(contents);
             redraw = Redraw::full();
         }
-        self.draw(engine, prompt, list, status, preview, writer, redraw)?;
+        self.draw(contents, writer, redraw)?;
         Ok(true)
     }
 
     /// Draw the contents of the frame.
-    #[allow(clippy::too_many_arguments)]
-    pub fn draw<S, P, L, C, V, W>(
+    pub fn draw<W: Terminal>(
         &self,
-        engine: &S,
-        prompt: &mut P,
-        list: &mut L,
-        status: &mut C,
-        preview: &mut V,
+        contents: &mut impl Contents,
         writer: &mut W,
         mut redraw: Redraw,
-    ) -> io::Result<()>
-    where
-        P: Component<()>,
-        L: Component<S>,
-        C: Component<()>,
-        V: Component<()>,
-        W: Terminal,
-    {
+    ) -> io::Result<()> {
         if self.dimensions.width == 0 || self.dimensions.height == 0 {
             return Ok(());
         }
@@ -338,18 +332,18 @@ impl Frame {
                 .queue(Clear(ClearType::All))?;
         }
         if redraw.list {
-            draw_component(list, engine, writer, self.list, clear)?;
+            draw_component(&mut contents.list(), &(), writer, self.list, clear)?;
         }
         if redraw.status {
-            draw_component(status, &(), writer, self.status, clear)?;
+            draw_component(&mut contents.status(), &(), writer, self.status, clear)?;
         }
         if redraw.prompt {
-            draw_component(prompt, &(), writer, self.prompt, clear)?;
+            draw_component(&mut contents.prompt(), &(), writer, self.prompt, clear)?;
         }
         if redraw.preview {
-            draw_component(preview, &(), writer, self.preview, clear)?;
+            draw_component(&mut contents.preview(), &(), writer, self.preview, clear)?;
         }
-        if let Some(cursor) = prompt.cursor(&()) {
+        if let Some(cursor) = contents.prompt().cursor(&()) {
             writer.queue(MoveTo(
                 self.prompt.column + cursor.column,
                 self.prompt.row + cursor.row,

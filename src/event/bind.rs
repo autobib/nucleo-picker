@@ -166,7 +166,7 @@ fn keybind_passthrough_multi<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEven
 /// A composable set of keybindings for preview-pane manipulation.
 #[cfg(feature = "preview")]
 #[inline]
-fn keybind_passthrough_preview<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEvent> {
+pub(crate) fn keybind_passthrough_preview<A>(key_event: KeyEvent) -> Result<Event<A>, KeyEvent> {
     match key_event {
         KeyEvent {
             kind: KeyEventKind::Press,

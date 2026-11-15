@@ -10,7 +10,7 @@ use crate::match_engine::MatchEngine;
 /// This is a view type only, and is only up-to-date as of the time of the last update.
 pub struct Matches<'items, T> {
     pub(crate) snapshot: &'items nucleo::Snapshot<T>,
-    generation: u32,
+    pub(crate) generation: u32,
 }
 
 impl<T> Copy for Matches<'_, T> {}
@@ -82,17 +82,16 @@ impl<'items, T: Send + Sync + 'static> Matches<'items, T> {
 
     /// Obtain the item corresponding to the given identifier.
     ///
-    /// The identifiers must correspond to a valid index in this exact picker and moreover correspond to the same
-    /// generation (i.e., there were no resets). If the generation is incorrect, this will return
-    /// `None`. If this method is called from an `ItemId` from a different picker, the returned item
-    /// is not specified.
+    /// The identifiers must correspond to a valid index in this exact picker and generation.
+    /// Otherwise, this will return [`None`].
+    #[inline]
     pub fn item(&self, id: ItemId) -> Option<ItemRef<'items, T>> {
         if id.generation != self.generation {
             return None;
         }
-        self.snapshot
-            .get_item(id.index)
-            .map(|item| ItemRef::new(id, item.data))
+        // SAFETY: identifiers are issued only for initialized items. Equal globally unique
+        // generations identify the same append-only item storage, retained by this snapshot.
+        Some(unsafe { self.item_unchecked(id) })
     }
 
     /// Obtain the item corresponding to the given identifier without checking that the identifier
@@ -105,10 +104,11 @@ impl<'items, T: Send + Sync + 'static> Matches<'items, T> {
     /// # Safety
     ///
     /// The id must correspond to an initialized item in this picker with no restart events
-    /// processed.
+    /// processed in the interim.
     #[inline]
     pub unsafe fn item_unchecked(&self, id: ItemId) -> ItemRef<'items, T> {
-        debug_assert!(self.item(id).is_some());
+        debug_assert_eq!(id.generation, self.generation);
+        debug_assert!(self.snapshot.get_item(id.index).is_some());
         // SAFETY: the caller guarantees that id identifies an initialized item in this snapshot.
         let item = unsafe { self.snapshot.get_item_unchecked(id.index) };
         ItemRef::new(id, item.data)

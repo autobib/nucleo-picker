@@ -1568,7 +1568,8 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
         E: EventSource,
         W: Terminal,
     {
-        self.interface.run(&mut self.core, event_source, terminal)
+        self.core
+            .pick_impl(event_source, terminal, &mut self.interface)
     }
 }
 

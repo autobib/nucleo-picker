@@ -223,9 +223,9 @@ mod tests {
         use crate::{
             Picker,
             event::MatchListEvent,
-            match_list::{MatchList, Queued, SelectedIndices},
+            match_list::MatchList,
             render::StrRenderer,
-            session::Context,
+            session::{Context, Interface, Multi, MultiState},
         };
 
         let mut picker = Picker::new(StrRenderer);
@@ -236,11 +236,22 @@ mod tests {
             &picker.core.list_state.config,
         );
         let mut list = MatchList::new(&mut picker.core.list_state, &picker.core.chars);
-        let mut queued = SelectedIndices::default();
-        let count =
-            |queued: &SelectedIndices| queued.count().map(|count| (count as u32, queued.limit()));
+        let mut interface = Multi::new();
+        let mut queued = interface.init(&Context::new(&picker.core.engine));
+        let count = |interface: &Multi, queued: &MultiState| {
+            Interface::<&str>::queued_count(interface, queued).map(|count| {
+                (
+                    count as u32,
+                    Interface::<&str>::queue_limit(interface, queued),
+                )
+            })
+        };
         let mut status = StatusLine::new(&picker.core.chars);
-        assert!(status.update(picker.core.engine.update(5), count(&queued), false));
+        assert!(status.update(
+            picker.core.engine.update(5),
+            count(&interface, &queued),
+            false
+        ));
 
         use MatchListEvent::*;
         for (name, events, selected, changed) in [
@@ -260,17 +271,25 @@ mod tests {
             ),
         ] {
             for event in events.into_iter().flatten() {
-                list.handle(event, &mut queued, &Context::new(&picker.core.engine));
+                list.handle(
+                    event,
+                    &mut interface,
+                    &mut queued,
+                    &Context::new(&picker.core.engine),
+                );
             }
             list.flush(&picker.core.engine);
             let matching = picker.core.engine.update(5);
             assert!(list.update(&picker.core.engine, matching.items_changed, false));
             assert_eq!(
-                status.update(matching, count(&queued), false),
+                status.update(matching, count(&interface, &queued), false),
                 changed,
                 "{name}"
             );
-            assert_eq!(queued.count(), Some(selected));
+            assert_eq!(
+                Interface::<&str>::queued_count(&interface, &queued),
+                Some(selected)
+            );
         }
 
         picker.core.engine.reparse("a");
@@ -280,10 +299,10 @@ mod tests {
                 break matching;
             }
         };
-        assert!(status.update(matching, count(&queued), false));
+        assert!(status.update(matching, count(&interface, &queued), false));
         let values = status.previous.unwrap();
         assert_eq!((values.matched, values.total), (1, 2));
-        assert!(!status.update(matching, count(&queued), false));
+        assert!(!status.update(matching, count(&interface, &queued), false));
     }
 
     #[test]

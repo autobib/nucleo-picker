@@ -7,9 +7,9 @@ use std::{
 use super::{TestEvents, TestTerminal};
 use crate::{
     Picker, PickerOptions,
-    component::NoPreview,
     event::{Event, MatchListEvent, PromptEvent, RecvError},
     render::StrRenderer,
+    session::Single,
 };
 
 fn pick(
@@ -23,7 +23,7 @@ fn pick(
     drop(sender);
     picker
         .core
-        .pick_impl(receiver, &mut TestTerminal::default(), (), &mut NoPreview)
+        .pick_impl(receiver, &mut TestTerminal::default(), &mut Single)
         .unwrap()
         .copied()
 }
@@ -122,7 +122,7 @@ fn reused_picker_matches_the_query_saved_on_exit() {
     });
     let selected = picker
         .core
-        .pick_impl(receiver, &mut TestTerminal::default(), (), &mut NoPreview)
+        .pick_impl(receiver, &mut TestTerminal::default(), &mut Single)
         .unwrap()
         .copied();
     input.join().unwrap();
@@ -159,7 +159,7 @@ fn busy_events_do_not_starve_frames_or_status() {
 
         picker
             .core
-            .pick_impl(events, &mut terminal, (), &mut NoPreview)
+            .pick_impl(events, &mut terminal, &mut Single)
             .unwrap();
 
         assert!(terminal.first_frame.is_some());
@@ -200,7 +200,7 @@ fn status_changes_accumulate_and_reset_when_responses_are_produced() {
         });
         picker
             .core
-            .pick_impl(events, &mut TestTerminal::default(), (), &mut NoPreview)
+            .pick_impl(events, &mut TestTerminal::default(), &mut Single)
             .unwrap();
         if let Ok(status) = statuses.try_recv() {
             responses.push((status.id, status.changed, status.frame_changed));
@@ -238,7 +238,7 @@ fn slow_render_leaves_time_to_drain() {
 
     picker
         .core
-        .pick_impl(events, &mut terminal, (), &mut NoPreview)
+        .pick_impl(events, &mut terminal, &mut Single)
         .unwrap();
 
     assert!(
@@ -266,7 +266,7 @@ fn drain_reserve_does_not_wait_for_more_events() {
 
     picker
         .core
-        .pick_impl(events, &mut TestTerminal::default(), (), &mut NoPreview)
+        .pick_impl(events, &mut TestTerminal::default(), &mut Single)
         .unwrap();
 
     assert_eq!(status.try_recv().unwrap().id, 9);
@@ -278,12 +278,7 @@ fn headless_updates_rebuild_layout_when_reentering_the_picker() {
         let mut terminal = TestTerminal::default();
         picker
             .core
-            .pick_impl(
-                TestEvents(|_| Ok(Event::Quit)),
-                &mut terminal,
-                (),
-                &mut NoPreview,
-            )
+            .pick_impl(TestEvents(|_| Ok(Event::Quit)), &mut terminal, &mut Single)
             .unwrap();
         terminal.output
     }

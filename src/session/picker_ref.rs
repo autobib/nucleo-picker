@@ -100,7 +100,8 @@ where
         E: EventSource,
         W: Terminal,
     {
-        self.interface.run(self.core, event_source, terminal)
+        self.core
+            .pick_impl(event_source, terminal, &mut self.interface)
     }
 }
 

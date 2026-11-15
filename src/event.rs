@@ -23,6 +23,8 @@
 //! example](https://github.com/autobib/nucleo-picker/blob/master/examples/restart.rs).
 
 mod bind;
+#[cfg(feature = "preview")]
+pub(crate) use bind::keybind_passthrough_preview;
 
 use std::{
     io,

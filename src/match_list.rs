@@ -31,8 +31,7 @@ mod unicode;
 mod tests;
 
 pub(crate) use component::MatchList;
-pub(crate) use selection::{QueueEvent, Queued, SelectedIndices};
-pub use selection::{Selection, SelectionIntoIter};
+pub use selection::{MultiState, QueueEvent, Selection, SelectionIntoIter};
 pub(crate) use state::MatchListState;
 
 /// An event that changes the hovered item and the selection queue.

@@ -5,15 +5,15 @@ use std::{
     time::{Duration, Instant},
 };
 
-use super::{Context, Exit};
+use super::{Context, Exit, Interface};
 use crate::{
-    PickerCore, Render, Terminal,
-    component::PreviewComponent,
+    PickerChars, PickerCore, Render, Terminal,
+    component::Component,
     error::PickError,
     event::{Event, EventSource, PickerStatus, RecvError},
-    frame::{Frame, Redraw},
+    frame::{Contents, Frame, Redraw},
     match_engine::MatchEngine,
-    match_list::{MatchList, QueueEvent, Queued},
+    match_list::MatchList,
     prompt::Prompt,
     status_line::StatusLine,
     terminal::session,
@@ -21,27 +21,32 @@ use crate::{
 };
 
 impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
-    pub(crate) fn pick_impl<E, W, Q: Queued, P>(
+    pub(crate) fn pick_impl<E, W, I: Interface<T>>(
         &mut self,
         mut event_source: E,
         writer: &mut W,
-        mut queued: Q,
-        preview: &mut P,
-    ) -> Result<Q::Output<'_, T>, PickError<E::AbortErr>>
+        interface: &mut I,
+    ) -> Result<I::Output<'_>, PickError<E::AbortErr>>
     where
         E: EventSource,
         W: Terminal,
-        P: PreviewComponent<T>,
     {
-        let mut preview_session = DropGuard::new(
-            (preview.init(), preview),
-            |mut session: (P::State, &mut P)| {
+        #[cfg(feature = "preview")]
+        let has_preview = I::HAS_PREVIEW;
+        #[cfg(not(feature = "preview"))]
+        let has_preview = false;
+        let cx = Context::new(&self.engine);
+        #[cfg(feature = "preview")]
+        let cx = cx.with_preview(has_preview.then_some(super::Dimensions::default()));
+        let mut session_state = DropGuard::new(
+            (interface.init(&cx), interface),
+            |mut session: (I::State, &mut I)| {
                 if !std::thread::panicking() {
-                    session.1.end(&mut session.0);
+                    session.1.on_end(&mut session.0);
                 }
             },
         );
-        let (preview_state, preview) = &mut *preview_session;
+        let (state, interface) = &mut *session_state;
         let engine = &mut self.engine;
         // Headless updates defer layout work until the next interactive session.
         if std::mem::take(&mut self.list_state.items_changed) {
@@ -61,49 +66,51 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
         list.update(engine, initial.items_changed, false);
         status_line.update(
             initial,
-            queued.count().map(|count| (as_u32(count), queued.limit())),
+            interface
+                .queued_count(state)
+                .map(|count| (as_u32(count), interface.queue_limit(state))),
             false,
         );
         #[cfg(feature = "preview")]
-        let preview_ratio = P::ENABLED.then_some(self.preview_config.ratio);
+        let preview_ratio = has_preview.then_some(self.preview_config.ratio);
         #[cfg(not(feature = "preview"))]
         let preview_ratio = None;
         let mut frame = Frame::new(terminal.dimensions()?, self.reversed, preview_ratio);
-        frame.resize(
-            &(&*engine, &queued),
-            &mut prompt,
-            &mut list,
-            &mut status_line,
-            &mut preview.component(
-                preview_state,
-                &self.chars,
-                #[cfg(feature = "preview")]
-                &self.preview_config,
-            ),
-        );
-        preview.update(
-            preview_state,
+        frame.resize(&mut SessionContents {
+            engine,
+            interface: &mut **interface,
+            state,
+            prompt: &mut prompt,
+            list: &mut list,
+            status: &mut status_line,
+            chars: &self.chars,
+            #[cfg(feature = "preview")]
+            preview_config: &self.preview_config,
+        });
+        interface.update(
+            state,
             &context(engine, list.rank(engine), &frame),
             true,
             frame_start + self.interval,
         );
         frame.draw(
-            &(&*engine, &queued),
-            &mut prompt,
-            &mut list,
-            &mut status_line,
-            &mut preview.component(
-                preview_state,
-                &self.chars,
+            &mut SessionContents {
+                engine,
+                interface: &mut **interface,
+                state,
+                prompt: &mut prompt,
+                list: &mut list,
+                status: &mut status_line,
+                chars: &self.chars,
                 #[cfg(feature = "preview")]
-                &self.preview_config,
-            ),
+                preview_config: &self.preview_config,
+            },
             &mut **terminal,
             Redraw::full(),
         )?;
-        if P::ENABLED && frame.preview_enabled() {
-            preview.prefetch(
-                preview_state,
+        if has_preview && frame.preview_enabled() {
+            interface.prefetch(
+                state,
                 &context(engine, list.rank(engine), &frame),
                 frame_start + self.interval,
             );
@@ -151,14 +158,15 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                     Event::MatchList(event) => {
                         list.handle(
                             event,
-                            &mut queued,
+                            &mut **interface,
+                            state,
                             &context(engine, list.event_rank(engine), &frame),
                         );
                     }
                     Event::Layout(event) => frame.handle(event),
                     #[cfg(feature = "preview")]
                     Event::Preview(event) => {
-                        if P::ENABLED && frame.preview_enabled() {
+                        if has_preview && frame.preview_enabled() {
                             // we have a previewer (i.e.: inside a PreviewPicker) and moreover
                             // the frame has not been hidden by the user.
 
@@ -166,8 +174,8 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                             // since that would bleed state from the frame logic everywhere
                             // which is a lot of complexity which is only required for
                             // unrealistically tiny terminals
-                            preview.handle(
-                                preview_state,
+                            interface.handle(
+                                state,
                                 event,
                                 &context(engine, list.event_rank(engine), &frame),
                             );
@@ -185,19 +193,25 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                         let hovered = list
                             .event_rank(engine)
                             .map(|rank| engine.item_id(engine.idx_from_match(rank)));
-                        if queued.count().is_some_and(|count| count != 0) || hovered.is_some() {
+                        if interface
+                            .queued_count(state)
+                            .is_some_and(|count| count != 0)
+                            || hovered.is_some()
+                        {
                             break 'selection Ok(Exit::Selected(hovered));
                         }
                     }
                     Event::Status { id } => handle_status = Some(id),
                     Event::Restart => match self.restart_notifier {
                         Some(ref notifier) => {
-                            preview.restart(preview_state);
+                            interface.on_restart(
+                                state,
+                                &context(engine, list.event_rank(engine), &frame),
+                            );
                             engine.restart();
                             matches_changed = true;
                             let cx = context(engine, None, &frame);
                             list.restart(&cx);
-                            queued.on_queue(QueueEvent::Clear, &cx);
                             let injector = engine.injector();
                             if notifier.push(injector).is_err() {
                                 break 'selection Err(PickError::Disconnected);
@@ -236,22 +250,24 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                 list: list.update(engine, status.items_changed, prompt_change.contents_changed),
                 status: status_line.update(
                     status,
-                    queued.count().map(|count| (as_u32(count), queued.limit())),
+                    interface
+                        .queued_count(state)
+                        .map(|count| (as_u32(count), interface.queue_limit(state))),
                     background_frame,
                 ) && frame.status_enabled(),
-                preview: preview.update(
-                    preview_state,
+                preview: interface.update(
+                    state,
                     &context(engine, list.rank(engine), &frame),
                     std::mem::take(&mut matches_changed),
                     frame_start + self.interval,
-                ) && P::ENABLED
+                ) && has_preview
                     && frame.preview_enabled(),
             };
 
-            if P::ENABLED && preview_was_enabled && !frame.preview_enabled() {
+            if has_preview && preview_was_enabled && !frame.preview_enabled() {
                 // this is only used to process `hide` events within the previewer;
                 // currently this controls the 'hover_changed' event
-                preview.hide(preview_state);
+                interface.hide(state);
             }
 
             // a redraw was externally requested
@@ -260,16 +276,17 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
             }
 
             let changed = frame.render(
-                &(&*engine, &queued),
-                &mut prompt,
-                &mut list,
-                &mut status_line,
-                &mut preview.component(
-                    preview_state,
-                    &self.chars,
+                &mut SessionContents {
+                    engine,
+                    interface: &mut **interface,
+                    state,
+                    prompt: &mut prompt,
+                    list: &mut list,
+                    status: &mut status_line,
+                    chars: &self.chars,
                     #[cfg(feature = "preview")]
-                    &self.preview_config,
-                ),
+                    preview_config: &self.preview_config,
+                },
                 &mut **terminal,
                 redraw,
             )?;
@@ -289,16 +306,16 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                     frame_changed: changed,
                     rank: list.rank(engine),
                     item_count: status.item_count,
-                    selected_item_count: queued.count().map_or(0, as_u32),
+                    selected_item_count: interface.queued_count(state).map_or(0, as_u32),
                     matched_item_count: status.matched_item_count,
                     dimensions: frame.dimensions(),
                     matching: status.matching,
                     injecting: status.injecting,
                 });
             }
-            if P::ENABLED && frame.preview_enabled() {
-                preview.prefetch(
-                    preview_state,
+            if has_preview && frame.preview_enabled() {
+                interface.prefetch(
+                    state,
                     &context(engine, list.rank(engine), &frame),
                     frame_start + self.interval,
                 );
@@ -315,9 +332,52 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
 
         // process and return the selection
         let exit = exit?;
-        drop(preview_session);
+        let (mut state, interface) = DropGuard::dismiss(session_state);
+        if !std::thread::panicking() {
+            interface.on_end(&mut state);
+        }
         let cx = context(engine, list.rank(engine), &frame);
-        Ok(queued.on_select(exit, cx))
+        Ok(interface.finish(state, exit, cx))
+    }
+}
+
+struct SessionContents<'a, 'session, T, R, I: Interface<T>> {
+    engine: &'a MatchEngine<T, R>,
+    interface: &'a mut I,
+    state: &'a mut I::State,
+    prompt: &'a mut Prompt<'session>,
+    list: &'a mut MatchList<'session>,
+    status: &'a mut StatusLine<'session>,
+    chars: &'a PickerChars,
+    #[cfg(feature = "preview")]
+    preview_config: &'a crate::preview::PreviewConfig,
+}
+
+impl<T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Contents
+    for SessionContents<'_, '_, T, R, I>
+{
+    fn prompt(&mut self) -> impl Component<()> {
+        &mut *self.prompt
+    }
+
+    fn list(&mut self) -> impl Component<()> {
+        (
+            &mut *self.list,
+            (self.engine, &*self.interface, &*self.state),
+        )
+    }
+
+    fn status(&mut self) -> impl Component<()> {
+        &mut *self.status
+    }
+
+    fn preview(&mut self) -> impl Component<()> {
+        self.interface.component(
+            self.state,
+            self.chars,
+            #[cfg(feature = "preview")]
+            self.preview_config,
+        )
     }
 }
 

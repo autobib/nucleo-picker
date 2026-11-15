@@ -7,7 +7,7 @@ use std::{
     num::NonZero,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering, fence},
+        atomic::{AtomicBool, AtomicU32, Ordering, fence},
     },
     thread::available_parallelism,
 };
@@ -23,6 +23,18 @@ use crate::{
     Injector, Render,
     session::{ItemId, MatchStatus},
 };
+
+static LAST_GENERATION: AtomicU32 = AtomicU32::new(0);
+
+fn next_generation(counter: &AtomicU32) -> u32 {
+    // This counter establishes identity; the matcher synchronizes item publication.
+    counter
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |generation| {
+            generation.checked_add(1)
+        })
+        .expect("picker item generation exhausted")
+        + 1
+}
 
 pub(crate) struct MatchEngine<T, R> {
     /// The internal matcher engine.
@@ -49,6 +61,7 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
         case_matching: NucleoCaseMatching,
         normalization: NucleoNormalization,
     ) -> Self {
+        let generation = next_generation(&LAST_GENERATION);
         let needs_tick = Arc::new(AtomicBool::new(false));
         let notify_tick = Arc::clone(&needs_tick);
         let nucleo = nc::Nucleo::with_match_list_config(
@@ -76,7 +89,7 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
             prompt: String::with_capacity(32),
             needs_tick,
             nucleo_is_running: false,
-            generation: 0,
+            generation,
         }
     }
     pub fn snapshot(&self) -> &nc::Snapshot<T> {
@@ -92,6 +105,7 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
     }
 
     pub fn item_id(&self, index: u32) -> ItemId {
+        debug_assert!(self.snapshot().get_item(index).is_some());
         ItemId {
             generation: self.generation,
             index,
@@ -130,10 +144,7 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
 
     /// Clear all of the items and restart the match engine.
     pub fn restart(&mut self) {
-        self.generation = self
-            .generation
-            .checked_add(1)
-            .expect("picker item generation exhausted");
+        self.generation = next_generation(&LAST_GENERATION);
         self.nucleo.restart(true);
         self.needs_tick.store(true, Ordering::Relaxed);
     }
@@ -224,6 +235,41 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{panic::catch_unwind, sync::Barrier, thread};
+
+    #[test]
+    fn generations_are_unique_under_contention() {
+        let counter = AtomicU32::new(0);
+        let barrier = Barrier::new(8);
+        let mut generations: Vec<_> = thread::scope(|scope| {
+            let threads: Vec<_> = (0..8)
+                .map(|_| {
+                    scope.spawn(|| {
+                        barrier.wait();
+                        (0..256)
+                            .map(|_| next_generation(&counter))
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            threads
+                .into_iter()
+                .flat_map(|thread| thread.join().unwrap())
+                .collect()
+        });
+        generations.sort_unstable();
+        assert!(generations.into_iter().eq(1..=8 * 256));
+    }
+
+    #[test]
+    fn generation_exhaustion_never_wraps_even_after_caught_panics() {
+        let counter = AtomicU32::new(u32::MAX - 1);
+        assert_eq!(next_generation(&counter), u32::MAX);
+        for _ in 0..2 {
+            assert!(catch_unwind(|| next_generation(&counter)).is_err());
+            assert_eq!(counter.load(Ordering::Relaxed), u32::MAX);
+        }
+    }
 
     #[test]
     fn injector_lifetime_updates_status() {

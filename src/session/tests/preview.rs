@@ -195,7 +195,7 @@ fn buffered_navigation_scroll_and_refresh_target_the_event_hovered_item() {
         ]);
         picker
             .core
-            .pick_impl(events, &mut TestTerminal::default(), (), &mut session)
+            .pick_impl(events, &mut TestTerminal::default(), &mut session)
             .unwrap();
         assert_eq!(offset(&mut session, 0), (0, 3), "{case}");
         if cached {
@@ -225,7 +225,7 @@ fn buffered_navigation_scroll_and_refresh_target_the_event_hovered_item() {
         let mut terminal = TestTerminal::default();
         picker
             .core
-            .pick_impl(events, &mut terminal, (), &mut session)
+            .pick_impl(events, &mut terminal, &mut session)
             .unwrap();
         assert_eq!(offset(&mut session, 0), (0, 3), "{case}");
         assert_eq!(offset(&mut session, 1), (0, 0), "{case}");
@@ -285,7 +285,7 @@ fn scrolling_uses_item_ids_and_only_redraws_the_preview() {
         ]);
         picker
             .core
-            .pick_impl(events, &mut terminal, (), &mut session)
+            .pick_impl(events, &mut terminal, &mut session)
             .unwrap();
         assert_eq!(offset(&mut session, idx), (0, 8), "{case}");
         assert!(!session.test_cache().contains(&(1 - idx)), "{case}");
@@ -308,7 +308,7 @@ fn scrolling_uses_item_ids_and_only_redraws_the_preview() {
         ]);
         picker
             .core
-            .pick_impl(events, &mut TestTerminal::default(), (), &mut session)
+            .pick_impl(events, &mut TestTerminal::default(), &mut session)
             .unwrap();
         assert_eq!(
             offset(&mut session, idx),
@@ -339,7 +339,7 @@ fn pending_navigation_and_scrolling_wait_for_idle_completion() {
         let mut terminal = TestTerminal::default();
         picker
             .core
-            .pick_impl(events, &mut terminal, (), &mut session)
+            .pick_impl(events, &mut terminal, &mut session)
             .unwrap();
         assert!(
             session.test_cache().peek(&0).unwrap().pane().is_none(),
@@ -377,7 +377,7 @@ fn pending_navigation_and_scrolling_wait_for_idle_completion() {
         };
         picker
             .core
-            .pick_impl(events, &mut terminal, (), &mut session)
+            .pick_impl(events, &mut terminal, &mut session)
             .unwrap();
         let status = status.try_recv().unwrap();
         assert_eq!(
@@ -456,7 +456,6 @@ fn resizing_retained_previews_preserves_hover_and_updates_page_height() {
         .pick_impl(
             frame_events([Ok(Event::Quit)]),
             &mut TestTerminal::default(),
-            (),
             &mut session,
         )
         .unwrap();
@@ -479,7 +478,7 @@ fn resizing_retained_previews_preserves_hover_and_updates_page_height() {
         ]);
         picker
             .core
-            .pick_impl(events, &mut terminal, (), &mut session)
+            .pick_impl(events, &mut terminal, &mut session)
             .unwrap();
         assert_eq!(offset(&mut session, 0), (0, expected), "{case}");
         let previewer = session.test_previewer();
@@ -517,7 +516,6 @@ fn resizing_clamps_cached_previews_before_they_are_revisited() {
         .pick_impl(
             frame_events([Ok(Event::Redraw), Err(RecvError::Timeout), Ok(Event::Quit)]),
             &mut terminal,
-            (),
             &mut session,
         )
         .unwrap();
@@ -531,7 +529,6 @@ fn resizing_clamps_cached_previews_before_they_are_revisited() {
                 Ok(Event::Quit),
             ]),
             &mut terminal,
-            (),
             &mut session,
         )
         .unwrap();
@@ -559,7 +556,7 @@ fn zero_sized_panes_ignore_scrolling() {
         ]);
         picker
             .core
-            .pick_impl(events, &mut terminal, (), &mut session)
+            .pick_impl(events, &mut terminal, &mut session)
             .unwrap();
         assert_eq!(offset(&mut session, 0), (0, 0), "{size:?}");
         let previewer = session.test_previewer();

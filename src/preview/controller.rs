@@ -8,7 +8,7 @@ use crate::{
     PickerChars,
     component::{Component, PreviewComponent},
     rect::{Area, Rect},
-    session::{Context, Dimensions, WithPreview},
+    session::{Context, Dimensions, Interface, WithPreview, WithPreviewState},
 };
 use lru::LruCache;
 use std::{
@@ -43,7 +43,7 @@ pub(crate) struct PreviewState {
 }
 
 impl PreviewState {
-    fn new(cache_size: Option<NonZero<usize>>, prefetch_limit: usize) -> Self {
+    pub(crate) fn new(cache_size: Option<NonZero<usize>>, prefetch_limit: usize) -> Self {
         Self {
             cache: cache_size.map_or_else(LruCache::unbounded, new_cache),
             prefetch: NonZero::new(prefetch_limit.saturating_mul(2)).map(|capacity| Prefetch {
@@ -87,7 +87,7 @@ impl PreviewState {
         }
     }
 
-    fn end<T, P: Preview<T>>(&mut self, previewer: &mut P) {
+    pub(crate) fn end<T, P: Preview<T>>(&mut self, previewer: &mut P) {
         self.cache.clear();
         if let Some(prefetch) = &mut self.prefetch {
             prefetch.cache.clear();
@@ -366,7 +366,7 @@ impl PreviewState {
         }
     }
 
-    fn restart<T, P: Preview<T>>(&mut self, previewer: &mut P) {
+    pub(crate) fn restart<T, P: Preview<T>>(&mut self, previewer: &mut P) {
         self.pending_redraw |= self.last_item.take().is_some();
         self.cache.clear();
         if let Some(prefetch) = &mut self.prefetch {
@@ -396,59 +396,67 @@ impl Component<()> for PreviewPane<'_> {
     }
 }
 
-impl<T: Send + Sync + 'static, I, P: Preview<T>> PreviewComponent<T> for WithPreview<I, P> {
-    type State = PreviewState;
-
-    const ENABLED: bool = true;
-
-    fn init(&mut self) -> Self::State {
-        PreviewState::new(self.cache_size, self.previewer.prefetch_limit())
-    }
-
+impl<T: Send + Sync + 'static, I: Interface<T>, P: Preview<T>>
+    PreviewComponent<T, WithPreviewState<I::State>> for WithPreview<I, P>
+{
     fn component(
         &mut self,
-        state: &mut Self::State,
+        state: &mut WithPreviewState<I::State>,
         chars: &PickerChars,
         config: &PreviewConfig,
     ) -> impl Component<()> {
         PreviewPane {
-            state,
+            state: &mut state.preview,
             boundary_chars: config.boundary_chars,
             ellipsis: chars.ellipsis,
         }
     }
 
-    fn handle(&mut self, state: &mut Self::State, event: PreviewEvent, cx: &Context<'_, T>) {
+    fn handle(
+        &mut self,
+        state: &mut WithPreviewState<I::State>,
+        event: PreviewEvent,
+        cx: &Context<'_, T>,
+    ) {
         let Some(size) = cx.preview_dimensions() else {
             return;
         };
-        state.handle_event(cx.hovered().map(|item| item.id().index), event, size);
+        state
+            .preview
+            .handle_event(cx.hovered().map(|item| item.id().index), event, size);
     }
 
     fn update(
         &mut self,
-        state: &mut Self::State,
+        state: &mut WithPreviewState<I::State>,
         cx: &Context<'_, T>,
         matches_changed: bool,
         deadline: Instant,
     ) -> bool {
-        state.update(&mut self.previewer, cx, matches_changed, deadline)
+        let base = self
+            .interface
+            .update(&mut state.interface, cx, matches_changed, deadline);
+        state
+            .preview
+            .update(&mut self.previewer, cx, matches_changed, deadline)
+            || base
     }
 
-    fn prefetch(&mut self, state: &mut Self::State, cx: &Context<'_, T>, deadline: Instant) {
-        state.update_prefetch(&mut self.previewer, cx, deadline);
+    fn prefetch(
+        &mut self,
+        state: &mut WithPreviewState<I::State>,
+        cx: &Context<'_, T>,
+        deadline: Instant,
+    ) {
+        self.interface.prefetch(&mut state.interface, cx, deadline);
+        state
+            .preview
+            .update_prefetch(&mut self.previewer, cx, deadline);
     }
 
-    fn hide(&mut self, state: &mut Self::State) {
-        state.set_hovered(&mut self.previewer, None);
-    }
-
-    fn restart(&mut self, state: &mut Self::State) {
-        state.restart(&mut self.previewer);
-    }
-
-    fn end(&mut self, state: &mut Self::State) {
-        state.end(&mut self.previewer);
+    fn hide(&mut self, state: &mut WithPreviewState<I::State>) {
+        self.interface.hide(&mut state.interface);
+        state.preview.set_hovered(&mut self.previewer, None);
     }
 }
 

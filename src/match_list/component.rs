@@ -1,10 +1,10 @@
-use super::{MatchListEvent, MatchListState, QueueEvent, Queued};
+use super::{MatchListEvent, MatchListState};
 use crate::{
     PickerChars,
     component::Component,
     match_engine::MatchEngine,
     rect::{Area, Rect},
-    session::{Context, ItemId},
+    session::{Context, Interface, ItemId, QueueEvent},
     util::as_u32,
 };
 use std::io;
@@ -70,22 +70,24 @@ impl<'a> MatchList<'a> {
         std::mem::take(&mut self.pending_redraw)
     }
 
-    fn toggle_hovered<T: Send + Sync + 'static>(
+    fn toggle_hovered<T: Send + Sync + 'static, I: Interface<T>>(
         &mut self,
-        queued: &mut impl Queued,
+        interface: &mut I,
+        state: &mut I::State,
         cx: &Context<'_, T>,
     ) -> bool {
         let changed = cx
             .matches()
             .get(self.buffered_rank as usize)
-            .is_some_and(|item| queued.on_queue(QueueEvent::Toggle(item), cx));
+            .is_some_and(|item| interface.on_queue(state, QueueEvent::Toggle(item), cx));
         self.pending_redraw |= changed;
         changed
     }
 
-    fn queue_range<T: Send + Sync + 'static>(
+    fn queue_range<T: Send + Sync + 'static, I: Interface<T>>(
         &mut self,
-        queued: &mut impl Queued,
+        interface: &mut I,
+        state: &mut I::State,
         cx: &Context<'_, T>,
         count: usize,
         increasing: bool,
@@ -94,23 +96,29 @@ impl<'a> MatchList<'a> {
         let count = count.saturating_add(1);
         let matches = cx.matches().ids().enumerate();
         if increasing {
-            self.queue_items(queued, cx, matches.skip(start).take(count));
+            self.queue_items(interface, state, cx, matches.skip(start).take(count));
         } else {
-            self.queue_items(queued, cx, matches.take(start + 1).rev().take(count));
+            self.queue_items(
+                interface,
+                state,
+                cx,
+                matches.take(start + 1).rev().take(count),
+            );
         }
     }
 
-    fn queue_items<T: Send + Sync + 'static>(
+    fn queue_items<T: Send + Sync + 'static, I: Interface<T>>(
         &mut self,
-        queued: &mut impl Queued,
+        interface: &mut I,
+        state: &mut I::State,
         cx: &Context<'_, T>,
         items: impl IntoIterator<Item = (usize, ItemId)>,
     ) {
         for (rank, id) in items {
-            if !queued.is_queued(id) {
+            if !interface.is_queued(state, id) {
                 // SAFETY: queue_range supplies IDs from cx.matches().ids(), whose snapshot stays borrowed.
                 let item = unsafe { cx.matches().item_unchecked(id) };
-                if !queued.on_queue(QueueEvent::Toggle(item), cx) {
+                if !interface.on_queue(state, QueueEvent::Toggle(item), cx) {
                     break;
                 }
                 self.pending_redraw = true;
@@ -133,10 +141,11 @@ impl<'a> MatchList<'a> {
     // Handle incoming events: buffer navigation events, but apply queue operations immediately.
     #[inline]
     #[expect(deprecated)]
-    pub fn handle<T: Send + Sync + 'static>(
+    pub fn handle<T: Send + Sync + 'static, I: Interface<T>>(
         &mut self,
         event: MatchListEvent,
-        queued: &mut impl Queued,
+        interface: &mut I,
+        state: &mut I::State,
         cx: &Context<'_, T>,
     ) {
         match event {
@@ -148,7 +157,7 @@ impl<'a> MatchList<'a> {
                 }
             }
             MatchListEvent::ToggleUp(n) => {
-                if self.toggle_hovered(queued, cx) {
+                if self.toggle_hovered(interface, state, cx) {
                     if self.state.config.reversed {
                         self.decr(n);
                     } else {
@@ -164,24 +173,24 @@ impl<'a> MatchList<'a> {
                 }
             }
             MatchListEvent::QueueAbove(n) => {
-                self.queue_range(queued, cx, n, !self.state.config.reversed);
+                self.queue_range(interface, state, cx, n, !self.state.config.reversed);
             }
             MatchListEvent::QueueBelow(n) => {
-                self.queue_range(queued, cx, n, self.state.config.reversed);
+                self.queue_range(interface, state, cx, n, self.state.config.reversed);
             }
             MatchListEvent::QueueMatches => {
-                self.pending_redraw |= queued.on_queue(QueueEvent::Matches, cx);
+                self.pending_redraw |= interface.on_queue(state, QueueEvent::Matches, cx);
             }
             MatchListEvent::Unqueue => {
                 if let Some(id) = cx.matches().ids().nth(self.buffered_rank as usize) {
-                    self.pending_redraw |= queued.on_queue(QueueEvent::Remove(id), cx);
+                    self.pending_redraw |= interface.on_queue(state, QueueEvent::Remove(id), cx);
                 }
             }
             MatchListEvent::UnqueueAll => {
-                self.pending_redraw |= queued.on_queue(QueueEvent::Clear, cx);
+                self.pending_redraw |= interface.on_queue(state, QueueEvent::Clear, cx);
             }
             MatchListEvent::ToggleDown(n) => {
-                if self.toggle_hovered(queued, cx) {
+                if self.toggle_hovered(interface, state, cx) {
                     if self.state.config.reversed {
                         self.incr(cx, n);
                     } else {
@@ -196,10 +205,10 @@ impl<'a> MatchList<'a> {
     }
 }
 
-impl<T: Send + Sync + 'static, R: crate::Render<T>, Q: Queued> Component<(&MatchEngine<T, R>, &Q)>
-    for MatchList<'_>
+impl<T: Send + Sync + 'static, R: crate::Render<T>, I: Interface<T>>
+    Component<(&MatchEngine<T, R>, &I, &I::State)> for MatchList<'_>
 {
-    fn resize(&mut self, area: Area, (engine, _): &(&MatchEngine<T, R>, &Q)) {
+    fn resize(&mut self, area: Area, (engine, _, _): &(&MatchEngine<T, R>, &I, &I::State)) {
         self.state
             .layout
             .resize(engine.snapshot(), area.height, &self.state.config);
@@ -207,11 +216,11 @@ impl<T: Send + Sync + 'static, R: crate::Render<T>, Q: Queued> Component<(&Match
 
     fn draw<D: Rect>(
         &mut self,
-        (engine, queued): &(&MatchEngine<T, R>, &Q),
+        (engine, interface, state): &(&MatchEngine<T, R>, &I, &I::State),
         rect: &mut D,
     ) -> io::Result<()> {
         self.state.draw_items(engine, rect, self.chars, |idx| {
-            queued.is_queued(engine.item_id(idx))
+            interface.is_queued(state, engine.item_id(idx))
         })
     }
 }
@@ -219,7 +228,11 @@ impl<T: Send + Sync + 'static, R: crate::Render<T>, Q: Queued> Component<(&Match
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Picker, match_list::SelectedIndices, render::StrRenderer, session::Exit};
+    use crate::{
+        Picker,
+        render::StrRenderer,
+        session::{Exit, Multi, Single},
+    };
     use std::num::NonZero;
 
     fn picker() -> Picker<&'static str, StrRenderer> {
@@ -248,7 +261,8 @@ mod tests {
             let mut picker = picker();
             picker.core.list_state.config.reversed = reversed;
             let mut list = MatchList::new(&mut picker.core.list_state, &picker.core.chars);
-            let mut queued = SelectedIndices::new(NonZero::new(1));
+            let mut interface = Multi::new().max_selection_count(NonZero::new(1));
+            let mut queued = interface.init(&Context::new(&picker.core.engine));
             let toggle = if reversed {
                 MatchListEvent::ToggleDown
             } else {
@@ -259,33 +273,61 @@ mod tests {
             } else {
                 MatchListEvent::Up
             };
-            list.handle(navigate(1), &mut queued, &Context::new(&picker.core.engine));
-            assert!(update(&mut list, &mut picker.core.engine));
-            assert_eq!(list.rank(&picker.core.engine), Some(1));
-            assert_eq!(queued.count(), Some(0));
-
             list.handle(
-                MatchListEvent::Reset,
+                navigate(1),
+                &mut interface,
                 &mut queued,
                 &Context::new(&picker.core.engine),
             );
-            list.handle(toggle(1), &mut queued, &Context::new(&picker.core.engine));
+            assert!(update(&mut list, &mut picker.core.engine));
+            assert_eq!(list.rank(&picker.core.engine), Some(1));
+            assert_eq!(
+                Interface::<&str>::queued_count(&interface, &queued),
+                Some(0)
+            );
+
+            list.handle(
+                MatchListEvent::Reset,
+                &mut interface,
+                &mut queued,
+                &Context::new(&picker.core.engine),
+            );
+            list.handle(
+                toggle(1),
+                &mut interface,
+                &mut queued,
+                &Context::new(&picker.core.engine),
+            );
             assert_eq!(list.event_rank(&picker.core.engine), Some(1));
-            assert_eq!(queued.count(), Some(1));
+            assert_eq!(
+                Interface::<&str>::queued_count(&interface, &queued),
+                Some(1)
+            );
             assert!(update(&mut list, &mut picker.core.engine));
             assert_eq!(list.rank(&picker.core.engine), Some(1));
             assert!(!update(&mut list, &mut picker.core.engine));
 
-            list.handle(toggle(1), &mut queued, &Context::new(&picker.core.engine));
+            list.handle(
+                toggle(1),
+                &mut interface,
+                &mut queued,
+                &Context::new(&picker.core.engine),
+            );
             assert_eq!(list.event_rank(&picker.core.engine), Some(1));
-            assert_eq!(queued.count(), Some(1));
+            assert_eq!(
+                Interface::<&str>::queued_count(&interface, &queued),
+                Some(1)
+            );
             assert!(!update(&mut list, &mut picker.core.engine));
 
             let cx = Context::new(&picker.core.engine);
-            list.handle(MatchListEvent::Reset, &mut queued, &cx);
-            list.handle(toggle(2), &mut queued, &cx);
+            list.handle(MatchListEvent::Reset, &mut interface, &mut queued, &cx);
+            list.handle(toggle(2), &mut interface, &mut queued, &cx);
             assert_eq!(list.event_rank(&picker.core.engine), Some(2));
-            assert_eq!(queued.count(), Some(0));
+            assert_eq!(
+                Interface::<&str>::queued_count(&interface, &queued),
+                Some(0)
+            );
             assert!(update(&mut list, &mut picker.core.engine));
         }
     }
@@ -299,13 +341,14 @@ mod tests {
                 picker.core.list_state.config.reversed = reversed;
                 let cx = Context::new(&picker.core.engine);
                 let (start, last) = if increasing { (0, 1) } else { (3, 2) };
-                let mut queued = SelectedIndices::new(NonZero::new(2));
+                let mut interface = Multi::new().max_selection_count(NonZero::new(2));
+                let mut queued = interface.init(&cx);
                 for index in [start, last] {
                     let item = cx
                         .matches()
                         .item(picker.core.engine.item_id(index))
                         .unwrap();
-                    assert!(queued.on_queue(QueueEvent::Toggle(item), &cx));
+                    assert!(interface.on_queue(&mut queued, QueueEvent::Toggle(item), &cx));
                 }
                 let mut list = MatchList::new(&mut picker.core.list_state, &picker.core.chars);
                 let navigate = if reversed {
@@ -313,18 +356,21 @@ mod tests {
                 } else {
                     MatchListEvent::Up
                 };
-                list.handle(navigate(start as usize), &mut queued, &cx);
+                list.handle(navigate(start as usize), &mut interface, &mut queued, &cx);
                 let queue = if increasing != reversed {
                     MatchListEvent::QueueAbove
                 } else {
                     MatchListEvent::QueueBelow
                 };
-                list.handle(queue(0), &mut queued, &cx);
+                list.handle(queue(0), &mut interface, &mut queued, &cx);
                 assert_eq!(list.event_rank(&picker.core.engine), Some(start));
-                list.handle(queue(usize::MAX), &mut queued, &cx);
+                list.handle(queue(usize::MAX), &mut interface, &mut queued, &cx);
                 assert_eq!(list.event_rank(&picker.core.engine), Some(last));
-                assert_eq!(queued.count(), Some(2));
-                let selected = queued.on_select(Exit::Selected(None), cx);
+                assert_eq!(
+                    Interface::<&str>::queued_count(&interface, &queued),
+                    Some(2)
+                );
+                let selected = interface.finish(queued, Exit::Selected(None), cx);
                 let expected = if increasing { ["a", "b"] } else { ["d", "c"] };
                 assert!(selected.iter_selected_order().copied().eq(expected));
             }
@@ -345,7 +391,7 @@ mod tests {
             } else {
                 MatchListEvent::Up(1)
             };
-            list.handle(navigate, &mut queued, &cx);
+            list.handle(navigate, &mut Single, &mut queued, &cx);
             for event in [
                 MatchListEvent::ToggleUp(1),
                 MatchListEvent::ToggleDown(1),
@@ -355,9 +401,9 @@ mod tests {
                 MatchListEvent::Unqueue,
                 MatchListEvent::UnqueueAll,
             ] {
-                list.handle(event, &mut queued, &cx);
+                list.handle(event, &mut Single, &mut queued, &cx);
                 assert_eq!(list.event_rank(&picker.core.engine), Some(1));
-                assert!(queued.count().is_none());
+                assert!(Interface::<&str>::queued_count(&Single, &queued).is_none());
             }
         }
     }

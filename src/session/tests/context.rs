@@ -3,11 +3,11 @@ use std::time::{Duration, Instant};
 use super::{TestEvents, TestTerminal};
 use crate::{
     PickerOptions,
-    component::NoPreview,
+    component::PreviewComponent,
     event::{Event, MatchListEvent, PromptEvent},
-    match_list::{QueueEvent, Queued, SelectedIndices, SelectionIntoIter},
+    match_list::SelectionIntoIter,
     render::StrRenderer,
-    session::{Context, Exit, ItemId},
+    session::{Context, Exit, Interface, ItemId, Multi, MultiState, QueueEvent},
 };
 
 #[test]
@@ -131,7 +131,7 @@ impl Observation {
 }
 
 struct QueueOutput<'items, T> {
-    queued: SelectedIndices,
+    queued: MultiState,
     exit: Exit,
     cx: Context<'items, T>,
 }
@@ -141,55 +141,232 @@ impl<'items, T: Send + Sync + 'static> IntoIterator for QueueOutput<'items, T> {
     type IntoIter = SelectionIntoIter<'items, T>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.queued.on_select(self.exit, self.cx).into_iter()
+        Multi::new()
+            .finish(self.queued, self.exit, self.cx)
+            .into_iter()
     }
 }
 
 struct QueueProbe<'a> {
     observations: &'a mut Vec<Observation>,
-    queued: SelectedIndices,
+    initial: Option<ItemId>,
 }
 
 impl<'a> QueueProbe<'a> {
     fn new(observations: &'a mut Vec<Observation>) -> Self {
         Self {
             observations,
-            queued: SelectedIndices::default(),
+            initial: None,
         }
     }
 }
 
-impl Queued for QueueProbe<'_> {
-    type Output<'items, T: Send + Sync + 'static> = QueueOutput<'items, T>;
+impl<T: Send + Sync + 'static> Interface<T> for QueueProbe<'_> {
+    type State = MultiState;
+    type Output<'items> = QueueOutput<'items, T>;
 
-    fn is_queued(&self, id: ItemId) -> bool {
-        self.queued.is_queued(id)
+    fn init(&mut self, cx: &Context<'_, T>) -> Self::State {
+        let mut state = Multi::new().init(cx);
+        if let Some(id) = self.initial {
+            let item = cx.matches().item(id).unwrap();
+            assert!(Multi::new().on_queue(&mut state, QueueEvent::Toggle(item), cx));
+        }
+        state
     }
 
-    fn count(&self) -> Option<usize> {
-        self.queued.count()
+    fn on_restart(&mut self, state: &mut Self::State, cx: &Context<'_, T>) {
+        Multi::new().on_restart(state, cx);
     }
 
-    fn on_queue<T: Send + Sync + 'static>(
+    fn is_queued(&self, state: &Self::State, id: ItemId) -> bool {
+        <Multi as Interface<T>>::is_queued(&Multi::new(), state, id)
+    }
+
+    fn queued_count(&self, state: &Self::State) -> Option<usize> {
+        <Multi as Interface<T>>::queued_count(&Multi::new(), state)
+    }
+
+    fn on_queue(
         &mut self,
+        state: &mut Self::State,
         event: QueueEvent<'_, T>,
         cx: &Context<'_, T>,
     ) -> bool {
         self.observations.push(Observation::new(cx));
-        self.queued.on_queue(event, cx)
+        Multi::new().on_queue(state, event, cx)
     }
 
-    fn on_select<'items, T: Send + Sync + 'static>(
-        self,
+    fn finish<'items>(
+        &mut self,
+        state: Self::State,
         exit: Exit,
         cx: Context<'items, T>,
-    ) -> Self::Output<'items, T> {
+    ) -> Self::Output<'items> {
         self.observations.push(Observation::new(&cx));
         QueueOutput {
-            queued: self.queued,
+            queued: state,
             exit,
             cx,
         }
+    }
+}
+
+impl<T> PreviewComponent<T, MultiState> for QueueProbe<'_> {}
+
+#[test]
+fn initialization_and_restart_observe_the_retained_and_previous_generations() {
+    struct Probe<'a, const PREVIEW: bool>(&'a mut Vec<Observation>);
+
+    impl<T: Send + Sync + 'static, const PREVIEW: bool> Interface<T> for Probe<'_, PREVIEW> {
+        type State = ();
+        type Output<'items> = Option<&'items T>;
+
+        #[cfg(feature = "preview")]
+        const HAS_PREVIEW: bool = PREVIEW;
+
+        fn init(&mut self, cx: &Context<'_, T>) {
+            self.0.push(Observation::new(cx));
+        }
+
+        fn on_restart(&mut self, _: &mut (), cx: &Context<'_, T>) {
+            self.0.push(Observation::new(cx));
+        }
+
+        fn finish<'items>(
+            &mut self,
+            (): (),
+            exit: Exit,
+            cx: Context<'items, T>,
+        ) -> Self::Output<'items> {
+            crate::Single.finish((), exit, cx)
+        }
+    }
+
+    impl<T, const PREVIEW: bool> PreviewComponent<T, ()> for Probe<'_, PREVIEW> {}
+
+    fn check<const PREVIEW: bool>() {
+        for reversed in [false, true] {
+            let mut picker = PickerOptions::new()
+                .sort_results(false)
+                .query("ta")
+                .reversed(reversed)
+                .frame_interval(Duration::from_secs(5))
+                .picker(StrRenderer);
+            picker.push_batch(["alpha", "beta", "delta"]);
+            picker.filter().unwrap();
+            let ids: Vec<_> = picker.matches().ids().collect();
+            picker.push_batch(["theta"]);
+            let _injectors = picker.injector_observer(false);
+            let navigate = if reversed {
+                MatchListEvent::Down(1)
+            } else {
+                MatchListEvent::Up(1)
+            };
+            let mut events = [
+                Event::MatchList(navigate),
+                Event::Prompt(PromptEvent::Insert('x')),
+                Event::Restart,
+                Event::Restart,
+                Event::Quit,
+            ]
+            .into_iter();
+            let mut observations = Vec::new();
+            picker
+                .core
+                .pick_impl(
+                    TestEvents(|_| Ok(events.next().unwrap())),
+                    &mut TestTerminal::default(),
+                    &mut Probe::<PREVIEW>(&mut observations),
+                )
+                .unwrap();
+
+            let [init, restart, empty_restart] = observations.as_slice() else {
+                panic!("expected initialization and two restart observations");
+            };
+            assert_eq!(init.matches, ids);
+            assert_eq!(init.hovered, None);
+            assert_eq!(init.rank, None);
+            assert_eq!(init.query, "ta");
+            #[cfg(feature = "preview")]
+            assert_eq!(init.preview_dimensions, PREVIEW.then_some((0, 0)));
+            assert_eq!(restart.hovered, Some(ids[1]));
+            assert_eq!(restart.rank, Some(1));
+            assert_eq!(&restart.matches[..ids.len()], ids.as_slice());
+            assert_eq!(restart.query, "ta");
+            assert_eq!(empty_restart.hovered, None);
+            assert_eq!(empty_restart.rank, None);
+            assert!(empty_restart.matches.is_empty());
+            #[cfg(feature = "preview")]
+            for observation in [restart, empty_restart] {
+                assert_eq!(observation.preview_dimensions, PREVIEW.then_some((8, 6)));
+            }
+        }
+    }
+
+    check::<false>();
+    #[cfg(feature = "preview")]
+    check::<true>();
+}
+
+#[cfg(feature = "unstable-backend")]
+#[test]
+fn custom_output_outlives_a_temporary_picker_ref_and_its_interface_borrows() {
+    for preview in [
+        false,
+        #[cfg(feature = "preview")]
+        true,
+    ] {
+        let mut picker = PickerOptions::new()
+            .sort_results(false)
+            .query("ta")
+            .frame_interval(Duration::from_secs(5))
+            .picker(StrRenderer);
+        picker.push_batch(["alpha", "beta", "delta"].map(str::to_owned));
+        picker.filter().unwrap();
+        let ids: Vec<_> = picker.matches().ids().collect();
+        let selected_ptr = picker.matches().get(0).unwrap().value() as *const String;
+        let output = {
+            let mut observations = Vec::new();
+            let interface = QueueProbe::new(&mut observations);
+            let mut events =
+                [Event::MatchList(MatchListEvent::ToggleUp(1)), Event::Select].into_iter();
+            let events = TestEvents(|_| Ok(events.next().unwrap()));
+            let mut terminal = TestTerminal::default();
+            #[cfg(feature = "preview")]
+            if preview {
+                picker
+                    .as_interface(crate::WithPreview::new(
+                        interface,
+                        crate::preview::SyncPreviewer(
+                            |_: &String, _: &mut crate::preview::Pane| {},
+                        ),
+                    ))
+                    .pick_with_terminal_io(events, &mut terminal)
+                    .unwrap()
+            } else {
+                picker
+                    .as_interface(interface)
+                    .pick_with_terminal_io(events, &mut terminal)
+                    .unwrap()
+            }
+            #[cfg(not(feature = "preview"))]
+            {
+                let _ = preview;
+                picker
+                    .as_interface(interface)
+                    .pick_with_terminal_io(events, &mut terminal)
+                    .unwrap()
+            }
+        };
+
+        assert_eq!(output.exit, Exit::Selected(Some(ids[1])));
+        assert_eq!(output.cx.hovered().unwrap().id(), ids[1]);
+        assert!(output.cx.matches().ids().eq(ids));
+        let mut items = output.into_iter();
+        assert_eq!(items.len(), 1);
+        let selected = items.next().unwrap();
+        assert_eq!(selected, "beta");
+        assert_eq!(selected as *const String, selected_ptr);
     }
 }
 
@@ -225,8 +402,7 @@ fn events_observe_buffered_navigation_and_only_submitted_queries() {
             .pick_impl(
                 TestEvents(|_| Ok(events.next().unwrap())),
                 &mut TestTerminal::default(),
-                QueueProbe::new(&mut observations),
-                &mut NoPreview,
+                &mut QueueProbe::new(&mut observations),
             )
             .unwrap();
         assert_eq!(selected.exit, Exit::Selected(Some(ids[1])));
@@ -279,8 +455,7 @@ fn queued_selection_retains_the_buffered_hover_and_exit_context() {
                 .pick_impl(
                     TestEvents(|_| Ok(events.next().unwrap())),
                     &mut TestTerminal::default(),
-                    QueueProbe::new(&mut observations),
-                    &mut NoPreview,
+                    &mut QueueProbe::new(&mut observations),
                 )
                 .unwrap()
         };
@@ -305,9 +480,7 @@ fn selection_without_a_hovered_item_requires_queued_items() {
         let mut observations = Vec::new();
         let mut probe = QueueProbe::new(&mut observations);
         if has_queued {
-            let cx = Context::new(&picker.core.engine);
-            let item = cx.matches().item(picker.core.engine.item_id(0)).unwrap();
-            assert!(probe.on_queue(QueueEvent::Toggle(item), &cx));
+            probe.initial = Some(picker.core.engine.item_id(0));
         }
         let mut events = [Event::Select, Event::Quit].into_iter();
         let output = picker
@@ -315,8 +488,7 @@ fn selection_without_a_hovered_item_requires_queued_items() {
             .pick_impl(
                 TestEvents(|_| Ok(events.next().unwrap())),
                 &mut TestTerminal::default(),
-                probe,
-                &mut NoPreview,
+                &mut probe,
             )
             .unwrap();
 
@@ -349,6 +521,7 @@ mod preview {
     };
 
     struct PreviewProbe<'a> {
+        queue: QueueProbe<'a>,
         observations: &'a mut Vec<(&'static str, Observation)>,
         size: Dimensions,
     }
@@ -375,32 +548,55 @@ mod preview {
         }
     }
 
-    impl<T: Send + Sync + 'static> PreviewComponent<T> for PreviewProbe<'_> {
-        type State = ();
+    impl<T: Send + Sync + 'static> Interface<T> for PreviewProbe<'_> {
+        type State = MultiState;
+        type Output<'items> = QueueOutput<'items, T>;
 
-        const ENABLED: bool = true;
+        const HAS_PREVIEW: bool = true;
 
-        fn init(&mut self) {}
+        fn init(&mut self, cx: &Context<'_, T>) -> Self::State {
+            self.queue.init(cx)
+        }
 
+        fn on_queue(
+            &mut self,
+            state: &mut Self::State,
+            event: QueueEvent<'_, T>,
+            cx: &Context<'_, T>,
+        ) -> bool {
+            self.queue.on_queue(state, event, cx)
+        }
+
+        fn finish<'items>(
+            &mut self,
+            state: Self::State,
+            exit: Exit,
+            cx: Context<'items, T>,
+        ) -> Self::Output<'items> {
+            self.queue.finish(state, exit, cx)
+        }
+    }
+
+    impl<T: Send + Sync + 'static> PreviewComponent<T, MultiState> for PreviewProbe<'_> {
         fn component(
             &mut self,
-            _: &mut (),
+            _: &mut MultiState,
             _: &crate::PickerChars,
             _: &crate::preview::PreviewConfig,
         ) -> impl Component<()> {
             self
         }
 
-        fn handle(&mut self, _: &mut (), _: PreviewEvent, cx: &Context<'_, T>) {
+        fn handle(&mut self, _: &mut MultiState, _: PreviewEvent, cx: &Context<'_, T>) {
             self.observe("event", cx);
         }
 
-        fn update(&mut self, _: &mut (), cx: &Context<'_, T>, _: bool, _: Instant) -> bool {
+        fn update(&mut self, _: &mut MultiState, cx: &Context<'_, T>, _: bool, _: Instant) -> bool {
             self.observe("update", cx);
             false
         }
 
-        fn prefetch(&mut self, _: &mut (), cx: &Context<'_, T>, _: Instant) {
+        fn prefetch(&mut self, _: &mut MultiState, cx: &Context<'_, T>, _: Instant) {
             self.observe("prefetch", cx);
         }
     }
@@ -438,8 +634,8 @@ mod preview {
             .pick_impl(
                 frame_events(events),
                 &mut terminal,
-                QueueProbe::new(&mut queued),
                 &mut PreviewProbe {
+                    queue: QueueProbe::new(&mut queued),
                     observations: &mut previews,
                     size: Dimensions::default(),
                 },
@@ -478,6 +674,7 @@ mod preview {
         for size in [(0, 0), (5, 8), (20, 2)] {
             let mut picker: Picker<&str, _> = Picker::new(StrRenderer);
             let mut previews = Vec::new();
+            let mut queued = Vec::new();
             let mut terminal = TestTerminal {
                 size: Some(size),
                 ..TestTerminal::default()
@@ -487,8 +684,8 @@ mod preview {
                 .pick_impl(
                     TestEvents(|_| Ok(Event::Quit)),
                     &mut terminal,
-                    (),
                     &mut PreviewProbe {
+                        queue: QueueProbe::new(&mut queued),
                         observations: &mut previews,
                         size: Dimensions::default(),
                     },
