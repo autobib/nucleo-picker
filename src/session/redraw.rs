@@ -1,4 +1,4 @@
-use std::ops::{BitOr, BitOrAssign};
+use std::ops::{BitAnd, BitOr, BitOrAssign};
 
 /// A redraw mask for the picker interface.
 ///
@@ -64,5 +64,18 @@ impl BitOrAssign for Redraw {
     #[inline]
     fn bitor_assign(&mut self, rhs: Self) {
         *self = *self | rhs;
+    }
+}
+
+impl BitAnd for Redraw {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self {
+        Self {
+            prompt: self.prompt & rhs.prompt,
+            list: self.list & rhs.list,
+            status: self.status & rhs.status,
+            preview: self.preview & rhs.preview,
+        }
     }
 }

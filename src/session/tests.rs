@@ -3,23 +3,76 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(feature = "unstable-backend")]
+use crate::event::{Event, EventSource, RecvError};
 use crate::{
-    Terminal,
-    event::{Event, EventSource, RecvError},
-    session::Dimensions,
+    Driver, DriverOptions, Render, Terminal,
+    render::StrRenderer,
+    session::{Context, Dimensions, Exit, FrameOptions, Interface, Redraw, Session},
 };
 
 mod context;
+#[cfg(feature = "unstable-backend")]
 mod lifecycle;
 #[cfg(all(feature = "preview-cache", feature = "unstable-backend"))]
 mod preview;
+#[cfg(feature = "unstable-backend")]
 mod run;
 mod selection;
+mod session;
 mod updates;
 
+pub(crate) fn frame_options() -> FrameOptions {
+    FrameOptions {
+        deadline: Instant::now(),
+        background: false,
+        visible_components: Redraw::FULL,
+        layout_changed: false,
+        force_redraw: false,
+    }
+}
+
+pub(crate) fn update<T: Send + Sync + 'static, R: Render<T>, I: Interface<T>>(
+    session: &mut Session<'_, T, R, I>,
+) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !session.update(Duration::from_millis(5)).is_complete() {
+        assert!(Instant::now() < deadline, "matching did not complete");
+        thread::yield_now();
+    }
+}
+
+fn driver(items: impl IntoIterator<Item = &'static str>) -> Driver<String, StrRenderer> {
+    let mut driver = DriverOptions::new().sort_results(false).driver(StrRenderer);
+    driver.push_batch(items.into_iter().map(str::to_owned));
+    driver.filter().unwrap();
+    driver
+}
+
+pub(crate) struct Select;
+
+impl<T: Send + Sync + 'static> Interface<T> for Select {
+    type State = ();
+    type Output<'items> = Option<&'items T>;
+
+    fn init(&mut self, _: &Context<'_, T>) {}
+
+    fn finish<'items>(
+        &mut self,
+        (): (),
+        exit: Exit,
+        cx: Context<'items, T>,
+    ) -> Self::Output<'items> {
+        match exit {
+            Exit::Selected(Some(id)) => Some(cx.matches().item(id).unwrap().value()),
+            Exit::Quit | Exit::Selected(None) => None,
+        }
+    }
+}
+
 #[derive(Default)]
-struct TestTerminal {
-    output: Vec<u8>,
+pub(crate) struct TestTerminal {
+    pub(crate) output: Vec<u8>,
     size: Option<(u16, u16)>,
     size_reads: usize,
     initial_render_delay: Duration,
@@ -68,8 +121,10 @@ impl Terminal for TestTerminal {
     }
 }
 
+#[cfg(feature = "unstable-backend")]
 struct TestEvents<F>(F);
 
+#[cfg(feature = "unstable-backend")]
 impl<F: FnMut(Duration) -> Result<Event, RecvError>> EventSource for TestEvents<F> {
     type AbortErr = !;
 
@@ -78,8 +133,10 @@ impl<F: FnMut(Duration) -> Result<Event, RecvError>> EventSource for TestEvents<
     }
 }
 
+#[cfg(feature = "unstable-backend")]
 struct FrameEvents<F>(F);
 
+#[cfg(feature = "unstable-backend")]
 impl<F: FnMut() -> Result<Event<&'static str>, RecvError>> EventSource for FrameEvents<F> {
     type AbortErr = &'static str;
 
@@ -93,6 +150,7 @@ impl<F: FnMut() -> Result<Event<&'static str>, RecvError>> EventSource for Frame
     }
 }
 
+#[cfg(feature = "unstable-backend")]
 fn frame_events(
     events: impl IntoIterator<Item = Result<Event<&'static str>, RecvError>>,
 ) -> impl EventSource<AbortErr = &'static str> {

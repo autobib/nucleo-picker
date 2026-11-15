@@ -50,12 +50,15 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod component;
+mod driver;
 pub mod error;
 pub mod event;
 mod frame;
 mod incremental;
 mod injector;
+mod input;
 mod interface;
+mod keybind;
 mod match_engine;
 mod match_list;
 mod observer;
@@ -71,24 +74,18 @@ mod util;
 use std::{borrow::Cow, io, iter::Extend, num::NonZero, time::Duration};
 
 use crossterm::event::KeyEvent;
-use nucleo::{
-    self as nc,
-    pattern::{CaseMatching as NucleoCaseMatching, Normalization as NucleoNormalization},
-};
+use nucleo::pattern::{CaseMatching as NucleoCaseMatching, Normalization as NucleoNormalization};
 use observer::Observer;
-#[cfg(feature = "preview-cache")]
-use preview::DEFAULT_CACHE_SIZE;
-use preview::{BoundaryChars, PreviewConfig};
+use preview::BoundaryChars;
 
 use crate::{
     error::PickError,
     event::{Event, EventSource, PickerStatus},
-    match_engine::MatchEngine,
-    match_list::{MatchListConfig, MatchListState},
-    prompt::{PromptConfig, PromptState},
-    session::{MatchStatus, Matches, PickerCore},
+    interface::InterfaceDefaults,
+    session::{MatchStatus, Matches},
 };
 
+pub use crate::driver::{Driver, DriverOptions};
 pub use crate::injector::Injector;
 #[cfg(feature = "preview-cache")]
 #[doc(inline)]
@@ -96,6 +93,8 @@ pub use crate::interface::CachedPreview;
 #[doc(inline)]
 pub use crate::interface::{Multi, PickerRef, Single, UncachedPreview};
 pub use crate::interface::{Selection, SelectionIntoIter};
+#[doc(inline)]
+pub use crate::keybind::KeybindDefault;
 #[doc(inline)]
 pub use crate::session::Interface;
 
@@ -424,27 +423,22 @@ impl Default for PickerChars {
 /// | `false`        | `false`         | Index (asc)                                |
 /// | `false`        | `true`          | Index (desc)                               |
 pub struct PickerOptions {
-    config: nc::Config,
-    query: String,
-    threads: Option<NonZero<usize>>,
-    multi_defaults: Multi,
-    interval: Duration,
-    background_frame_interval: Duration,
-    chars: PickerChars,
-    match_list_config: MatchListConfig,
-    case_matching: NucleoCaseMatching,
-    normalization: NucleoNormalization,
-    prompt_config: PromptConfig,
-    preview_config: PreviewConfig,
-    #[cfg(feature = "preview-cache")]
-    preview_cache_size: Option<NonZero<usize>>,
-    sort_results: bool,
-    reverse_items: bool,
+    driver: DriverOptions,
+    defaults: InterfaceDefaults,
 }
 
 impl Default for PickerOptions {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl From<DriverOptions> for PickerOptions {
+    fn from(driver: DriverOptions) -> Self {
+        Self {
+            driver,
+            defaults: InterfaceDefaults::new(),
+        }
     }
 }
 
@@ -456,80 +450,19 @@ impl PickerOptions {
     #[inline]
     pub const fn new() -> Self {
         Self {
-            config: nc::Config::DEFAULT,
-            query: String::new(),
-            threads: None,
-            multi_defaults: Multi::new(),
-            interval: Duration::from_millis(15),
-            background_frame_interval: Duration::from_millis(60),
-            chars: PickerChars::new(),
-            match_list_config: MatchListConfig::new(),
-            case_matching: NucleoCaseMatching::Smart,
-            normalization: NucleoNormalization::Smart,
-            prompt_config: PromptConfig::new(),
-            preview_config: PreviewConfig::new(),
-            #[cfg(feature = "preview-cache")]
-            preview_cache_size: DEFAULT_CACHE_SIZE,
-            sort_results: true,
-            reverse_items: false,
+            driver: DriverOptions::new(),
+            defaults: InterfaceDefaults::new(),
         }
     }
 
     /// Convert into a [`Picker`].
     #[must_use]
     pub fn picker<T: Send + Sync + 'static, R>(self, render: R) -> Picker<T, R> {
-        let background_frame_frequency = {
-            let frame_interval = self.interval;
-            let background_frame_interval = self.background_frame_interval;
-            let frame_nanos = frame_interval.as_nanos();
-            let frames = if frame_nanos == 0 {
-                1
-            } else {
-                background_frame_interval
-                    .as_nanos()
-                    .div_ceil(frame_nanos)
-                    .max(1)
-            };
-            NonZero::new(usize::try_from(frames).unwrap_or(usize::MAX)).unwrap()
-        };
-
-        let reversed = self.match_list_config.reversed;
-
-        let list_state = MatchListState::new(self.match_list_config, self.config.clone());
-        let mut engine = MatchEngine::new(
-            self.config,
-            nc::MatchListConfig {
-                sort_results: self.sort_results,
-                reverse_items: self.reverse_items,
-            },
-            self.threads,
-            render.into(),
-            self.case_matching,
-            self.normalization,
-        );
-
-        let mut prompt = PromptState::new(self.prompt_config);
-
-        // set the prompt
-        prompt.set_query(self.query);
-        engine.reparse(prompt.contents());
-
-        PickerCore {
-            engine,
-            list_state,
-            prompt,
-            preview_config: self.preview_config,
-            #[cfg(feature = "preview-cache")]
-            preview_cache_size: self.preview_cache_size,
-            interval: self.interval,
-            background_frame_frequency,
-            chars: self.chars,
-            multi_defaults: self.multi_defaults,
-            reversed,
-            restart_notifier: None,
-            status_notifier: None,
+        Picker {
+            core: self.driver.driver(render),
+            interface: Single,
+            defaults: self.defaults,
         }
-        .with_interface(Single)
     }
 
     /// Set a 'reversed' rendering order in the interface.
@@ -542,7 +475,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn reversed(mut self, reversed: bool) -> Self {
-        self.match_list_config.reversed = reversed;
+        self.driver.match_list_config.reversed = reversed;
         self
     }
 
@@ -557,7 +490,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn reverse_items(mut self, reversed: bool) -> Self {
-        self.reverse_items = reversed;
+        self.driver.reverse_items = reversed;
         self
     }
 
@@ -571,7 +504,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn sort_results(mut self, sort: bool) -> Self {
-        self.sort_results = sort;
+        self.driver.sort_results = sort;
         self
     }
 
@@ -590,7 +523,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn max_selection_count(mut self, maximum: Option<NonZero<u32>>) -> Self {
-        self.multi_defaults = self.multi_defaults.max_selection_count(maximum);
+        self.defaults.multi = self.defaults.multi.max_selection_count(maximum);
         self
     }
 
@@ -603,7 +536,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn frame_interval(mut self, interval: Duration) -> Self {
-        self.interval = interval;
+        self.driver.interval = interval;
         self
     }
 
@@ -614,7 +547,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn threads(mut self, threads: Option<NonZero<usize>>) -> Self {
-        self.threads = threads;
+        self.driver.threads = threads;
         self
     }
 
@@ -622,7 +555,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn normalization(mut self, normalization: Normalization) -> Self {
-        self.normalization = normalization.convert();
+        self.driver.normalization = normalization.convert();
         self
     }
 
@@ -630,7 +563,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn case_matching(mut self, case_matching: CaseMatching) -> Self {
-        self.case_matching = case_matching.convert();
+        self.driver.case_matching = case_matching.convert();
         self
     }
 
@@ -638,7 +571,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn match_paths(mut self) -> Self {
-        self.config = self.config.match_paths();
+        self.driver.config = self.driver.config.match_paths();
         self
     }
 
@@ -648,7 +581,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn prefer_prefix(mut self, prefer_prefix: bool) -> Self {
-        self.config.prefer_prefix = prefer_prefix;
+        self.driver.config.prefer_prefix = prefer_prefix;
         self
     }
 
@@ -656,7 +589,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn highlight(mut self, highlight: bool) -> Self {
-        self.match_list_config.highlight = highlight;
+        self.driver.match_list_config.highlight = highlight;
         self
     }
 
@@ -666,7 +599,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn highlight_line(mut self, highlight_line: bool) -> Self {
-        self.match_list_config.highlight_line = highlight_line;
+        self.driver.match_list_config.highlight_line = highlight_line;
         self
     }
 
@@ -674,7 +607,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn highlight_padding(mut self, size: u16) -> Self {
-        self.match_list_config.highlight_padding = size;
+        self.driver.match_list_config.highlight_padding = size;
         self
     }
 
@@ -682,7 +615,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn scroll_padding(mut self, size: u16) -> Self {
-        self.match_list_config.scroll_padding = size;
+        self.driver.match_list_config.scroll_padding = size;
         self
     }
 
@@ -690,7 +623,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn prompt_padding(mut self, size: u16) -> Self {
-        self.prompt_config.padding = size;
+        self.driver.prompt_config.padding = size;
         self
     }
 
@@ -700,7 +633,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn prompt_indicator(mut self, prompt: char) -> Self {
-        self.chars.prompt = prompt;
+        self.driver.chars.prompt = prompt;
         self
     }
 
@@ -710,7 +643,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn hover_indicator(mut self, hover: char) -> Self {
-        self.chars.hover = hover;
+        self.driver.chars.hover = hover;
         self
     }
 
@@ -728,7 +661,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn queued_indicator(mut self, queued: char) -> Self {
-        self.chars.queued = queued;
+        self.driver.chars.queued = queued;
         self
     }
 
@@ -738,7 +671,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn truncation_ellipsis(mut self, ellipsis: char) -> Self {
-        self.chars.ellipsis = ellipsis;
+        self.driver.chars.ellipsis = ellipsis;
         self
     }
 
@@ -748,7 +681,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn separator(mut self, sep: char) -> Self {
-        self.chars.separator = sep;
+        self.driver.chars.separator = sep;
         self
     }
 
@@ -761,7 +694,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn spinner_chars(mut self, spinner: &'static [char]) -> Self {
-        self.chars.spinner_chars = spinner;
+        self.driver.chars.spinner_chars = spinner;
         self
     }
 
@@ -773,7 +706,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn matching_indicator(mut self, indicator: char) -> Self {
-        self.chars.matching_indicator = indicator;
+        self.driver.chars.matching_indicator = indicator;
         self
     }
 
@@ -794,18 +727,7 @@ impl PickerOptions {
     /// ```
     /// If `ascii` is `false`, this uses the default Unicode character set.
     pub const fn ascii_compatible(mut self, ascii: bool) -> Self {
-        self.chars = if ascii {
-            PickerChars::ascii()
-        } else {
-            PickerChars::new()
-        };
-
-        self.preview_config.boundary_chars = if ascii {
-            BoundaryChars::ascii()
-        } else {
-            BoundaryChars::new()
-        };
-
+        self.driver.set_ascii_compatible(ascii);
         self
     }
 
@@ -824,16 +746,18 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn background_frame_interval(mut self, interval: Duration) -> Self {
-        self.background_frame_interval = interval;
+        self.driver.background_frame_interval = interval;
         self
     }
 
     /// Provide an initial query string for the prompt (defaults to `""`).
     #[must_use]
     #[inline]
-    pub fn query<Q: Into<String>>(mut self, query: Q) -> Self {
-        self.query = query.into();
-        self
+    pub fn query<Q: Into<String>>(self, query: Q) -> Self {
+        Self {
+            driver: self.driver.query(query),
+            defaults: self.defaults,
+        }
     }
 }
 
@@ -849,9 +773,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn preview_dimensions(mut self, ratio: f64) -> Self {
-        let valid = ratio >= 0.0 && ratio <= 1.0;
-        debug_assert!(valid, "preview ratio must be in 0..=1");
-        self.preview_config.ratio = if valid { ratio } else { 0.5 };
+        self.driver.set_preview_dimensions(ratio);
         self
     }
 
@@ -862,7 +784,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn preview_boundary_chars(mut self, chars: BoundaryChars) -> Self {
-        self.preview_config.boundary_chars = chars;
+        self.driver.set_preview_boundary_chars(chars);
         self
     }
 
@@ -891,7 +813,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn preview_cache_size(mut self, size: Option<NonZero<usize>>) -> Self {
-        self.preview_cache_size = size;
+        self.defaults.preview_cache_size = size;
         self
     }
 }
@@ -1001,8 +923,9 @@ impl PickerOptions {
 #[doc = include_str!("../examples/custom_io.rs")]
 /// ```
 pub struct Picker<T, R, I = Single> {
-    core: PickerCore<T, R>,
+    core: Driver<T, R>,
     interface: I,
+    defaults: InterfaceDefaults,
 }
 
 impl<T: Send + Sync + 'static, R: Render<T>, I> Extend<T> for Picker<T, R, I> {
@@ -1030,7 +953,7 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     #[must_use]
     #[inline]
     pub fn injector(&self) -> Injector<T, R> {
-        self.core.engine.injector()
+        self.core.injector()
     }
 
     /// A convenience method to add a batch of items directly to the picker.
@@ -1045,7 +968,7 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
         R: Render<T>,
         U: IntoIterator<Item = T>,
     {
-        self.injector().push_batch(iter);
+        self.core.push_batch(iter);
     }
 
     /// A convenience method to obtain the rendered version of an item as it would appear in the
@@ -1058,7 +981,7 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     where
         R: Render<T>,
     {
-        self.core.engine.render(item)
+        self.core.render(item)
     }
 
     /// Open the interactive picker prompt and return the picked item, if any.
@@ -1067,9 +990,11 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     ///
     /// The behaviour of this function is influenced by the [`Interface`] parameter (for instance,
     /// returning a single or multiple items; or rendering a preview). Read the [interface
-    /// docs](Interface) for more details.
+    /// docs](Interface) for more details. Keybindings are provided by the [`KeybindDefault`]
+    /// implementation.
     ///
     /// ## Stderr lock
+    ///
     /// The picker prompt is rendered in an alternate screen using the `stderr` file handle. In
     /// order to prevent screen corruption, a lock is acquired to `stderr`; see
     /// [`StderrLock`](std::io::StderrLock) for more detail.
@@ -1099,9 +1024,9 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     pub fn pick(&mut self) -> Result<I::Output<'_>, PickError>
     where
         R: Render<T>,
-        I: Interface<T>,
+        I: Interface<T> + KeybindDefault,
     {
-        self.pick_with_keybind(I::keybind_default)
+        input::pick(&mut self.core, &mut self.interface)
     }
 
     /// Open the interactive picker prompt and return the picked item, if any. The provided
@@ -1112,7 +1037,7 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     ///
     /// To further customize event generation, see the [`pick_with_io`](Self::pick_with_io) method.
     /// The [`pick`](Self::pick) method is internally a call to this method with keybindings
-    /// provided by [`Interface::keybind_default`].
+    /// provided by [`KeybindDefault::keybind_default`].
     ///
     /// ## Interface
     ///
@@ -1138,7 +1063,7 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
         I: Interface<T>,
         F: FnMut(KeyEvent) -> Option<Event>,
     {
-        session::pick_with_keybind(&mut self.core, &mut self.interface, keybind)
+        input::pick_with_keybind(&mut self.core, &mut self.interface, keybind)
     }
 
     /// Run the picker interactively with a custom event source and writer, returning the selected
@@ -1179,7 +1104,8 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
         E: EventSource,
         W: io::Write,
     {
-        session::pick_with_io(&mut self.core, &mut self.interface, event_source, writer)
+        self.core
+            .pick_with_io(&mut self.interface, event_source, writer)
     }
 }
 
@@ -1188,8 +1114,11 @@ impl<T, R> Picker<T, R> {
     #[must_use]
     #[inline]
     pub fn multi(self) -> Picker<T, R, Multi> {
-        let interface = self.core.multi_defaults;
-        self.core.with_interface(interface)
+        Picker {
+            core: self.core,
+            interface: self.defaults.multi,
+            defaults: self.defaults,
+        }
     }
 
     /// Mutably borrow this picker as a multi-selection picker.
@@ -1199,7 +1128,11 @@ impl<T, R> Picker<T, R> {
     #[must_use]
     #[inline]
     pub fn as_multi(&mut self) -> PickerRef<'_, T, R, Multi> {
-        self.core.as_interface(self.core.multi_defaults)
+        PickerRef {
+            core: &mut self.core,
+            interface: self.defaults.multi,
+            defaults: self.defaults,
+        }
     }
 }
 
@@ -1208,14 +1141,22 @@ impl<T, R> Picker<T, R, Multi> {
     #[must_use]
     #[inline]
     pub fn single(self) -> Picker<T, R> {
-        self.core.with_interface(Single)
+        Picker {
+            core: self.core,
+            interface: Single,
+            defaults: self.defaults,
+        }
     }
 
     /// Mutably borrow this picker as a single-selection picker.
     #[must_use]
     #[inline]
     pub fn as_single(&mut self) -> PickerRef<'_, T, R, Single> {
-        self.core.as_interface(Single)
+        PickerRef {
+            core: &mut self.core,
+            interface: Single,
+            defaults: self.defaults,
+        }
     }
 }
 
@@ -1230,23 +1171,34 @@ impl<T, R, I> Picker<T, R, I> {
     #[cfg_attr(docsrs, doc(cfg(feature = "preview-cache")))]
     #[inline]
     pub fn with_preview<P>(self, previewer: P) -> Picker<T, R, CachedPreview<I, P>> {
-        let interface =
-            CachedPreview::new(self.interface, previewer).cache_size(self.core.preview_cache_size);
-        self.core.with_interface(interface)
+        Picker {
+            core: self.core,
+            interface: CachedPreview::new(self.interface, previewer)
+                .cache_size(self.defaults.preview_cache_size),
+            defaults: self.defaults,
+        }
     }
 
     /// Change the interface of this picker.
     #[must_use]
     #[inline]
     pub fn with_interface<J: Interface<T>>(self, interface: J) -> Picker<T, R, J> {
-        self.core.with_interface(interface)
+        Picker {
+            core: self.core,
+            interface,
+            defaults: self.defaults,
+        }
     }
 
     /// Borrow this picker with a different interface.
     #[must_use]
     #[inline]
     pub fn as_interface<J: Interface<T>>(&mut self, interface: J) -> PickerRef<'_, T, R, J> {
-        self.core.as_interface(interface)
+        PickerRef {
+            core: &mut self.core,
+            interface,
+            defaults: self.defaults,
+        }
     }
 }
 
@@ -1258,22 +1210,30 @@ impl<T, R, P> Picker<T, R, CachedPreview<Single, P>> {
     #[inline]
     pub fn multi(self) -> Picker<T, R, CachedPreview<Multi, P>> {
         let interface = CachedPreview {
-            interface: self.core.multi_defaults,
+            interface: self.defaults.multi,
             previewer: self.interface.previewer,
             cache_size: self.interface.cache_size,
         };
-        self.core.with_interface(interface)
+        Picker {
+            core: self.core,
+            interface,
+            defaults: self.defaults,
+        }
     }
 
     /// Mutably borrow this picker as a multi-selection picker with item previews.
     #[must_use]
     #[inline]
     pub fn as_multi(&mut self) -> PickerRef<'_, T, R, CachedPreview<Multi, &mut P>> {
-        self.core.as_interface(CachedPreview {
-            interface: self.core.multi_defaults,
-            previewer: &mut self.interface.previewer,
-            cache_size: self.interface.cache_size,
-        })
+        PickerRef {
+            core: &mut self.core,
+            interface: CachedPreview {
+                interface: self.defaults.multi,
+                previewer: &mut self.interface.previewer,
+                cache_size: self.interface.cache_size,
+            },
+            defaults: self.defaults,
+        }
     }
 }
 
@@ -1284,22 +1244,30 @@ impl<T, R, P> Picker<T, R, CachedPreview<Multi, P>> {
     #[must_use]
     #[inline]
     pub fn single(self) -> Picker<T, R, CachedPreview<Single, P>> {
-        self.core.with_interface(CachedPreview {
-            interface: Single,
-            previewer: self.interface.previewer,
-            cache_size: self.interface.cache_size,
-        })
+        Picker {
+            core: self.core,
+            interface: CachedPreview {
+                interface: Single,
+                previewer: self.interface.previewer,
+                cache_size: self.interface.cache_size,
+            },
+            defaults: self.defaults,
+        }
     }
 
     /// Mutably borrow this picker as a single-selection picker with item previews.
     #[must_use]
     #[inline]
     pub fn as_single(&mut self) -> PickerRef<'_, T, R, CachedPreview<Single, &mut P>> {
-        self.core.as_interface(CachedPreview {
-            interface: Single,
-            previewer: &mut self.interface.previewer,
-            cache_size: self.interface.cache_size,
-        })
+        PickerRef {
+            core: &mut self.core,
+            interface: CachedPreview {
+                interface: Single,
+                previewer: &mut self.interface.previewer,
+                cache_size: self.interface.cache_size,
+            },
+            defaults: self.defaults,
+        }
     }
 }
 
@@ -1313,14 +1281,22 @@ impl<T, R, I, P> Picker<T, R, CachedPreview<I, P>> {
     #[must_use]
     #[inline]
     pub fn without_preview(self) -> Picker<T, R, I> {
-        self.core.with_interface(self.interface.interface)
+        Picker {
+            core: self.core,
+            interface: self.interface.interface,
+            defaults: self.defaults,
+        }
     }
 
     /// Decompose a previewing picker into the constituent picker and previewer.
     #[inline]
     pub fn into_parts(self) -> (Picker<T, R, I>, P) {
         (
-            self.core.with_interface(self.interface.interface),
+            Picker {
+                core: self.core,
+                interface: self.interface.interface,
+                defaults: self.defaults,
+            },
             self.interface.previewer,
         )
     }
@@ -1346,7 +1322,7 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     #[must_use]
     #[inline]
     pub fn query(&self) -> &str {
-        self.core.prompt.contents()
+        self.core.query()
     }
 
     /// Update the default query string. This is mainly useful for modifying the query string
@@ -1357,15 +1333,14 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     /// use.
     #[inline]
     pub fn update_query<Q: Into<String>>(&mut self, query: Q) {
-        self.core.prompt.set_query(query);
-        self.core.engine.reparse(self.core.prompt.contents());
+        self.core.update_query(query);
     }
 
     /// Reset the query string to the empty string. This is a convenience method to call
     /// [`update_query`](Self::update_query) with query string `""`.
     #[inline]
     pub fn reset_query(&mut self) {
-        self.update_query(String::new());
+        self.core.reset_query();
     }
 
     /// Restart the match engine, disconnecting all active injectors and clearing the existing
@@ -1384,12 +1359,7 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     /// picker during interactive use, see the [`Event`] documentation or the [restart
     /// example](https://github.com/autobib/nucleo-picker/blob/master/examples/restart.rs).
     pub fn restart(&mut self) {
-        self.core.engine.restart();
-        self.core
-            .list_state
-            .layout
-            .restart(self.core.engine.snapshot(), &self.core.list_state.config);
-        self.update_query("");
+        self.core.restart();
     }
 
     /// Restart the match engine, disconnecting all active injectors and replacing the internal
@@ -1401,11 +1371,7 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     /// See [`Picker::restart`] for more detail. Note that method *does not* clear the query.
     #[inline]
     pub fn reset_renderer(&mut self, render: R) {
-        self.core.engine.reset_renderer(render);
-        self.core
-            .list_state
-            .layout
-            .restart(self.core.engine.snapshot(), &self.core.list_state.config);
+        self.core.reset_renderer(render);
     }
 
     /// Filter the items sent to the picker using the current value of the query.
@@ -1451,9 +1417,7 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     /// # }
     /// ```
     pub fn filter(&mut self) -> Option<Matches<'_, T>> {
-        let items_changed = self.core.engine.finish_matching()?;
-        self.core.list_state.items_changed |= items_changed;
-        Some(self.matches())
+        self.core.filter()
     }
 
     /// Advance the internal match engine state non-interactively.
@@ -1469,10 +1433,7 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     /// If [`MatchStatus::is_complete`] returns true, the snapshot includes every match for the current
     /// query and input. For a blocking convenience method, use [`filter`](Self::filter).
     pub fn update_matches(&mut self, wait: Duration) -> MatchStatus {
-        let millis = u64::try_from(wait.as_millis()).unwrap_or(u64::MAX);
-        let status = self.core.engine.update(millis);
-        self.core.list_state.items_changed |= status.items_changed;
-        status
+        self.core.update_matches(wait)
     }
 
     /// Returns a view of the current matches.
@@ -1484,7 +1445,7 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     #[must_use]
     #[inline]
     pub fn matches(&self) -> Matches<'_, T> {
-        Matches::new(&self.core.engine)
+        self.core.matches()
     }
 
     /// Returns an [`Observer`] containing up-to-date [`Injector`]s for this picker.
@@ -1505,13 +1466,7 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     #[must_use]
     #[inline]
     pub fn injector_observer(&mut self, with_injector: bool) -> Observer<Injector<T, R>> {
-        let (notifier, observer) = if with_injector {
-            observer::occupied_channel(self.injector())
-        } else {
-            observer::channel()
-        };
-        self.core.restart_notifier = Some(notifier);
-        observer
+        self.core.injector_observer(with_injector)
     }
 
     /// Returns an [`Observer`] containing up-to-date responses from [status
@@ -1530,9 +1485,7 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     #[must_use]
     #[inline]
     pub fn status_observer(&mut self) -> Observer<PickerStatus> {
-        let (notifier, observer) = observer::channel();
-        self.core.status_notifier = Some(notifier);
-        observer
+        self.core.status_observer()
     }
 }
 
@@ -1557,7 +1510,7 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
         W: Terminal,
     {
         self.core
-            .pick_impl(event_source, terminal, &mut self.interface)
+            .pick_with_terminal_io(&mut self.interface, event_source, terminal)
     }
 }
 

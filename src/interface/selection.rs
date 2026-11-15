@@ -8,9 +8,9 @@ use std::{
 
 use super::Multi;
 use crate::{
+    KeybindDefault,
     event::{Event, keybind_multi},
     session::{Context, Exit, Interface, ItemId, Matches, QueueEvent, QueueStatus},
-    util::as_u32,
 };
 use crossterm::event::KeyEvent;
 
@@ -36,7 +36,7 @@ impl<T: Send + Sync + 'static> Interface<T> for Multi {
     #[inline]
     fn queue_status(&self, state: &Self::State) -> Option<QueueStatus> {
         Some(QueueStatus {
-            count: as_u32(state.inner.len()),
+            count: u32::try_from(state.inner.len()).unwrap_or(u32::MAX),
             limit: self.max_selection_count,
         })
     }
@@ -49,12 +49,11 @@ impl<T: Send + Sync + 'static> Interface<T> for Multi {
     ) -> bool {
         match event {
             QueueEvent::Toggle(item) => {
-                assert_eq!(
-                    item.id().generation,
-                    cx.matches().generation,
+                assert!(
+                    cx.matches().contains_item(item.id()),
                     "queued item is not in the event context"
                 );
-                state.bind_generation(item.id().generation);
+                state.assert_generation(item.id());
                 let len = state.inner.len();
                 match state.inner.entry(item.id()) {
                     Entry::Occupied(entry) => {
@@ -80,11 +79,14 @@ impl<T: Send + Sync + 'static> Interface<T> for Multi {
                 let limit = self
                     .max_selection_count
                     .map_or(usize::MAX, |l| l.get() as usize);
-                let matches = cx.matches();
-                if len >= limit || matches.is_empty() {
+                if len >= limit {
                     return false;
                 }
-                state.bind_generation(matches.generation);
+                let matches = cx.matches();
+                let Some(id) = matches.ids().next() else {
+                    return false;
+                };
+                state.assert_generation(id);
                 for id in matches.ids() {
                     if state.inner.len() >= limit {
                         break;
@@ -117,7 +119,9 @@ impl<T: Send + Sync + 'static> Interface<T> for Multi {
         }
         state.into_selection(cx.matches())
     }
+}
 
+impl KeybindDefault for Multi {
     #[inline]
     fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>> {
         keybind_multi(key)
@@ -129,10 +133,9 @@ impl<T: Send + Sync + 'static> Interface<T> for Multi {
 /// This essentially contains a queue for the selected items.
 #[derive(Default)]
 pub struct MultiState {
+    // A nonempty queue contains only initialized identifiers from a single generation.
     inner: BTreeMap<ItemId, u64>,
     next_order: u64,
-    // A nonempty queue contains only initialized identifiers from this generation.
-    generation: u32,
 }
 
 impl MultiState {
@@ -152,7 +155,9 @@ impl MultiState {
         matches: Matches<'items, T>,
     ) -> Selection<'items, T> {
         assert!(
-            self.inner.is_empty() || self.generation == matches.generation,
+            self.inner
+                .first_key_value()
+                .is_none_or(|(&id, _)| matches.contains_item(id)),
             "queued items are not in the output context"
         );
         // SAFETY: the queue contains initialized IDs from one generation, which either
@@ -173,31 +178,36 @@ impl MultiState {
         self,
         matches: Matches<'items, T>,
     ) -> Selection<'items, T> {
-        debug_assert!(self.inner.is_empty() || self.generation == matches.generation);
+        debug_assert!(
+            self.inner
+                .first_key_value()
+                .is_none_or(|(&id, _)| matches.contains_item(id))
+        );
         Selection {
-            snapshot: matches.snapshot,
+            matches,
             queued: self,
         }
     }
 
-    fn bind_generation(&mut self, generation: u32) {
-        if self.inner.is_empty() {
-            self.generation = generation;
-        } else {
-            assert_eq!(
-                self.generation, generation,
-                "cannot queue items from different picker generations"
-            );
-        }
+    #[inline]
+    fn assert_generation(&self, id: ItemId) {
+        assert!(
+            self.inner
+                .first_key_value()
+                .is_none_or(|(&queued, _)| queued.same_generation(id)),
+            "cannot queue items from different picker generations"
+        );
     }
 
+    #[inline]
     fn insert(&mut self, id: ItemId) {
-        self.bind_generation(id.generation);
+        self.assert_generation(id);
         if let Entry::Vacant(entry) = self.inner.entry(id) {
             entry.insert(Self::next_order(&mut self.next_order));
         }
     }
 
+    #[inline]
     fn next_order(next_order: &mut u64) -> u64 {
         let order = *next_order;
         *next_order += 1;
@@ -213,7 +223,7 @@ impl MultiState {
 ///
 /// The lifetime of the selection is bound to the lifetime of the picker from which it originated.
 pub struct Selection<'a, T: Send + Sync + 'static> {
-    snapshot: &'a nucleo::Snapshot<T>,
+    matches: Matches<'a, T>,
     queued: MultiState,
 }
 
@@ -224,7 +234,7 @@ impl<'a, T: Send + Sync + 'static> IntoIterator for Selection<'a, T> {
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
         SelectionIntoIter {
-            snapshot: self.snapshot,
+            matches: self.matches,
             indices: self.queued.inner.into_keys(),
         }
     }
@@ -234,19 +244,18 @@ impl<'a, T: Send + Sync + 'static> IntoIterator for Selection<'a, T> {
 ///
 /// The order is the same as [`Selection::iter`], except as an owned variant.
 pub struct SelectionIntoIter<'a, T: Send + Sync + 'static> {
-    snapshot: &'a nucleo::Snapshot<T>,
+    matches: Matches<'a, T>,
     indices: btree_map::IntoKeys<ItemId, u64>,
 }
 
-// Public hooks can pair state with a different snapshot; validate at lookup without scanning the queue in finish.
 impl<'a, T: Send + Sync + 'static> Iterator for SelectionIntoIter<'a, T> {
     type Item = &'a T;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        self.indices.next().map(|idx| {
+        self.indices.next().map(|id| {
             // SAFETY: Selection owns indices from this snapshot, which remains borrowed.
-            unsafe { self.snapshot.get_item_unchecked(idx.index).data }
+            unsafe { self.matches.item_unchecked(id).value() }
         })
     }
 
@@ -267,9 +276,9 @@ impl<'a, T: Send + Sync + 'static> Iterator for SelectionIntoIter<'a, T> {
 
     #[inline]
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
-        self.indices.nth(n).map(|idx| {
+        self.indices.nth(n).map(|id| {
             // SAFETY: Selection owns indices from this snapshot, which remains borrowed.
-            unsafe { self.snapshot.get_item_unchecked(idx.index).data }
+            unsafe { self.matches.item_unchecked(id).value() }
         })
     }
 }
@@ -277,17 +286,17 @@ impl<'a, T: Send + Sync + 'static> Iterator for SelectionIntoIter<'a, T> {
 impl<T: Send + Sync + 'static> DoubleEndedIterator for SelectionIntoIter<'_, T> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
-        self.indices.next_back().map(|idx| {
+        self.indices.next_back().map(|id| {
             // SAFETY: Selection owns indices from this snapshot, which remains borrowed.
-            unsafe { self.snapshot.get_item_unchecked(idx.index).data }
+            unsafe { self.matches.item_unchecked(id).value() }
         })
     }
 
     #[inline]
     fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
-        self.indices.nth_back(n).map(|idx| {
+        self.indices.nth_back(n).map(|id| {
             // SAFETY: Selection owns indices from this snapshot, which remains borrowed.
-            unsafe { self.snapshot.get_item_unchecked(idx.index).data }
+            unsafe { self.matches.item_unchecked(id).value() }
         })
     }
 }
@@ -310,11 +319,11 @@ impl<'a, T: Send + Sync + 'static> Selection<'a, T> {
     /// The iterator will be empty if the picker quit without selecting any items.
     #[inline]
     pub fn iter(&self) -> impl ExactSizeIterator<Item = &'a T> + DoubleEndedIterator {
-        self.queued.inner.keys().map(|idx| {
+        self.queued.inner.keys().map(|&id| {
             // SAFETY: on creation, the indices were validated to belong to the same snapshot which is stored
             // inside this struct, and the lifetime prevents the indices from being invalidated until this struct
             // is dropped
-            unsafe { self.snapshot.get_item_unchecked(idx.index).data }
+            unsafe { self.matches.item_unchecked(id).value() }
         })
     }
 
@@ -330,20 +339,20 @@ impl<'a, T: Send + Sync + 'static> Selection<'a, T> {
     pub fn iter_selected_order(
         &self,
     ) -> impl ExactSizeIterator<Item = &'a T> + DoubleEndedIterator {
-        let snapshot = self.snapshot;
+        let matches = self.matches;
         let mut selected_items = self
             .queued
             .inner
             .iter()
-            .map(|(&idx, &order)| (order, idx))
+            .map(|(&id, &order)| (order, id))
             .collect::<Vec<_>>();
         selected_items.sort_unstable_by_key(|&(order, _)| order);
 
-        selected_items.into_iter().map(move |(_, idx)| {
+        selected_items.into_iter().map(move |(_, id)| {
             // SAFETY: on creation, the indices were validated to belong to the same snapshot which is stored
             // inside this struct, and the lifetime prevents the indices from being invalidated until this struct
             // is dropped
-            unsafe { snapshot.get_item_unchecked(idx.index).data }
+            unsafe { matches.item_unchecked(id).value() }
         })
     }
 
@@ -363,290 +372,4 @@ impl<'a, T: Send + Sync + 'static> Selection<'a, T> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{Picker, PickerOptions, Single, render::StrRenderer};
-    use std::{
-        num::NonZero,
-        panic::{AssertUnwindSafe, catch_unwind},
-    };
-
-    fn picker(items: impl IntoIterator<Item = &'static str>) -> Picker<&'static str, StrRenderer> {
-        let mut picker = PickerOptions::new()
-            .threads(NonZero::new(1))
-            .sort_results(false)
-            .picker(StrRenderer);
-        picker.push_batch(items);
-        picker.filter().unwrap();
-        picker
-    }
-
-    #[test]
-    fn public_output_hooks_check_stale_and_foreign_identifiers() {
-        for stale in [false, true] {
-            for index in 0..2 {
-                let mut source = picker(["zero", "one"]);
-                let other = picker(["other"]);
-                let cx = Context::new(&source.core.engine);
-                let item = cx.matches().get(index).unwrap();
-                let id = item.id();
-                let mut multi = Multi::new();
-                let mut state = multi.init(&cx);
-                assert!(multi.on_queue(&mut state, QueueEvent::Toggle(item), &cx));
-                if stale {
-                    source.restart();
-                    source.push_batch(["replacement"]);
-                    source.filter().unwrap();
-                }
-                let engine = if stale {
-                    &source.core.engine
-                } else {
-                    &other.core.engine
-                };
-                assert!(
-                    catch_unwind(AssertUnwindSafe(|| {
-                        Single.finish((), Exit::Selected(Some(id)), Context::new(engine))
-                    }))
-                    .is_err()
-                );
-                assert!(
-                    catch_unwind(AssertUnwindSafe(|| {
-                        multi.finish(
-                            MultiState::default(),
-                            Exit::Selected(Some(id)),
-                            Context::new(engine),
-                        )
-                    }))
-                    .is_err()
-                );
-                assert!(
-                    catch_unwind(AssertUnwindSafe(|| {
-                        multi.finish(state, Exit::Selected(None), Context::new(engine))
-                    }))
-                    .is_err()
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn queue_rejects_mixed_generations_without_changing_existing_items() {
-        let source = picker(["zero", "one"]);
-        let other = picker(["other"]);
-        let cx = Context::new(&source.core.engine);
-        let other_cx = Context::new(&other.core.engine);
-        let local = cx.matches().get(0).unwrap();
-        let foreign = other_cx.matches().get(0).unwrap();
-        for (event, event_cx) in [
-            (QueueEvent::Toggle(foreign), &cx),
-            (QueueEvent::Toggle(local), &other_cx),
-            (QueueEvent::Toggle(foreign), &other_cx),
-            (QueueEvent::Matches, &other_cx),
-        ] {
-            let mut multi = Multi::new();
-            let mut state = multi.init(&cx);
-            for rank in [1, 0] {
-                assert!(multi.on_queue(
-                    &mut state,
-                    QueueEvent::Toggle(cx.matches().get(rank).unwrap()),
-                    &cx,
-                ));
-            }
-            assert!(
-                catch_unwind(AssertUnwindSafe(|| {
-                    multi.on_queue(&mut state, event, event_cx)
-                }))
-                .is_err()
-            );
-            let selection = state.into_selection(cx.matches());
-            assert!(selection.iter().copied().eq(["zero", "one"]));
-            assert!(selection.iter_selected_order().copied().eq(["one", "zero"]));
-        }
-    }
-
-    #[test]
-    fn emptied_queues_can_bind_to_another_generation() {
-        let source = picker(["original"]);
-        let other = picker(["other"]);
-        let cx = Context::new(&source.core.engine);
-        let other_cx = Context::new(&other.core.engine);
-        let item = cx.matches().get(0).unwrap();
-        let mut multi = Multi::new();
-        for refill in [false, true] {
-            for reset in 0..4 {
-                let mut state = multi.init(&cx);
-                assert!(multi.on_queue(&mut state, QueueEvent::Toggle(item), &cx));
-                match reset {
-                    0 => assert!(multi.on_queue(&mut state, QueueEvent::Remove(item.id()), &cx)),
-                    1 => assert!(multi.on_queue(&mut state, QueueEvent::Toggle(item), &cx)),
-                    2 => assert!(multi.on_queue(&mut state, QueueEvent::Clear, &cx)),
-                    _ => multi.on_restart(&mut state, &cx),
-                }
-                if refill {
-                    assert!(multi.on_queue(&mut state, QueueEvent::Matches, &other_cx));
-                }
-                let selection = state.into_selection(other_cx.matches());
-                assert!(selection.iter().copied().eq(refill.then_some("other")));
-            }
-        }
-    }
-
-    #[test]
-    fn checked_and_unchecked_conversions_preserve_filtered_items_and_order() {
-        for unchecked in [false, true] {
-            let mut picker = picker(["zero", "one", "two", "three", "four"]);
-            let cx = Context::new(&picker.core.engine);
-            let mut multi = Multi::new();
-            let mut state = multi.init(&cx);
-            for rank in [4, 2, 0, 3, 1] {
-                assert!(multi.on_queue(
-                    &mut state,
-                    QueueEvent::Toggle(cx.matches().get(rank).unwrap()),
-                    &cx,
-                ));
-            }
-            picker.update_query("absent");
-            let matches = picker.filter().unwrap();
-            assert!(matches.is_empty());
-            let selection = if unchecked {
-                // SAFETY: filtering preserves the item storage that supplied every queued ID.
-                unsafe { state.into_selection_unchecked(matches) }
-            } else {
-                state.into_selection(matches)
-            };
-            assert_eq!(selection.len(), 5);
-            assert!(!selection.is_empty());
-            assert!(
-                selection
-                    .iter()
-                    .copied()
-                    .eq(["zero", "one", "two", "three", "four"])
-            );
-            assert!(
-                selection
-                    .iter()
-                    .rev()
-                    .copied()
-                    .eq(["four", "three", "two", "one", "zero"])
-            );
-            assert!(
-                selection
-                    .iter_selected_order()
-                    .copied()
-                    .eq(["four", "two", "zero", "three", "one"])
-            );
-            let mut items = selection.into_iter();
-            assert_eq!(items.nth(1), Some(&"one"));
-            assert_eq!(items.len(), 3);
-            assert_eq!(items.nth_back(1), Some(&"three"));
-            assert_eq!(items.last(), Some(&"two"));
-        }
-    }
-
-    #[test]
-    fn finish_validates_only_items_in_the_effective_output() {
-        let source = picker(["original"]);
-        let other = picker(["other"]);
-        let cx = Context::new(&source.core.engine);
-        let foreign = other.matches().get(0).unwrap().id();
-        let mut multi = Multi::new();
-        for quit in [false, true] {
-            let mut state = multi.init(&cx);
-            assert!(multi.on_queue(&mut state, QueueEvent::Matches, &cx));
-            let (exit, output_cx) = if quit {
-                (Exit::Quit, Context::new(&other.core.engine))
-            } else {
-                (
-                    Exit::Selected(Some(foreign)),
-                    Context::new(&source.core.engine),
-                )
-            };
-            let selection = multi.finish(state, exit, output_cx);
-            assert!(selection.iter().copied().eq((!quit).then_some("original")));
-        }
-    }
-
-    #[test]
-    fn queue_lifecycle_preserves_selection_order_and_obeys_the_limit() {
-        let mut picker = crate::PickerOptions::new()
-            .sort_results(false)
-            .reverse_items(true)
-            .picker(crate::render::StrRenderer);
-        picker.push_batch(["zero", "one", "two", "three"]);
-        picker.filter().unwrap();
-        let cx = Context::new(&picker.core.engine);
-        let toggle = |index| {
-            QueueEvent::Toggle(
-                cx.matches()
-                    .item(picker.core.engine.item_id(index))
-                    .unwrap(),
-            )
-        };
-        let mut interface = Multi::new().max_selection_count(NonZero::new(2));
-        let state = interface.init(&cx);
-        let mut selection = interface.finish(
-            state,
-            Exit::Selected(None),
-            Context::new(&picker.core.engine),
-        );
-        assert!(selection.iter_selected_order().next().is_none());
-
-        for (index, expected) in [
-            (3, &["three"][..]),
-            (1, &["three", "one"]),
-            (3, &["one"]),
-            (3, &["one", "three"]),
-            (1, &["three"]),
-            (1, &["three", "one"]),
-            (3, &["one"]),
-        ] {
-            assert!(interface.on_queue(&mut selection.queued, toggle(index), &cx));
-            assert!(selection.iter_selected_order().eq(expected));
-        }
-
-        interface = interface.max_selection_count(NonZero::new(1));
-        assert_eq!(
-            Interface::<&str>::queue_status(&interface, &selection.queued),
-            Some(QueueStatus {
-                count: 1,
-                limit: NonZero::new(1),
-            })
-        );
-        assert!(!interface.on_queue(&mut selection.queued, QueueEvent::Matches, &cx));
-        interface = interface.max_selection_count(NonZero::new(3));
-        assert_eq!(
-            Interface::<&str>::queue_status(&interface, &selection.queued),
-            Some(QueueStatus {
-                count: 1,
-                limit: NonZero::new(3),
-            })
-        );
-        assert!(interface.on_queue(&mut selection.queued, QueueEvent::Matches, &cx));
-        assert!(!interface.on_queue(&mut selection.queued, QueueEvent::Matches, &cx));
-        assert_eq!(
-            Interface::<&str>::queue_status(&interface, &selection.queued),
-            Some(QueueStatus {
-                count: 3,
-                limit: NonZero::new(3),
-            })
-        );
-        assert!(
-            selection
-                .iter_selected_order()
-                .copied()
-                .eq(["one", "three", "two"])
-        );
-        assert!(selection.iter().copied().eq(["one", "two", "three"]));
-
-        let mut items = selection.into_iter();
-        assert_eq!(items.len(), 3);
-        assert_eq!(items.next(), Some(&"one"));
-        assert_eq!(items.len(), 2);
-        assert_eq!(items.next_back(), Some(&"three"));
-        assert_eq!(items.len(), 1);
-        assert_eq!(items.next(), Some(&"two"));
-        assert_eq!(items.size_hint(), (0, Some(0)));
-        assert_eq!(items.next(), None);
-        assert_eq!(items.next_back(), None);
-    }
-}
+mod tests;

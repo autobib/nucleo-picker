@@ -1,19 +1,35 @@
 use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-use super::{Event, MatchListEvent, PromptEvent};
-use super::{LayoutEvent, PreviewEvent};
+use crate::event::{Event, LayoutEvent, MatchListEvent, PreviewEvent, PromptEvent};
+
+/// Interfaces which know how to automatically map terminal input to events.
+///
+/// This trait is used by [`Picker::pick`](crate::Picker::pick) to decide which keybindings to use
+/// when mapping events from the terminal. The built-in interfaces all provide default keybindings.
+pub trait KeybindDefault {
+    /// The default keybindings for an interface.
+    ///
+    /// This method is generic over the abort type `A` for compatibility with arbitrary application
+    /// errors. Interfaces use this to specialize event handling to only emit events which this
+    /// specific interface requires. See the
+    /// [keybind specialization documentation](crate::event::keybind_default#specialized-bindings)
+    /// for more details.
+    fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>> {
+        keybind_default(key)
+    }
+}
 
 /// The default keybindings.
 ///
 /// This includes all keybindings supported by the enabled features. These are the keybindings
-/// used in the [`Default`] implementation for [`StdinReader`](super::StdinReader). A list of the
+/// used in the [`Default`] implementation for [`StdinReader`](crate::event::StdinReader). A list of the
 /// bindings can be found in the [picker usage
 /// documentation](https://github.com/autobib/nucleo-picker/blob/master/USAGE.md).
 ///
 /// # Generic parameter
 ///
 /// This function is generic over the type parameter `A`, which is the associated type
-/// [`AbortErr`](super::EventSource::AbortErr) of an [`EventSource`](super::EventSource).
+/// [`AbortErr`](crate::event::EventSource::AbortErr) of an [`EventSource`](crate::event::EventSource).
 /// However, the type parameter does not appear anywhere in the function arguments since an
 /// [`Event::Abort`] is never produced by the default keybindings. This type parameter is simply
 /// here for flexibility to generate events of a particular type when used in situations where `A`
@@ -40,10 +56,6 @@ use super::{LayoutEvent, PreviewEvent};
 /// emitted, independently of picker support*. For example, using [`keybind_single`] with a
 /// multi-selection picker will prevent the user from making more than 1 selection, since the
 /// multi-selection keybinding is ignored entirely.
-///
-/// Each [interface](crate::session::Interface) also declares the
-/// [keybindings that it uses by default](crate::session::Interface::keybind_default). This can be useful
-/// in generic code.
 #[inline]
 pub fn keybind_default<A>(key_event: KeyEvent) -> Option<Event<A>> {
     keybind_multi_preview(key_event)

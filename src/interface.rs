@@ -16,19 +16,39 @@ pub use picker_ref::PickerRef;
 pub use selection::{MultiState, Selection, SelectionIntoIter};
 pub use uncached::{UncachedPreview, UncachedPreviewState};
 
+#[cfg(doc)]
+use crate::Picker;
 use crate::{
-    Picker,
-    event::{Event, keybind_single},
-    session::{Context, Exit, Interface, PickerCore},
+    KeybindDefault,
+    event::Event,
+    keybind::keybind_single,
+    session::{Context, Exit, Interface},
 };
 #[cfg(feature = "preview-cache")]
 use crate::{
-    event::keybind_passthrough_preview,
+    keybind::keybind_passthrough_preview,
     preview::{Content, DEFAULT_CACHE_SIZE, Preview, PreviewEvent},
     session::{Dimensions, ItemId, QueueEvent, QueueStatus, Redraw},
 };
 #[cfg(feature = "preview-cache")]
 use controller::PreviewState;
+
+#[derive(Clone, Copy)]
+pub(crate) struct InterfaceDefaults {
+    pub(crate) multi: Multi,
+    #[cfg(feature = "preview-cache")]
+    pub(crate) preview_cache_size: Option<NonZero<usize>>,
+}
+
+impl InterfaceDefaults {
+    pub(crate) const fn new() -> Self {
+        Self {
+            multi: Multi::new(),
+            #[cfg(feature = "preview-cache")]
+            preview_cache_size: DEFAULT_CACHE_SIZE,
+        }
+    }
+}
 
 /// The single-selection picker interface.
 ///
@@ -208,7 +228,9 @@ impl<T: Send + Sync + 'static> Interface<T> for Single {
             }
         }
     }
+}
 
+impl KeybindDefault for Single {
     #[inline]
     fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>> {
         keybind_single(key)
@@ -316,7 +338,7 @@ impl<T: Send + Sync + 'static, I: Interface<T>, P: Preview<T>> Interface<T>
     ) -> Redraw {
         if state
             .preview
-            .handle_event(cx.hovered().map(|item| item.id().index), event)
+            .handle_event(cx.hovered().map(|item| item.id()), event)
         {
             Redraw::PREVIEW
         } else {
@@ -327,27 +349,12 @@ impl<T: Send + Sync + 'static, I: Interface<T>, P: Preview<T>> Interface<T>
     fn preview_resize(&mut self, state: &mut Self::State, size: Option<Dimensions>) {
         state.preview.resize(size);
     }
+}
 
+#[cfg(feature = "preview-cache")]
+impl<I: KeybindDefault, P> KeybindDefault for CachedPreview<I, P> {
     #[inline]
     fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>> {
         I::keybind_default(key).or_else(|| keybind_passthrough_preview(key).ok())
-    }
-}
-
-impl<T, R> PickerCore<T, R> {
-    #[inline]
-    pub(crate) fn with_interface<I>(self, interface: I) -> Picker<T, R, I> {
-        Picker {
-            core: self,
-            interface,
-        }
-    }
-
-    #[inline]
-    pub(crate) fn as_interface<I>(&mut self, interface: I) -> PickerRef<'_, T, R, I> {
-        PickerRef {
-            core: self,
-            interface,
-        }
     }
 }

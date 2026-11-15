@@ -17,8 +17,6 @@ use nucleo::{
     pattern::{CaseMatching as NucleoCaseMatching, Normalization as NucleoNormalization},
 };
 
-#[cfg(all(test, feature = "preview-cache"))]
-use crate::session::ItemRef;
 use crate::{
     Injector, Render,
     session::{ItemId, MatchStatus},
@@ -106,13 +104,6 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
             generation: self.generation,
             index,
         }
-    }
-
-    #[cfg(all(test, feature = "preview-cache"))]
-    pub fn item_ref(&self, index: u32) -> Option<ItemRef<'_, T>> {
-        self.snapshot()
-            .get_item(index)
-            .map(|item| ItemRef::new(self.item_id(index), item.data))
     }
 
     pub fn renderer(&self) -> &R {
@@ -229,68 +220,4 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::{panic::catch_unwind, sync::Barrier, thread};
-
-    #[test]
-    fn generations_are_unique_under_contention() {
-        let counter = AtomicU32::new(0);
-        let barrier = Barrier::new(8);
-        let mut generations: Vec<_> = thread::scope(|scope| {
-            let threads: Vec<_> = (0..8)
-                .map(|_| {
-                    scope.spawn(|| {
-                        barrier.wait();
-                        (0..256)
-                            .map(|_| next_generation(&counter))
-                            .collect::<Vec<_>>()
-                    })
-                })
-                .collect();
-            threads
-                .into_iter()
-                .flat_map(|thread| thread.join().unwrap())
-                .collect()
-        });
-        generations.sort_unstable();
-        assert!(generations.into_iter().eq(1..=8 * 256));
-    }
-
-    #[test]
-    fn generation_exhaustion_never_wraps_even_after_caught_panics() {
-        let counter = AtomicU32::new(u32::MAX - 1);
-        assert_eq!(next_generation(&counter), u32::MAX);
-        for _ in 0..2 {
-            assert!(catch_unwind(|| next_generation(&counter)).is_err());
-            assert_eq!(counter.load(Ordering::Relaxed), u32::MAX);
-        }
-    }
-
-    #[test]
-    fn injector_lifetime_updates_status() {
-        let mut engine: MatchEngine<&str, _> = MatchEngine::new(
-            nc::Config::DEFAULT,
-            nc::MatchListConfig {
-                sort_results: false,
-                reverse_items: false,
-            },
-            NonZero::new(1),
-            crate::render::StrRenderer.into(),
-            NucleoCaseMatching::Smart,
-            NucleoNormalization::Smart,
-        );
-
-        let injector = engine.injector();
-        let status = engine.update(0);
-        assert!(status.injecting);
-
-        drop(injector);
-        let mut status = engine.update(0);
-        assert!(!status.injecting);
-
-        while status.matching {
-            status = engine.update(5);
-        }
-    }
-}
+mod tests;

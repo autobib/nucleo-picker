@@ -80,13 +80,20 @@ impl<'items, T: Send + Sync + 'static> Matches<'items, T> {
         })
     }
 
+    /// Returns if the given item identifier corresponds to a match.
+    #[must_use]
+    #[inline]
+    pub fn contains_item(&self, id: ItemId) -> bool {
+        id.generation == self.generation
+    }
+
     /// Obtain the item corresponding to the given identifier.
     ///
     /// The identifiers must correspond to a valid index in this exact picker and generation.
     /// Otherwise, this will return [`None`].
     #[inline]
     pub fn item(&self, id: ItemId) -> Option<ItemRef<'items, T>> {
-        if id.generation != self.generation {
+        if !self.contains_item(id) {
             return None;
         }
         // SAFETY: identifiers are issued only for initialized items. Equal globally unique
@@ -107,7 +114,7 @@ impl<'items, T: Send + Sync + 'static> Matches<'items, T> {
     /// processed in the interim.
     #[inline]
     pub unsafe fn item_unchecked(&self, id: ItemId) -> ItemRef<'items, T> {
-        debug_assert_eq!(id.generation, self.generation);
+        debug_assert!(self.contains_item(id));
         debug_assert!(self.snapshot.get_item(id.index).is_some());
         // SAFETY: the caller guarantees that id identifies an initialized item in this snapshot.
         let item = unsafe { self.snapshot.get_item_unchecked(id.index) };
@@ -121,12 +128,27 @@ impl<'items, T: Send + Sync + 'static> Matches<'items, T> {
     /// reference increment).
     ///
     /// Read the documentation for [`OwnedItem`] for more details.
+    #[inline]
     pub fn owned_item(&self, id: ItemId) -> Option<OwnedItem<T>> {
-        if id.generation != self.generation {
+        if !self.contains_item(id) {
             return None;
         }
-        self.snapshot
-            .get_detached_item(id.index)
-            .map(|item| OwnedItem::new(id, item))
+        // SAFETY: issued identifiers identify initialized items in this generation's storage.
+        Some(unsafe { self.owned_item_unchecked(id) })
+    }
+
+    /// Get a persistent handle to an item in the picker without checking validity.
+    ///
+    /// # Safety
+    ///
+    /// The id must correspond to an initialized item in this picker with no restart events
+    /// processed in the interim.
+    #[inline]
+    pub unsafe fn owned_item_unchecked(&self, id: ItemId) -> OwnedItem<T> {
+        debug_assert!(self.contains_item(id));
+        debug_assert!(self.snapshot.get_item(id.index).is_some());
+        // SAFETY: the caller guarantees that id identifies an initialized item in this snapshot.
+        let item = unsafe { self.snapshot.get_detached_item_unchecked(id.index) };
+        OwnedItem::new(id, item)
     }
 }

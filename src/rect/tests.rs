@@ -64,31 +64,3 @@ fn spaces_preserve_the_active_style() {
     rect.spaces(0).unwrap();
     assert_eq!(output, b"  \x1b[48;5;8m   \x1b[0m\x1b[0m");
 }
-
-#[test]
-fn drawing_propagates_writer_errors() {
-    struct FailingWriter;
-    impl io::Write for FailingWriter {
-        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
-            Err(io::ErrorKind::BrokenPipe.into())
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            panic!("rectangle drawing must not flush");
-        }
-    }
-    let mut writer = FailingWriter;
-    let mut rect = CrosstermRect::new(&mut writer, area(), ClearState::WithinRect).unwrap();
-    assert_eq!(
-        rect.move_to(0, 0).unwrap_err().kind(),
-        io::ErrorKind::BrokenPipe
-    );
-    assert_eq!(
-        rect.print("text").unwrap_err().kind(),
-        io::ErrorKind::BrokenPipe
-    );
-    assert_eq!(
-        rect.clear_line().unwrap_err().kind(),
-        io::ErrorKind::BrokenPipe
-    );
-    assert_eq!(rect.clear().unwrap_err().kind(), io::ErrorKind::BrokenPipe);
-}

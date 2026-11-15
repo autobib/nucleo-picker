@@ -16,14 +16,6 @@ impl Cached {
             .map_or_else(Buffer::new, RequestState::into_buffer)
     }
 
-    #[cfg(test)]
-    pub fn pane(&self) -> Option<&Pane> {
-        match &self.state {
-            Some(RequestState::Ready(pane)) => Some(pane),
-            _ => None,
-        }
-    }
-
     pub fn pane_mut(&mut self) -> Option<&mut Pane> {
         match &mut self.state {
             Some(RequestState::Ready(pane)) => Some(pane),

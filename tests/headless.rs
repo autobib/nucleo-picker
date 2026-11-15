@@ -5,25 +5,50 @@ use std::{
     time::{Duration, Instant},
 };
 
-use nucleo_picker::{
-    Injector, Picker, PickerOptions,
-    render::StrRenderer,
-    session::{MatchStatus, Matches},
-};
+use nucleo_picker::{Driver, DriverOptions, Injector, render::StrRenderer, session::MatchStatus};
 
-fn options() -> PickerOptions {
-    PickerOptions::new()
+fn options() -> DriverOptions {
+    DriverOptions::new()
         .threads(NonZero::new(1))
         .sort_results(false)
 }
 
+#[test]
+fn replacing_items_preserves_the_query_only_when_resetting_the_renderer() {
+    let mut driver = options().query("^a").driver(StrRenderer);
+    driver.extend(["alpha", "beta", "apricot"].map(str::to_owned));
+    assert!(
+        driver
+            .filter()
+            .unwrap()
+            .iter()
+            .map(|item| item.value().as_str())
+            .eq(["alpha", "apricot"])
+    );
+    let id = driver.matches().get(0).unwrap().id();
+
+    driver.update_query("^beta$");
+    assert_eq!(driver.filter().unwrap().get(0).unwrap().value(), "beta");
+    driver.reset_renderer(StrRenderer);
+    assert_eq!(driver.query(), "^beta$");
+    assert!(driver.matches().is_empty());
+    driver.push_batch(["beta".to_owned()]);
+    assert_eq!(driver.filter().unwrap().len(), 1);
+    assert!(driver.matches().item(id).is_none());
+
+    driver.restart();
+    assert_eq!(driver.query(), "");
+    driver.push_batch(["new".to_owned()]);
+    assert_eq!(driver.filter().unwrap().get(0).unwrap().value(), "new");
+}
+
 fn update_until(
-    picker: &mut Picker<&'static str, StrRenderer>,
+    driver: &mut Driver<&'static str, StrRenderer>,
     ready: impl Fn(MatchStatus) -> bool,
 ) -> MatchStatus {
     let start = Instant::now();
     loop {
-        let status = picker.update_matches(Duration::ZERO);
+        let status = driver.update_matches(Duration::ZERO);
         if ready(status) {
             return status;
         }
@@ -35,19 +60,20 @@ fn update_until(
 #[test]
 fn filtering_requires_all_current_injectors_to_be_dropped() {
     for last in [None, Some("last")] {
-        let mut picker = options().picker(StrRenderer);
-        let injector = picker.injector();
+        let mut driver = options().driver(StrRenderer);
+        let injector = driver.injector();
         let last_injector = injector.clone();
-        assert!(picker.filter().is_none());
+        assert!(driver.filter().is_none());
         injector.push("first");
         drop(injector);
-        assert!(picker.filter().is_none());
-        assert!(picker.matches().is_empty());
+        assert!(driver.filter().is_none());
+        assert!(driver.matches().is_empty());
 
-        let status = update_until(&mut picker, |status| !status.matching);
+        let status = update_until(&mut driver, |status| !status.matching);
+        assert!(status.injecting);
         assert!(!status.is_complete());
         assert_eq!(status.matched_item_count, 1);
-        assert!(picker.filter().is_none());
+        assert!(driver.filter().is_none());
 
         let producer = thread::spawn(move || {
             if let Some(last) = last {
@@ -56,20 +82,20 @@ fn filtering_requires_all_current_injectors_to_be_dropped() {
         });
         producer.join().unwrap();
         assert!(
-            picker
+            driver
                 .filter()
                 .unwrap()
                 .iter()
                 .map(|item| *item.value())
                 .eq(["first"].into_iter().chain(last))
         );
-        assert!(picker.update_matches(Duration::ZERO).is_complete());
+        assert!(driver.update_matches(Duration::ZERO).is_complete());
     }
 }
 
 #[test]
 fn completion_includes_input_published_during_updates() {
-    let mut picker = options().picker(StrRenderer);
+    let mut driver = options().driver(StrRenderer);
     let (sender, receiver) = mpsc::channel::<Injector<&'static str, StrRenderer>>();
     let producer = thread::spawn(move || {
         for injector in receiver {
@@ -80,13 +106,13 @@ fn completion_includes_input_published_during_updates() {
     });
 
     for _ in 0..64 {
-        picker.restart();
-        picker.update_query("^last$");
-        sender.send(picker.injector()).unwrap();
-        let status = update_until(&mut picker, |status| status.is_complete());
+        driver.restart();
+        driver.update_query("^last$");
+        sender.send(driver.injector()).unwrap();
+        let status = update_until(&mut driver, |status| status.is_complete());
         assert_eq!(status.item_count, 2);
         assert!(
-            picker
+            driver
                 .matches()
                 .iter()
                 .map(|item| *item.value())
@@ -106,41 +132,32 @@ fn ranked_items_and_ids_follow_configured_match_order() {
         (true, false, ["ab", "ab2", "ab1", "ablong"]),
         (true, true, ["ab", "ab1", "ab2", "ablong"]),
     ] {
-        let mut picker = options()
+        let mut driver = options()
             .sort_results(sort_results)
             .reverse_items(reverse_items)
             .query("^ab")
-            .picker(StrRenderer);
-        picker.push_batch(["ablong", "ab2", "zz", "ab", "ab1"].map(str::to_owned));
-        let matches: Matches<'_, String> = picker.filter().unwrap();
+            .driver(StrRenderer);
+        driver.push_batch(["ablong", "ab2", "zz", "ab", "ab1"]);
+        let matches = driver.filter().unwrap();
         assert_eq!(matches.len(), expected.len());
-        assert!(!matches.is_empty());
         assert!(matches.get(expected.len()).is_none());
         assert!(matches.get(usize::MAX).is_none());
-        assert!(
-            matches
-                .iter()
-                .map(|item| item.value().as_str())
-                .eq(expected)
-        );
+        assert!(matches.iter().map(|item| *item.value()).eq(expected));
 
         for (rank, expected) in expected.into_iter().enumerate() {
             let item = matches.get(rank).unwrap();
-            assert_eq!(item.value(), expected);
+            assert_eq!(*item.value(), expected);
             assert_eq!(matches.ids().nth(rank), Some(item.id()));
-            assert!(std::ptr::eq(
-                matches.item(item.id()).unwrap().value(),
-                item.value(),
-            ));
+            assert_eq!(matches.item(item.id()).unwrap().value(), item.value());
         }
 
-        let mut items = picker.matches().iter();
-        let mut ids = picker.matches().ids();
+        let mut items = matches.iter();
+        let mut ids = matches.ids();
         let front = items.nth(1).unwrap();
-        assert_eq!(front.value(), expected[1]);
+        assert_eq!(*front.value(), expected[1]);
         assert_eq!(ids.nth(1), Some(front.id()));
         let back = items.nth_back(1).unwrap();
-        assert_eq!(back.value(), expected[2]);
+        assert_eq!(*back.value(), expected[2]);
         assert_eq!(ids.nth_back(1), Some(back.id()));
         assert_eq!(items.len(), 0);
         assert_eq!(ids.len(), 0);
@@ -148,85 +165,60 @@ fn ranked_items_and_ids_follow_configured_match_order() {
 }
 
 #[test]
-fn item_identifiers_distinguish_pickers_and_item_types() {
-    let mut first = options().picker(StrRenderer);
-    first.push_batch(["first", "last"]);
-    let first_id = first.filter().unwrap().get(0).unwrap().id();
-    let retained = first.matches().owned_item(first_id).unwrap();
+fn item_provenance_survives_filtering_and_owners_outlive_the_driver() {
+    let mut driver = options().reverse_items(true).driver(StrRenderer);
+    driver.push_batch(["first", "last"].map(str::to_owned));
+    let matches = driver.filter().unwrap();
+    let first = matches.get(1).unwrap().id();
+    let last = matches.get(0).unwrap().id();
+    assert!(first.same_generation(last));
+    assert!(first < last);
 
-    let mut second = options().picker(StrRenderer);
-    second.push_batch(["second"]);
-    let second_id = second.filter().unwrap().get(0).unwrap().id();
-
-    let mut third = options().picker(StrRenderer);
-    third.push_batch(["third".to_owned()]);
-    let third_id = third.filter().unwrap().get(0).unwrap().id();
-
-    assert_ne!(first_id, second_id);
-    assert_ne!(first_id, third_id);
-    assert_ne!(second_id, third_id);
-    for id in first.matches().ids() {
-        assert!(second.matches().item(id).is_none());
-        assert!(second.matches().owned_item(id).is_none());
-        assert!(third.matches().item(id).is_none());
-        assert!(third.matches().owned_item(id).is_none());
+    let mut other = options().driver(StrRenderer);
+    other.push_batch(["other".to_owned()]);
+    let foreign = other.filter().unwrap().get(0).unwrap().id();
+    let mut differently_typed = options().driver(StrRenderer);
+    differently_typed.push_batch(["other"]);
+    let foreign_type = differently_typed.filter().unwrap().get(0).unwrap().id();
+    for id in [foreign, foreign_type] {
+        assert!(!first.same_generation(id));
+        assert!(!matches.contains_item(id));
+        assert!(matches.item(id).is_none());
+        assert!(matches.owned_item(id).is_none());
     }
-    assert!(first.matches().item(second_id).is_none());
-    assert!(first.matches().item(third_id).is_none());
-    assert!(second.matches().item(third_id).is_none());
-    assert!(third.matches().item(second_id).is_none());
+    assert!(!other.matches().contains_item(first));
+    assert!(!differently_typed.matches().contains_item(first));
 
-    for picker in [&mut first, &mut second] {
-        picker.restart();
-        picker.push_batch(["replacement"]);
-        let matches = picker.filter().unwrap();
-        let replacement = matches.get(0).unwrap().id();
-        for old in [retained.item_ref().id(), second_id, third_id] {
-            assert_ne!(replacement, old);
-            assert!(matches.item(old).is_none());
-            assert!(matches.owned_item(old).is_none());
-        }
-    }
-    assert_ne!(
-        first.matches().get(0).unwrap().id(),
-        second.matches().get(0).unwrap().id()
-    );
-    assert_eq!(retained.item_ref().value(), &"first");
-}
-
-#[test]
-fn item_lookup_survives_filtering_and_owned_items_survive_restart() {
-    let mut picker = options().picker(StrRenderer);
-    picker.push_batch(["original", "other"].map(str::to_owned));
-    let original = picker.filter().unwrap().get(0).unwrap().id();
-
-    picker.update_query("^other$");
-    let (item, owned) = {
-        let matches = picker.filter().unwrap();
-        assert_eq!(matches.len(), 1);
-        assert!(matches.ids().all(|id| id != original));
-        (
-            matches.item(original).unwrap(),
-            matches.owned_item(original).unwrap(),
-        )
+    driver.update_query("absent");
+    let (checked, unchecked) = {
+        let matches = driver.filter().unwrap();
+        assert!(matches.is_empty());
+        assert!(matches.contains_item(first));
+        let borrowed = matches.item(first).unwrap();
+        let checked = matches.owned_item(first).unwrap();
+        // SAFETY: filtering retains the storage that issued this initialized identifier.
+        let unchecked = unsafe { matches.owned_item_unchecked(first) };
+        assert_eq!(borrowed.value(), "first");
+        assert!(std::ptr::eq(checked.value(), borrowed.value()));
+        assert!(std::ptr::eq(checked.value(), unchecked.value()));
+        (checked, unchecked)
     };
-    assert_eq!(item.value(), "original");
-    assert!(std::ptr::eq(owned.item_ref().value(), item.value()));
 
-    picker.restart();
-    assert!(picker.matches().is_empty());
-    assert!(picker.matches().item(original).is_none());
-    assert!(picker.matches().owned_item(original).is_none());
+    driver.restart();
+    driver.push_batch(["replacement".to_owned()]);
+    let matches = driver.filter().unwrap();
+    let replacement = matches.get(0).unwrap().id();
+    for old in [first, last] {
+        assert!(!replacement.same_generation(old));
+        assert!(!matches.contains_item(old));
+        assert!(matches.item(old).is_none());
+        assert!(matches.owned_item(old).is_none());
+    }
+    drop(driver);
 
-    picker.push_batch(["replacement".to_owned()]);
-    let matches = picker.filter().unwrap();
-    let replacement = matches.get(0).unwrap();
-    assert_eq!(replacement.value(), "replacement");
-    assert_ne!(replacement.id(), original);
-    assert!(matches.item(original).is_none());
-    assert!(matches.owned_item(original).is_none());
-
-    drop(picker);
-    assert_eq!(owned.item_ref().id(), original);
-    assert_eq!(owned.item_ref().value(), "original");
+    assert_eq!(checked.id(), first);
+    assert_eq!(checked.value(), "first");
+    drop(checked);
+    assert_eq!(unchecked.item_ref().id(), first);
+    assert_eq!(unchecked.item_ref().value(), "first");
 }

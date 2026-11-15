@@ -1,7 +1,7 @@
 use super::cache::{Cached, RequestState};
 use crate::{
     preview::{Buffer, Content, Preview, PreviewEvent, request::Request},
-    session::{Context, Dimensions, ItemId, ItemRef},
+    session::{Context, Dimensions, ItemId, ItemRef, Matches},
 };
 use lru::LruCache;
 use std::{
@@ -12,12 +12,12 @@ use std::{
 const PREFETCH_CHECKS_PER_FRAME: usize = 4;
 
 pub(crate) struct PreviewState {
-    cache: LruCache<u32, Cached>,
+    cache: LruCache<ItemId, Cached>,
     prefetch: Option<Prefetch>,
     spare: Buffer,
-    last_item: Option<u32>,
+    last_item: Option<ItemId>,
     // Unlike last_item, the hovered field is cleared while the pane is hidden.
-    hovered: Option<u32>,
+    hovered: Option<ItemId>,
     // the epoch is advanced when the hovered item changes and is reset on restart. the epoch is passed to
     // each preview request and then returned by the previewer. it is used to prevent repeated
     // resubmission when the hovered item has not changed
@@ -47,7 +47,7 @@ impl PreviewState {
     }
 
     fn cached(&self) -> Option<&Cached> {
-        self.last_item.and_then(|idx| self.cache.peek(&idx))
+        self.last_item.and_then(|id| self.cache.peek(&id))
     }
 
     pub(crate) fn content(&self) -> Content<'_> {
@@ -61,7 +61,7 @@ impl PreviewState {
     }
 
     fn set_hovered<T, P: Preview<T>>(&mut self, previewer: &mut P, item: Option<ItemRef<'_, T>>) {
-        let hovered = item.map(|item| item.id().index);
+        let hovered = item.map(|item| item.id());
         if self.hovered != hovered {
             self.hovered = hovered;
             if !std::thread::panicking() {
@@ -106,7 +106,7 @@ impl PreviewState {
         deadline: Instant,
     ) -> bool {
         let item = cx.hovered();
-        let hovered = item.map(|item| item.id().index);
+        let hovered = item.map(|item| item.id());
         if self.hovered != hovered {
             self.epoch = self.epoch.wrapping_add(1);
         }
@@ -117,19 +117,18 @@ impl PreviewState {
             return changed;
         };
         let id = item.id();
-        let idx = id.index;
 
-        if !self.cache.contains(&idx) {
+        if !self.cache.contains(&id) {
             let cached = self
                 .prefetch
                 .as_mut()
-                .and_then(|prefetch| prefetch.cache.pop(&idx))
+                .and_then(|prefetch| prefetch.cache.pop(&id))
                 .unwrap_or_default();
-            if let Some((_, evicted)) = self.cache.push(idx, cached) {
+            if let Some((_, evicted)) = self.cache.push(id, cached) {
                 self.spare = evicted.into_buffer();
             }
         }
-        let cached = self.cache.get_mut(&idx).unwrap();
+        let cached = self.cache.get_mut(&id).unwrap();
         if matches!(cached.state, Some(RequestState::Ready(_))) {
             return changed;
         }
@@ -147,15 +146,9 @@ impl PreviewState {
             None => RequestState::Retry(std::mem::take(&mut self.spare)),
         };
         let state = match state {
-            RequestState::Retry(buffer) => submit(
-                previewer,
-                cx.matches().snapshot,
-                id,
-                buffer,
-                self.epoch,
-                deadline,
-            )
-            .poll(),
+            RequestState::Retry(buffer) => {
+                submit(previewer, cx.matches(), id, buffer, self.epoch, deadline).poll()
+            }
             state => state,
         };
         let ready = matches!(state, RequestState::Ready(_));
@@ -171,8 +164,8 @@ impl PreviewState {
         if prefetch.rank != rank || prefetch.dirty {
             prefetch.rank = rank;
             prefetch.next = 0;
-            if let Some(idx) = prefetch.queued.take()
-                && let Some(cached) = prefetch.cache.peek_mut(&idx)
+            if let Some(id) = prefetch.queued.take()
+                && let Some(cached) = prefetch.cache.peek_mut(&id)
             {
                 cached.state = cached.state.take().map(RequestState::cancel_queued);
             }
@@ -204,7 +197,7 @@ impl PreviewState {
         }
         if !self
             .hovered
-            .and_then(|idx| self.cache.peek(&idx))
+            .and_then(|id| self.cache.peek(&id))
             .is_some_and(|cached| {
                 matches!(
                     cached.state,
@@ -215,12 +208,12 @@ impl PreviewState {
             return;
         }
 
-        if let Some(idx) = prefetch.queued.take()
-            && let Some(cached) = prefetch.cache.peek_mut(&idx)
+        if let Some(id) = prefetch.queued.take()
+            && let Some(cached) = prefetch.cache.peek_mut(&id)
         {
             cached.state = cached.state.take().map(RequestState::poll);
             if matches!(cached.state, Some(RequestState::Pending(_))) {
-                prefetch.queued = Some(idx);
+                prefetch.queued = Some(id);
                 return;
             }
         }
@@ -232,12 +225,11 @@ impl PreviewState {
             }
             let candidate = prefetch.next(rank, total).unwrap();
             let id = matches.ids().nth(candidate as usize).unwrap();
-            let idx = id.index;
-            if self.cache.contains(&idx) {
+            if self.cache.contains(&id) {
                 continue;
             }
 
-            let mut buffer = if let Some(cached) = prefetch.cache.get_mut(&idx) {
+            let mut buffer = if let Some(cached) = prefetch.cache.get_mut(&id) {
                 match cached.state.take().map(RequestState::poll) {
                     Some(RequestState::Retry(buffer)) => buffer,
                     None => std::mem::take(&mut self.spare),
@@ -253,19 +245,19 @@ impl PreviewState {
             let request = Request {
                 buffer,
                 epoch: self.epoch,
-                snapshot: matches.snapshot,
+                matches,
                 id,
             };
             let state = match previewer.prefetch(request, budget) {
                 Ok(response) => {
                     let state = RequestState::from(response).poll();
                     if matches!(state, RequestState::Pending(_)) {
-                        prefetch.queued = Some(idx);
+                        prefetch.queued = Some(id);
                     }
                     state
                 }
                 Err(buffer) => {
-                    if let Some(cached) = prefetch.cache.peek_mut(&idx) {
+                    if let Some(cached) = prefetch.cache.peek_mut(&id) {
                         cached.state = Some(RequestState::Retry(buffer));
                     } else {
                         self.spare = buffer;
@@ -273,9 +265,9 @@ impl PreviewState {
                     continue;
                 }
             };
-            if let Some((evicted_idx, evicted)) =
-                prefetch.cache.push(idx, Cached { state: Some(state) })
-                && evicted_idx != idx
+            if let Some((evicted_id, evicted)) =
+                prefetch.cache.push(id, Cached { state: Some(state) })
+                && evicted_id != id
             {
                 self.spare = evicted.into_buffer();
             }
@@ -283,11 +275,11 @@ impl PreviewState {
         }
     }
 
-    pub(crate) fn handle_event(&mut self, idx: Option<u32>, event: PreviewEvent) -> bool {
-        let Some(cached) = idx.and_then(|idx| {
-            self.cache.get_mut(&idx).or_else(|| {
+    pub(crate) fn handle_event(&mut self, id: Option<ItemId>, event: PreviewEvent) -> bool {
+        let Some(cached) = id.and_then(|id| {
+            self.cache.get_mut(&id).or_else(|| {
                 if matches!(event, PreviewEvent::Refresh) {
-                    self.prefetch.as_mut()?.cache.peek_mut(&idx)
+                    self.prefetch.as_mut()?.cache.peek_mut(&id)
                 } else {
                     None
                 }
@@ -303,7 +295,7 @@ impl PreviewState {
                 .state
                 .take()
                 .map(|state| RequestState::Retry(state.into_buffer()));
-            return self.last_item == idx;
+            return self.last_item == id;
         }
 
         // then check: is the preview ready? if not, nothing to do
@@ -362,7 +354,7 @@ impl PreviewState {
     }
 }
 
-fn new_cache(capacity: NonZero<usize>) -> LruCache<u32, Cached> {
+fn new_cache(capacity: NonZero<usize>) -> LruCache<ItemId, Cached> {
     if capacity.get() <= 256 {
         LruCache::new(capacity)
     } else {
@@ -372,7 +364,7 @@ fn new_cache(capacity: NonZero<usize>) -> LruCache<u32, Cached> {
 
 fn submit<T: Send + Sync + 'static, P: Preview<T>>(
     previewer: &mut P,
-    snapshot: &nucleo::Snapshot<T>,
+    matches: Matches<'_, T>,
     id: ItemId,
     mut buffer: Buffer,
     epoch: u64,
@@ -382,7 +374,7 @@ fn submit<T: Send + Sync + 'static, P: Preview<T>>(
     let request = Request {
         buffer,
         epoch,
-        snapshot,
+        matches,
         id,
     };
     previewer.preview(request, timeout(deadline)).into()
@@ -395,12 +387,12 @@ fn timeout(deadline: Instant) -> Duration {
 }
 
 struct Prefetch {
-    cache: LruCache<u32, Cached>,
+    cache: LruCache<ItemId, Cached>,
     count: usize,
     rank: Option<u32>,
     dirty: bool,
     next: u32,
-    queued: Option<u32>,
+    queued: Option<ItemId>,
 }
 
 impl Prefetch {

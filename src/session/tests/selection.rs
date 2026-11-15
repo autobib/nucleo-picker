@@ -1,321 +1,141 @@
-use std::{
-    sync::mpsc,
-    time::{Duration, Instant},
-};
+use std::{num::NonZero, time::Duration};
 
-use super::{TestEvents, TestTerminal};
+use super::{driver, frame_options, update};
 use crate::{
-    Picker, PickerOptions,
-    event::{Event, MatchListEvent, PromptEvent},
-    render::StrRenderer,
-    session::{Context, Multi},
+    event::{MatchListEvent, PromptEvent},
+    session::{Context, Exit, Interface, ItemId, QueueEvent, QueueStatus},
 };
 
-fn pick_multi<'a>(
-    picker: &'a mut Picker<&'static str, StrRenderer>,
-    events: impl IntoIterator<Item = Event>,
-) -> crate::Selection<'a, &'static str> {
-    let (sender, receiver) = mpsc::channel();
-    for event in events {
-        sender.send(event).unwrap();
+#[derive(Default)]
+struct QueueFirst {
+    restarts: Vec<Option<ItemId>>,
+}
+
+impl Interface<String> for QueueFirst {
+    type State = Option<ItemId>;
+    type Output<'items> = Option<&'items String>;
+
+    fn init(&mut self, _: &Context<'_, String>) -> Self::State {
+        None
     }
-    drop(sender);
-    let mut interface = picker.core.multi_defaults;
-    picker
-        .core
-        .pick_impl(receiver, &mut TestTerminal::default(), &mut interface)
-        .unwrap()
-}
 
-#[test]
-fn multi_selection_falls_back_to_the_buffered_filtered_item() {
-    let mut picker = PickerOptions::new()
-        .sort_results(false)
-        .query("ta")
-        .picker(StrRenderer);
-    picker.push_batch(["alpha", "beta", "delta"]);
-    picker.filter().unwrap();
+    fn is_queued(&self, queued: &Self::State, id: ItemId) -> bool {
+        *queued == Some(id)
+    }
 
-    let selected = pick_multi(
-        &mut picker,
-        [Event::MatchList(MatchListEvent::Up(1)), Event::Select],
-    );
-    assert!(selected.into_iter().copied().eq(["delta"]));
-}
+    fn queue_status(&self, queued: &Self::State) -> Option<QueueStatus> {
+        Some(QueueStatus {
+            count: u32::from(queued.is_some()),
+            limit: NonZero::new(1),
+        })
+    }
 
-#[test]
-fn queued_items_survive_filtering_and_are_discarded_on_quit() {
-    for (query, matched) in [("^gamma$", 1), ("absent", 0)] {
-        for exit in [Event::Select, Event::Quit, Event::QuitPromptEmpty] {
-            let mut picker = PickerOptions::new()
-                .sort_results(false)
-                .frame_interval(Duration::ZERO)
-                .picker(StrRenderer);
-            picker.push_batch(["alpha", "beta", "gamma"]);
-            picker.filter().unwrap();
-            let statuses = picker.status_observer();
-            let selects = matches!(exit, Event::Select);
-            let mut exit = Some(exit);
-            let mut quitting_empty = false;
-            let mut initial = [
-                Event::MatchList(MatchListEvent::Up(1)),
-                Event::MatchList(MatchListEvent::ToggleUp(1)),
-                Event::Prompt(PromptEvent::Reset(query.to_owned())),
-            ]
-            .into_iter();
-            let start = Instant::now();
-            let events = TestEvents(|_| {
-                assert!(start.elapsed() < Duration::from_secs(5));
-                if let Some(event) = initial.next() {
-                    return Ok(event);
-                }
-                if quitting_empty {
-                    return Ok(exit.take().unwrap());
-                }
-                if let Ok(status) = statuses.try_recv() {
-                    assert_eq!(status.selected_item_count, 1);
-                    if !status.matching && status.matched_item_count == matched {
-                        if matches!(exit, Some(Event::QuitPromptEmpty)) {
-                            quitting_empty = true;
-                            return Ok(Event::Prompt(PromptEvent::Reset(String::new())));
-                        }
-                        return Ok(exit.take().unwrap());
-                    }
-                }
-                Ok(Event::Status { id: 0 })
-            });
-            let selected = picker
-                .core
-                .pick_impl(events, &mut TestTerminal::default(), &mut Multi::new())
-                .unwrap();
-            let expected: &[_] = if selects { &["beta"] } else { &[] };
-            assert!(selected.into_iter().copied().eq(expected.iter().copied()));
+    fn on_queue(
+        &mut self,
+        queued: &mut Self::State,
+        event: QueueEvent<'_, String>,
+        cx: &Context<'_, String>,
+    ) -> bool {
+        let QueueEvent::Toggle(item) = event else {
+            return false;
+        };
+        assert_eq!(cx.hovered().unwrap().id(), item.id());
+        if cx.matches().ids().next() != Some(item.id()) {
+            return false;
+        }
+        *queued = (*queued != Some(item.id())).then_some(item.id());
+        true
+    }
+
+    fn on_restart(&mut self, queued: &mut Self::State, cx: &Context<'_, String>) {
+        if let Some(id) = queued.take() {
+            assert!(cx.matches().item(id).is_some());
+        }
+        self.restarts.push(cx.hovered().map(|item| item.id()));
+    }
+
+    fn finish<'items>(
+        &mut self,
+        queued: Self::State,
+        exit: Exit,
+        cx: Context<'items, String>,
+    ) -> Self::Output<'items> {
+        match exit {
+            Exit::Quit => None,
+            Exit::Selected(hovered) => queued
+                .or(hovered)
+                .map(|id| cx.matches().item(id).unwrap().value()),
         }
     }
 }
 
 #[test]
-fn restart_clears_queued_items_before_reusing_indices() {
-    let mut picker = PickerOptions::new()
-        .frame_interval(Duration::ZERO)
-        .picker(StrRenderer);
-    picker.push_batch(["original"]);
-    picker.filter().unwrap();
-    let original = picker.core.engine.item_id(0);
-    let injectors = picker.injector_observer(false);
-    let statuses = picker.status_observer();
-    let mut initial = [
-        Event::MatchList(MatchListEvent::ToggleUp(0)),
-        Event::Restart,
-    ]
-    .into_iter();
-    let mut injected = false;
-    let start = Instant::now();
-    let events = TestEvents(|_| {
-        assert!(start.elapsed() < Duration::from_secs(5));
-        if let Some(event) = initial.next() {
-            return Ok(event);
-        }
-        if !injected {
-            injectors.try_recv().unwrap().push_batch(["replacement"]);
-            injected = true;
-        }
-        if let Ok(status) = statuses.try_recv() {
-            assert_eq!(status.selected_item_count, 0);
-            if !status.matching && status.matched_item_count == 1 {
-                return Ok(Event::Select);
-            }
-        }
-        Ok(Event::Status { id: 0 })
-    });
-    let selected = picker
-        .core
-        .pick_impl(events, &mut TestTerminal::default(), &mut Multi::new())
-        .unwrap();
-    assert!(selected.into_iter().copied().eq(["replacement"]));
-
-    let cx = Context::new(&picker.core.engine);
-    assert!(cx.matches().item(original).is_none());
-    let replacement = cx.matches().ids().next().unwrap();
-    assert_ne!(replacement, original);
+fn custom_queue_hooks_control_navigation_and_allow_selection_after_filtering() {
+    let mut driver = driver(["alpha", "beta", "gamma"]);
+    let mut session = driver.session(QueueFirst::default(), Duration::ZERO);
+    {
+        let mut batch = session.events();
+        batch.match_list(MatchListEvent::ToggleUp(1));
+        batch.match_list(MatchListEvent::ToggleUp(1));
+        batch.prompt(PromptEvent::Reset("absent".to_owned()));
+    }
+    let frame = session.prepare_frame(frame_options());
+    assert_eq!(frame.view().context().hovered().unwrap().value(), "beta");
+    assert_eq!(frame.view().context().matches().len(), 3);
     assert_eq!(
-        cx.matches().item(replacement).unwrap().value(),
-        &"replacement"
+        frame.view().queue_status(),
+        Some(QueueStatus {
+            count: 1,
+            limit: NonZero::new(1),
+        })
     );
+    frame.complete();
+
+    update(&mut session);
+    let frame = session.prepare_frame(frame_options());
+    assert!(frame.view().context().matches().is_empty());
+    assert_eq!(frame.view().context().rank(), None);
+    assert_eq!(frame.view().queue_status().unwrap().count, 1);
+    frame.complete();
+    let exit = session.events().selection_exit().unwrap();
+    assert_eq!(exit, Exit::Selected(None));
+    assert_eq!(session.finish(exit).unwrap(), "alpha");
+
+    let mut session = driver.session(QueueFirst::default(), Duration::ZERO);
+    assert!(session.events().selection_exit().is_none());
 }
 
 #[test]
-fn custom_queue_hooks_control_navigation_markers_status_and_output() {
-    use super::frame_events;
-    use crate::{
-        event::RecvError,
-        session::{Exit, Interface, ItemId, QueueEvent, QueueStatus},
-    };
-    use std::num::NonZero;
-
-    struct FirstOnly;
-
-    struct State {
-        first: ItemId,
-        queued: bool,
-        limit: NonZero<u32>,
-        ended: bool,
+fn restart_notifies_with_event_time_context_and_replaces_items_without_resetting_the_query() {
+    let mut driver = driver(["alpha", "beta"]);
+    let old_ids: Vec<_> = driver.matches().ids().collect();
+    let old_injector = driver.injector();
+    let mut interface = QueueFirst::default();
+    let mut session = driver.session(&mut interface, Duration::ZERO);
+    {
+        let mut batch = session.events();
+        batch.match_list(MatchListEvent::ToggleUp(1));
+        batch.prompt(PromptEvent::Insert('a'));
+        drop(batch.restart());
+        assert!(batch.selection_exit().is_none());
     }
+    let replacement = session.events().restart();
+    replacement.push("gamma".to_owned());
+    old_injector.push("old generation".to_owned());
+    drop((replacement, old_injector));
 
-    impl Interface<&'static str> for FirstOnly {
-        type State = State;
-        type Output<'items> = Option<&'items &'static str>;
-
-        fn init(&mut self, cx: &Context<'_, &'static str>) -> Self::State {
-            State {
-                first: cx.matches().ids().next().unwrap(),
-                queued: false,
-                limit: NonZero::new(1).unwrap(),
-                ended: false,
-            }
-        }
-
-        fn is_queued(&self, state: &Self::State, id: ItemId) -> bool {
-            state.queued && id == state.first
-        }
-
-        fn queue_status(&self, state: &Self::State) -> Option<QueueStatus> {
-            Some(QueueStatus {
-                count: u32::from(state.queued),
-                limit: Some(state.limit),
-            })
-        }
-
-        fn on_queue(
-            &mut self,
-            state: &mut Self::State,
-            event: QueueEvent<'_, &'static str>,
-            cx: &Context<'_, &'static str>,
-        ) -> bool {
-            if let QueueEvent::Toggle(item) = event {
-                assert_eq!(cx.hovered().unwrap().id(), item.id());
-                if item.id() == state.first {
-                    state.queued = !state.queued;
-                    return true;
-                }
-            }
-            false
-        }
-
-        fn on_restart(&mut self, state: &mut Self::State, cx: &Context<'_, &'static str>) {
-            assert!(state.queued);
-            assert!(cx.matches().item(state.first).is_some());
-            assert_eq!(cx.rank(), Some(1));
-            state.queued = false;
-        }
-
-        fn on_end(&mut self, state: &mut Self::State) {
-            state.ended = true;
-        }
-
-        fn finish<'items>(
-            &mut self,
-            state: Self::State,
-            exit: Exit,
-            cx: Context<'items, &'static str>,
-        ) -> Self::Output<'items> {
-            assert!(state.ended);
-            match exit {
-                Exit::Quit => {
-                    assert!(!state.queued);
-                    None
-                }
-                Exit::Selected(hovered) => {
-                    assert!(state.queued);
-                    assert_ne!(hovered, Some(state.first));
-                    Some(cx.matches().item(state.first).unwrap().value())
-                }
-            }
-        }
-    }
-
-    for preview in [
-        0,
-        1,
-        #[cfg(feature = "preview-cache")]
-        2,
-    ] {
-        for restart in [false, true] {
-            let mut picker = PickerOptions::new()
-                .sort_results(false)
-                .frame_interval(Duration::from_secs(5))
-                .picker(StrRenderer);
-            picker.push_batch(["alpha", "beta", "gamma"]);
-            picker.filter().unwrap();
-            let statuses = picker.status_observer();
-            let _injectors = picker.injector_observer(false);
-            let marker = picker.core.chars.queued;
-            let events = frame_events([
-                Ok(Event::MatchList(MatchListEvent::ToggleUp(1))),
-                Ok(Event::MatchList(MatchListEvent::ToggleUp(1))),
-                Ok(Event::Status { id: 7 }),
-                Err(RecvError::Timeout),
-                Ok(if restart {
-                    Event::Restart
-                } else {
-                    Event::Select
-                }),
-                Ok(Event::Quit),
-            ]);
-            let mut terminal = TestTerminal {
-                size: Some((40, 8)),
-                ..TestTerminal::default()
-            };
-            let output = if preview == 1 {
-                picker
-                    .core
-                    .pick_impl(
-                        events,
-                        &mut terminal,
-                        &mut crate::UncachedPreview::new(
-                            FirstOnly,
-                            |_: &&str, _: &mut crate::preview::Pane| {},
-                        ),
-                    )
-                    .unwrap()
-            } else {
-                #[cfg(feature = "preview-cache")]
-                if preview == 2 {
-                    picker
-                        .core
-                        .pick_impl(
-                            events,
-                            &mut terminal,
-                            &mut crate::CachedPreview::new(
-                                FirstOnly,
-                                crate::preview::SyncPreviewer(
-                                    |_: &&str, _: &mut crate::preview::Pane| {},
-                                ),
-                            ),
-                        )
-                        .unwrap()
-                } else {
-                    picker
-                        .core
-                        .pick_impl(events, &mut terminal, &mut FirstOnly)
-                        .unwrap()
-                }
-                #[cfg(not(feature = "preview-cache"))]
-                {
-                    picker
-                        .core
-                        .pick_impl(events, &mut terminal, &mut FirstOnly)
-                        .unwrap()
-                }
-            };
-            assert_eq!(output.copied(), (!restart).then_some("alpha"));
-            let status = statuses.try_recv().unwrap();
-            assert_eq!(status.id, 7);
-            assert_eq!(status.rank, Some(1));
-            assert_eq!(status.selected_item_count, 1);
-            let rendered = String::from_utf8(terminal.output).unwrap();
-            assert!(rendered.contains("(1/1)"));
-            assert_eq!(rendered.matches(marker).count(), 1);
-        }
-    }
+    update(&mut session);
+    let frame = session.prepare_frame(frame_options());
+    assert_eq!(frame.view().query(), "a");
+    assert_eq!(frame.view().queue_status().unwrap().count, 0);
+    let view = frame.view();
+    let cx = view.context();
+    assert_eq!(cx.matches().len(), 1);
+    assert!(old_ids.iter().all(|&id| cx.matches().item(id).is_none()));
+    assert_eq!(cx.hovered().unwrap().value(), "gamma");
+    frame.complete();
+    let exit = session.events().selection_exit().unwrap();
+    assert_eq!(session.finish(exit).unwrap(), "gamma");
+    assert_eq!(interface.restarts, [Some(old_ids[1]), None]);
+    assert_eq!(driver.query(), "a");
 }

@@ -52,17 +52,6 @@ impl<T, I: Interface<T>> Component for PreviewPane<'_, T, I> {
     }
 }
 
-#[cfg(test)]
-pub(crate) struct NoPreview;
-
-#[cfg(test)]
-impl Component for NoPreview {
-    fn resize(&mut self, _area: Area) {}
-    fn draw<D: Rect>(&mut self, _rect: &mut D) -> io::Result<()> {
-        Ok(())
-    }
-}
-
 impl<C: Component> Component for &mut C {
     fn resize(&mut self, area: Area) {
         (**self).resize(area);
