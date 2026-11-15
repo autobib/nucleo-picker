@@ -12,7 +12,7 @@ use nucleo_picker::{
     event::{Event, EventSource, LayoutEvent, MatchListEvent, RecvError},
     preview::{Content, Pane, PreviewEvent},
     render::StrRenderer,
-    session::{Context, Dimensions, Exit, ItemId, Redraw},
+    session::{Context, Dimensions, Exit, ItemId, QueueStatus, Redraw},
 };
 
 #[derive(Default)]
@@ -163,12 +163,11 @@ impl<'a> Interface<String> for Custom<'a> {
         state.queued == id
     }
 
-    fn queued_count(&self, _: &Self::State) -> Option<usize> {
-        Some(1)
-    }
-
-    fn queue_limit(&self, state: &Self::State) -> Option<NonZero<u32>> {
-        Some(state.limit)
+    fn queue_status(&self, state: &Self::State) -> Option<QueueStatus> {
+        Some(QueueStatus {
+            count: 1,
+            limit: Some(state.limit),
+        })
     }
 
     fn before_frame(

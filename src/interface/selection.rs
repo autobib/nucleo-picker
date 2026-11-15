@@ -4,13 +4,13 @@ use std::{
         btree_map::{self, Entry},
     },
     iter::FusedIterator,
-    num::NonZero,
 };
 
 use super::Multi;
 use crate::{
     event::{Event, keybind_multi},
-    session::{Context, Exit, Interface, ItemId, Matches, QueueEvent},
+    session::{Context, Exit, Interface, ItemId, Matches, QueueEvent, QueueStatus},
+    util::as_u32,
 };
 use crossterm::event::KeyEvent;
 
@@ -34,13 +34,11 @@ impl<T: Send + Sync + 'static> Interface<T> for Multi {
     }
 
     #[inline]
-    fn queued_count(&self, state: &Self::State) -> Option<usize> {
-        Some(state.inner.len())
-    }
-
-    #[inline]
-    fn queue_limit(&self, _state: &Self::State) -> Option<NonZero<u32>> {
-        self.max_selection_count
+    fn queue_status(&self, state: &Self::State) -> Option<QueueStatus> {
+        Some(QueueStatus {
+            count: as_u32(state.inner.len()),
+            limit: self.max_selection_count,
+        })
     }
 
     fn on_queue(
@@ -608,20 +606,29 @@ mod tests {
 
         interface = interface.max_selection_count(NonZero::new(1));
         assert_eq!(
-            Interface::<&str>::queue_limit(&interface, &selection.queued),
-            NonZero::new(1)
+            Interface::<&str>::queue_status(&interface, &selection.queued),
+            Some(QueueStatus {
+                count: 1,
+                limit: NonZero::new(1),
+            })
         );
         assert!(!interface.on_queue(&mut selection.queued, QueueEvent::Matches, &cx));
         interface = interface.max_selection_count(NonZero::new(3));
         assert_eq!(
-            Interface::<&str>::queue_limit(&interface, &selection.queued),
-            NonZero::new(3)
+            Interface::<&str>::queue_status(&interface, &selection.queued),
+            Some(QueueStatus {
+                count: 1,
+                limit: NonZero::new(3),
+            })
         );
         assert!(interface.on_queue(&mut selection.queued, QueueEvent::Matches, &cx));
         assert!(!interface.on_queue(&mut selection.queued, QueueEvent::Matches, &cx));
         assert_eq!(
-            Interface::<&str>::queued_count(&interface, &selection.queued),
-            Some(3)
+            Interface::<&str>::queue_status(&interface, &selection.queued),
+            Some(QueueStatus {
+                count: 3,
+                limit: NonZero::new(3),
+            })
         );
         assert!(
             selection

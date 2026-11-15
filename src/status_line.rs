@@ -1,4 +1,4 @@
-use std::{io, num::NonZero};
+use std::io;
 
 use crossterm::style::{Attribute, Color};
 use unicode_width::UnicodeWidthChar;
@@ -7,14 +7,14 @@ use crate::{
     PickerChars,
     component::Component,
     rect::{Area, Rect},
-    session::MatchStatus,
+    session::{MatchStatus, QueueStatus},
 };
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 struct StatusValues {
     matched: u32,
     total: u32,
-    multi: Option<(u32, Option<NonZero<u32>>)>,
+    multi: Option<QueueStatus>,
     marker: Option<char>,
 }
 
@@ -64,7 +64,7 @@ impl<'a> StatusLine<'a> {
     pub fn update(
         &mut self,
         status: MatchStatus,
-        multi: Option<(u32, Option<NonZero<u32>>)>,
+        multi: Option<QueueStatus>,
         background_frame: bool,
     ) -> bool {
         if background_frame {
@@ -106,7 +106,7 @@ fn draw_match_counts<D: Rect>(
     rect: &mut D,
     matched: u32,
     total: u32,
-    multi: Option<(u32, Option<NonZero<u32>>)>,
+    multi: Option<QueueStatus>,
     status_marker: Option<char>,
     chars: &PickerChars,
 ) -> io::Result<()> {
@@ -117,9 +117,9 @@ fn draw_match_counts<D: Rect>(
         + decimal_width(matched)
         + 1
         + decimal_width(total);
-    if let Some((ct, op)) = multi {
-        occupied += 2 + decimal_width(ct) + 1;
-        if let Some(max) = op {
+    if let Some(QueueStatus { count, limit }) = multi {
+        occupied += 2 + decimal_width(count) + 1;
+        if let Some(max) = limit {
             occupied += 1 + decimal_width(max.get());
         }
     }
@@ -135,11 +135,11 @@ fn draw_match_counts<D: Rect>(
     rect.print(matched)?;
     rect.print("/")?;
     rect.print(total)?;
-    if let Some((ct, op)) = multi {
+    if let Some(QueueStatus { count, limit }) = multi {
         rect.set_foreground(Color::Grey)?;
         rect.print(" (")?;
-        rect.print(ct)?;
-        if let Some(max) = op {
+        rect.print(count)?;
+        if let Some(max) = limit {
             rect.print("/")?;
             rect.print(max)?;
         }
@@ -225,7 +225,7 @@ mod tests {
             event::MatchListEvent,
             match_list::MatchList,
             render::StrRenderer,
-            session::{Context, Interface, Multi, MultiState},
+            session::{Context, Interface, Multi},
         };
 
         let mut picker = Picker::new(StrRenderer);
@@ -238,18 +238,10 @@ mod tests {
         let mut list = MatchList::new(&mut picker.core.list_state, &picker.core.chars);
         let mut interface = Multi::new();
         let mut queued = interface.init(&Context::new(&picker.core.engine));
-        let count = |interface: &Multi, queued: &MultiState| {
-            Interface::<&str>::queued_count(interface, queued).map(|count| {
-                (
-                    count as u32,
-                    Interface::<&str>::queue_limit(interface, queued),
-                )
-            })
-        };
         let mut status = StatusLine::new(&picker.core.chars);
         assert!(status.update(
             picker.core.engine.update(5),
-            count(&interface, &queued),
+            Interface::<&str>::queue_status(&interface, &queued),
             false
         ));
 
@@ -282,13 +274,20 @@ mod tests {
             let matching = picker.core.engine.update(5);
             assert!(list.update(&picker.core.engine, matching.items_changed, false));
             assert_eq!(
-                status.update(matching, count(&interface, &queued), false),
+                status.update(
+                    matching,
+                    Interface::<&str>::queue_status(&interface, &queued),
+                    false,
+                ),
                 changed,
                 "{name}"
             );
             assert_eq!(
-                Interface::<&str>::queued_count(&interface, &queued),
-                Some(selected)
+                Interface::<&str>::queue_status(&interface, &queued),
+                Some(QueueStatus {
+                    count: selected,
+                    limit: None,
+                })
             );
         }
 
@@ -299,10 +298,18 @@ mod tests {
                 break matching;
             }
         };
-        assert!(status.update(matching, count(&interface, &queued), false));
+        assert!(status.update(
+            matching,
+            Interface::<&str>::queue_status(&interface, &queued),
+            false,
+        ));
         let values = status.previous.unwrap();
         assert_eq!((values.matched, values.total), (1, 2));
-        assert!(!status.update(matching, count(&interface, &queued), false));
+        assert!(!status.update(
+            matching,
+            Interface::<&str>::queue_status(&interface, &queued),
+            false,
+        ));
     }
 
     #[test]

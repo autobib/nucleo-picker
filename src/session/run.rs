@@ -18,7 +18,6 @@ use crate::{
     rect::Area,
     status_line::StatusLine,
     terminal::session,
-    util::as_u32,
 };
 
 impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
@@ -75,13 +74,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
         let cx = context(engine, list.rank(engine), &frame);
         // The initial full repaint includes all changes reported by before_frame.
         let _ = interface.before_frame(state, &cx, true, frame_start + self.interval);
-        status_line.update(
-            initial,
-            interface
-                .queued_count(state)
-                .map(|count| (as_u32(count), interface.queue_limit(state))),
-            false,
-        );
+        status_line.update(initial, interface.queue_status(state), false);
         frame.draw(
             &mut SessionContents {
                 engine,
@@ -173,8 +166,8 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                             .event_rank(engine)
                             .map(|rank| engine.item_id(engine.idx_from_match(rank)));
                         if interface
-                            .queued_count(state)
-                            .is_some_and(|count| count != 0)
+                            .queue_status(state)
+                            .is_some_and(|queue| queue.count != 0)
                             || hovered.is_some()
                         {
                             break 'selection Ok(Exit::Selected(hovered));
@@ -235,13 +228,8 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                 std::mem::take(&mut matches_changed),
                 frame_start + self.interval,
             );
-            pending_redraw.status |= status_line.update(
-                status,
-                interface
-                    .queued_count(state)
-                    .map(|count| (as_u32(count), interface.queue_limit(state))),
-                background_frame,
-            );
+            pending_redraw.status |=
+                status_line.update(status, interface.queue_status(state), background_frame);
             let mut redraw = std::mem::take(&mut pending_redraw);
             redraw.status &= frame.status_enabled();
             redraw.preview &= frame.preview_enabled();
@@ -281,7 +269,9 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                     frame_changed: changed,
                     rank: list.rank(engine),
                     item_count: status.item_count,
-                    selected_item_count: interface.queued_count(state).map_or(0, as_u32),
+                    selected_item_count: interface
+                        .queue_status(state)
+                        .map_or(0, |queue| queue.count),
                     matched_item_count: status.matched_item_count,
                     dimensions: frame.dimensions(),
                     matching: status.matching,

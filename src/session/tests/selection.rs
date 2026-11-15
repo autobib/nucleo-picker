@@ -149,7 +149,7 @@ fn custom_queue_hooks_control_navigation_markers_status_and_output() {
     use super::frame_events;
     use crate::{
         event::RecvError,
-        session::{Exit, Interface, ItemId, QueueEvent},
+        session::{Exit, Interface, ItemId, QueueEvent, QueueStatus},
     };
     use std::num::NonZero;
 
@@ -179,12 +179,11 @@ fn custom_queue_hooks_control_navigation_markers_status_and_output() {
             state.queued && id == state.first
         }
 
-        fn queued_count(&self, state: &Self::State) -> Option<usize> {
-            Some(usize::from(state.queued))
-        }
-
-        fn queue_limit(&self, state: &Self::State) -> Option<NonZero<u32>> {
-            Some(state.limit)
+        fn queue_status(&self, state: &Self::State) -> Option<QueueStatus> {
+            Some(QueueStatus {
+                count: u32::from(state.queued),
+                limit: Some(state.limit),
+            })
         }
 
         fn on_queue(

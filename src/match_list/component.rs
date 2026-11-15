@@ -289,7 +289,7 @@ mod tests {
             assert!(update(&mut list, &mut picker.core.engine));
             assert_eq!(list.rank(&picker.core.engine), Some(1));
             assert_eq!(
-                Interface::<&str>::queued_count(&interface, &queued),
+                Interface::<&str>::queue_status(&interface, &queued).map(|queue| queue.count),
                 Some(0)
             );
 
@@ -307,7 +307,7 @@ mod tests {
             );
             assert_eq!(list.event_rank(&picker.core.engine), Some(1));
             assert_eq!(
-                Interface::<&str>::queued_count(&interface, &queued),
+                Interface::<&str>::queue_status(&interface, &queued).map(|queue| queue.count),
                 Some(1)
             );
             assert!(update(&mut list, &mut picker.core.engine));
@@ -322,7 +322,7 @@ mod tests {
             );
             assert_eq!(list.event_rank(&picker.core.engine), Some(1));
             assert_eq!(
-                Interface::<&str>::queued_count(&interface, &queued),
+                Interface::<&str>::queue_status(&interface, &queued).map(|queue| queue.count),
                 Some(1)
             );
             assert!(!update(&mut list, &mut picker.core.engine));
@@ -332,7 +332,7 @@ mod tests {
             list.handle(toggle(2), &mut interface, &mut queued, &cx);
             assert_eq!(list.event_rank(&picker.core.engine), Some(2));
             assert_eq!(
-                Interface::<&str>::queued_count(&interface, &queued),
+                Interface::<&str>::queue_status(&interface, &queued).map(|queue| queue.count),
                 Some(0)
             );
             assert!(update(&mut list, &mut picker.core.engine));
@@ -374,7 +374,7 @@ mod tests {
                 list.handle(queue(usize::MAX), &mut interface, &mut queued, &cx);
                 assert_eq!(list.event_rank(&picker.core.engine), Some(last));
                 assert_eq!(
-                    Interface::<&str>::queued_count(&interface, &queued),
+                    Interface::<&str>::queue_status(&interface, &queued).map(|queue| queue.count),
                     Some(2)
                 );
                 let selected = interface.finish(queued, Exit::Selected(None), cx);
@@ -410,7 +410,7 @@ mod tests {
             ] {
                 list.handle(event, &mut Single, &mut queued, &cx);
                 assert_eq!(list.event_rank(&picker.core.engine), Some(1));
-                assert!(Interface::<&str>::queued_count(&Single, &queued).is_none());
+                assert!(Interface::<&str>::queue_status(&Single, &queued).is_none());
             }
         }
     }

@@ -35,6 +35,7 @@ File                                         | Description
 [serde.rs](serde.rs)                         | Use `serde` to deserialize picker items from input.
 [preview_style.rs](preview_style.rs)         | A blocking example highlighting preview styling and stateful previews.
 [preview_single.rs](preview_single.rs)       | A previewer doing work in a single background thread.
+[preview_uncached.rs](preview_uncached.rs)   | A minimal previewer doing synchronous work with no preview cache.
 [preview_serde.rs](preview_serde.rs)         | A blocking example with a preview pane, using `serde`.
 [online_preview.rs](online_preview.rs)       | A Rust RFC browser with previews illustrating propagation of fatal preview errors.
 [low_framerate.rs](low_framerate.rs)         | An example with a framerate of 0.5 FPS to demonstrate keypress input batching.

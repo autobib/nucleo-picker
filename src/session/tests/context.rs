@@ -6,7 +6,7 @@ use crate::{
     event::{Event, MatchListEvent, PromptEvent},
     interface::SelectionIntoIter,
     render::StrRenderer,
-    session::{Context, Exit, Interface, ItemId, Multi, MultiState, QueueEvent},
+    session::{Context, Exit, Interface, ItemId, Multi, MultiState, QueueEvent, QueueStatus},
 };
 
 #[test]
@@ -171,8 +171,8 @@ impl<T: Send + Sync + 'static> Interface<T> for QueueProbe<'_> {
         <Multi as Interface<T>>::is_queued(&Multi::new(), state, id)
     }
 
-    fn queued_count(&self, state: &Self::State) -> Option<usize> {
-        <Multi as Interface<T>>::queued_count(&Multi::new(), state)
+    fn queue_status(&self, state: &Self::State) -> Option<QueueStatus> {
+        <Multi as Interface<T>>::queue_status(&Multi::new(), state)
     }
 
     fn on_queue(

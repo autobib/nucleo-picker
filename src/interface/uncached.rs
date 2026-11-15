@@ -1,4 +1,4 @@
-use std::{num::NonZero, time::Instant};
+use std::time::Instant;
 
 use crossterm::event::KeyEvent;
 
@@ -6,7 +6,7 @@ use super::{Multi, Single};
 use crate::{
     event::{Event, keybind_passthrough_preview},
     preview::{Content, Pane, PreviewEvent},
-    session::{Context, Dimensions, Exit, Interface, ItemId, QueueEvent, Redraw},
+    session::{Context, Dimensions, Exit, Interface, ItemId, QueueEvent, QueueStatus, Redraw},
 };
 
 /// A minimal preview adapter holding a closure which generates previews directly.
@@ -114,13 +114,8 @@ where
     }
 
     #[inline]
-    fn queued_count(&self, state: &Self::State) -> Option<usize> {
-        self.interface.queued_count(&state.interface)
-    }
-
-    #[inline]
-    fn queue_limit(&self, state: &Self::State) -> Option<NonZero<u32>> {
-        self.interface.queue_limit(&state.interface)
+    fn queue_status(&self, state: &Self::State) -> Option<QueueStatus> {
+        self.interface.queue_status(&state.interface)
     }
 
     #[inline]

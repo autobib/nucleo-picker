@@ -25,7 +25,7 @@ use crate::{
 use crate::{
     event::keybind_passthrough_preview,
     preview::{Content, DEFAULT_CACHE_SIZE, Preview, PreviewEvent},
-    session::{Dimensions, ItemId, QueueEvent, Redraw},
+    session::{Dimensions, ItemId, QueueEvent, QueueStatus, Redraw},
 };
 #[cfg(feature = "preview-cache")]
 use controller::PreviewState;
@@ -247,13 +247,8 @@ impl<T: Send + Sync + 'static, I: Interface<T>, P: Preview<T>> Interface<T>
     }
 
     #[inline]
-    fn queued_count(&self, state: &Self::State) -> Option<usize> {
-        self.interface.queued_count(&state.interface)
-    }
-
-    #[inline]
-    fn queue_limit(&self, state: &Self::State) -> Option<NonZero<u32>> {
-        self.interface.queue_limit(&state.interface)
+    fn queue_status(&self, state: &Self::State) -> Option<QueueStatus> {
+        self.interface.queue_status(&state.interface)
     }
 
     #[inline]

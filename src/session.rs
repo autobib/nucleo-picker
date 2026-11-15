@@ -31,7 +31,7 @@
 //! # }
 //! ```
 //!
-//! Independently of the interface, the same three `pick*` methods are always available:
+//! Independently of the interface, the same three `pick*` methods are always available.
 //!
 //! | Interface | How to get there | Successful return value |
 //! | --- | --- | --- |
@@ -274,8 +274,7 @@ use crate::{
 /// 3. Terminal dimensions are queried and resizes are propagated, for instance via
 ///    [`preview_resize`](Self::preview_resize) if the preview pane is enabled.
 /// 4. [`before_frame`](Self::before_frame) is called with the initial hovered item.
-/// 5. [`queued_count`](Self::queued_count) and [`queue_limit`](Self::queue_limit) (if the queued
-///    count is not `None`) are called to update the status line.
+/// 5. [`queue_status`](Self::queue_status) is called to update the status line.
 /// 6. The first full frame is drawn.
 /// 7. [`after_frame`](Self::after_frame) is called. The draw mask is used for the next frame.
 ///
@@ -287,14 +286,13 @@ use crate::{
 ///    processed. This updates the prompt and match list, reparses if the query changed, and updates
 ///    the match engine.
 /// 2. [`before_frame`](Self::before_frame) is called.
-/// 3. [`queued_count`](Self::queued_count) and [`queue_limit`](Self::queue_limit) (if the queued
-///    count is not `None`) are called to update the status line.
+/// 3. [`queue_status`](Self::queue_status) is called to update the status line.
 /// 4. Check for pending redraws either from events or as required by the interface. If a resize is
 ///    required, a full redraw is done. If [`HAS_PREVIEW`](Self::HAS_PREVIEW) is true,
 ///    [`preview_resize`](Self::preview_resize) is called with the new dimensions (or `None` if the
 ///    preview pane is hidden).
 /// 5. Draw the components.
-/// 6. If a status request can be processed, call [`queued_count`](Self::queued_count).
+/// 6. If a status request can be processed, call [`queue_status`](Self::queue_status).
 /// 7. [`after_frame`](Self::after_frame) is called. Its redraw mask is carried over to the next
 ///    frame.
 ///
@@ -343,18 +341,11 @@ pub trait Interface<T>: Sized {
         false
     }
 
-    /// The current number of queued items.
+    /// The current number of queued items and the limit, if queueing is supported.
     ///
-    /// `None` means queueing is unsupported by this interface; `Some(n)` indicates the number of queued
-    /// items.
-    fn queued_count(&self, _state: &Self::State) -> Option<usize> {
-        None
-    }
-
-    /// The maximum number of queued items permitted by this interface, or `None` if unlimited.
-    ///
-    /// This is used to render the marker in the status line.
-    fn queue_limit(&self, _state: &Self::State) -> Option<NonZero<u32>> {
+    /// `None` means queueing is unsupported by this interface. This is used to render the marker
+    /// in the status line.
+    fn queue_status(&self, _state: &Self::State) -> Option<QueueStatus> {
         None
     }
 
@@ -452,6 +443,15 @@ pub enum Exit {
     /// The session quit and requested a selection. The given item, if any, is the hovered at the time of
     /// processing the exit.
     Selected(Option<ItemId>),
+}
+
+/// The queue status, as returned by [`Interface::queue_status`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct QueueStatus {
+    /// The current number of queued items.
+    pub count: u32,
+    /// The maximum number of queued items, with `None` meaning that there is no limit.
+    pub limit: Option<NonZero<u32>>,
 }
 
 /// An event which modifies the list of queued items.
