@@ -25,7 +25,12 @@ fn pick_multi<'a>(
     let queued = State::<&str>::make_queue(&picker.core.multi_defaults);
     picker
         .core
-        .pick_impl(receiver, &mut TestTerminal::default(), queued, NoPreview)
+        .pick_impl(
+            receiver,
+            &mut TestTerminal::default(),
+            queued,
+            &mut NoPreview,
+        )
         .unwrap()
 }
 
@@ -92,7 +97,7 @@ fn queued_items_survive_filtering_and_are_discarded_on_quit() {
                     events,
                     &mut TestTerminal::default(),
                     SelectedIndices::default(),
-                    NoPreview,
+                    &mut NoPreview,
                 )
                 .unwrap();
             let expected: &[_] = if selects { &["beta"] } else { &[] };
@@ -141,7 +146,7 @@ fn restart_clears_queued_items_before_reusing_indices() {
             events,
             &mut TestTerminal::default(),
             SelectedIndices::default(),
-            NoPreview,
+            &mut NoPreview,
         )
         .unwrap();
     assert!(selected.into_iter().copied().eq(["replacement"]));

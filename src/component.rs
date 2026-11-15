@@ -16,6 +16,7 @@
 use std::{io, time::Instant};
 
 use crate::{
+    PickerChars,
     rect::{Area, Position, Rect},
     session::Context,
 };
@@ -34,29 +35,52 @@ pub(crate) trait Component<E> {
     }
 }
 
-pub(crate) trait PreviewComponent<T>: Component<()> {
+pub(crate) trait PreviewComponent<T> {
+    type State;
+
     // this is a bit hacky: mostly we try to feature-gate the preview component but
     // if the preview feature is enabled, one can still use the usual picker, in which case
     // we don't want any runtime cost
-    const ENABLED: bool;
+    const ENABLED: bool = false;
+
+    fn init(&mut self) -> Self::State;
+
+    fn component(
+        &mut self,
+        _state: &mut Self::State,
+        _chars: &PickerChars,
+        #[cfg(feature = "preview")] _config: &PreviewConfig,
+    ) -> impl Component<()> {
+        NoPreview
+    }
 
     /// Handle a preview event
     #[cfg(feature = "preview")]
-    fn handle(&mut self, event: PreviewEvent, cx: &Context<'_, T>);
+    fn handle(&mut self, _state: &mut Self::State, _event: PreviewEvent, _cx: &Context<'_, T>) {}
 
-    fn update(&mut self, cx: &Context<'_, T>, matches_changed: bool, deadline: Instant) -> bool;
+    fn update(
+        &mut self,
+        _state: &mut Self::State,
+        _cx: &Context<'_, T>,
+        _matches_changed: bool,
+        _deadline: Instant,
+    ) -> bool {
+        false
+    }
 
-    fn prefetch(&mut self, cx: &Context<'_, T>, deadline: Instant);
+    fn prefetch(&mut self, _state: &mut Self::State, _cx: &Context<'_, T>, _deadline: Instant) {}
 
     /// Do extra processing when a preview frame is hidden.
-    fn hide(&mut self);
+    fn hide(&mut self, _state: &mut Self::State) {}
 
     /// Do extra processing when a restart event is received.
-    fn restart(&mut self);
+    fn restart(&mut self, _state: &mut Self::State) {}
+
+    fn end(&mut self, _state: &mut Self::State) {}
 }
 
 #[cfg(feature = "preview")]
-use crate::preview::PreviewEvent;
+use crate::preview::{PreviewConfig, PreviewEvent};
 
 pub(crate) struct NoPreview;
 
@@ -68,15 +92,9 @@ impl Component<()> for NoPreview {
 }
 
 impl<T> PreviewComponent<T> for NoPreview {
-    const ENABLED: bool = false;
-    #[cfg(feature = "preview")]
-    fn handle(&mut self, _event: PreviewEvent, _cx: &Context<'_, T>) {}
-    fn update(&mut self, _cx: &Context<'_, T>, _matches_changed: bool, _deadline: Instant) -> bool {
-        false
-    }
-    fn prefetch(&mut self, _cx: &Context<'_, T>, _deadline: Instant) {}
-    fn hide(&mut self) {}
-    fn restart(&mut self) {}
+    type State = ();
+
+    fn init(&mut self) {}
 }
 
 #[cfg(test)]
@@ -89,25 +107,5 @@ impl<E, C: Component<E>> Component<E> for &mut C {
     }
     fn cursor(&self, engine: &E) -> Option<Position> {
         (**self).cursor(engine)
-    }
-}
-#[cfg(test)]
-impl<T, C: PreviewComponent<T>> PreviewComponent<T> for &mut C {
-    const ENABLED: bool = C::ENABLED;
-    #[cfg(feature = "preview")]
-    fn handle(&mut self, event: PreviewEvent, cx: &Context<'_, T>) {
-        (**self).handle(event, cx);
-    }
-    fn update(&mut self, cx: &Context<'_, T>, matches_changed: bool, deadline: Instant) -> bool {
-        (**self).update(cx, matches_changed, deadline)
-    }
-    fn prefetch(&mut self, cx: &Context<'_, T>, deadline: Instant) {
-        (**self).prefetch(cx, deadline);
-    }
-    fn hide(&mut self) {
-        (**self).hide();
-    }
-    fn restart(&mut self) {
-        (**self).restart();
     }
 }

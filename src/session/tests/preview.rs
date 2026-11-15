@@ -9,12 +9,11 @@ use std::{
 use super::{FrameEvents, frame_events};
 use crate::{
     PickerOptions, Terminal,
-    component::Component,
     error::PickError,
     event::{Event, EventSource, LayoutEvent, MatchListEvent, RecvError},
     preview::{
         Buffer, Pane, Preview, PreviewEvent, SyncPreviewer,
-        controller::{PreviewController, tests::support::*},
+        controller::tests::support::*,
         request::{QueuedRequest, Request, Response},
     },
     rect::Area,
@@ -81,10 +80,7 @@ impl Terminal for TestTerminal {
     }
 }
 
-fn offset(
-    session: &mut PreviewController<&'static str, TestPreviewer>,
-    idx: u32,
-) -> (usize, usize) {
+fn offset(session: &mut TestSession<TestPreviewer>, idx: u32) -> (usize, usize) {
     session
         .test_cache()
         .peek(&idx)
@@ -447,14 +443,11 @@ fn resizing_retained_previews_preserves_hover_and_updates_page_height() {
         ..TestPreviewer::default()
     });
     update(&mut session, &mut picker);
-    session.resize(
-        Area {
-            width: 22,
-            height: 6,
-            ..Area::default()
-        },
-        &(),
-    );
+    session.resize(Area {
+        width: 22,
+        height: 6,
+        ..Area::default()
+    });
     session.handle_at(PreviewEvent::Down(usize::MAX), Some(0));
     assert_eq!(offset(&mut session, 0), (0, 26));
 
@@ -503,14 +496,11 @@ fn resizing_clamps_cached_previews_before_they_are_revisited() {
         ..TestPreviewer::default()
     });
     update(&mut session, &mut picker);
-    session.resize(
-        Area {
-            width: 22,
-            height: 10,
-            ..Area::default()
-        },
-        &(),
-    );
+    session.resize(Area {
+        width: 22,
+        height: 10,
+        ..Area::default()
+    });
     session.handle_at(PreviewEvent::Down(usize::MAX), Some(0));
     assert_eq!(offset(&mut session, 0), (0, 22));
     picker.core.list_state.layout.set_rank(

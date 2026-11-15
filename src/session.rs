@@ -226,8 +226,8 @@ pub use picker_ref::PickerRef;
 #[cfg(doc)]
 use crate::Picker;
 use crate::{
-    PickerChars, PickerCore, Render, Selection, Terminal,
-    component::{NoPreview, PreviewComponent},
+    PickerCore, Render, Selection, Terminal,
+    component::PreviewComponent,
     error::PickError,
     event::{Event, EventSource, StdinReader, keybind_multi, keybind_single},
     match_list::SelectedIndices,
@@ -236,32 +236,22 @@ use crate::{
 #[cfg(feature = "preview")]
 use crate::{
     event::{keybind_multi_preview, keybind_single_preview},
-    preview::{DEFAULT_CACHE_SIZE, Preview, PreviewConfig, controller::PreviewController},
+    preview::{DEFAULT_CACHE_SIZE, Preview},
 };
 
 mod sealed {
     use super::*;
 
-    pub(crate) trait State<T>: Sized {
+    pub(crate) trait State<T>: Sized + PreviewComponent<T> {
         type Queued: for<'a> crate::match_list::Queued<Output<'a, T> = <Self as Interface<T>>::Output<'a>>
         where
             T: Send + Sync + 'static,
             Self: Interface<T>;
 
-        type Preview<'a>: PreviewComponent<T>
-        where
-            Self: 'a;
-
         fn make_queue(&self) -> Self::Queued
         where
             T: Send + Sync + 'static,
             Self: Interface<T>;
-
-        fn make_preview<'a>(
-            &'a mut self,
-            chars: &PickerChars,
-            #[cfg(feature = "preview")] config: &PreviewConfig,
-        ) -> Self::Preview<'a>;
 
         #[inline]
         fn run<'a, R, E, W>(
@@ -278,12 +268,7 @@ mod sealed {
             W: Terminal,
         {
             let queued = self.make_queue();
-            let preview = self.make_preview(
-                &core.chars,
-                #[cfg(feature = "preview")]
-                &core.preview_config,
-            );
-            core.pick_impl(event_source, terminal, queued, preview)
+            core.pick_impl(event_source, terminal, queued, self)
         }
     }
 }
@@ -467,19 +452,16 @@ impl<T: Send + Sync + 'static> Interface<T> for Single {
 
 impl<T: Send + Sync + 'static> sealed::State<T> for Single {
     type Queued = ();
-    type Preview<'a> = NoPreview;
 
     #[inline]
     fn make_queue(&self) -> Self::Queued {}
+}
+
+impl<T> PreviewComponent<T> for Single {
+    type State = ();
 
     #[inline]
-    fn make_preview<'a>(
-        &'a mut self,
-        _: &PickerChars,
-        #[cfg(feature = "preview")] _: &PreviewConfig,
-    ) -> Self::Preview<'a> {
-        NoPreview
-    }
+    fn init(&mut self) {}
 }
 
 impl<T: Send + Sync + 'static> Interface<T> for Multi {
@@ -493,21 +475,18 @@ impl<T: Send + Sync + 'static> Interface<T> for Multi {
 
 impl<T: Send + Sync + 'static> sealed::State<T> for Multi {
     type Queued = SelectedIndices;
-    type Preview<'a> = NoPreview;
 
     #[inline]
     fn make_queue(&self) -> Self::Queued {
         SelectedIndices::new(self.max_selection_count)
     }
+}
+
+impl<T> PreviewComponent<T> for Multi {
+    type State = ();
 
     #[inline]
-    fn make_preview<'a>(
-        &'a mut self,
-        _: &PickerChars,
-        #[cfg(feature = "preview")] _: &PreviewConfig,
-    ) -> Self::Preview<'a> {
-        NoPreview
-    }
+    fn init(&mut self) {}
 }
 
 #[cfg(feature = "preview")]
@@ -523,23 +502,10 @@ impl<T: Send + Sync + 'static, P: Preview<T>> Interface<T> for WithPreview<Singl
 #[cfg(feature = "preview")]
 impl<T: Send + Sync + 'static, P: Preview<T>> sealed::State<T> for WithPreview<Single, P> {
     type Queued = ();
-    type Preview<'a>
-        = PreviewController<T, &'a mut P>
-    where
-        Self: 'a;
 
     #[inline]
     fn make_queue(&self) -> Self::Queued {
         sealed::State::<T>::make_queue(&self.interface);
-    }
-
-    #[inline]
-    fn make_preview<'a>(
-        &'a mut self,
-        chars: &PickerChars,
-        config: &PreviewConfig,
-    ) -> Self::Preview<'a> {
-        PreviewController::new(config, chars, self.cache_size, &mut self.previewer)
     }
 }
 
@@ -556,23 +522,10 @@ impl<T: Send + Sync + 'static, P: Preview<T>> Interface<T> for WithPreview<Multi
 #[cfg(feature = "preview")]
 impl<T: Send + Sync + 'static, P: Preview<T>> sealed::State<T> for WithPreview<Multi, P> {
     type Queued = SelectedIndices;
-    type Preview<'a>
-        = PreviewController<T, &'a mut P>
-    where
-        Self: 'a;
 
     #[inline]
     fn make_queue(&self) -> Self::Queued {
         sealed::State::<T>::make_queue(&self.interface)
-    }
-
-    #[inline]
-    fn make_preview<'a>(
-        &'a mut self,
-        chars: &PickerChars,
-        config: &PreviewConfig,
-    ) -> Self::Preview<'a> {
-        PreviewController::new(config, chars, self.cache_size, &mut self.previewer)
     }
 }
 

@@ -75,14 +75,11 @@ fn preview_events_use_context_identity_and_interior_geometry() {
         lines: 30,
         ..TestPreviewer::default()
     });
-    session.resize(
-        Area {
-            width: 22,
-            height: 10,
-            ..Area::default()
-        },
-        &(),
-    );
+    session.resize(Area {
+        width: 22,
+        height: 10,
+        ..Area::default()
+    });
     let cx = Context::new(&picker.core.engine)
         .with_rank(Some(0))
         .with_preview(Some(Dimensions {
@@ -147,6 +144,7 @@ fn cached_identity_preserves_scroll_and_line_numbers_until_restart() {
     let pane = session.state.cached().unwrap().pane().unwrap();
     assert_eq!(pane.offset(), (0, 0));
     assert!(!pane.line_numbers());
+    session.end();
     drop(session);
 
     let [first, beta, duplicate, restarted] = previewer.ids[..] else {
@@ -174,7 +172,7 @@ fn cached_identity_preserves_scroll_and_line_numbers_until_restart() {
 }
 
 #[test]
-fn cleared_hovered_item_is_not_reported_again_on_restart_or_drop() {
+fn cleared_hovered_item_is_not_reported_again_on_restart_or_end() {
     for hidden in [false, true] {
         for restart in [false, true] {
             let picker = picker(["alpha"]);
@@ -192,6 +190,7 @@ fn cleared_hovered_item_is_not_reported_again_on_restart_or_drop() {
             if restart {
                 session.restart();
             }
+            session.end();
             drop(session);
 
             assert_eq!(
@@ -209,9 +208,7 @@ fn cleared_hovered_item_is_not_reported_again_on_restart_or_drop() {
 #[test]
 fn refresh_and_eviction_reuse_buffers_and_reset_display_settings() {
     let picker = picker(["alpha", "beta"]);
-    let mut session = PreviewController::new(
-        &PreviewConfig::default(),
-        &PickerChars::new(),
+    let mut session = TestSession::new(
         NonZero::new(1),
         TestPreviewer {
             lines: 20,
@@ -300,12 +297,7 @@ fn refresh_only_invalidates_the_target_without_resubmitting_queued_work() {
 
 #[test]
 fn cache_evicts_the_least_recently_visited_item() {
-    let mut session = PreviewController::new(
-        &PreviewConfig::default(),
-        &crate::PickerChars::new(),
-        NonZero::new(3),
-        TestPreviewer::default(),
-    );
+    let mut session = TestSession::new(NonZero::new(3), TestPreviewer::default());
     let capacity = session.state.cache.cap().get();
     assert_eq!(capacity, 3);
     let picker = picker(std::iter::repeat_n("item", capacity + 1));
@@ -328,12 +320,7 @@ fn cache_evicts_the_least_recently_visited_item() {
 
 #[test]
 fn unbounded_cache_retains_previews_and_scroll_state() {
-    let mut session = PreviewController::new(
-        &PreviewConfig::default(),
-        &crate::PickerChars::new(),
-        None,
-        TestPreviewer::default(),
-    );
+    let mut session = TestSession::new(None, TestPreviewer::default());
     let item_count = DEFAULT_CACHE_SIZE.unwrap().get() + 1;
     let picker = picker(std::iter::repeat_n("item", item_count));
     for idx in 0..item_count as u32 {
@@ -359,12 +346,7 @@ fn refresh_and_eviction_cancel_requests_and_reuse_returned_buffers() {
         .into_iter()
         .flat_map(|stage| [(stage, false), (stage, true)])
     {
-        let mut session = PreviewController::new(
-            &PreviewConfig::default(),
-            &crate::PickerChars::new(),
-            NonZero::new(1),
-            TestPreviewer::default(),
-        );
+        let mut session = TestSession::new(NonZero::new(1), TestPreviewer::default());
         let picker = picker(["alpha", "beta"]);
         session.state.spare.push_str("reusable buffer");
         let mut allocation = session.state.spare.line(0).unwrap().as_str().as_ptr();
@@ -846,7 +828,7 @@ fn scrolling_accumulates_changes_without_advancing_request_priority() {
 }
 
 #[test]
-fn restart_and_drop_cancel_foreground_and_prefetch_requests_before_callbacks() {
+fn restart_and_end_cancel_foreground_and_prefetch_requests_before_callbacks() {
     for restart in [false, true] {
         let picker = picker(["alpha", "beta", "gamma", "delta"]);
         let mut previewer = TestPreviewer {
@@ -887,6 +869,7 @@ fn restart_and_drop_cancel_foreground_and_prefetch_requests_before_callbacks() {
             assert!(prefetched.is_cancelled());
             session.restart();
         }
+        session.end();
         drop(session);
 
         assert_eq!(

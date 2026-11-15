@@ -69,12 +69,19 @@ where
     let mut list = MatchList::new(&mut picker.core.list_state, &picker.core.chars);
     let mut status_line = StatusLine::new(&picker.core.chars);
     let mut frame = Frame::new(dimensions(size), false, V::ENABLED.then_some(0.5));
+    let mut state = preview.init();
+    let mut component = preview.component(
+        &mut state,
+        &picker.core.chars,
+        #[cfg(feature = "preview")]
+        &picker.core.preview_config,
+    );
     frame.resize(
         &(&picker.core.engine, &()),
         &mut prompt,
         &mut list,
         &mut status_line,
-        &mut preview,
+        &mut component,
     );
     let mut terminal = TestTerminal {
         dimensions: dimensions(size),
@@ -86,7 +93,7 @@ where
             &mut prompt,
             &mut list,
             &mut status_line,
-            &mut preview,
+            &mut component,
             &mut terminal,
             redraw,
         )
@@ -372,8 +379,7 @@ fn preview_ratios_round_clamp_and_survive_resizing() {
 mod preview {
     use super::*;
     use crate::preview::{
-        DEFAULT_CACHE_SIZE, Preview, PreviewConfig,
-        controller::PreviewController,
+        Preview,
         request::{Request, Response},
     };
 
@@ -527,16 +533,7 @@ mod preview {
         }
     }
     pub(super) fn render_preview(redraw: Redraw, size: (u16, u16)) -> String {
-        render_with(
-            redraw,
-            size,
-            PreviewController::new(
-                &PreviewConfig::default(),
-                &crate::PickerChars::new(),
-                DEFAULT_CACHE_SIZE,
-                EmptyPreview,
-            ),
-        )
+        render_with(redraw, size, crate::WithPreview::new_single(EmptyPreview))
     }
     #[test]
     fn preview_falls_back_to_full_width_when_its_interior_cannot_fit() {

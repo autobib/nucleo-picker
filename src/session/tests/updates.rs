@@ -1,6 +1,5 @@
 use std::{
     cell::RefCell,
-    io,
     time::{Duration, Instant},
 };
 
@@ -9,9 +8,8 @@ use super::FrameEvents;
 use super::{TestEvents, TestTerminal, frame_events};
 use crate::{
     Picker, PickerOptions,
-    component::{Component, PreviewComponent},
+    component::PreviewComponent,
     event::{Event, MatchListEvent, PromptEvent, RecvError},
-    rect::{Area, Rect},
     render::StrRenderer,
     session::{Context, ItemId},
 };
@@ -27,21 +25,20 @@ struct Update {
 
 struct Probe<'a, const ENABLED: bool>(&'a RefCell<Vec<Update>>);
 
-impl<const ENABLED: bool> Component<()> for Probe<'_, ENABLED> {
-    fn resize(&mut self, _: Area, _: &()) {}
-
-    fn draw<D: Rect>(&mut self, _: &(), _: &mut D) -> io::Result<()> {
-        Ok(())
-    }
-}
-
 impl<T: Send + Sync + 'static, const ENABLED: bool> PreviewComponent<T> for Probe<'_, ENABLED> {
+    type State = ();
+
     const ENABLED: bool = ENABLED;
 
-    #[cfg(feature = "preview")]
-    fn handle(&mut self, _: crate::preview::PreviewEvent, _: &Context<'_, T>) {}
+    fn init(&mut self) {}
 
-    fn update(&mut self, cx: &Context<'_, T>, matches_changed: bool, _: Instant) -> bool {
+    fn update(
+        &mut self,
+        _: &mut (),
+        cx: &Context<'_, T>,
+        matches_changed: bool,
+        _: Instant,
+    ) -> bool {
         self.0.borrow_mut().push(Update {
             matches_changed,
             query: cx.query().to_owned(),
@@ -52,10 +49,6 @@ impl<T: Send + Sync + 'static, const ENABLED: bool> PreviewComponent<T> for Prob
         });
         false
     }
-
-    fn prefetch(&mut self, _: &Context<'_, T>, _: Instant) {}
-    fn hide(&mut self) {}
-    fn restart(&mut self) {}
 }
 
 fn picker() -> Picker<&'static str, StrRenderer> {
@@ -136,7 +129,7 @@ fn restart_notifications_coalesce_and_clear_after_delivery() {
             ]),
             &mut TestTerminal::default(),
             (),
-            Probe::<false>(&updates),
+            &mut Probe::<false>(&updates),
         )
         .unwrap();
     let updates = updates.borrow();
@@ -184,7 +177,7 @@ fn query_submission_and_injection_notify_only_when_matches_are_published() {
             events,
             &mut TestTerminal::default(),
             (),
-            Probe::<false>(&updates),
+            &mut Probe::<false>(&updates),
         )
         .unwrap();
     let updates = updates.borrow();
@@ -245,7 +238,7 @@ fn hidden_frames_receive_match_notifications_without_replaying_them_on_reveal() 
             events,
             &mut TestTerminal::default(),
             (),
-            Probe::<true>(&updates),
+            &mut Probe::<true>(&updates),
         )
         .unwrap();
     let updates = updates.borrow();

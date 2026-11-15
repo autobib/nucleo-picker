@@ -1,10 +1,7 @@
 use super::*;
-use crate::{
-    component::PreviewComponent,
-    preview::{
-        DEFAULT_CACHE_SIZE,
-        controller::{PreviewController, tests::support},
-    },
+use crate::preview::{
+    DEFAULT_CACHE_SIZE,
+    controller::tests::support::{self, TestSession},
 };
 
 const QUIET: Duration = Duration::from_millis(50);
@@ -32,12 +29,7 @@ fn background_work_preserves_capacity_for_the_next_hovered_request() {
         let picker = support::picker(["first", "second", "third", "fourth"]);
         let (pool, started, release) = pool(2);
         let shared = Arc::clone(&pool.pool.shared);
-        let mut pane = PreviewController::new(
-            &PickerOptions::new().preview_config,
-            &crate::PickerChars::new(),
-            DEFAULT_CACHE_SIZE,
-            pool.with_prefetch_limit(2),
-        );
+        let mut pane = TestSession::new(DEFAULT_CACHE_SIZE, pool.with_prefetch_limit(2));
         pane.run_frame(Some(0), &picker.core.engine, support::deadline());
         assert_eq!(started.recv_timeout(WAIT).unwrap().item, "first");
         if !foreground {
@@ -77,12 +69,7 @@ fn reopening_the_pane_promotes_the_queued_hovered_item() {
         let picker = support::picker(["first", "second"]);
         let (pool, started, release) = pool(1);
         let shared = Arc::clone(&pool.pool.shared);
-        let mut pane = PreviewController::new(
-            &PickerOptions::new().preview_config,
-            &crate::PickerChars::new(),
-            DEFAULT_CACHE_SIZE,
-            pool.with_prefetch_limit(prefetch),
-        );
+        let mut pane = TestSession::new(DEFAULT_CACHE_SIZE, pool.with_prefetch_limit(prefetch));
         pane.run_frame(Some(0), &picker.core.engine, support::deadline());
         assert_eq!(started.recv_timeout(WAIT).unwrap().item, "first");
         pane.run_frame(Some(1), &picker.core.engine, support::deadline());

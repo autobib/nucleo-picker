@@ -226,7 +226,7 @@ fn events_observe_buffered_navigation_and_only_submitted_queries() {
                 TestEvents(|_| Ok(events.next().unwrap())),
                 &mut TestTerminal::default(),
                 QueueProbe::new(&mut observations),
-                NoPreview,
+                &mut NoPreview,
             )
             .unwrap();
         assert_eq!(selected.exit, Exit::Selected(Some(ids[1])));
@@ -280,7 +280,7 @@ fn queued_selection_retains_the_buffered_hover_and_exit_context() {
                     TestEvents(|_| Ok(events.next().unwrap())),
                     &mut TestTerminal::default(),
                     QueueProbe::new(&mut observations),
-                    NoPreview,
+                    &mut NoPreview,
                 )
                 .unwrap()
         };
@@ -316,7 +316,7 @@ fn selection_without_a_hovered_item_requires_queued_items() {
                 TestEvents(|_| Ok(events.next().unwrap())),
                 &mut TestTerminal::default(),
                 probe,
-                NoPreview,
+                &mut NoPreview,
             )
             .unwrap();
 
@@ -376,23 +376,33 @@ mod preview {
     }
 
     impl<T: Send + Sync + 'static> PreviewComponent<T> for PreviewProbe<'_> {
+        type State = ();
+
         const ENABLED: bool = true;
 
-        fn handle(&mut self, _: PreviewEvent, cx: &Context<'_, T>) {
+        fn init(&mut self) {}
+
+        fn component(
+            &mut self,
+            _: &mut (),
+            _: &crate::PickerChars,
+            _: &crate::preview::PreviewConfig,
+        ) -> impl Component<()> {
+            self
+        }
+
+        fn handle(&mut self, _: &mut (), _: PreviewEvent, cx: &Context<'_, T>) {
             self.observe("event", cx);
         }
 
-        fn update(&mut self, cx: &Context<'_, T>, _: bool, _: Instant) -> bool {
+        fn update(&mut self, _: &mut (), cx: &Context<'_, T>, _: bool, _: Instant) -> bool {
             self.observe("update", cx);
             false
         }
 
-        fn prefetch(&mut self, cx: &Context<'_, T>, _: Instant) {
+        fn prefetch(&mut self, _: &mut (), cx: &Context<'_, T>, _: Instant) {
             self.observe("prefetch", cx);
         }
-
-        fn hide(&mut self) {}
-        fn restart(&mut self) {}
     }
 
     #[test]
@@ -429,7 +439,7 @@ mod preview {
                 frame_events(events),
                 &mut terminal,
                 QueueProbe::new(&mut queued),
-                PreviewProbe {
+                &mut PreviewProbe {
                     observations: &mut previews,
                     size: Dimensions::default(),
                 },
@@ -478,7 +488,7 @@ mod preview {
                     TestEvents(|_| Ok(Event::Quit)),
                     &mut terminal,
                     (),
-                    PreviewProbe {
+                    &mut PreviewProbe {
                         observations: &mut previews,
                         size: Dimensions::default(),
                     },

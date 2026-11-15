@@ -26,13 +26,22 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
         mut event_source: E,
         writer: &mut W,
         mut queued: Q,
-        mut preview: P,
+        preview: &mut P,
     ) -> Result<Q::Output<'_, T>, PickError<E::AbortErr>>
     where
         E: EventSource,
         W: Terminal,
         P: PreviewComponent<T>,
     {
+        let mut preview_session = DropGuard::new(
+            (preview.init(), preview),
+            |mut session: (P::State, &mut P)| {
+                if !std::thread::panicking() {
+                    session.1.end(&mut session.0);
+                }
+            },
+        );
+        let (preview_state, preview) = &mut *preview_session;
         let engine = &mut self.engine;
         // Headless updates defer layout work until the next interactive session.
         if std::mem::take(&mut self.list_state.items_changed) {
@@ -65,9 +74,15 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
             &mut prompt,
             &mut list,
             &mut status_line,
-            &mut preview,
+            &mut preview.component(
+                preview_state,
+                &self.chars,
+                #[cfg(feature = "preview")]
+                &self.preview_config,
+            ),
         );
         preview.update(
+            preview_state,
             &context(engine, list.rank(engine), &frame),
             true,
             frame_start + self.interval,
@@ -77,12 +92,18 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
             &mut prompt,
             &mut list,
             &mut status_line,
-            &mut preview,
+            &mut preview.component(
+                preview_state,
+                &self.chars,
+                #[cfg(feature = "preview")]
+                &self.preview_config,
+            ),
             &mut **terminal,
             Redraw::full(),
         )?;
         if P::ENABLED && frame.preview_enabled() {
             preview.prefetch(
+                preview_state,
                 &context(engine, list.rank(engine), &frame),
                 frame_start + self.interval,
             );
@@ -145,8 +166,11 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                             // since that would bleed state from the frame logic everywhere
                             // which is a lot of complexity which is only required for
                             // unrealistically tiny terminals
-                            preview
-                                .handle(event, &context(engine, list.event_rank(engine), &frame));
+                            preview.handle(
+                                preview_state,
+                                event,
+                                &context(engine, list.event_rank(engine), &frame),
+                            );
                         }
                     }
                     Event::Redraw => force_redraw = true,
@@ -168,7 +192,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                     Event::Status { id } => handle_status = Some(id),
                     Event::Restart => match self.restart_notifier {
                         Some(ref notifier) => {
-                            preview.restart();
+                            preview.restart(preview_state);
                             engine.restart();
                             matches_changed = true;
                             let cx = context(engine, None, &frame);
@@ -216,6 +240,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                     background_frame,
                 ) && frame.status_enabled(),
                 preview: preview.update(
+                    preview_state,
                     &context(engine, list.rank(engine), &frame),
                     std::mem::take(&mut matches_changed),
                     frame_start + self.interval,
@@ -226,7 +251,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
             if P::ENABLED && preview_was_enabled && !frame.preview_enabled() {
                 // this is only used to process `hide` events within the previewer;
                 // currently this controls the 'hover_changed' event
-                preview.hide();
+                preview.hide(preview_state);
             }
 
             // a redraw was externally requested
@@ -239,7 +264,12 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
                 &mut prompt,
                 &mut list,
                 &mut status_line,
-                &mut preview,
+                &mut preview.component(
+                    preview_state,
+                    &self.chars,
+                    #[cfg(feature = "preview")]
+                    &self.preview_config,
+                ),
                 &mut **terminal,
                 redraw,
             )?;
@@ -268,6 +298,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
             }
             if P::ENABLED && frame.preview_enabled() {
                 preview.prefetch(
+                    preview_state,
                     &context(engine, list.rank(engine), &frame),
                     frame_start + self.interval,
                 );
@@ -284,6 +315,7 @@ impl<T: Send + Sync + 'static, R: Render<T>> PickerCore<T, R> {
 
         // process and return the selection
         let exit = exit?;
+        drop(preview_session);
         let cx = context(engine, list.rank(engine), &frame);
         Ok(queued.on_select(exit, cx))
     }

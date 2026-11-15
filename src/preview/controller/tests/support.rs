@@ -9,6 +9,115 @@ use crate::{
     render::StrRenderer,
 };
 
+pub(crate) struct TestSession<P> {
+    pub(super) state: PreviewState,
+    pub(super) previewer: P,
+}
+
+impl<P: Preview<&'static str>> TestSession<P> {
+    pub(crate) fn new(cache_size: Option<NonZero<usize>>, previewer: P) -> Self {
+        Self {
+            state: PreviewState::new(cache_size, previewer.prefetch_limit()),
+            previewer,
+        }
+    }
+
+    pub(crate) fn resize(&mut self, area: Area) {
+        self.state.resize_area(area);
+    }
+
+    pub(crate) fn handle(&mut self, event: PreviewEvent, cx: &Context<'_, &'static str>) {
+        WithPreview::new_single(&mut self.previewer).handle(&mut self.state, event, cx);
+    }
+
+    pub(crate) fn update(
+        &mut self,
+        cx: &Context<'_, &'static str>,
+        matches_changed: bool,
+        deadline: Instant,
+    ) -> bool {
+        WithPreview::new_single(&mut self.previewer).update(
+            &mut self.state,
+            cx,
+            matches_changed,
+            deadline,
+        )
+    }
+
+    pub(crate) fn prefetch(&mut self, cx: &Context<'_, &'static str>, deadline: Instant) {
+        WithPreview::new_single(&mut self.previewer).prefetch(&mut self.state, cx, deadline);
+    }
+
+    pub(crate) fn hide(&mut self) {
+        PreviewComponent::<&'static str>::hide(
+            &mut WithPreview::new_single(&mut self.previewer),
+            &mut self.state,
+        );
+    }
+
+    pub(crate) fn restart(&mut self) {
+        PreviewComponent::<&'static str>::restart(
+            &mut WithPreview::new_single(&mut self.previewer),
+            &mut self.state,
+        );
+    }
+
+    pub(crate) fn end(&mut self) {
+        PreviewComponent::<&'static str>::end(
+            &mut WithPreview::new_single(&mut self.previewer),
+            &mut self.state,
+        );
+    }
+}
+
+impl<P: Preview<&'static str>> PreviewComponent<&'static str> for TestSession<P> {
+    // Event-loop tests retain previews between runs and inspect state before explicit cleanup.
+    type State = ();
+
+    const ENABLED: bool = true;
+
+    fn init(&mut self) {}
+
+    fn component(
+        &mut self,
+        _: &mut (),
+        chars: &PickerChars,
+        config: &PreviewConfig,
+    ) -> impl Component<()> {
+        PreviewPane {
+            state: &mut self.state,
+            boundary_chars: config.boundary_chars,
+            ellipsis: chars.ellipsis,
+        }
+    }
+
+    fn handle(&mut self, _: &mut (), event: PreviewEvent, cx: &Context<'_, &'static str>) {
+        self.handle(event, cx);
+    }
+
+    fn update(
+        &mut self,
+        _: &mut (),
+        cx: &Context<'_, &'static str>,
+        matches_changed: bool,
+        deadline: Instant,
+    ) -> bool {
+        self.update(cx, matches_changed, deadline)
+    }
+
+    fn prefetch(&mut self, _: &mut (), cx: &Context<'_, &'static str>, deadline: Instant) {
+        self.prefetch(cx, deadline);
+    }
+
+    fn hide(&mut self, _: &mut ()) {
+        self.hide();
+    }
+
+    fn restart(&mut self, _: &mut ()) {
+        self.restart();
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct TestPreviewer {
     pub(crate) hovered: Vec<Option<&'static str>>,
@@ -87,11 +196,11 @@ pub(crate) fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(5)
 }
 
-impl<T: Send + Sync + 'static, P: Preview<T>> PreviewController<T, P> {
+impl<P: Preview<&'static str>> TestSession<P> {
     pub(crate) fn run_frame<R>(
         &mut self,
         rank: Option<u32>,
-        engine: &MatchEngine<T, R>,
+        engine: &MatchEngine<&'static str, R>,
         deadline: Instant,
     ) -> bool {
         let cx = Context::new(engine)
@@ -105,7 +214,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewController<T, P> {
     pub(crate) fn update_at<R>(
         &mut self,
         rank: Option<u32>,
-        engine: &MatchEngine<T, R>,
+        engine: &MatchEngine<&'static str, R>,
         deadline: Instant,
     ) -> bool {
         let cx = Context::new(engine)
@@ -120,7 +229,7 @@ impl<T: Send + Sync + 'static, P: Preview<T>> PreviewController<T, P> {
     }
 }
 
-impl<T, P: Preview<T>> PreviewController<T, P> {
+impl<P> TestSession<P> {
     pub(crate) fn contents(&self) -> Vec<&str> {
         let Some(RequestState::Ready(pane)) = &self.state.cached().unwrap().state else {
             panic!("expected ready preview");
@@ -254,19 +363,12 @@ pub(crate) fn hovered_index(picker: &Picker<&'static str, StrRenderer>) -> Optio
         .map(|n| picker.core.engine.idx_from_match(n))
 }
 
-pub(crate) fn preview_pane<P: Preview<&'static str>>(
-    previewer: P,
-) -> PreviewController<&'static str, P> {
-    PreviewController::new(
-        &PreviewConfig::default(),
-        &crate::PickerChars::new(),
-        DEFAULT_CACHE_SIZE,
-        previewer,
-    )
+pub(crate) fn preview_pane<P: Preview<&'static str>>(previewer: P) -> TestSession<P> {
+    TestSession::new(DEFAULT_CACHE_SIZE, previewer)
 }
 
 pub(crate) fn update(
-    application: &mut PreviewController<&'static str, TestPreviewer>,
+    application: &mut TestSession<TestPreviewer>,
     picker: &mut Picker<&'static str, StrRenderer>,
 ) -> bool {
     let rank = picker
@@ -278,7 +380,7 @@ pub(crate) fn update(
 }
 
 #[cfg(feature = "unstable-backend")]
-impl<T, P: Preview<T>> PreviewController<T, P> {
+impl<P> TestSession<P> {
     pub(crate) fn test_cache(&mut self) -> &mut LruCache<u32, Cached> {
         &mut self.state.cache
     }

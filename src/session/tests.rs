@@ -10,6 +10,7 @@ use crate::{
 };
 
 mod context;
+mod lifecycle;
 #[cfg(all(feature = "preview", feature = "unstable-backend"))]
 mod preview;
 mod run;
