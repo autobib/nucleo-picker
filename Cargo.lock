@@ -795,7 +795,7 @@ dependencies = [
 
 [[package]]
 name = "nucleo-picker"
-version = "0.13.0-beta.8"
+version = "0.13.0-beta.9"
 dependencies = [
  "anstyle-parse",
  "crossbeam",
