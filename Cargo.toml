@@ -26,10 +26,10 @@ rust-version = "1.100"
 
 [workspace.dependencies]
 nucleo-picker = { path = ".", version = "0.12.2" }
-nucleo-picker-core = { path = "nucleo-picker-core", version = "0.12.2" }
-nucleo-picker-interface = { path = "nucleo-picker-interface", version = "0.12.2" }
+nucleo-picker-core = { path = "nucleo-picker-core", version = "0.1.0" }
+nucleo-picker-interface = { path = "nucleo-picker-interface", version = "0.1.0" }
 crossterm = "0.29.0"
-parking_lot = "0.12.3"
+parking_lot = "0.13.0"
 ratatui-core = { version = "0.1.2", default-features = false, features = ["underline-color"] }
 unicode-segmentation = "1.12.0"
 unicode-width = { version = "0.2.3", default-features = false }
