@@ -19,6 +19,7 @@ resolver = "3"
 [workspace.package]
 authors = ["Alex Rutar <alex@rutar.org>"]
 repository = "https://github.com/autobib/nucleo-picker"
+description = "A performant and Unicode-aware fuzzy picker tui library"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
 edition = "2024"
