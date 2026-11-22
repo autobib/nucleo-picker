@@ -34,13 +34,11 @@ impl<T: Send + Sync + 'static, R, I: Interface<T>> PreparedMatchList<'_, '_, T, 
 
     /// Returns the rank corresponding to the current hovered item in the match list, or `None` if
     /// there are no matches.
-    pub fn rank(&self) -> Option<u32> {
-        SessionRead::rank(self)
+    pub fn hovered_rank(&self) -> Option<u32> {
+        SessionRead::hovered_rank(self)
     }
 
     /// Returns the item at the committed hovered rank, or `None` if there are no matches.
-    ///
-    /// The item borrows this view and comes from [`Self::matches`] at [`Self::rank`].
     pub fn hovered(&self) -> Option<ItemRef<'_, T>> {
         SessionRead::hovered(self)
     }
@@ -75,7 +73,7 @@ impl<T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Draw
 
     fn draw<S: Surface>(&mut self, surface: &mut S) -> Result<(), S::Error> {
         Draw::resize(self, dimensions(surface));
-        if surface.is_empty() || !self.session.visible_components.list {
+        if surface.is_empty() || !self.session.active_components.match_list {
             return Ok(());
         }
         surface.move_to(0, 0)?;

@@ -65,7 +65,7 @@ impl<T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Draw
     fn resize(&mut self, _size: Dimensions) {}
 
     fn draw<S: Surface>(&mut self, surface: &mut S) -> Result<(), S::Error> {
-        if surface.is_empty() || !self.session.visible_components.status {
+        if surface.is_empty() || !self.session.active_components.status {
             return Ok(());
         }
         surface.move_to(0, 0)?;

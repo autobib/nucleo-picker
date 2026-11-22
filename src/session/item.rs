@@ -3,7 +3,8 @@
 /// It is guaranteed that if two [`ItemId`]s are equal then the underlying items are also equal
 /// (i.e., they represent the same memory location of the underlying item `&T`). In particular, this
 /// contract is upheld across restarts and across different pickers using a small amount of atomic
-/// global state.
+/// global state. This is done using a global `u32` counter and the picker will panic if the counter
+/// is exhausted (i.e., after restarting `2^32` times, after initializing `2^32` pickers, or some combination of the two).
 ///
 /// Within a single generation, the order corresponds to the order in which items were received by
 /// the picker. Order across generations is unspecified.

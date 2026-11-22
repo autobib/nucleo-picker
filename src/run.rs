@@ -98,10 +98,10 @@ where
         Dimensions::default(),
         config.layout.reversed,
         config.layout.preview_ratio,
-        picker.visible_components(),
+        picker.active_components(),
     );
     let mut frame = picker.prepare_frame(FrameOptions::new(frame_start + timing.interval));
-    layout.resolve(terminal.dimensions()?, frame.visible_components());
+    layout.resolve(terminal.dimensions()?, frame.active_components());
     frame::draw(
         &layout,
         &mut frame,
@@ -152,7 +152,7 @@ where
                 Event::Prompt(event) => batch.prompt(event),
                 Event::MatchList(event) => batch.match_list(event),
                 Event::Layout(event) => {
-                    let visible = batch.visible_components();
+                    let visible = batch.active_components();
                     let changed = match event {
                         LayoutEvent::ToggleStatus | LayoutEvent::TogglePreview => {
                             let mut components = visible;
@@ -161,8 +161,8 @@ where
                             } else {
                                 components.preview.toggle();
                             }
-                            batch.set_visible_components(components);
-                            let components = batch.visible_components();
+                            batch.set_active_components(components);
+                            let components = batch.active_components();
                             if components != visible {
                                 layout.resolve(layout.dimensions(), components);
                             }
@@ -181,7 +181,7 @@ where
                     }
                 }
                 Event::Preview(event) => {
-                    if batch.visible_components().preview {
+                    if batch.active_components().preview {
                         batch.preview(event);
                     }
                 }
@@ -229,7 +229,7 @@ where
             FrameOptions::new(frame_start + timing.interval).background(background_frame),
         );
         if frame.changed() || clear_screen {
-            clear_screen |= layout.resolve(terminal.dimensions()?, frame.visible_components());
+            clear_screen |= layout.resolve(terminal.dimensions()?, frame.active_components());
             let redraw = frame.redraw();
             frame::draw(
                 &layout,
@@ -256,7 +256,7 @@ where
                 query: frame.query().to_owned(),
                 changed: std::mem::take(&mut changed_since_status),
                 frame_changed: changed,
-                rank: frame.rank(),
+                rank: frame.hovered_rank(),
                 item_count: status.item_count,
                 selected_item_count: frame.queue_status().map_or(0, |queue| queue.count),
                 matched_item_count: status.matched_item_count,

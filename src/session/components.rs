@@ -1,6 +1,6 @@
 use std::ops::{BitAnd, BitOr, BitOrAssign};
 
-/// Components in in the picker interface.
+/// Components of the picker interface.
 ///
 /// The picker interface is composed of four components: the prompt, match list, status bar, and
 /// preview. This struct is used whenever it is necessary to refer to a set of components.
@@ -14,14 +14,14 @@ use std::ops::{BitAnd, BitOr, BitOrAssign};
 /// - `PREVIEW`: the preview pane
 /// - `ALL`: all components
 ///
-/// Use `|`, `&`, and `|=` to combine component lists.
+/// You can use `|`, `&`, and `|=` to combine component lists.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[must_use]
 pub struct Components {
     /// The prompt.
     pub prompt: bool,
     /// The match list.
-    pub list: bool,
+    pub match_list: bool,
     /// The status bar.
     pub status: bool,
     /// The preview pane.
@@ -32,14 +32,14 @@ impl Components {
     /// No components.
     pub const NONE: Self = Self {
         prompt: false,
-        list: false,
+        match_list: false,
         status: false,
         preview: false,
     };
 
     /// The match list and status bar.
     pub const QUEUE: Self = Self {
-        list: true,
+        match_list: true,
         status: true,
         ..Self::NONE
     };
@@ -53,7 +53,7 @@ impl Components {
     /// All components.
     pub const ALL: Self = Self {
         prompt: true,
-        list: true,
+        match_list: true,
         status: true,
         preview: true,
     };
@@ -63,7 +63,7 @@ impl Components {
     /// This is the same as `components == Components::NONE`.
     #[inline]
     pub const fn is_none(self) -> bool {
-        !(self.prompt | self.list | self.status | self.preview)
+        !(self.prompt | self.match_list | self.status | self.preview)
     }
 
     /// Returns if all components are included.
@@ -71,7 +71,7 @@ impl Components {
     /// This is the same as `components == Components::ALL`.
     #[inline]
     pub const fn is_all(self) -> bool {
-        self.prompt & self.list & self.status & self.preview
+        self.prompt & self.match_list & self.status & self.preview
     }
 }
 
@@ -82,7 +82,7 @@ impl BitOr for Components {
     fn bitor(self, rhs: Self) -> Self {
         Self {
             prompt: self.prompt | rhs.prompt,
-            list: self.list | rhs.list,
+            match_list: self.match_list | rhs.match_list,
             status: self.status | rhs.status,
             preview: self.preview | rhs.preview,
         }
@@ -102,7 +102,7 @@ impl BitAnd for Components {
     fn bitand(self, rhs: Self) -> Self {
         Self {
             prompt: self.prompt & rhs.prompt,
-            list: self.list & rhs.list,
+            match_list: self.match_list & rhs.match_list,
             status: self.status & rhs.status,
             preview: self.preview & rhs.preview,
         }

@@ -37,13 +37,13 @@ fn navigation_survives_empty_dimensions_and_clamps_in_both_orientations() {
             session.events().match_list(event);
             let mut frame = session.prepare_frame(frame_options());
             frame.match_list().resize(Dimensions::default());
-            assert_eq!(frame.rank(), Some(expected));
+            assert_eq!(frame.hovered_rank(), Some(expected));
             frame.complete();
         }
         for height in [1, 3, 0, 3] {
             let mut frame = session.prepare_frame(frame_options());
             frame.match_list().resize(Dimensions { width: 20, height });
-            assert_eq!(frame.rank(), Some(1));
+            assert_eq!(frame.hovered_rank(), Some(1));
             frame.complete();
         }
         let exit = Exit::Selected(session.events().hovered_id());
@@ -73,7 +73,7 @@ fn drawing_resizes_the_list_and_skips_empty_targets() {
             let mut target = TestSurface::new(width, height);
             view.draw(&mut target).unwrap();
             assert_eq!(target.touched, width != 0 && height != 0);
-            assert_eq!(view.list.rank(&driver.engine), Some(0));
+            assert_eq!(view.list.hovered_rank(&driver.engine), Some(0));
             if width != 0 && height != 0 {
                 assert!(
                     target
@@ -110,7 +110,7 @@ fn a_full_queue_blocks_insertion_movement_but_allows_removal_movement() {
                 batch.match_list(toggle(count));
             }
             let frame = session.prepare_frame(frame_options());
-            assert_eq!(frame.rank(), Some(rank));
+            assert_eq!(frame.hovered_rank(), Some(rank));
             assert_eq!(frame.queue_status().unwrap().count, queued);
             frame.complete();
         }
@@ -144,7 +144,7 @@ fn range_queueing_traverses_existing_entries_at_capacity() {
             Exit::Selected(batch.hovered_id())
         };
         let frame = session.prepare_frame(frame_options());
-        assert_eq!(frame.rank(), Some(1));
+        assert_eq!(frame.hovered_rank(), Some(1));
         frame.complete();
         assert!(
             session

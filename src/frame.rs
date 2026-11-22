@@ -161,7 +161,7 @@ impl Layout {
                 width,
                 height: height.saturating_sub(reserved_height),
             },
-            visible.list,
+            visible.match_list,
         );
         self.status = visible_area(
             Area {
@@ -221,7 +221,7 @@ where
     I: Interface<T>,
     W: Terminal,
 {
-    let visible = frame.visible_components();
+    let visible = frame.active_components();
     let empty = layout.dimensions.width == 0 || layout.dimensions.height == 0;
     let clear = if clear_screen {
         redraw = Components::ALL;
@@ -243,7 +243,7 @@ where
         }
     }
     let mut target = CrosstermTarget::new(writer);
-    if redraw.list || !visible.list || layout.list.is_empty() {
+    if redraw.match_list || !visible.match_list || layout.list.is_empty() {
         frame
             .match_list()
             .draw(&mut target.rect(layout.list, clear))?;

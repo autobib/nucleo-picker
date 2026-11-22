@@ -1,7 +1,5 @@
 use std::{
-    cell::RefCell,
     io::{self, Write},
-    rc::Rc,
     sync::{
         Arc,
         atomic::{AtomicU32, Ordering},
@@ -33,8 +31,6 @@ use crate::{
     error::{Error, ErrorKind},
     snapshot::{PaneSnapshot, Snapshotter},
 };
-
-type PtyWrites = Rc<RefCell<Vec<u8>>>;
 
 struct SnapshotRequest {
     result: oneshot::Sender<Result<PaneSnapshot, String>>,
@@ -102,24 +98,6 @@ impl GhosttyBackend {
             applied_size: (cols, rows),
             snapshot_requests,
         })
-    }
-
-    pub fn register_pty(&mut self) -> Result<PtyWrites, libghostty_vt::error::Error> {
-        let pty_writes = Rc::new(RefCell::new(Vec::new()));
-        let callback_writes = Rc::clone(&pty_writes);
-        self.terminal
-            .on_pty_write(move |_, data| callback_writes.borrow_mut().extend_from_slice(data))?;
-        Ok(pty_writes)
-    }
-
-    #[cfg_attr(not(test), expect(dead_code))]
-    pub fn with_pty(
-        requested_size: TerminalSize,
-        snapshot_requests: MpscReceiver<SnapshotRequest>,
-    ) -> Result<(Self, PtyWrites), libghostty_vt::error::Error> {
-        let mut backend = Self::new(requested_size, snapshot_requests)?;
-        let pty_writes = backend.register_pty()?;
-        Ok((backend, pty_writes))
     }
 }
 
@@ -454,8 +432,7 @@ mod tests {
     fn terminal_adapter_lifecycle_resize_write_and_end_frame() -> Result<(), Box<dyn StdError>> {
         let requested_size = TerminalSize::new(20, 8);
         let (snapshot_request_tx, snapshot_request_rx) = mpsc::channel();
-        let (mut backend, pty_writes) =
-            GhosttyBackend::with_pty(requested_size.clone(), snapshot_request_rx)?;
+        let mut backend = GhosttyBackend::new(requested_size.clone(), snapshot_request_rx)?;
 
         backend.init()?;
         assert_eq!(backend.terminal.active_screen()?, Screen::Alternate);
@@ -491,9 +468,6 @@ mod tests {
             (backend.terminal.cols()?, backend.terminal.rows()?),
             (12, 4)
         );
-        backend.terminal.vt_write(b"\x1b[18t");
-        assert!(!pty_writes.borrow().is_empty());
-
         backend.cleanup()?;
         assert_eq!(backend.terminal.active_screen()?, Screen::Primary);
         Ok(())

@@ -12,6 +12,8 @@ use crate::{
 
 /// A minimal preview adapter holding a closure which generates previews directly.
 ///
+/// The callback receives a cleared (default) pane.
+///
 /// In general, you should prefer to use [`CachedPreview`](crate::interface::CachedPreview). This adapter only
 /// holds a single pane buffer internally and calls the closure synchronously on the picker thread
 /// every time the item changes or no refresh. In particular, the closure must not block. This is
@@ -148,7 +150,7 @@ where
         let mut redraw =
             self.interface
                 .before_frame(&mut state.interface, cx, matches_changed, deadline);
-        if !cx.preview_enabled() {
+        if !cx.active_components().preview {
             return redraw;
         }
         let Some(item) = cx.hovered() else {

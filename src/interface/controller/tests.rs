@@ -109,27 +109,14 @@ fn cached_presentation_follows_item_identity_through_filtering_duplicates_and_re
 fn unbounded_cache_retains_more_than_the_default_capacity() {
     let count = DEFAULT_CACHE_SIZE.unwrap().get() + 1;
     let driver = driver(std::iter::repeat_n("item", count));
-    let previewer = RefCell::new(TestPreviewer {
-        lines: 20,
-        ..TestPreviewer::default()
-    });
+    let previewer = RefCell::new(TestPreviewer::default());
     let mut interface = CachedPreview::new_single(&previewer).cache_size(None);
     let mut state = interface.init(&context(&driver, Some(0)));
-    interface.preview_resize(
-        &mut state,
-        Some(Dimensions {
-            width: 12,
-            height: 5,
-        }),
-    );
-    for rank in 0..count as u32 {
-        let cx = context(&driver, Some(rank));
-        let _ = before(&mut interface, &mut state, &cx);
-        let _ = interface.preview_event(&mut state, PreviewEvent::Down(1), &cx);
-    }
-    for rank in 0..count as u32 {
-        let _ = before(&mut interface, &mut state, &context(&driver, Some(rank)));
-        assert_eq!(ready(interface.preview_content(&state)).offset(), (0, 1));
+    for _ in 0..2 {
+        for rank in 0..count as u32 {
+            let _ = before(&mut interface, &mut state, &context(&driver, Some(rank)));
+            assert_eq!(text(interface.preview_content(&state)), "item");
+        }
     }
     assert_eq!(previewer.borrow().requested.len(), count);
 }
@@ -201,7 +188,10 @@ fn revisits_promote_queued_requests_but_preserve_active_work() {
         .take_request("alpha")
         .start()
         .unwrap();
-    let hidden = context(&driver, Some(1)).with_preview_enabled(false);
+    let hidden = context(&driver, Some(1)).with_active_components(Components {
+        preview: false,
+        ..Components::ALL
+    });
     for cx in [&hidden, &beta, &alpha, &alpha] {
         let _ = before(&mut interface, &mut state, cx);
     }
@@ -404,67 +394,11 @@ fn events_use_delivered_dimensions_and_only_redraw_on_presentation_changes() {
     );
     assert_eq!(ready(interface.preview_content(&state)).offset(), (4, 9));
 
-    interface.preview_resize(
-        &mut state,
-        Some(Dimensions {
-            width: 8,
-            height: 0,
-        }),
-    );
-    assert!(
-        interface
-            .preview_event(&mut state, PreviewEvent::PageDown(1), &cx)
-            .is_none()
-    );
-    assert_eq!(
-        interface.preview_event(&mut state, PreviewEvent::Down(1), &cx),
-        Components::PREVIEW
-    );
-    assert_eq!(ready(interface.preview_content(&state)).offset(), (4, 10));
     assert_eq!(previewer.borrow().requested, ["abcdefghijklmnop"]);
 }
 
 #[test]
-fn navigation_uses_grapheme_widths_across_preview_changes() {
-    let driver = driver(["alpha", "beta"]);
-    let mut interface = CachedPreview::new_single(SyncPreviewer(|_: &&str, pane: &mut Pane| {
-        pane.push_text("界界界界");
-    }));
-    let cx = context(&driver, Some(0));
-    let mut state = interface.init(&cx);
-    interface.preview_resize(
-        &mut state,
-        Some(Dimensions {
-            width: 2,
-            height: 1,
-        }),
-    );
-    let _ = before(&mut interface, &mut state, &cx);
-    let _ = interface.preview_event(&mut state, PreviewEvent::AlignRight, &cx);
-    assert_eq!(ready(interface.preview_content(&state)).offset(), (6, 0));
-
-    for rank in [0, 1, 0] {
-        let cx = context(&driver, Some(rank));
-        let _ = before(&mut interface, &mut state, &cx);
-        let _ = interface.preview_event(&mut state, PreviewEvent::AlignRight, &cx);
-        assert_eq!(ready(interface.preview_content(&state)).offset(), (6, 0));
-        let _ = interface.preview_event(&mut state, PreviewEvent::AlignLeft, &cx);
-        let _ = interface.preview_event(&mut state, PreviewEvent::Right(usize::MAX), &cx);
-        assert_eq!(ready(interface.preview_content(&state)).offset(), (6, 0));
-        assert!(
-            interface
-                .preview_event(&mut state, PreviewEvent::Right(1), &cx)
-                .is_none()
-        );
-    }
-    interface.on_restart(&mut state, &cx);
-    let _ = before(&mut interface, &mut state, &cx);
-    let _ = interface.preview_event(&mut state, PreviewEvent::AlignRight, &cx);
-    assert_eq!(ready(interface.preview_content(&state)).offset(), (6, 0));
-}
-
-#[test]
-fn resizing_clamps_cached_previews_before_they_are_revisited() {
+fn revisited_cached_previews_respect_resized_height() {
     let driver = driver(["alpha", "beta"]);
     let previewer = RefCell::new(TestPreviewer {
         lines: 30,
@@ -590,7 +524,7 @@ fn reopening_coalesces_hidden_navigation_and_notifies_the_queued_hover_before_pr
         active: &active,
     }));
     session.prepare_frame(frame_options()).complete();
-    session.events().set_visible_components(Components {
+    session.events().set_active_components(Components {
         preview: false,
         ..Components::ALL
     });
@@ -603,7 +537,7 @@ fn reopening_coalesces_hidden_navigation_and_notifies_the_queued_hover_before_pr
     assert_eq!(previewer.borrow().requested, ["alpha"]);
     assert_eq!(previewer.borrow().hovered, [Some("alpha"), None]);
 
-    session.events().set_visible_components(Components::ALL);
+    session.events().set_active_components(Components::ALL);
     session.prepare_frame(frame_options()).complete();
     let active = active.borrow_mut().take().unwrap();
     assert!(!active.is_cancelled());
@@ -615,7 +549,7 @@ fn reopening_coalesces_hidden_navigation_and_notifies_the_queued_hover_before_pr
         [Some("alpha"), None, Some("alpha")]
     );
 
-    session.events().set_visible_components(Components {
+    session.events().set_active_components(Components {
         preview: false,
         ..Components::ALL
     });

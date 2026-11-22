@@ -166,6 +166,9 @@ pub trait Preview<T> {
 
     /// Handle changes to the hovered item.
     ///
+    /// Hover changes are reported *before* promoting queued work or cancelling stale requests
+    /// (including prefetch requests).
+    ///
     /// This method is called whenever the preview pane changes to a new target. Unlike `preview`, this
     /// method is called even if the item is cached. The `None` target means that the preview is
     /// hidden or that there are no matching items (so none is hovered). This method is called

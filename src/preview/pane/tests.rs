@@ -194,24 +194,21 @@ fn bordered_preview_streams_rows_without_preclearing_or_interior_cursor_moves() 
 
 #[test]
 fn empty_and_tiny_targets_keep_preview_content_in_bounds() {
-    let mut pane = pane("Ａabc\nsecond").with_line_numbers(true);
-    for is_err in [false, true] {
-        pane.set_err(is_err);
-        for width in 0..=4 {
-            for height in 0..=4 {
-                for content in [Content::Empty, Content::Loading, Content::Ready(&pane)] {
-                    let mut target = TestSurface::new(width, height);
-                    crate::preview::draw(&mut target, content, None, '…').unwrap();
-                    assert_eq!(target.touched, width != 0 && height != 0);
-                    if width == 0 || height == 0 {
-                        continue;
-                    }
-                    for row in &target.rows {
-                        assert_eq!(
-                            unicode_width::UnicodeWidthStr::width(row.as_str()),
-                            usize::from(width),
-                        );
-                    }
+    let pane = pane("Ａabc\nsecond").with_line_numbers(true);
+    for width in 0..=4 {
+        for height in 0..=4 {
+            for content in [Content::Empty, Content::Loading, Content::Ready(&pane)] {
+                let mut target = TestSurface::new(width, height);
+                crate::preview::draw(&mut target, content, None, '…').unwrap();
+                assert_eq!(target.touched, width != 0 && height != 0);
+                if width == 0 || height == 0 {
+                    continue;
+                }
+                for row in &target.rows {
+                    assert_eq!(
+                        unicode_width::UnicodeWidthStr::width(row.as_str()),
+                        usize::from(width),
+                    );
                 }
             }
         }

@@ -60,6 +60,9 @@ trait Draw {
 /// are determined by consuming the session state (in particular, the interface state iself) and
 /// returning the corresponding output.
 ///
+/// Dropping a session saves the state in the underlying [`Driver`](crate::session::Driver)
+/// and calls [`Interface::on_end`], but does *not* call [`Interface::finish`].
+///
 /// # Redraw policy
 ///
 /// Generally speaking, the runner is responsible for layout and redrawing. However, the various
@@ -88,7 +91,7 @@ struct SessionState<'items, T, R, I: Interface<T>> {
     status_line: StatusLine<'items>,
     chars: &'items PickerChars,
     status: MatchStatus,
-    visible_components: Components,
+    active_components: Components,
     query_changed: bool,
     matches_changed: bool,
     pending_redraw: Components,
@@ -149,7 +152,11 @@ impl<'items, T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Session<'i
         let mut list = MatchList::new(list_state, chars);
         list.flush(engine);
         let status = engine.status();
-        let cx = context(engine, list.rank(engine), I::PREVIEW);
+        let active_components = Components {
+            preview: I::PREVIEW,
+            ..Components::ALL
+        };
+        let cx = context(engine, list.hovered_rank(engine), active_components);
         let state = interface.init(&cx);
         Self {
             inner: DropGuard::new(
@@ -162,10 +169,7 @@ impl<'items, T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Session<'i
                     status_line: StatusLine::new(chars),
                     chars,
                     status,
-                    visible_components: Components {
-                        preview: I::PREVIEW,
-                        ..Components::ALL
-                    },
+                    active_components,
                     query_changed: false,
                     matches_changed: true,
                     pending_redraw: Components::ALL,
@@ -201,7 +205,7 @@ impl<'items, T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Session<'i
         let session = &mut *self.inner;
         session.status = session.engine.update(wait_millis(wait));
         session.matches_changed |= session.status.items_changed;
-        session.pending_redraw.list |= session.list.update(
+        session.pending_redraw.match_list |= session.list.update(
             session.engine,
             session.status.items_changed,
             std::mem::take(&mut session.query_changed),
@@ -220,8 +224,8 @@ impl<'items, T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Session<'i
         let session = &mut *self.inner;
         let cx = context(
             session.engine,
-            session.list.rank(session.engine),
-            session.visible_components.preview,
+            session.list.hovered_rank(session.engine),
+            session.active_components,
         );
         session.pending_redraw |= session.interface.before_frame(
             &mut session.state,
@@ -248,8 +252,8 @@ impl<'items, T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Session<'i
         session.interface.on_end(&mut session.state);
         let cx = context(
             session.engine,
-            session.list.rank(session.engine),
-            session.visible_components.preview,
+            session.list.hovered_rank(session.engine),
+            session.active_components,
         );
         session.interface.finish(session.state, exit, cx)
     }
@@ -277,8 +281,8 @@ impl<T: Send + Sync + 'static, R, I: Interface<T>> Session<'_, T, R, I> {
     }
 
     /// Returns the match rank of the hovered item, or `None` if there are no matches.
-    pub fn rank(&self) -> Option<u32> {
-        SessionRead::rank(self)
+    pub fn hovered_rank(&self) -> Option<u32> {
+        SessionRead::hovered_rank(self)
     }
 
     /// Returns the item at the committed hovered rank, or `None` if there are no matches.
@@ -286,15 +290,12 @@ impl<T: Send + Sync + 'static, R, I: Interface<T>> Session<'_, T, R, I> {
         SessionRead::hovered(self)
     }
 
-    /// Returns the set of visible components, as understood by the session.
+    /// Returns the set of active components, as understood by the session.
     ///
-    /// The visible component list is used internally to avoid unnecessary background work. The
-    /// runner may find it convenient to also use this state to keep track of which components are
-    /// visible on the screen.
-    ///
-    /// This value is only updated using [`EventBatch::set_visible_components`].
-    pub fn visible_components(&self) -> Components {
-        SessionRead::visible_components(self)
+    /// The active component list is used internally to avoid unnecessary background work.
+    /// This value is only updated using [`EventBatch::set_active_components`].
+    pub fn active_components(&self) -> Components {
+        SessionRead::active_components(self)
     }
 
     /// Returns the current status of matching progress.
@@ -321,7 +322,7 @@ impl<T: Send + Sync + 'static, R, I: Interface<T>> SessionState<'_, T, R, I> {
         }
         self.query_changed |= prompt.contents_changed;
         self.pending_redraw.prompt |= prompt.needs_redraw;
-        self.pending_redraw.list |= self.list.update(self.engine, false, false);
+        self.pending_redraw.match_list |= self.list.update(self.engine, false, false);
     }
 }
 
@@ -331,6 +332,11 @@ impl<T: Send + Sync + 'static, R, I: Interface<T>> SessionState<'_, T, R, I> {
 /// before processing them in order to reduce overhead. When this handle is dropped, the changes
 /// from events are recorded in the underlying session. Reading [`Self::query`] also applies
 /// buffered changes while continuing to use the batch.
+///
+/// The event batch has an internal event queue which helps with event deduplication. Dropping the
+/// event batch causes the internal event queue to be published to the original [`Session`]. Note
+/// that any changes to the event batch are observable by future calls: for instance updates to the
+/// query in the event batch are immediately visible in the call to [`query`](Self::query).
 pub struct EventBatch<'batch, 'items, T: Send + Sync + 'static, R, I: Interface<T>> {
     session: &'batch mut SessionState<'items, T, R, I>,
 }
@@ -347,7 +353,7 @@ impl<T: Send + Sync + 'static, R, I: Interface<T>> EventBatch<'_, '_, T, R, I> {
         let cx = context(
             session.engine,
             session.list.event_rank(session.engine),
-            session.visible_components.preview,
+            session.active_components,
         );
         session
             .list
@@ -366,7 +372,7 @@ impl<T: Send + Sync + 'static, R, I: Interface<T>> EventBatch<'_, '_, T, R, I> {
             let cx = context(
                 session.engine,
                 session.list.event_rank(session.engine),
-                session.visible_components.preview,
+                session.active_components,
             );
             session.pending_redraw |=
                 session
@@ -418,38 +424,41 @@ impl<T: Send + Sync + 'static, R, I: Interface<T>> EventBatch<'_, '_, T, R, I> {
         let cx = context(
             session.engine,
             session.list.event_rank(session.engine),
-            session.visible_components.preview,
+            session.active_components,
         );
         session.interface.on_restart(&mut session.state, &cx);
         session.pending_redraw |= Components::QUEUE | Components::PREVIEW;
         session.engine.restart();
         session.matches_changed = true;
-        session.list.restart(&context(
-            session.engine,
-            None,
-            session.visible_components.preview,
-        ));
+        session
+            .list
+            .restart(&context(session.engine, None, session.active_components));
         session.engine.injector()
     }
 
-    /// Returns the current list of visible components.
+    /// Returns the current list of active components.
     ///
-    /// See [`Session::visible_components`] for more details.
-    pub fn visible_components(&self) -> Components {
-        self.session.visible_components
+    /// See [`Session::active_components`] for more details.
+    pub fn active_components(&self) -> Components {
+        self.session.active_components
     }
 
-    /// Set the list of visible components.
-    pub fn set_visible_components(&mut self, mut components: Components) {
+    /// Set the list of active components.
+    ///
+    /// Note that preview visibility also takes into account [`Interface::PREVIEW`]. If
+    /// [`Interface::PREVIEW`] is set to false, this means that the preview pane is never active
+    /// (since it is the responsibility of the interface only to manage the preview pane) so the
+    /// component will be inactive independently of the value set here.
+    pub fn set_active_components(&mut self, mut components: Components) {
         components.preview &= I::PREVIEW;
-        let visible = self.session.visible_components;
+        let visible = self.session.active_components;
         self.session.pending_redraw |= Components {
             prompt: visible.prompt != components.prompt,
-            list: visible.list != components.list,
+            match_list: visible.match_list != components.match_list,
             status: visible.status != components.status,
             preview: visible.preview != components.preview,
         };
-        self.session.visible_components = components;
+        self.session.active_components = components;
     }
 }
 
@@ -474,7 +483,9 @@ impl<T: Send + Sync + 'static, R, I: Interface<T>> Drop for EventBatch<'_, '_, T
 /// [`Widget`](ratatui_core::widgets::Widget).
 ///
 /// When the frame is complete, call [`complete`](Self::complete) to propagate context
-/// to the [`Interface`] struct and reset internal state.
+/// to the [`Interface`] struct and reset internal state. Dropping a prepared frame without calling
+/// [`complete`](Self::complete) will skip [`Interface::after_frame`] and set all active
+/// components as having been modified.
 pub struct PreparedFrame<'frame, 'items, T, R, I: Interface<T>> {
     session: &'frame mut SessionState<'items, T, R, I>,
     deadline: Instant,
@@ -528,12 +539,12 @@ impl<'items, T: Send + Sync + 'static, R: Render<T>, I: Interface<T>>
     /// Returns the visible components invalidated by session changes.
     ///
     /// The redraw list is filtered by the visible components (as returned by
-    /// [`PreparedFrame::visible_components`] and set by
-    /// [`EventBatch::set_visible_components`]). In particular, the redraw mask may be empty and
+    /// [`PreparedFrame::active_components`] and set by
+    /// [`EventBatch::set_active_components`]). In particular, the redraw mask may be empty and
     /// [`changed`](Self::changed) can return true if a component goes from being visible to hidden.
     /// The host must also account for layout and presentation changes, which are not tracked here.
     pub fn redraw(&self) -> Components {
-        self.session.pending_redraw & self.session.visible_components
+        self.session.pending_redraw & self.session.active_components
     }
 
     /// Returns whether any of the components ahve changed.
@@ -549,14 +560,16 @@ impl<'items, T: Send + Sync + 'static, R: Render<T>, I: Interface<T>>
     /// Acknowledge completion of the current frame.
     ///
     /// Calling this method resets the internal redraw markers and calls [`Interface::after_frame`].
-    /// In particular, this method should be called on every frame, including frames which did not
-    /// require rendering.
+    /// Any resulting redraw information from [`Interface::after_frame`] will be stored internally
+    /// for use on the next frame.
+    ///
+    /// This method should be called on every frame, including frames which did not require rendering.
     pub fn complete(mut self) {
         let session = &mut *self.session;
         let cx = context(
             session.engine,
-            session.list.rank(session.engine),
-            session.visible_components.preview,
+            session.list.hovered_rank(session.engine),
+            session.active_components,
         );
         session.pending_redraw = Components::NONE;
         session.pending_redraw |=
@@ -600,13 +613,13 @@ impl<T: Send + Sync + 'static, R, I: Interface<T>> PreparedFrame<'_, '_, T, R, I
     }
 
     /// Returns the match rank of the hovered item, or `None` if there are no matches.
-    pub fn rank(&self) -> Option<u32> {
-        SessionRead::rank(self)
+    pub fn hovered_rank(&self) -> Option<u32> {
+        SessionRead::hovered_rank(self)
     }
 
     /// Returns the item at the committed hovered rank, or `None` if there are no matches.
     ///
-    /// The item borrows this frame and comes from [`Self::matches`] at [`Self::rank`],
+    /// The item borrows this frame and comes from [`Self::matches`] at [`Self::hovered_rank`],
     /// independently of component sizing and visibility. Reading does not advance matching
     /// or run frame hooks.
     pub fn hovered(&self) -> Option<ItemRef<'_, T>> {
@@ -618,9 +631,9 @@ impl<T: Send + Sync + 'static, R, I: Interface<T>> PreparedFrame<'_, '_, T, R, I
     /// This set is used to decide *how to allocate layout* rather than for redraw. Note that
     /// components allocated an empty area in the screen can still count as visible.
     ///
-    /// Manipulate the set of visible components using [`EventBatch::set_visible_components`].
-    pub fn visible_components(&self) -> Components {
-        SessionRead::visible_components(self)
+    /// Manipulate the set of visible components using [`EventBatch::set_active_components`].
+    pub fn active_components(&self) -> Components {
+        SessionRead::active_components(self)
     }
 
     /// Returns the current status of matching progress.
@@ -659,11 +672,11 @@ fn dimensions<S: Surface>(surface: &S) -> Dimensions {
 fn context<T: Send + Sync + 'static, R>(
     engine: &MatchEngine<T, R>,
     rank: Option<u32>,
-    preview_enabled: bool,
+    active_components: Components,
 ) -> Context<'_, T> {
     Context::new(Matches::new(engine))
         .with_rank(rank)
-        .with_preview_enabled(preview_enabled)
+        .with_active_components(active_components)
 }
 
 fn wait_millis(wait: Duration) -> u64 {

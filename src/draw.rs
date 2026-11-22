@@ -25,7 +25,9 @@ pub mod ratatui;
 ///    text calls (but may span styles within a single [`styled_text`](Self::styled_text) call).
 ///
 /// The columns and rows refer to local coordinates, indexed from `(0,0)` in the top-left corner.
-/// Text widths are using `unicode-width`.
+/// Text widths are measured by summing the value of `unicode-width` over all extended grapheme
+/// clusters. In particular, this may be a bit different than measuring the width of the entire
+/// string in one go.
 pub trait Surface {
     /// An error which may occur while drawing.
     type Error;

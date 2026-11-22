@@ -39,7 +39,7 @@ impl<T: Send + Sync + 'static, R, I: Interface<T>> PreparedPrompt<'_, '_, T, R, 
     /// situation in the future.
     pub fn cursor(&self) -> Option<Position> {
         self.session
-            .visible_components
+            .active_components
             .prompt
             .then(|| self.session.prompt.cursor())
             .flatten()
@@ -75,7 +75,7 @@ impl<T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Draw
 
     fn draw<S: Surface>(&mut self, surface: &mut S) -> Result<(), S::Error> {
         Draw::resize(self, dimensions(surface));
-        if surface.is_empty() || !self.session.visible_components.prompt {
+        if surface.is_empty() || !self.session.active_components.prompt {
             return Ok(());
         }
         surface.move_to(0, 0)?;

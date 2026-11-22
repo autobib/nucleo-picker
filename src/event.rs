@@ -201,10 +201,7 @@ pub enum Event<A = !> {
     UserInterrupt,
     /// Abort the picker (error) for another reason.
     Abort(A),
-    /// Request an immediate screen repaint from the host, including checking terminal size.
-    ///
-    /// The standard runner clears and repaints its layout. Externally driven session hosts
-    /// handle this request through their own rendering backend.
+    /// Request an immediate screen redraw.
     Redraw,
     /// Quit the picker by selecting items.
     Select,
@@ -238,9 +235,9 @@ pub struct PickerStatus {
     pub selected_item_count: u32,
     /// The dimensions of the picker screen.
     pub dimensions: Dimensions,
-    /// Whether any frame required rendering since the previous status request.
+    /// Whether any frame changed since the previous status request.
     pub changed: bool,
-    /// Whether the exact frame during which this status response required rendering.
+    /// Whether the exact frame during which this status response was processed includes changes.
     pub frame_changed: bool,
     /// Whether the internal match engine is processing matches.
     pub matching: bool,
@@ -252,7 +249,7 @@ pub struct PickerStatus {
 ///
 /// This is quite similar to the standard library
 /// [`mpsc::RecvTimeoutError`](std::sync::mpsc::RecvTimeoutError), but also permitting an
-/// [`io::Error`] which may result from reading from standard input.
+/// [`io::Error`] which may result from reading from the terminal.
 pub enum RecvError {
     /// No event was received because we timed out.
     Timeout,

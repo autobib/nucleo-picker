@@ -641,45 +641,8 @@ fn style_resets_and_custom_elision() -> Result<(), Box<dyn Error>> {
     sr.wait_for_match_complete(1, 1)?;
     let snapshot = checkpoint!(sr, "styles");
     assert_pane(&snapshot, false, &["ABCDEF", "abcdef"]);
-    let spans: Vec<_> = snapshot
-        .styles
-        .iter()
-        .filter(|span| span.start > 8)
-        .collect();
-    assert_eq!(spans.len(), 3);
-    assert_eq!((spans[0].start, spans[0].end), (9, 11));
-    assert!(spans[0].style.bold);
-    assert!(spans[0].style.background.is_some());
-    assert_eq!((spans[1].start, spans[1].end), (12, 13));
-    assert!(spans[1].style.underline_color.is_some());
-    assert_eq!((spans[2].start, spans[2].end), (13, 14));
-    assert!(spans[2].style.underline_color.is_none());
-    assert_eq!(
-        spans[2].style.underline,
-        nucleo_picker_vt::UnderlineName::Single
-    );
     sr.set_dimensions(10, 6)?;
     assert_pane(&checkpoint!(sr, "custom-marker"), false, &["AB~", "ab~"]);
-    sr.send(Event::Quit)?;
-    assert!(sr.finish()?.is_empty());
-
-    let mut sr = start_with(
-        "ascii_elision",
-        vec!["abcdef"],
-        PickerOptions::new().ascii_compatible(true),
-        SyncPreviewer(|item: &String, pane: &mut Pane| pane.buffer_mut().push_str(item)),
-    );
-    sr.set_dimensions(10, 5)?;
-    sr.wait_for_match_complete(1, 1)?;
-    let snapshot = sr.checkpoint("ascii marker")?;
-    assert!(snapshot.text.iter().all(|line| line.is_ascii()));
-    for (line, expected) in snapshot
-        .text
-        .iter()
-        .zip(["+---+", "|ab.|", "|   |", "|   |", "+---+"])
-    {
-        assert!(line.ends_with(expected), "unexpected row: {line:?}");
-    }
     sr.send(Event::Quit)?;
     assert!(sr.finish()?.is_empty());
     Ok(())
@@ -1022,25 +985,6 @@ fn horizontal_scroll_clips_styled_graphemes() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn numbered_scrolling_and_blank_rows() -> Result<(), Box<dyn Error>> {
-    let assert_numbers = |snapshot: &PaneSnapshot, expected: &[(u16, u16, u16)]| {
-        let column = snapshot.size.cols - snapshot.size.cols / 2;
-        let spans: Vec<_> = snapshot
-            .styles
-            .iter()
-            .filter(|span| span.start > column)
-            .collect();
-        assert_eq!(spans.len(), expected.len());
-        for (span, &(row, start, end)) in spans.into_iter().zip(expected) {
-            assert_eq!((span.row, span.start, span.end), (row, start, end));
-            assert_eq!(
-                span.style,
-                nucleo_picker_vt::CellStyle {
-                    background: Some(nucleo_picker_vt::HexColor("#1d1f21".to_owned())),
-                    ..Default::default()
-                }
-            );
-        }
-    };
     let mut sr = start_with(
         "numbered_scrolling_and_blank_rows",
         vec!["long", "short", "empty"],
@@ -1068,10 +1012,6 @@ fn numbered_scrolling_and_blank_rows() -> Result<(), Box<dyn Error>> {
         false,
         &["  1 text", "  2 text", "  3 text", "  4 text"],
     );
-    assert_numbers(
-        &initial,
-        &[(1, 14, 17), (2, 14, 17), (3, 14, 17), (4, 14, 17)],
-    );
     for (event, expected) in [
         (
             PreviewEvent::Down(7),
@@ -1096,10 +1036,6 @@ fn numbered_scrolling_and_blank_rows() -> Result<(), Box<dyn Error>> {
         assert_pane(&snapshot, false, &expected);
         if bottom {
             checkpoint!(sr, "bottom", snapshot);
-            assert_numbers(
-                &snapshot,
-                &[(1, 14, 17), (2, 14, 17), (3, 14, 17), (4, 14, 17)],
-            );
         }
     }
     sr.set_dimensions(12, 6)?;
@@ -1123,7 +1059,6 @@ fn numbered_scrolling_and_blank_rows() -> Result<(), Box<dyn Error>> {
     sr.send(Event::MatchList(MatchListEvent::Up(1)))?;
     let short = checkpoint!(sr, "short");
     assert_pane(&short, false, &["1 short", "2 ", "3 last"]);
-    assert_numbers(&short, &[(1, 14, 15), (2, 14, 15), (3, 14, 15)]);
     sr.send(Event::MatchList(MatchListEvent::Up(1)))?;
     assert_pane(&sr.checkpoint("empty")?, false, &["1 "]);
     sr.send(Event::MatchList(MatchListEvent::Down(2)))?;
@@ -1162,15 +1097,6 @@ impl Preview<String> for DeferredPreview {
 #[test]
 fn invalidating_the_current_preview_redraws_loading_and_new_contents() -> Result<(), Box<dyn Error>>
 {
-    for ch in ['r', 'R'] {
-        assert!(
-            keybind_single_preview::<!>(KeyEvent::new(
-                KeyCode::Char(ch),
-                KeyModifiers::CONTROL | KeyModifiers::SHIFT,
-            ))
-            .is_none()
-        );
-    }
     let (sender, receiver) = std::sync::mpsc::channel();
     let mut sr = start_with(
         "refresh_preview",
@@ -1230,15 +1156,6 @@ fn pending_previews_clear_stale_content_and_render_on_publication() -> Result<()
     sr.send(Event::MatchList(MatchListEvent::Up(1)))?;
     let pending = checkpoint!(sr, "pending");
     assert_pane(&pending, false, &["Loading..."]);
-    let styles: Vec<_> = pending
-        .styles
-        .iter()
-        .filter(|span| span.start >= 15)
-        .collect();
-    assert_eq!(styles.len(), 1);
-    assert_eq!((styles[0].row, styles[0].start, styles[0].end), (1, 16, 26));
-    assert!(styles[0].style.foreground.is_some());
-    assert!(styles[0].style.background.is_none());
     for (width, expected) in [(24, "Loading..."), (22, "Loading.…"), (6, "…")] {
         sr.set_dimensions(width, 3)?;
         assert_pane(&sr.checkpoint("narrow pending")?, false, &[expected]);

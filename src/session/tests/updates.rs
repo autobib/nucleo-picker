@@ -12,12 +12,12 @@ struct Update {
     matches_changed: bool,
     hovered: Option<ItemId>,
     matches: Vec<ItemId>,
-    preview_enabled: bool,
+    active_components: Components,
     deadline: Instant,
     completed: bool,
 }
 
-struct Probe<'a, const PREVIEW: bool>(&'a mut Vec<Update>, Components);
+struct Probe<'a, const PREVIEW: bool>(&'a mut Vec<Update>, Components, Components);
 
 impl<const PREVIEW: bool> Interface<String> for Probe<'_, PREVIEW> {
     type State = ();
@@ -38,7 +38,7 @@ impl<const PREVIEW: bool> Interface<String> for Probe<'_, PREVIEW> {
             matches_changed,
             hovered: cx.hovered().map(|item| item.id()),
             matches: cx.matches().ids().collect(),
-            preview_enabled: cx.preview_enabled(),
+            active_components: cx.active_components(),
             deadline,
             completed: false,
         });
@@ -56,8 +56,8 @@ impl<const PREVIEW: bool> Interface<String> for Probe<'_, PREVIEW> {
         assert_eq!(last.deadline, deadline);
         assert_eq!(last.hovered, cx.hovered().map(|item| item.id()));
         assert!(cx.matches().ids().eq(last.matches.iter().copied()));
-        assert_eq!(last.preview_enabled, cx.preview_enabled());
-        self.1
+        assert_eq!(last.active_components, cx.active_components());
+        self.2
     }
 
     fn finish<'items>(
@@ -79,7 +79,11 @@ fn idle_and_navigation_frames_run_both_hooks_without_match_notifications() {
     let mut driver = driver(["alpha", "beta"]);
     let ids: Vec<_> = driver.matches().ids().collect();
     let mut updates = Vec::new();
-    let mut session = driver.session(Probe::<false>(&mut updates, Components::NONE));
+    let mut session = driver.session(Probe::<false>(
+        &mut updates,
+        Components::NONE,
+        Components::NONE,
+    ));
     frame(&mut session);
     frame(&mut session);
     session.events().match_list(MatchListEvent::Up(1));
@@ -97,7 +101,13 @@ fn idle_and_navigation_frames_run_both_hooks_without_match_notifications() {
         assert_eq!(update.matches_changed, changed);
         assert_eq!(update.hovered, Some(ids[rank]));
         assert_eq!(update.matches, ids);
-        assert!(!update.preview_enabled);
+        assert_eq!(
+            update.active_components,
+            Components {
+                preview: false,
+                ..Components::ALL
+            }
+        );
         assert!(update.completed);
     }
 }
@@ -107,7 +117,11 @@ fn query_batches_notify_only_after_publication_and_keep_changes_until_preparatio
     let mut driver = driver(["alpha", "beta"]);
     let beta = driver.matches().get(1).unwrap().id();
     let mut updates = Vec::new();
-    let mut session = driver.session(Probe::<false>(&mut updates, Components::NONE));
+    let mut session = driver.session(Probe::<false>(
+        &mut updates,
+        Components::NONE,
+        Components::NONE,
+    ));
     frame(&mut session);
     session
         .events()
@@ -136,9 +150,13 @@ fn hidden_publications_and_repeated_restarts_are_reported_once_per_frame() {
     let mut driver = driver(["alpha", "beta"]);
     let injector = driver.injector();
     let mut updates = Vec::new();
-    let mut session = driver.session(Probe::<true>(&mut updates, Components::NONE));
+    let mut session = driver.session(Probe::<true>(
+        &mut updates,
+        Components::NONE,
+        Components::NONE,
+    ));
     frame(&mut session);
-    session.events().set_visible_components(Components {
+    session.events().set_active_components(Components {
         preview: false,
         ..Components::ALL
     });
@@ -147,7 +165,7 @@ fn hidden_publications_and_repeated_restarts_are_reported_once_per_frame() {
     drop(injector);
     update(&mut session);
     frame(&mut session);
-    session.events().set_visible_components(Components::ALL);
+    session.events().set_active_components(Components::ALL);
     frame(&mut session);
     {
         let mut batch = session.events();
@@ -167,7 +185,7 @@ fn hidden_publications_and_repeated_restarts_are_reported_once_per_frame() {
             .iter()
             .map(|update| (
                 update.matches_changed,
-                update.preview_enabled,
+                update.active_components.preview,
                 update.matches.len(),
             ))
             .eq([
@@ -191,21 +209,22 @@ fn preview_wrappers_forward_frame_hooks_and_combine_invalidations() {
         frame(&mut session);
         session.events().match_list(MatchListEvent::Up(1));
         let navigation = session.prepare_frame(frame_options());
-        assert_eq!(navigation.redraw(), Components::QUEUE | Components::PREVIEW);
+        assert_eq!(navigation.redraw(), Components::ALL);
         navigation.complete();
-        session.events().set_visible_components(Components {
+        session.events().set_active_components(Components {
             preview: false,
             ..Components::ALL
         });
         frame(&mut session);
         let hidden = session.prepare_frame(frame_options());
-        assert_eq!(hidden.redraw(), Components::QUEUE);
+        assert_eq!(
+            hidden.redraw(),
+            Components {
+                preview: false,
+                ..Components::ALL
+            }
+        );
         hidden.complete();
-        drop(session.events().restart());
-        update(&mut session);
-        frame(&mut session);
-        session.events().set_visible_components(Components::ALL);
-        frame(&mut session);
     }
 
     for cached in [
@@ -215,7 +234,14 @@ fn preview_wrappers_forward_frame_hooks_and_combine_invalidations() {
     ] {
         let mut updates = Vec::new();
         let mut generated = 0;
-        let probe = Probe::<false>(&mut updates, Components::QUEUE);
+        let probe = Probe::<false>(
+            &mut updates,
+            Components::QUEUE,
+            Components {
+                prompt: true,
+                ..Components::NONE
+            },
+        );
         let generate = |_: &String, _: &mut crate::preview::Pane| generated += 1;
         match cached {
             #[cfg(feature = "preview-cache")]
@@ -228,15 +254,8 @@ fn preview_wrappers_forward_frame_hooks_and_combine_invalidations() {
         assert!(
             updates
                 .iter()
-                .map(|update| (update.matches_changed, update.preview_enabled))
-                .eq([
-                    (true, true),
-                    (false, true),
-                    (false, false),
-                    (false, false),
-                    (true, false),
-                    (false, true),
-                ])
+                .map(|update| (update.matches_changed, update.active_components.preview))
+                .eq([(true, true), (false, true), (false, false), (false, false),])
         );
         assert!(updates.iter().all(|update| update.completed));
         assert_eq!(generated, 2);

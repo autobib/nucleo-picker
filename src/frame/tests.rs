@@ -85,7 +85,7 @@ fn render(
 ) -> String {
     let mut driver = DriverOptions::new().driver(StrRenderer);
     let mut session = driver.session(interface);
-    let layout = Layout::new(dimensions(size), false, 0.5, session.visible_components());
+    let layout = Layout::new(dimensions(size), false, 0.5, session.active_components());
     let mut initial = session.prepare_frame(frame_options());
     super::draw(
         &layout,
@@ -129,7 +129,7 @@ fn host_repaints_respect_component_boundaries_without_changing_the_frame() {
             let [prompt, list, status, preview] = flags;
             let redraw = Components {
                 prompt,
-                list,
+                match_list: list,
                 status,
                 preview,
             };
@@ -169,14 +169,9 @@ fn moved_and_empty_layout_is_applied_while_painting() {
     let mut driver = DriverOptions::new().driver::<&str, _>(StrRenderer);
     let mut session = driver.session(Select);
     session.prepare_frame(frame_options()).complete();
-    let mut layout = Layout::new(
-        dimensions((20, 8)),
-        false,
-        0.5,
-        session.visible_components(),
-    );
+    let mut layout = Layout::new(dimensions((20, 8)), false, 0.5, session.active_components());
     for (width, height) in [(20, 8), (0, 8), (20, 0), (20, 8)] {
-        layout.resolve(Dimensions { width, height }, session.visible_components());
+        layout.resolve(Dimensions { width, height }, session.active_components());
         if width != 0 && height != 0 {
             layout.prompt = Area {
                 column: 3,
@@ -223,27 +218,25 @@ fn moved_and_empty_layout_is_applied_while_painting() {
 
 #[test]
 fn hidden_and_empty_components_are_sized_without_repaint_requests() {
+    let resizes = RefCell::new(Vec::new());
     let mut driver = DriverOptions::new().driver::<&str, _>(StrRenderer);
-    let mut session = driver.session(Select);
-    let mut layout = Layout::new(
-        dimensions((20, 4)),
-        false,
-        0.5,
-        session.visible_components(),
-    );
+    let mut session = driver.session(EmptyPreview(Some(&resizes)));
+    let mut layout = Layout::new(dimensions((20, 4)), false, 0.5, session.active_components());
     for (shown, size) in [
         (true, (20, 4)),
         (false, (20, 4)),
+        (true, (20, 4)),
         (true, (0, 4)),
+        (true, (20, 4)),
         (true, (20, 0)),
         (true, (20, 4)),
     ] {
-        session.events().set_visible_components(if shown {
+        session.events().set_active_components(if shown {
             Components::ALL
         } else {
             Components::NONE
         });
-        layout.resolve(dimensions(size), session.visible_components());
+        layout.resolve(dimensions(size), session.active_components());
         let nonempty = size.0 != 0 && size.1 != 0;
         let redraw = if shown && nonempty {
             Components::ALL
@@ -257,66 +250,63 @@ fn hidden_and_empty_components_are_sized_without_repaint_requests() {
             &mut frame,
             &mut terminal,
             redraw,
-            true,
+            false,
             BoundaryChars::new(),
         )
         .unwrap();
         if !nonempty {
             assert!(terminal.output.is_empty());
-        } else {
-            assert!(terminal.output.windows(4).any(|bytes| bytes == b"\x1b[2J"));
-            if !shown {
-                assert!(!terminal.output.contains(&b'>'));
-            }
         }
+        assert_eq!(terminal.output.contains(&b'>'), shown && nonempty);
+        assert!(!terminal.output.windows(4).any(|bytes| bytes == b"\x1b[2J"));
         frame.complete();
 
         let mut idle = session.prepare_frame(frame_options());
         assert_eq!(idle.prompt().cursor().is_some(), shown && nonempty);
-        let expected = |area: Area| {
-            if shown {
-                Dimensions {
-                    width: area.width,
-                    height: area.height,
-                }
-            } else {
-                Dimensions::default()
-            }
-        };
-        idle.prompt().resize(expected(layout.prompt));
-        assert!(!idle.changed());
-        idle.match_list().resize(expected(layout.list));
-        assert!(!idle.changed());
-        idle.status().resize(expected(layout.status));
         assert!(!idle.changed());
         idle.complete();
+        if !shown {
+            session.events().set_active_components(Components::ALL);
+            let mut restored = session.prepare_frame(frame_options());
+            assert!(restored.prompt().cursor().is_none());
+            restored.complete();
+        }
     }
+    assert_eq!(
+        *resizes.borrow(),
+        [
+            Some(dimensions((8, 2))),
+            None,
+            Some(dimensions((8, 2))),
+            Some(Dimensions::default()),
+            Some(dimensions((8, 2))),
+            Some(Dimensions::default()),
+            Some(dimensions((8, 2))),
+        ]
+    );
 }
 
 #[test]
 fn status_visibility_survives_resizing_in_both_orientations() {
     for reversed in [false, true] {
-        let mut driver = DriverOptions::new().driver(StrRenderer);
-        let mut session = driver.session(EmptyPreview::default());
         let size = dimensions((20, 5));
-        let mut layout = Layout::new(size, reversed, 0.4, session.visible_components());
-        assert!(!layout.resolve(size, session.visible_components()));
+        let mut layout = Layout::new(size, reversed, 0.4, Components::ALL);
+        assert!(!layout.resolve(size, Components::ALL));
         let initial = (layout.prompt, layout.list, layout.status, layout.preview);
-        session.events().set_visible_components(Components {
+        let hidden = Components {
             status: false,
             ..Components::ALL
-        });
-        assert!(layout.resolve(size, session.visible_components()));
+        };
+        assert!(layout.resolve(size, hidden));
         assert!(layout.status.is_empty());
         assert_eq!(layout.list.height, 4);
         assert_eq!(layout.list.row, u16::from(reversed));
         assert_eq!((layout.prompt, layout.preview), (initial.0, initial.3));
-        assert!(!layout.resolve(size, session.visible_components()));
-        assert!(layout.resolve(dimensions((30, 1)), session.visible_components()));
+        assert!(!layout.resolve(size, hidden));
+        assert!(layout.resolve(dimensions((30, 1)), hidden));
         assert_eq!(layout.dimensions(), dimensions((30, 1)));
         assert!(layout.status.is_empty());
-        session.events().set_visible_components(Components::ALL);
-        assert!(layout.resolve(size, session.visible_components()));
+        assert!(layout.resolve(size, Components::ALL));
         assert_eq!(
             (layout.prompt, layout.list, layout.status, layout.preview),
             initial
@@ -433,7 +423,22 @@ fn preview_border_reads_content_after_resize() {
         }
     }
 
-    let output = render(Components::PREVIEW, false, (30, 5), ResizeError);
+    let mut driver = DriverOptions::new().driver(StrRenderer);
+    let mut session = driver.session(ResizeError);
+    let layout = Layout::new(dimensions((30, 5)), false, 0.5, session.active_components());
+    let mut frame = session.prepare_frame(frame_options());
+    let mut terminal = TestTerminal::default();
+    super::draw(
+        &layout,
+        &mut frame,
+        &mut terminal,
+        Components::PREVIEW,
+        false,
+        BoundaryChars::new(),
+    )
+    .unwrap();
+    frame.complete();
+    let output = String::from_utf8(terminal.output).unwrap();
     assert!(output.contains(" Error "));
     assert!(output.contains("preview"));
 }
@@ -448,32 +453,30 @@ fn empty_and_tiny_targets_keep_preview_borders_in_bounds() {
         horizontal: '-',
         vertical: '|',
     };
-    for is_err in [false, true] {
-        let mut pane = Pane::new();
-        pane.push_text("Ａabc\nsecond");
-        pane.set_err(is_err);
-        for width in 0..=4 {
-            for height in 0..=4 {
-                let mut target = TestSurface::new(width, height);
-                crate::preview::draw(&mut target, Content::Ready(&pane), Some(chars), '…').unwrap();
-                assert_eq!(target.touched, width != 0 && height != 0);
-                if width == 0 || height == 0 {
-                    continue;
-                }
-                let top = if width == 1 {
-                    "a".to_owned()
+    let mut pane = Pane::new();
+    pane.push_text("Ａabc\nsecond");
+    pane.set_err(true);
+    for width in 0..=4 {
+        for height in 0..=4 {
+            let mut target = TestSurface::new(width, height);
+            crate::preview::draw(&mut target, Content::Ready(&pane), Some(chars), '…').unwrap();
+            assert_eq!(target.touched, width != 0 && height != 0);
+            if width == 0 || height == 0 {
+                continue;
+            }
+            let top = if width == 1 {
+                "a".to_owned()
+            } else {
+                format!("a{}b", "-".repeat(usize::from(width - 2)))
+            };
+            assert_eq!(target.rows[0], top);
+            if height > 1 {
+                let bottom = if width == 1 {
+                    "c".to_owned()
                 } else {
-                    format!("a{}b", "-".repeat(usize::from(width - 2)))
+                    format!("c{}d", "-".repeat(usize::from(width - 2)))
                 };
-                assert_eq!(target.rows[0], top);
-                if height > 1 {
-                    let bottom = if width == 1 {
-                        "c".to_owned()
-                    } else {
-                        format!("c{}d", "-".repeat(usize::from(width - 2)))
-                    };
-                    assert_eq!(target.rows[usize::from(height - 1)], bottom);
-                }
+                assert_eq!(target.rows[usize::from(height - 1)], bottom);
             }
         }
     }
@@ -484,12 +487,7 @@ fn preview_resize_reaches_hidden_and_empty_targets() {
     let resizes = RefCell::new(Vec::new());
     let mut driver = DriverOptions::new().driver(StrRenderer);
     let mut session = driver.session(EmptyPreview(Some(&resizes)));
-    let mut layout = Layout::new(
-        dimensions((20, 5)),
-        false,
-        0.5,
-        session.visible_components(),
-    );
+    let mut layout = Layout::new(dimensions((20, 5)), false, 0.5, session.active_components());
     for (size, enabled) in [
         ((20, 5), true),
         ((5, 4), true),
@@ -498,11 +496,11 @@ fn preview_resize_reaches_hidden_and_empty_targets() {
         ((20, 0), true),
         ((20, 5), true),
     ] {
-        session.events().set_visible_components(Components {
+        session.events().set_active_components(Components {
             preview: enabled,
             ..Components::ALL
         });
-        layout.resolve(dimensions(size), session.visible_components());
+        layout.resolve(dimensions(size), session.active_components());
         let mut frame = session.prepare_frame(frame_options());
         if size.0 == 0 || size.1 == 0 {
             super::draw(

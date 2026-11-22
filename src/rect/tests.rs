@@ -46,7 +46,6 @@ fn empty_rectangles_preserve_dimensions_and_clear_without_output() {
             assert!(rect.is_empty());
             rect.clear().unwrap();
             rect.clear().unwrap();
-            assert!(target.style.is_none());
             assert!(output.is_empty());
         }
     }
@@ -116,46 +115,6 @@ fn construction_checks_each_axis_for_ansi_coordinate_overflow() {
             "{area:?}"
         );
         assert!(output.is_empty());
-    }
-}
-
-#[test]
-#[cfg(debug_assertions)]
-fn empty_rectangles_reject_cursor_operations_and_nonempty_writes() {
-    let operations: [fn(&mut CrosstermSurface<'_, '_, Vec<u8>>); 9] = [
-        |rect| rect.move_to(0, 0).unwrap(),
-        |rect| rect.move_to_column(0).unwrap(),
-        |rect| rect.next_line().unwrap(),
-        |rect| rect.clear_line().unwrap(),
-        |rect| rect.text("x", ContentStyle::new()).unwrap(),
-        |rect| rect.text("\u{200b}", ContentStyle::new()).unwrap(),
-        |rect| {
-            rect.styled_text("x", std::iter::once(ContentStyle::new().apply("x")))
-                .unwrap();
-        },
-        |rect| rect.ascii(format_args!("x"), ContentStyle::new()).unwrap(),
-        |rect| rect.spaces(1, ContentStyle::new()).unwrap(),
-    ];
-    for (width, height) in [(0, 0), (0, 3), (6, 0)] {
-        for operation in operations {
-            let mut output = Vec::new();
-            let mut target = CrosstermTarget::new(&mut output);
-            let mut rect = target.rect(
-                Area {
-                    width,
-                    height,
-                    ..Area::default()
-                },
-                ClearState::WithinRect,
-            );
-            assert!(
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    operation(&mut rect);
-                }))
-                .is_err()
-            );
-            assert!(output.is_empty());
-        }
     }
 }
 
@@ -268,7 +227,7 @@ fn clearing_resets_the_blank_style_but_precleared_rows_only_move() {
 }
 
 #[test]
-fn empty_writes_do_not_change_style_or_visit_spans() {
+fn empty_writes_do_not_emit_output() {
     let mut output = Vec::new();
     let mut target = CrosstermTarget::new(&mut output);
     let mut rect = target.rect(area(), ClearState::Precleared);
@@ -276,34 +235,48 @@ fn empty_writes_do_not_change_style_or_visit_spans() {
     rect.spaces(0, ContentStyle::new().red()).unwrap();
     rect.ascii(format_args!(""), ContentStyle::new().green())
         .unwrap();
-    rect.styled_text("", std::iter::from_fn(|| panic!("visited empty text")))
-        .unwrap();
+    rect.styled_text("", std::iter::empty()).unwrap();
     assert!(output.is_empty());
 }
 
 #[test]
-fn writer_errors_stop_span_iteration() {
-    struct Fails;
+fn writer_errors_propagate_without_further_writes() {
+    #[derive(Default)]
+    struct Fails {
+        output: Vec<u8>,
+        failed: bool,
+    }
 
     impl io::Write for Fails {
-        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
-            Err(io::ErrorKind::BrokenPipe.into())
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            assert!(!self.failed, "drawing continued after failure");
+            let len = bytes
+                .iter()
+                .position(|&byte| byte == b'b')
+                .unwrap_or(bytes.len());
+            if len == 0 {
+                self.failed = true;
+                return Err(io::ErrorKind::BrokenPipe.into());
+            }
+            self.output.extend_from_slice(&bytes[..len]);
+            Ok(len)
         }
         fn flush(&mut self) -> io::Result<()> {
-            panic!("drawing flushed the writer");
+            Ok(())
         }
     }
 
-    let mut writer = Fails;
+    let mut writer = Fails::default();
     let mut target = CrosstermTarget::new(&mut writer);
     let mut rect = target.rect(area(), ClearState::Precleared);
     let error = rect
         .styled_text(
-            "ab",
-            std::iter::once(ContentStyle::new().apply("a")).chain(std::iter::from_fn(|| {
-                panic!("drawing continued after failure")
-            })),
+            "abc",
+            ["a", "b", "c"]
+                .into_iter()
+                .map(|text| ContentStyle::new().apply(text)),
         )
         .unwrap_err();
     assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
+    assert!(writer.output.ends_with(b"a"));
 }

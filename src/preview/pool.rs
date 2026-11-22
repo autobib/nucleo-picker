@@ -23,7 +23,7 @@ use super::{
 /// read those docs for more detail.
 #[cfg_attr(docsrs, doc(cfg(feature = "preview-cache")))]
 pub trait Worker<T> {
-    /// Generate a preview in the provided pane.
+    /// Generate a preview in the provided default pane.
     ///
     /// The preview should be generated for the provided `item`. The worker may cooperatively check for
     /// early cancellation using the `is_cancelled` callback. This can be done to avoid unnecessary
@@ -185,6 +185,11 @@ impl<T: Send + Sync + 'static> Jobs<T> {
 impl<T, F> PoolPreviewer<T, F> {
     /// Add a synchronous previewer which can handle some preview requests in the picker thread
     /// directly.
+    ///
+    /// The provided closure is called on each preview request. If it returns `true`, the pane will
+    /// be immediately published, and if it returns `false`, the request will be forwarded to the
+    /// worker. The received pane is cleared, and returning `false` will cause any changes
+    /// to be discarded.
     ///
     /// This method is called synchronously, and therefore *must not block*. If it blocks, the
     /// picker will lag. This method is mainly useful when, for some items `T`, slow background work

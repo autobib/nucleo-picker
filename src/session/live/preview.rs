@@ -20,7 +20,7 @@ impl<T: Send + Sync + 'static, R, I: Interface<T>> PreparedPreview<'_, '_, T, R,
     /// Internally, this calls [`Interface::preview_content`] unless this component is hidden in
     /// which case it will always return [`Content::Empty`].
     pub fn content(&self) -> Content<'_> {
-        if self.session.visible_components.preview {
+        if self.session.active_components.preview {
             self.session.interface.preview_content(&self.session.state)
         } else {
             Content::Empty
@@ -71,7 +71,7 @@ impl<T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Draw
             return;
         }
         let delivered = session
-            .visible_components
+            .active_components
             .preview
             .then(|| content_dimensions(size, self.border.is_some()));
         if session.preview_resize != Some(delivered) {
@@ -84,7 +84,7 @@ impl<T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Draw
 
     fn draw<S: Surface>(&mut self, surface: &mut S) -> Result<(), S::Error> {
         Draw::resize(self, dimensions(surface));
-        if surface.is_empty() || !self.session.visible_components.preview {
+        if surface.is_empty() || !self.session.active_components.preview {
             return Ok(());
         }
         crate::preview::draw(

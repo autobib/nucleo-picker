@@ -262,16 +262,16 @@ pub trait Interface<T>: Sized {
 
     /// Initialize the state after initial match-list updates.
     ///
-    /// The provided [`Context`] is the shared first frame context which is also passed to the call
-    /// to [`before_frame`](Self::before_frame) which occurs during initialization.
-    ///
-    /// Depending on the runner, initialization may or not may see up-to-date match items.
+    /// For the built-in runner, the provided [`Context`] is the
+    /// same context as is passed to [`before_frame`](Self::before_frame) which
+    /// occurs during initialization. However, this may not be the case for general runners.
     fn init(&mut self, cx: &Context<'_, T>) -> Self::State;
 
     /// Process a restart event.
     ///
     /// The provided [`Context`] corresponds to the *previous* generation at the moment that the
-    /// restart event was processed.
+    /// restart event was processed. The internal session state is preserved (i.e., there are no
+    /// calls to [`Interface::init`] or [`Interface::on_end`]).
     fn on_restart(&mut self, _state: &mut Self::State, _cx: &Context<'_, T>) {}
 
     /// Perform cleanup at the end of the session.
@@ -295,6 +295,9 @@ pub trait Interface<T>: Sized {
 
     /// Process an event which modifies the item queue, returning whether or not there were changes
     /// to the queue.
+    ///
+    /// The returned bool is used, for instance, to decide if the hovered item should change for
+    /// events which toggle and move the cursor.
     fn on_queue(
         &mut self,
         _state: &mut Self::State,
@@ -319,6 +322,10 @@ pub trait Interface<T>: Sized {
     ///
     /// This method is called on every frame, regardless of whether changes occurred or not. The
     /// resulting redraw mask influences the subsequent screen redraw.
+    ///
+    /// The `matches_changed` bool is initially `true` and subsequently is set to `true` if the
+    /// underlying match list has changed or if there was a restart (including restarts even when
+    /// there are no items). Changes to the hovered item will not set this flag.
     fn before_frame(
         &mut self,
         _state: &mut Self::State,
@@ -330,7 +337,10 @@ pub trait Interface<T>: Sized {
     }
 
     /// Perform work after rendering the frame.
-    // TODO: add more details here, including on the frame geometry (?)
+    ///
+    /// Note that this hook is called when
+    /// [`PreparedFrame::complete`](crate::session::PreparedFrame::complete) is called, but not when
+    /// a prepared frame is dropped.
     fn after_frame(
         &mut self,
         _state: &mut Self::State,
@@ -351,7 +361,7 @@ pub trait Interface<T>: Sized {
     ///
     /// The session forwards preview events whenever [`Self::PREVIEW`] is true, including
     /// while hidden. Hosts decide whether to filter user input; the built-in runner
-    /// discards preview events while hidden. [`Context::preview_enabled`] reports the
+    /// discards preview events while hidden. [`Context::active_components`] reports the
     /// current visibility independently of event delivery.
     /// The returned [`Components`] is a mask referring to the subset of the screen which requires
     /// redraw.
@@ -500,7 +510,7 @@ impl<I, P> CachedPreview<I, P> {
         }
     }
 
-    /// Set the cache capacity of the main preview cache.
+    /// Set the cache capacity of the main preview cache, or `None` for an unbounded preview cache.
     ///
     /// The default value if this struct is newly created is `128`, but if this interface was constructed
     /// from picker, the default value given to [`PickerOptions::preview_cache_size`](crate::PickerOptions::preview_cache_size)

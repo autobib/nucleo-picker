@@ -1,30 +1,23 @@
 use super::*;
 
-fn assert_partial(
-    partial: &mut IncrementalIterator<impl Iterator<Item = usize>>,
-    limit: u16,
-    size: u16,
-    new: bool,
-) {
-    assert_eq!(partial.next_partial(limit), Some(Partial { size, new }));
-}
-
 #[test]
-fn test_partial_iterator() {
+fn partial_iterator_preserves_remainders_across_limits() {
     let mut partial = IncrementalIterator::new([1, 7, 3, 2, 5]);
 
-    assert_partial(&mut partial, 2, 1, true);
-    assert_partial(&mut partial, 5, 5, true);
-    assert!(partial.is_incomplete());
-    assert_partial(&mut partial, 1, 1, false);
-    assert!(partial.is_incomplete());
-    assert_partial(&mut partial, 1, 1, false);
-    assert_partial(&mut partial, 3, 3, true);
-    assert_partial(&mut partial, 1, 1, true);
-    assert!(partial.is_incomplete());
-    assert_partial(&mut partial, 8, 1, false);
-    assert_partial(&mut partial, 4, 4, true);
-    assert_partial(&mut partial, 0, 0, false);
-    assert_partial(&mut partial, 1, 1, false);
+    for (limit, size, new, incomplete_after) in [
+        (2, 1, true, false),
+        (5, 5, true, true),
+        (1, 1, false, true),
+        (1, 1, false, false),
+        (3, 3, true, false),
+        (1, 1, true, true),
+        (8, 1, false, false),
+        (4, 4, true, true),
+        (0, 0, false, true),
+        (1, 1, false, false),
+    ] {
+        assert_eq!(partial.next_partial(limit), Some(Partial { size, new }));
+        assert_eq!(partial.is_incomplete(), incomplete_after);
+    }
     assert!(partial.next_partial(0).is_none());
 }

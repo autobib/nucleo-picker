@@ -173,18 +173,23 @@ fn word_edits_and_zero_count_operations_preserve_insertion_boundaries() {
 
 #[test]
 fn incremental_input_matches_paste_for_emoji_and_control_characters() {
-    for text in ["abc👩🏽‍💻", "a\n\u{7}ｏ\tb"] {
+    for (text, normalized) in [("abc👩🏽‍💻", "abc👩🏽‍💻"), ("a\n\u{7}ｏ\tb", "a ｏ b")]
+    {
         let chars = PickerChars::new();
         let mut state = PromptState::new(PromptConfig::default());
         let mut prompt = Prompt::new(&mut state, &chars);
         render(&mut prompt, 6);
         prompt.handle(Paste(text.to_owned()));
         let pasted = render(&mut prompt, 6);
+        let cursor = prompt.cursor();
+        assert_eq!(prompt.contents(), normalized);
         prompt.handle(Reset(String::new()));
         for ch in text.chars() {
             prompt.handle(Insert(ch));
         }
         assert_eq!(render(&mut prompt, 6), pasted);
+        assert_eq!(prompt.contents(), normalized);
+        assert_eq!(prompt.cursor(), cursor);
     }
 }
 

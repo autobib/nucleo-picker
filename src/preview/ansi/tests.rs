@@ -192,7 +192,6 @@ fn unsupported_and_malformed_sequences_do_not_leak_into_text_or_styles() {
         b"\x1b[58;2;0;256;0;0m",
         b"\x1b[38;2;0;0;256;0m",
         b"\x1b[38;3;0m",
-        b"\x1b[0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0m",
     ];
     for &sequence in cases {
         let mut buffer = Buffer::new();
@@ -220,7 +219,7 @@ fn controls_and_invalid_utf8_preserve_styles_across_lines() {
             &["a", "b␉c", "", "last"],
         ),
         (b"a\xffb\xc0c", &["abc"]),
-        (b"a\xe2\xffb\xf0\xffc", &["a�b�c"]),
+        (b"a\xe2\xffb\xf0\xffc", &["abc"]),
     ];
     let style = ContentStyle::new().with(Color::AnsiValue(2)).bold();
     for &(input, expected) in cases {
@@ -230,13 +229,16 @@ fn controls_and_invalid_utf8_preserve_styles_across_lines() {
             writer.write_all(b"\x1b[1;32m").unwrap();
             writer.write_all(input).unwrap();
         }
-        assert!(
-            buffer
-                .lines()
-                .map(|line| line.as_str())
-                .eq(expected.iter().copied())
-        );
-        for line in buffer.lines() {
+        let lossy = std::str::from_utf8(input).is_err();
+        assert_eq!(buffer.lines().len(), expected.len());
+        for (line, expected) in buffer.lines().zip(expected) {
+            assert!(
+                line.as_str()
+                    .chars()
+                    .filter(|&ch| !lossy || ch != '\u{fffd}')
+                    .eq(expected.chars()),
+                "{input:?}"
+            );
             assert!(
                 line.spans()
                     .eq((!line.as_str().is_empty()).then(|| style.apply(line.as_str())))

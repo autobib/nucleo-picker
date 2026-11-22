@@ -9,9 +9,13 @@ use crate::{
     Render, Terminal,
     interface::Interface,
     render::StrRenderer,
-    session::{Context, Dimensions, Driver, DriverOptions, Exit, FrameOptions, Session},
+    session::{Dimensions, Driver, DriverOptions, FrameOptions, Session},
 };
 
+pub(crate) use crate::interface::Single as Select;
+
+#[cfg(feature = "preview-cache")]
+mod cached;
 mod context;
 #[cfg(feature = "unstable-backend")]
 mod lifecycle;
@@ -47,35 +51,12 @@ fn driver(items: impl IntoIterator<Item = &'static str>) -> Driver<String, StrRe
     driver
 }
 
-pub(crate) struct Select;
-
-impl<T: Send + Sync + 'static> Interface<T> for Select {
-    type State = ();
-    type Output<'items> = Option<&'items T>;
-
-    fn init(&mut self, _: &Context<'_, T>) {}
-
-    fn finish<'items>(
-        &mut self,
-        (): (),
-        exit: Exit,
-        cx: Context<'items, T>,
-    ) -> Self::Output<'items> {
-        match exit {
-            Exit::Selected(Some(id)) => Some(cx.matches().item(id).unwrap().value()),
-            Exit::Quit | Exit::Selected(None) => None,
-        }
-    }
-}
-
 #[derive(Default)]
 pub(crate) struct TestTerminal {
     pub(crate) output: Vec<u8>,
     size: Option<(u16, u16)>,
     size_reads: usize,
     initial_render_delay: Duration,
-    initial_render_end: Option<Instant>,
-    first_frame: Option<Instant>,
     frame_changes: Vec<bool>,
 }
 
@@ -110,12 +91,10 @@ impl Terminal for TestTerminal {
         if !delay.is_zero() {
             thread::sleep(delay);
         }
-        self.initial_render_end.get_or_insert_with(Instant::now);
         Ok(())
     }
 
     fn end_frame(&mut self, changed: bool) -> io::Result<()> {
-        self.first_frame.get_or_insert_with(Instant::now);
         self.frame_changes.push(changed);
         Ok(())
     }

@@ -19,17 +19,17 @@ pub(super) trait SessionRead {
         Matches::new(self.session().engine)
     }
 
-    fn rank(&self) -> Option<u32> {
+    fn hovered_rank(&self) -> Option<u32> {
         let session = self.session();
-        session.list.rank(session.engine)
+        session.list.hovered_rank(session.engine)
     }
 
     fn hovered(&self) -> Option<ItemRef<'_, Self::Item>> {
-        self.matches().get(self.rank()? as usize)
+        self.matches().get(self.hovered_rank()? as usize)
     }
 
-    fn visible_components(&self) -> Components {
-        self.session().visible_components
+    fn active_components(&self) -> Components {
+        self.session().active_components
     }
 
     fn match_status(&self) -> MatchStatus {

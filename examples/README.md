@@ -21,6 +21,7 @@ File                                         | Description
 ---------------------------------------------|-------------
 [blocking.rs](blocking.rs)                   | A basic blocking example with a very small number of matches.
 [preview.rs](preview.rs)                     | A minimal blocking example with a preview pane.
+[ratatui.rs](ratatui.rs)                     | An example using [Ratatui](https://docs.rs/ratatui) to integrate the picker into a larger application.
 [custom_io.rs](custom_io.rs)                 | Customize IO with keybindings and alternative writer.
 [find.rs](find.rs)                           | A basic [find](https://en.wikipedia.org/wiki/Find_(Unix)) implementation with fuzzy matching on resulting items.
 [find_preview.rs](find_preview.rs)           | A find implementation with asynchronous file previews.

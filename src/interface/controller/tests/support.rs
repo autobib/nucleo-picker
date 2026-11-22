@@ -31,7 +31,7 @@ pub(crate) fn context<'a>(
 ) -> Context<'a, &'static str> {
     Context::new(driver.matches())
         .with_rank(rank)
-        .with_preview_enabled(true)
+        .with_active_components(Components::ALL)
 }
 
 pub(crate) fn ready(content: Content<'_>) -> &Pane {

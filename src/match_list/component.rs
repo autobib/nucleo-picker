@@ -19,7 +19,7 @@ pub(crate) struct MatchList<'a> {
 
 impl<'a> MatchList<'a> {
     pub fn new(state: &'a mut MatchListState, chars: &'a PickerChars) -> Self {
-        let buffered_rank = state.layout.rank;
+        let buffered_rank = state.layout.hovered_rank;
         Self {
             state,
             chars,
@@ -35,8 +35,11 @@ impl<'a> MatchList<'a> {
         (!engine.is_empty()).then_some(self.buffered_rank)
     }
 
-    pub fn rank<T: Send + Sync + 'static, R>(&self, engine: &MatchEngine<T, R>) -> Option<u32> {
-        self.state.layout.rank(engine.snapshot())
+    pub fn hovered_rank<T: Send + Sync + 'static, R>(
+        &self,
+        engine: &MatchEngine<T, R>,
+    ) -> Option<u32> {
+        self.state.layout.hovered_rank(engine.snapshot())
     }
 
     pub fn restart<T: Send + Sync + 'static>(&mut self, cx: &Context<'_, T>) {
@@ -67,7 +70,7 @@ impl<'a> MatchList<'a> {
                 .update_items(engine.snapshot(), &self.state.config);
         }
         self.pending_redraw |= items_changed || query_changed;
-        self.buffered_rank = self.state.layout.rank;
+        self.buffered_rank = self.state.layout.hovered_rank;
         std::mem::take(&mut self.pending_redraw)
     }
 

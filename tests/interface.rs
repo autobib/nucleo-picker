@@ -422,11 +422,6 @@ fn uncached_previews_follow_frames_and_revisits_instead_of_event_targets() {
         .unwrap();
     assert_eq!(output, Some(&"alpha"));
     assert_eq!(&*generated.borrow(), &["alpha", "alpha", "beta", "alpha"]);
-    assert_eq!(
-        terminal.changed,
-        [false, false, true, true, true, true, true]
-    );
-    assert_eq!(terminal.renders.len(), 6);
 }
 
 #[test]

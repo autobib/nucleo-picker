@@ -44,7 +44,7 @@ impl<C: Component> Component for &mut C {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::{convert::Infallible, fmt};
+    use std::fmt;
 
     use crossterm::style::{ContentStyle, StyledContent};
 
@@ -72,7 +72,7 @@ pub(crate) mod tests {
     }
 
     impl Surface for TestSurface {
-        type Error = Infallible;
+        type Error = !;
 
         fn width(&self) -> u16 {
             self.size.width

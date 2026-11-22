@@ -85,12 +85,12 @@ impl PreviewState {
         if let Some(prefetch) = &mut self.prefetch {
             prefetch.dirty |= matches_changed;
         }
-        if !cx.preview_enabled() {
+        if !cx.active_components().preview {
             self.set_hovered(previewer, None);
             return false;
         }
         let redraw = self.update_current(previewer, cx, deadline);
-        self.sync_prefetch(cx.rank());
+        self.sync_prefetch(cx.hovered_rank());
         redraw
     }
 
@@ -176,7 +176,7 @@ impl PreviewState {
         cx: &Context<'_, T>,
         deadline: Instant,
     ) {
-        if !cx.preview_enabled() {
+        if !cx.active_components().preview {
             return;
         }
         let Some(prefetch) = &mut self.prefetch else {

@@ -19,7 +19,7 @@ fn context<'a>(
 ) -> Context<'a, &'static str> {
     Context::new(driver.matches())
         .with_rank(rank)
-        .with_preview_enabled(true)
+        .with_active_components(Components::ALL)
 }
 
 fn pane<'a, I: Interface<&'static str>>(interface: &'a I, state: &'a I::State) -> &'a Pane {
@@ -74,7 +74,10 @@ fn identity_changes_and_refresh_regenerate_clean_panes_but_hidden_frames_wait() 
     for _ in 0..2 {
         let _ = interface.preview_event(&mut state, PreviewEvent::Refresh, &cx);
     }
-    let hidden = context(&driver, Some(1)).with_preview_enabled(false);
+    let hidden = context(&driver, Some(1)).with_active_components(Components {
+        preview: false,
+        ..Components::ALL
+    });
     assert!(
         interface
             .before_frame(&mut state, &hidden, true, Instant::now())
@@ -150,21 +153,13 @@ fn events_require_the_displayed_identity_and_use_delivered_dimensions() {
     let _ = interface.preview_event(&mut state, PreviewEvent::AlignBottom, &cx);
     assert_eq!(pane(&interface, &state).offset(), (4, 7));
 
-    for size in [
-        None,
-        Some(Dimensions {
-            width: 8,
-            height: 0,
-        }),
-    ] {
-        interface.preview_resize(&mut state, size);
-        assert_eq!(pane(&interface, &state).offset(), (4, 7));
-        assert!(
-            interface
-                .preview_event(&mut state, PreviewEvent::Down(1), &cx)
-                .is_none()
-        );
-    }
+    interface.preview_resize(&mut state, None);
+    assert_eq!(pane(&interface, &state).offset(), (4, 7));
+    assert!(
+        interface
+            .preview_event(&mut state, PreviewEvent::Down(1), &cx)
+            .is_none()
+    );
     interface.preview_resize(
         &mut state,
         Some(Dimensions {
@@ -189,12 +184,8 @@ fn events_require_the_displayed_identity_and_use_delivered_dimensions() {
     );
 }
 
-#[test]
-fn navigation_uses_grapheme_widths_across_preview_changes() {
+fn assert_navigation_across_preview_changes(mut interface: impl Interface<&'static str>) {
     let driver = driver();
-    let mut interface = UncachedPreview::new_single(|_: &&str, pane: &mut Pane| {
-        pane.push_text("界界界界");
-    });
     let cx = context(&driver, Some(0));
     let mut state = interface.init(&cx);
     interface.preview_resize(
@@ -204,10 +195,6 @@ fn navigation_uses_grapheme_widths_across_preview_changes() {
             height: 1,
         }),
     );
-    let _ = interface.before_frame(&mut state, &cx, true, Instant::now());
-    let _ = interface.preview_event(&mut state, PreviewEvent::AlignRight, &cx);
-    assert_eq!(pane(&interface, &state).offset(), (6, 0));
-
     for rank in [0, 1, 0] {
         let cx = context(&driver, Some(rank));
         let _ = interface.before_frame(&mut state, &cx, true, Instant::now());
@@ -226,6 +213,23 @@ fn navigation_uses_grapheme_widths_across_preview_changes() {
     let _ = interface.before_frame(&mut state, &cx, true, Instant::now());
     let _ = interface.preview_event(&mut state, PreviewEvent::AlignRight, &cx);
     assert_eq!(pane(&interface, &state).offset(), (6, 0));
+}
+
+#[test]
+fn navigation_uses_grapheme_widths_across_preview_changes() {
+    assert_navigation_across_preview_changes(UncachedPreview::new_single(
+        |_: &&str, pane: &mut Pane| pane.push_text("界界界界"),
+    ));
+}
+
+#[cfg(feature = "preview-cache")]
+#[test]
+fn cached_navigation_uses_grapheme_widths_across_preview_changes() {
+    use crate::{interface::CachedPreview, preview::SyncPreviewer};
+
+    assert_navigation_across_preview_changes(CachedPreview::new_single(SyncPreviewer(
+        |_: &&str, pane: &mut Pane| pane.push_text("界界界界"),
+    )));
 }
 
 #[test]

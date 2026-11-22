@@ -24,7 +24,7 @@ struct LayoutState {
 pub(crate) struct ListLayout {
     /// The size of the screen last time the screen changed.
     size: u16,
-    pub(super) rank: u32,
+    pub(super) hovered_rank: u32,
     /// The layout buffer below and including the hovered item.
     pub(super) below: Vec<usize>,
     /// The layout buffer above the hovered item.
@@ -32,8 +32,11 @@ pub(crate) struct ListLayout {
 }
 
 impl ListLayout {
-    pub fn rank<T: Send + Sync + 'static>(&self, snapshot: &nc::Snapshot<T>) -> Option<u32> {
-        (snapshot.matched_item_count() != 0).then_some(self.rank)
+    pub fn hovered_rank<T: Send + Sync + 'static>(
+        &self,
+        snapshot: &nc::Snapshot<T>,
+    ) -> Option<u32> {
+        (snapshot.matched_item_count() != 0).then_some(self.hovered_rank)
     }
 
     pub fn restart<T: Send + Sync + 'static>(
@@ -41,14 +44,14 @@ impl ListLayout {
         snapshot: &nc::Snapshot<T>,
         config: &MatchListConfig,
     ) {
-        self.rank = 0;
+        self.hovered_rank = 0;
         self.update_items(snapshot, config);
     }
 
     pub(crate) fn new() -> Self {
         Self {
             size: 0,
-            rank: 0,
+            hovered_rank: 0,
             below: Vec::with_capacity(128),
             above: Vec::with_capacity(128),
         }
@@ -60,7 +63,7 @@ impl ListLayout {
         let below = self.below.iter().sum::<usize>() as u16;
         let above = self.above.iter().sum::<usize>() as u16;
         LayoutState {
-            rank: self.rank,
+            rank: self.hovered_rank,
             below: self.size - above,
             above: self.size - below,
             size: self.size,
@@ -82,9 +85,11 @@ impl ListLayout {
     /// Return the range corresponding to the matched items visible on the screen.
     pub fn visible_range(&self, config: &MatchListConfig) -> std::ops::RangeInclusive<usize> {
         if config.reversed {
-            self.rank as usize - self.above.len()..=self.rank as usize + self.below.len() - 1
+            self.hovered_rank as usize - self.above.len()
+                ..=self.hovered_rank as usize + self.below.len() - 1
         } else {
-            self.rank as usize + 1 - self.below.len()..=self.rank as usize + self.above.len()
+            self.hovered_rank as usize + 1 - self.below.len()
+                ..=self.hovered_rank as usize + self.above.len()
         }
     }
 
@@ -123,8 +128,9 @@ impl ListLayout {
             // padding values
             previous.below = previous.below.clamp(padding, total_size - padding - 1);
 
-            let sizes_below_incl = buffer.sizes_higher_inclusive(self.rank, &mut self.below);
-            let sizes_above = buffer.sizes_lower(self.rank, &mut self.above);
+            let sizes_below_incl =
+                buffer.sizes_higher_inclusive(self.hovered_rank, &mut self.below);
+            let sizes_above = buffer.sizes_lower(self.hovered_rank, &mut self.above);
 
             if self.size <= total_size {
                 resize::larger_rev(previous, total_size, padding, sizes_below_incl, sizes_above);
@@ -143,8 +149,8 @@ impl ListLayout {
             // padding values
             previous.above = previous.above.clamp(padding, total_size - padding - 1);
 
-            let sizes_below_incl = buffer.sizes_lower_inclusive(self.rank, &mut self.below);
-            let sizes_above = buffer.sizes_higher(self.rank, &mut self.above);
+            let sizes_below_incl = buffer.sizes_lower_inclusive(self.hovered_rank, &mut self.below);
+            let sizes_above = buffer.sizes_higher(self.hovered_rank, &mut self.above);
 
             if self.size <= total_size {
                 resize::larger(previous, total_size, sizes_below_incl, sizes_above);
@@ -163,7 +169,7 @@ impl ListLayout {
         config: &MatchListConfig,
     ) -> bool {
         let padding = Self::padding(self.size, config);
-        if self.rank != 0 {
+        if self.hovered_rank != 0 {
             if config.reversed {
                 let sizes_below_incl = buffer.sizes_higher_inclusive(0, &mut self.below);
                 self.above.clear();
@@ -176,7 +182,7 @@ impl ListLayout {
                 reset::reset(self.size, padding, sizes_below_incl, sizes_above);
             }
 
-            self.rank = 0;
+            self.hovered_rank = 0;
             true
         } else {
             false
@@ -190,26 +196,28 @@ impl ListLayout {
         config: &MatchListConfig,
     ) {
         // clamp the previous rank in case it has become invalid for the updated items
-        self.rank = self.rank.min(buffer.total().saturating_sub(1));
+        self.hovered_rank = self.hovered_rank.min(buffer.total().saturating_sub(1));
         let previous = self.state();
         let padding = Self::padding(self.size, config);
 
         if buffer.total() > 0 {
             if config.reversed {
-                let sizes_below_incl = buffer.sizes_higher_inclusive(self.rank, &mut self.below);
-                let sizes_above = buffer.sizes_lower(self.rank, &mut self.above);
+                let sizes_below_incl =
+                    buffer.sizes_higher_inclusive(self.hovered_rank, &mut self.below);
+                let sizes_above = buffer.sizes_lower(self.hovered_rank, &mut self.above);
 
                 update::items_rev(previous, padding, sizes_below_incl, sizes_above);
             } else {
-                let sizes_below_incl = buffer.sizes_lower_inclusive(self.rank, &mut self.below);
-                let sizes_above = buffer.sizes_higher(self.rank, &mut self.above);
+                let sizes_below_incl =
+                    buffer.sizes_lower_inclusive(self.hovered_rank, &mut self.below);
+                let sizes_above = buffer.sizes_higher(self.hovered_rank, &mut self.above);
 
                 update::items(previous, padding, sizes_below_incl, sizes_above);
             }
         } else {
             self.below.clear();
             self.above.clear();
-            self.rank = 0;
+            self.hovered_rank = 0;
         }
     }
 
@@ -228,7 +236,7 @@ impl ListLayout {
 
         if new_rank == 0 {
             self.reset(buffer, config)
-        } else if new_rank > self.rank {
+        } else if new_rank > self.hovered_rank {
             if config.reversed {
                 let sizes_below_incl = buffer.sizes_higher_inclusive(new_rank, &mut self.below);
                 let sizes_above = buffer.sizes_lower(new_rank, &mut self.above);
@@ -248,10 +256,10 @@ impl ListLayout {
                 rank::incr(previous, new_rank, padding, sizes_below_incl, sizes_above);
             }
 
-            self.rank = new_rank;
+            self.hovered_rank = new_rank;
 
             true
-        } else if new_rank < self.rank {
+        } else if new_rank < self.hovered_rank {
             if config.reversed {
                 let sizes_below_incl = buffer.sizes_higher_inclusive(new_rank, &mut self.below);
                 let sizes_above = buffer.sizes_lower(new_rank, &mut self.above);
@@ -271,7 +279,7 @@ impl ListLayout {
                 );
             }
 
-            self.rank = new_rank;
+            self.hovered_rank = new_rank;
 
             true
         } else {

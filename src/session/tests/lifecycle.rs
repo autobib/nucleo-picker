@@ -211,17 +211,23 @@ fn terminal_cleanup_precedes_interface_cleanup_and_output() {
 
 #[test]
 fn event_errors_end_without_output_and_cleanup_errors_take_precedence() {
-    for (exit, cleanup_fails) in [
-        (Ok(Event::UserInterrupt), false),
-        (Ok(Event::Abort("abort")), false),
-        (Err(RecvError::Disconnected), false),
+    for (exit, cleanup_fails, expected) in [
+        (Ok(Event::UserInterrupt), false, PickError::UserInterrupted),
+        (
+            Ok(Event::Abort("abort")),
+            false,
+            PickError::Aborted("abort"),
+        ),
+        (Err(RecvError::Disconnected), false, PickError::Disconnected),
         (
             Err(RecvError::IO(io::ErrorKind::UnexpectedEof.into())),
             false,
+            PickError::IO(io::ErrorKind::UnexpectedEof.into()),
         ),
         (
             Err(RecvError::IO(io::ErrorKind::UnexpectedEof.into())),
             true,
+            PickError::IO(io::ErrorKind::BrokenPipe.into()),
         ),
     ] {
         let log = Log::default();
@@ -240,10 +246,16 @@ fn event_errors_end_without_output_and_cleanup_errors_take_precedence() {
                 },
             )
             .unwrap_err();
-        if cleanup_fails {
-            assert!(
-                matches!(error, PickError::IO(error) if error.kind() == io::ErrorKind::BrokenPipe)
-            );
+        match (error, expected) {
+            (PickError::UserInterrupted, PickError::UserInterrupted)
+            | (PickError::Disconnected, PickError::Disconnected) => {}
+            (PickError::Aborted(actual), PickError::Aborted(expected)) => {
+                assert_eq!(actual, expected);
+            }
+            (PickError::IO(actual), PickError::IO(expected)) => {
+                assert_eq!(actual.kind(), expected.kind());
+            }
+            (error, expected) => panic!("expected {expected:?}, got {error:?}"),
         }
         assert_eq!(
             *log.borrow(),
@@ -373,9 +385,6 @@ fn panics_clean_up_the_terminal_without_reentering_interface_hooks() {
                 expected.push("after");
             }
             expected.push("terminal cleanup");
-            if panic_at == "terminal cleanup" {
-                expected.push("terminal cleanup");
-            }
             if matches!(panic_at, "end" | "finish") {
                 expected.push("end");
             }
@@ -383,6 +392,10 @@ fn panics_clean_up_the_terminal_without_reentering_interface_hooks() {
                 expected.push("finish");
             }
             expected.push("drop state");
+        }
+        if panic_at == "terminal cleanup" {
+            log.borrow_mut()
+                .dedup_by(|a, b| *a == "terminal cleanup" && *b == "terminal cleanup");
         }
         assert_eq!(*log.borrow(), expected, "{panic_at}");
     }

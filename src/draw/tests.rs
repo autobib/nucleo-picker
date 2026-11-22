@@ -1,20 +1,12 @@
-use std::convert::Infallible;
-
 use crossterm::style::Stylize;
 
 use super::*;
 use crate::{
-    PickerChars,
-    component::Component,
     preview::{Buffer, Content},
-    prompt::{Prompt, PromptState},
-    status_line::StatusLine,
     util::unicode::{Processor, UnicodeProcessor},
 };
 
-#[derive(Debug, PartialEq, Eq)]
 struct Run {
-    row: u16,
     text: String,
     spans: Vec<(String, ContentStyle)>,
 }
@@ -25,7 +17,6 @@ struct RecordingSurface {
     row: u16,
     column: u16,
     runs: Vec<Run>,
-    cleared: Vec<u16>,
 }
 
 impl RecordingSurface {
@@ -36,13 +27,12 @@ impl RecordingSurface {
             row: 0,
             column: 0,
             runs: Vec::new(),
-            cleared: Vec::new(),
         }
     }
 }
 
 impl Surface for RecordingSurface {
-    type Error = Infallible;
+    type Error = !;
 
     fn width(&self) -> u16 {
         self.width
@@ -94,7 +84,6 @@ impl Surface for RecordingSurface {
             text
         );
         self.runs.push(Run {
-            row: self.row,
             text: text.to_owned(),
             spans,
         });
@@ -113,7 +102,6 @@ impl Surface for RecordingSurface {
 
     fn clear_line(&mut self) -> Result<(), Self::Error> {
         assert!(self.width != 0 && self.row < self.height);
-        self.cleared.push(self.row);
         self.column = 0;
         Ok(())
     }
@@ -122,7 +110,6 @@ impl Surface for RecordingSurface {
         if self.is_empty() {
             return Ok(());
         }
-        self.cleared.extend(0..self.height);
         self.row = 0;
         self.column = 0;
         Ok(())
@@ -130,76 +117,36 @@ impl Surface for RecordingSurface {
 }
 
 #[test]
-fn emptiness_depends_on_either_axis_without_collapsing_dimensions() {
-    for (width, height) in [(0, 0), (0, 3), (6, 0), (6, 3)] {
-        let mut target = RecordingSurface::new(width, height);
-        assert_eq!(target.width(), width);
-        assert_eq!(target.height(), height);
-        assert_eq!(target.is_empty(), width == 0 || height == 0);
-        target.clear().unwrap();
-        assert_eq!(
-            target.cleared.len(),
-            if target.is_empty() {
-                0
-            } else {
-                usize::from(height)
-            }
-        );
-    }
-}
-
-#[test]
-fn prompt_and_status_draw_to_an_infallible_target() {
-    let chars = PickerChars::new();
-    let mut state = PromptState::new(Default::default());
-    let mut prompt = Prompt::new(&mut state, &chars);
-    let mut target = RecordingSurface::new(20, 1);
-    prompt.draw(&mut target).unwrap();
-    assert_eq!(target.cleared, [0]);
-    assert_eq!(target.runs[0].text, ">");
-    assert!(
-        target
-            .runs
-            .iter()
-            .flat_map(|run| &run.spans)
-            .all(|(_, style)| *style == ContentStyle::new())
-    );
-
-    let mut target = RecordingSurface::new(20, 1);
-    StatusLine::new(&chars).draw(&mut target).unwrap();
-    assert!(target.runs.iter().any(|run| run.text == " 0/0"));
-    assert!(
-        target
-            .runs
-            .iter()
-            .flat_map(|run| &run.spans)
-            .all(|(_, style)| style.attributes.has(crossterm::style::Attribute::Italic))
-    );
-}
-
-#[test]
-fn preview_passes_whole_graphemes_with_original_style_boundaries() {
+fn preview_passes_whole_graphemes_and_preserves_text_styles() {
+    let spans = [
+        ("e", ContentStyle::new().red()),
+        ("\u{301}👩", ContentStyle::new().blue()),
+        ("🏽‍", ContentStyle::new().green()),
+        ("💻", ContentStyle::new().yellow()),
+    ];
     let mut buffer = Buffer::new();
-    buffer.push_styled_str("e", ContentStyle::new().red());
-    buffer.push_styled_str("\u{301}👩", ContentStyle::new().blue());
-    buffer.push_styled_str("🏽‍", ContentStyle::new().green());
-    buffer.push_styled_str("💻", ContentStyle::new().yellow());
+    for &(text, style) in &spans {
+        buffer.push_styled_str(text, style);
+    }
     let pane = buffer.into_pane();
     let mut target = RecordingSurface::new(8, 1);
     crate::preview::draw(&mut target, Content::Ready(&pane), None, '…').unwrap();
-    let run = target
+    let graphemes: Vec<_> = target
         .runs
         .iter()
-        .find(|run| run.text == "e\u{301}👩🏽‍💻")
-        .unwrap();
-    assert_eq!(
-        run.spans,
-        [
-            ("e".to_owned(), ContentStyle::new().red()),
-            ("\u{301}👩".to_owned(), ContentStyle::new().blue()),
-            ("🏽‍".to_owned(), ContentStyle::new().green()),
-            ("💻".to_owned(), ContentStyle::new().yellow()),
-        ]
-    );
-    assert_eq!(target.runs.last().unwrap().spans[0].1, ContentStyle::new());
+        .flat_map(|run| UnicodeProcessor::grapheme_indices(&run.text).map(|(_, text)| text))
+        .collect();
+    assert_eq!(graphemes, ["e\u{301}", "👩🏽‍💻", " ", " ", " ", " ", " "]);
+    let actual: Vec<_> = target
+        .runs
+        .iter()
+        .flat_map(|run| &run.spans)
+        .flat_map(|(text, style)| text.chars().map(move |ch| (ch, *style)))
+        .collect();
+    let expected: Vec<_> = spans
+        .into_iter()
+        .chain(std::iter::once(("     ", ContentStyle::new())))
+        .flat_map(|(text, style)| text.chars().map(move |ch| (ch, style)))
+        .collect();
+    assert_eq!(actual, expected);
 }

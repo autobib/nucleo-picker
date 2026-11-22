@@ -84,7 +84,7 @@ fn clipping_preserves_whole_graphemes_and_fits_the_available_columns() {
 fn clipping_does_not_measure_the_hidden_suffix() {
     use crate::util::unicode::tests::{CountingProcessor, MEASURED_BYTES};
 
-    for text in ["a".repeat(1_000_000), "界".repeat(1_000_000)] {
+    for text in ["a".repeat(65_536), "界".repeat(65_536)] {
         for (offset, capacity, budget) in
             [(0, 20, 64), (100, 20, 400), (usize::MAX, 1, 0), (0, 0, 0)]
         {

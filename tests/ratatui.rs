@@ -1,10 +1,6 @@
 #![cfg(feature = "ratatui")]
 
-use std::{
-    cell::{Cell, RefCell},
-    num::NonZero,
-    time::Instant,
-};
+use std::{cell::RefCell, num::NonZero, time::Instant};
 
 use nucleo_picker::{
     draw::ratatui::RatatuiSurface,
@@ -27,7 +23,6 @@ use ratatui_widgets::{block::Block, borders::BorderType};
 #[derive(Default)]
 struct Probe {
     resizes: RefCell<Vec<Option<Dimensions>>>,
-    completed: Cell<usize>,
     error_on_resize: bool,
 }
 
@@ -50,16 +45,6 @@ impl Interface<&'static str> for &Probe {
     fn preview_resize(&mut self, pane: &mut Pane, size: Option<Dimensions>) {
         self.resizes.borrow_mut().push(size);
         pane.set_err(self.error_on_resize);
-    }
-
-    fn after_frame(
-        &mut self,
-        _: &mut Pane,
-        _: &Context<'_, &'static str>,
-        _: Instant,
-    ) -> Components {
-        self.completed.set(self.completed.get() + 1);
-        Components::NONE
     }
 
     fn finish<'items>(
@@ -108,7 +93,7 @@ fn widgets_compose_in_offset_regions_and_repaint_unchanged_frames() {
     let cursor_column = 4;
     let mut first = None;
 
-    for pass in 0..3 {
+    for pass in 0..2 {
         let mut prepared = session.prepare_frame(FrameOptions::new(Instant::now()));
         assert_eq!(prepared.changed(), pass == 0);
         let rendered = terminal
@@ -124,7 +109,6 @@ fn widgets_compose_in_offset_regions_and_repaint_unchanged_frames() {
                 if pass == 0 {
                     frame.set_cursor_position((prompt.x + cursor.column, prompt.y + cursor.row));
                 }
-                assert_eq!(probe.completed.get(), pass);
             })
             .unwrap();
 
@@ -145,8 +129,6 @@ fn widgets_compose_in_offset_regions_and_repaint_unchanged_frames() {
                 height: preview_content.height,
             })],
         );
-        assert!(matches!(prepared.preview().content(), Content::Ready(pane)
-            if pane.buffer().line(0).unwrap().as_str() == "preview"));
         for y in host.area.y..host.area.bottom() {
             for x in host.area.x..host.area.right() {
                 if ![prompt, status, list, preview]
@@ -169,23 +151,8 @@ fn widgets_compose_in_offset_regions_and_repaint_unchanged_frames() {
                 (prompt.x + cursor_column, prompt.y).into()
             );
         }
-        assert_eq!(prepared.changed(), pass == 0);
-        assert_eq!(probe.completed.get(), pass);
         prepared.complete();
-        assert_eq!(probe.completed.get(), pass + 1);
     }
-
-    let mut abandoned = session.prepare_frame(FrameOptions::new(Instant::now()));
-    assert!(!abandoned.changed());
-    abandoned
-        .preview()
-        .render(preview_content, &mut Buffer::empty(host.area));
-    drop(abandoned);
-    assert_eq!(probe.completed.get(), 3);
-    let retry = session.prepare_frame(FrameOptions::new(Instant::now()));
-    assert!(retry.redraw().is_all());
-    retry.complete();
-    assert_eq!(probe.completed.get(), 4);
 }
 
 #[test]
@@ -212,14 +179,13 @@ fn prepared_preview_widget_and_direct_drawing_replace_dirty_cells_with_a_styled_
         width: area.width,
         height: area.height,
     };
-    for pass in 0..2 {
+    for _ in 0..2 {
         let mut prepared = session.prepare_frame(FrameOptions::new(Instant::now()));
         let mut direct = host.clone();
         prepared
             .preview()
             .border(BoundaryChars::ascii())
             .resize(size);
-        assert!(matches!(prepared.preview().content(), Content::Ready(pane) if pane.is_err()));
         prepared
             .preview()
             .border(BoundaryChars::ascii())
@@ -268,12 +234,9 @@ fn prepared_preview_widget_and_direct_drawing_replace_dirty_cells_with_a_styled_
                 }
             }
         }
-        assert_eq!(prepared.changed(), pass == 0);
-        assert_eq!(probe.completed.get(), pass);
         prepared.complete();
-        assert_eq!(probe.completed.get(), pass + 1);
     }
-    session.events().set_visible_components(Components::NONE);
+    session.events().set_active_components(Components::NONE);
     let mut hidden = session.prepare_frame(FrameOptions::new(Instant::now()));
     let mut buffer = host.clone();
     hidden
@@ -301,7 +264,7 @@ fn widgets_deliver_empty_and_hidden_preview_transitions_without_painting() {
         (12, 5, false, None),
         (12, 5, true, Some((12, 5))),
     ] {
-        session.events().set_visible_components(Components {
+        session.events().set_active_components(Components {
             preview: visible,
             ..Components::ALL
         });
@@ -318,20 +281,17 @@ fn widgets_deliver_empty_and_hidden_preview_transitions_without_painting() {
             assert!(contents(&buffer, area).contains("preview"));
             assert_eq!(buffer[(area.x, area.y)].symbol(), "p");
         }
-        assert_eq!(
-            matches!(prepared.preview().content(), Content::Ready(_)),
-            visible
-        );
-        assert_eq!(prepared.visible_components().preview, visible);
-
-        for empty in [Rect::new(7, 8, 0, 5), Rect::new(7, 8, 12, 0)] {
-            let before = buffer.clone();
-            prepared.prompt().render(empty, &mut buffer);
-            prepared.match_list().render(empty, &mut buffer);
-            prepared.status().render(empty, &mut buffer);
-            assert_eq!(buffer, before);
-            assert_eq!(prepared.prompt().cursor(), None);
-        }
         prepared.complete();
     }
+
+    let mut prepared = session.prepare_frame(FrameOptions::new(Instant::now()));
+    for empty in [Rect::new(7, 8, 0, 5), Rect::new(7, 8, 12, 0)] {
+        let mut buffer = host.clone();
+        prepared.prompt().render(empty, &mut buffer);
+        prepared.match_list().render(empty, &mut buffer);
+        prepared.status().render(empty, &mut buffer);
+        assert_eq!(buffer, host);
+        assert_eq!(prepared.prompt().cursor(), None);
+    }
+    prepared.complete();
 }

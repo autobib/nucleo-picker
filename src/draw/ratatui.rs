@@ -1,6 +1,6 @@
 //! # Ratatui interoperability
 
-use std::{convert::Infallible, fmt, fmt::Write as _, num::NonZero};
+use std::{fmt, fmt::Write as _, num::NonZero};
 
 use crossterm::style::{Attribute, Color as CrosstermColor, ContentStyle, StyledContent};
 use ratatui_core::{
@@ -144,7 +144,7 @@ impl<'a> RatatuiSurface<'a> {
 }
 
 impl Surface for RatatuiSurface<'_> {
-    type Error = Infallible;
+    type Error = !;
 
     fn width(&self) -> u16 {
         self.width

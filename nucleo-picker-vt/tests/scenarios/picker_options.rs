@@ -21,7 +21,7 @@ fn ascii_chars() -> Result<(), Box<dyn Error>> {
     sr.send(Event::MatchList(MatchListEvent::ToggleDown(1)))?;
     let snapshot = sr.checkpoint("decorative-chars")?;
     assert!(snapshot.text.iter().all(|line| line.is_ascii()));
-    checkpoint!(sr, "decorative-chars");
+    checkpoint!(sr, "decorative-chars", snapshot);
 
     sr.send(Event::Quit)?;
     assert!(sr.finish()?.is_empty());
@@ -74,36 +74,27 @@ fn basic_options() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn highlight_line() -> Result<(), Box<dyn Error>> {
-    let options = PickerOptions::new().highlight_line(true);
-    let mut sr = ScenarioRunner::start_with_options(
-        "highlight_line",
-        vec!["short\n界", "a longer unselected item"],
-        options,
-    );
+    for reversed in [false, true] {
+        let options = PickerOptions::new().highlight_line(true).reversed(reversed);
+        let mut sr = ScenarioRunner::start_with_options(
+            if reversed {
+                "highlight_line_reversed"
+            } else {
+                "highlight_line"
+            },
+            vec!["short\n界", "a longer unselected item"],
+            options,
+        );
 
-    sr.set_dimensions(12, 6)?;
-    sr.wait_for_match_complete(2, 2)?;
-    checkpoint!(sr, "full-line");
-
-    sr.send(Event::Quit)?;
-    assert!(sr.finish()?.is_empty());
-    Ok(())
-}
-
-#[test]
-fn highlight_line_reversed() -> Result<(), Box<dyn Error>> {
-    let options = PickerOptions::new().highlight_line(true).reversed(true);
-    let mut sr = ScenarioRunner::start_with_options(
-        "highlight_line_reversed",
-        vec!["short\n界", "a longer unselected item"],
-        options,
-    );
-
-    sr.set_dimensions(12, 6)?;
-    sr.wait_for_match_complete(2, 2)?;
-    checkpoint!(sr, "full-line-reversed");
-
-    sr.send(Event::Quit)?;
-    assert!(sr.finish()?.is_empty());
+        sr.set_dimensions(12, 6)?;
+        sr.wait_for_match_complete(2, 2)?;
+        if reversed {
+            checkpoint!(sr, "full-line-reversed");
+        } else {
+            checkpoint!(sr, "full-line");
+        }
+        sr.send(Event::Quit)?;
+        assert!(sr.finish()?.is_empty());
+    }
     Ok(())
 }

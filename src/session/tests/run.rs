@@ -1,18 +1,18 @@
 use std::{
     cell::Cell,
+    io,
     sync::mpsc,
-    thread,
     time::{Duration, Instant},
 };
 
 use super::{TestEvents, TestTerminal, frame_events};
 use crate::{
-    Picker, PickerOptions,
+    Picker, PickerOptions, Terminal,
     event::{Event, LayoutEvent, MatchListEvent, PromptEvent, RecvError},
     interface::{Interface, Single, UncachedPreview},
     preview::{Pane, PreviewEvent},
     render::StrRenderer,
-    session::{Components, Context, Exit},
+    session::{Components, Context, Dimensions, Exit},
 };
 
 fn pick(
@@ -67,29 +67,21 @@ fn startup_updates_matching_before_init_and_the_first_frame() {
         }
     }
 
-    for borrowed in [false, true] {
-        let initialized = Cell::new(false);
-        let mut picker = PickerOptions::new()
-            .threads(std::num::NonZero::new(1))
-            .frame_interval(Duration::from_secs(5))
-            .query("^beta$")
-            .picker(StrRenderer)
-            .with_interface(Startup(&initialized));
-        picker.push_batch(["alpha", "beta"]);
-        let events = TestEvents(|_| Ok(Event::Select));
-        let mut terminal = TestTerminal::default();
-        let selected = if borrowed {
-            picker
-                .as_interface(Startup(&initialized))
-                .pick_with_terminal_io(events, &mut terminal)
-        } else {
-            picker.pick_with_terminal_io(events, &mut terminal)
-        }
+    let initialized = Cell::new(false);
+    let mut picker = PickerOptions::new()
+        .threads(std::num::NonZero::new(1))
+        .frame_interval(Duration::from_secs(5))
+        .query("^beta$")
+        .picker(StrRenderer)
+        .with_interface(Startup(&initialized));
+    picker.push_batch(["alpha", "beta"]);
+    let mut terminal = TestTerminal::default();
+    let selected = picker
+        .pick_with_terminal_io(TestEvents(|_| Ok(Event::Select)), &mut terminal)
         .unwrap();
-        assert_eq!(selected, Some(&"beta"));
-        assert!(initialized.get());
-        assert!(String::from_utf8(terminal.output).unwrap().contains("beta"));
-    }
+    assert_eq!(selected, Some(&"beta"));
+    assert!(initialized.get());
+    assert!(String::from_utf8(terminal.output).unwrap().contains("beta"));
 }
 
 #[test]
@@ -138,38 +130,44 @@ fn quit_prompt_empty_flushes_edits_before_deciding_to_exit() {
 
 #[test]
 fn busy_events_do_not_starve_frames_or_status() {
-    for interval in [
-        Duration::ZERO,
-        Duration::from_micros(100),
-        Duration::from_millis(15),
+    for (interval, initial_render_delay) in [
+        (Duration::ZERO, Duration::ZERO),
+        (Duration::from_micros(100), Duration::ZERO),
+        (Duration::from_millis(15), Duration::ZERO),
+        (Duration::from_millis(1), Duration::from_millis(5)),
     ] {
         let mut picker: Picker<&str, _> = PickerOptions::new()
             .frame_interval(interval)
             .picker(StrRenderer);
         let status = picker.status_observer();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut response = None;
         let mut received = 0;
         let events = TestEvents(|_| {
+            assert!(Instant::now() < deadline, "busy events starved status");
+            if let Ok(status) = status.try_recv() {
+                response = Some(status);
+                return Ok(Event::Quit);
+            }
             received += 1;
             Ok(match received {
                 1 => Event::Prompt(PromptEvent::Insert('x')),
                 2 => Event::Status { id: 7 },
-                3..=10 => {
-                    thread::sleep(Duration::from_millis(5));
-                    Event::Redraw
-                }
-                _ => Event::Quit,
+                _ => Event::Redraw,
             })
         });
-        let mut terminal = TestTerminal::default();
+        let mut terminal = TestTerminal {
+            initial_render_delay,
+            ..TestTerminal::default()
+        };
 
         picker.pick_with_terminal_io(events, &mut terminal).unwrap();
 
-        assert!(terminal.first_frame.is_some());
-        let response = status.try_recv().unwrap();
+        assert!(terminal.frame_changes.contains(&true));
+        let response = response.unwrap();
         assert_eq!(response.id, 7);
         assert_eq!(response.query, "x");
         assert!(response.changed);
-        assert!(response.frame_changed);
     }
 }
 
@@ -216,13 +214,14 @@ fn status_changes_accumulate_and_reset_when_responses_are_produced() {
 }
 
 #[test]
-fn host_only_repaints_render_and_report_changes() {
-    for (event, size, clears) in [
-        (Event::Redraw, (20, 8), 2),
-        (Event::Redraw, (0, 8), 0),
-        (Event::Layout(LayoutEvent::MoveDividerLeft(1)), (20, 8), 2),
+fn host_only_repaints_report_changes_even_without_writes() {
+    for (event, size) in [
+        (Event::Redraw, (20, 8)),
+        (Event::Redraw, (0, 8)),
+        (Event::Layout(LayoutEvent::MoveDividerLeft(1)), (20, 8)),
     ] {
         let mut picker = PickerOptions::new()
+            .frame_interval(Duration::from_secs(5))
             .picker(StrRenderer)
             .with_interface(UncachedPreview::new_single(|_: &&str, _: &mut Pane| {}));
         let statuses = picker.status_observer();
@@ -233,6 +232,8 @@ fn host_only_repaints_render_and_report_changes() {
         picker
             .pick_with_terminal_io(
                 frame_events([
+                    Ok(Event::Status { id: 0 }),
+                    Err(RecvError::Timeout),
                     Ok(Event::Status { id: 1 }),
                     Ok(event),
                     Err(RecvError::Timeout),
@@ -242,17 +243,13 @@ fn host_only_repaints_render_and_report_changes() {
             )
             .unwrap();
         let status = statuses.try_recv().unwrap();
+        assert_eq!(status.id, 1);
         assert!(status.frame_changed);
         assert!(status.changed);
-        assert_eq!(terminal.frame_changes.first(), Some(&true));
-        assert_eq!(
-            terminal
-                .output
-                .windows(4)
-                .filter(|bytes| *bytes == b"\x1b[2J")
-                .count(),
-            clears,
-        );
+        assert_eq!(terminal.frame_changes.get(1), Some(&true));
+        if size.0 == 0 {
+            assert!(terminal.output.is_empty());
+        }
     }
 }
 
@@ -362,18 +359,39 @@ fn observers_survive_picker_and_view_conversions() {
 fn picker_layout_survives_interface_conversions() {
     fn preview(_: &&str, _: &mut Pane) {}
 
-    for reversed in [None, Some(false), Some(true)] {
-        for split in [None, Some(0.3)] {
+    for reversed in [false, true] {
+        for split in [0.5, 0.3] {
+            let options = || {
+                PickerOptions::new()
+                    .sort_results(false)
+                    .frame_interval(Duration::from_secs(5))
+                    .reversed(reversed)
+                    .preview_split(split)
+            };
+            let events = || {
+                frame_events([
+                    Ok(Event::MatchList(if reversed {
+                        MatchListEvent::Down(1)
+                    } else {
+                        MatchListEvent::Up(1)
+                    })),
+                    Ok(Event::Select),
+                ])
+            };
+            let mut fresh = options()
+                .picker(StrRenderer)
+                .with_interface(UncachedPreview::new_single(preview));
+            fresh.push_batch(["alpha", "beta"]);
+            fresh.filter().unwrap();
+            let mut expected = TestTerminal::default();
+            assert_eq!(
+                fresh
+                    .pick_with_terminal_io(events(), &mut expected)
+                    .unwrap(),
+                Some(&"beta"),
+            );
             for borrowed in [false, true] {
-                let mut options = PickerOptions::new().sort_results(false);
-                if let Some(reversed) = reversed {
-                    options = options.reversed(reversed);
-                }
-                if let Some(ratio) = split {
-                    options = options.preview_split(ratio);
-                }
-                let picker = options
-                    .query("")
+                let picker = options()
                     .picker(StrRenderer)
                     .multi()
                     .single()
@@ -386,78 +404,28 @@ fn picker_layout_survives_interface_conversions() {
                 let mut picker = picker.with_interface(UncachedPreview::new_single(preview));
                 picker.push_batch(["alpha", "beta"]);
                 picker.filter().unwrap();
-                let reversed = reversed.unwrap_or(false);
-                let navigate = if reversed {
-                    MatchListEvent::Down(1)
-                } else {
-                    MatchListEvent::Up(1)
-                };
-                let mut events = [Event::MatchList(navigate), Event::Select].into_iter();
-                let events = TestEvents(|_| Ok(events.next().unwrap()));
                 let mut terminal = TestTerminal::default();
                 let selected = if borrowed {
                     picker
                         .as_interface(Single)
                         .with_interface(UncachedPreview::new_single(preview))
-                        .pick_with_terminal_io(events, &mut terminal)
+                        .pick_with_terminal_io(events(), &mut terminal)
                 } else {
-                    picker.pick_with_terminal_io(events, &mut terminal)
+                    picker.pick_with_terminal_io(events(), &mut terminal)
                 }
                 .unwrap();
                 assert_eq!(selected, Some(&"beta"));
-                let output = String::from_utf8(terminal.output).unwrap();
-                assert!(output.ends_with(if reversed {
-                    "\x1b[1;3H\x1b[?2026l"
-                } else {
-                    "\x1b[8;3H\x1b[?2026l"
-                }));
-                assert!(output.contains(if split.is_some() {
-                    "\x1b[1;15H"
-                } else {
-                    "\x1b[1;11H"
-                }));
+                assert_eq!(terminal.output, expected.output, "borrowed={borrowed}");
             }
         }
     }
 }
 
 #[test]
-fn slow_render_leaves_time_to_drain() {
-    let mut picker: Picker<&str, _> = PickerOptions::new()
-        .frame_interval(Duration::from_millis(1))
-        .picker(StrRenderer);
-    let mut received = 0;
-    let events = TestEvents(|_| {
-        received += 1;
-        Ok(match received {
-            1 => Event::Redraw,
-            2..=4 => {
-                thread::sleep(Duration::from_millis(2));
-                Event::Redraw
-            }
-            _ => Event::Quit,
-        })
-    });
-    let mut terminal = TestTerminal {
-        initial_render_delay: Duration::from_millis(5),
-        ..TestTerminal::default()
-    };
-
-    picker.pick_with_terminal_io(events, &mut terminal).unwrap();
-
-    assert!(
-        terminal.first_frame.unwrap()
-            >= terminal.initial_render_end.unwrap() + Duration::from_millis(1)
-    );
-}
-
-#[test]
 fn drain_reserve_does_not_wait_for_more_events() {
     let mut picker: Picker<&str, _> = PickerOptions::new()
         .frame_interval(Duration::ZERO)
-        .picker(StrRenderer)
-        .multi()
-        .single();
+        .picker(StrRenderer);
     let status = picker.status_observer();
     let mut received = 0;
     let events = TestEvents(|duration: Duration| {
@@ -471,8 +439,6 @@ fn drain_reserve_does_not_wait_for_more_events() {
     });
 
     picker
-        .as_multi()
-        .with_interface(Single)
         .pick_with_terminal_io(events, &mut TestTerminal::default())
         .unwrap();
 
@@ -533,34 +499,85 @@ fn size_queries_follow_redraws_and_background_frequency() {
         (true, 1, false, 2),
         (false, 7, true, 3),
     ] {
-        for borrowed in [false, true] {
-            let events = frame_events(
-                redraw
-                    .then_some(Ok(Event::Redraw))
-                    .into_iter()
-                    .chain((0..frames).map(|_| Err(RecvError::Timeout)))
-                    .chain([Ok(Event::Quit)]),
-            );
-            let mut terminal = TestTerminal::default();
-            let mut picker = PickerOptions::new()
-                .frame_interval(Duration::from_millis(10))
-                .background_frame_interval(Duration::from_millis(25))
-                .query("")
-                .picker::<&str, _>(StrRenderer)
-                .multi()
-                .single()
-                .with_interface(Single);
-            let _injector = injecting.then(|| picker.injector());
-            if borrowed {
-                picker
-                    .as_multi()
-                    .with_interface(Single)
-                    .pick_with_terminal_io(events, &mut terminal)
-                    .unwrap();
-            } else {
-                picker.pick_with_terminal_io(events, &mut terminal).unwrap();
-            }
-            assert_eq!(terminal.size_reads, calls, "borrowed={borrowed}");
+        let events = frame_events(
+            redraw
+                .then_some(Ok(Event::Redraw))
+                .into_iter()
+                .chain((0..frames).map(|_| Err(RecvError::Timeout)))
+                .chain([Ok(Event::Quit)]),
+        );
+        let mut terminal = TestTerminal::default();
+        let mut picker = PickerOptions::new()
+            .frame_interval(Duration::from_millis(10))
+            .background_frame_interval(Duration::from_millis(25))
+            .picker::<&str, _>(StrRenderer);
+        let _injector = injecting.then(|| picker.injector());
+        picker.pick_with_terminal_io(events, &mut terminal).unwrap();
+        assert_eq!(terminal.size_reads, calls);
+    }
+}
+
+#[test]
+fn terminal_size_is_queried_after_preview_generation() {
+    struct ResizingTerminal<'a>(&'a Cell<Dimensions>);
+
+    impl io::Write for ResizingTerminal<'_> {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
         }
     }
+
+    impl Terminal for ResizingTerminal<'_> {
+        fn init(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn cleanup(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn dimensions(&mut self) -> io::Result<Dimensions> {
+            Ok(self.0.get())
+        }
+    }
+
+    let size = Cell::new(Dimensions {
+        width: 20,
+        height: 10,
+    });
+    let resized = Dimensions {
+        width: 30,
+        height: 12,
+    };
+    let mut picker = PickerOptions::new()
+        .sort_results(false)
+        .frame_interval(Duration::from_secs(5))
+        .picker(StrRenderer)
+        .with_interface(UncachedPreview::new_single(
+            |item: &&str, pane: &mut Pane| {
+                if *item == "beta" {
+                    size.set(resized);
+                }
+                pane.push_text(item);
+            },
+        ));
+    picker.push_batch(["alpha", "beta"]);
+    picker.filter().unwrap();
+    let statuses = picker.status_observer();
+    picker
+        .pick_with_terminal_io(
+            frame_events([
+                Ok(Event::MatchList(MatchListEvent::Up(1))),
+                Ok(Event::Status { id: 0 }),
+                Err(RecvError::Timeout),
+                Ok(Event::Quit),
+            ]),
+            &mut ResizingTerminal(&size),
+        )
+        .unwrap();
+    assert_eq!(statuses.try_recv().unwrap().dimensions, resized);
 }

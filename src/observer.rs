@@ -122,8 +122,8 @@ impl<T> Clone for Observer<T> {
 }
 
 impl<T> Observer<T> {
-    /// Receive a message, blocking until a message is available or the channel
-    /// disconnects.
+    /// Receive a message, blocking until a message is available or the channel is empty and
+    /// disconnected.
     pub fn recv(&self) -> Result<T, RecvError> {
         let (lock, cvar) = &*self.inner;
         let mut channel = lock.lock();
