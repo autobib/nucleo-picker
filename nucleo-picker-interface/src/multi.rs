@@ -19,6 +19,46 @@ use crate::{Interface, Selection};
 /// The returned items are propagated as a [`Selection`].
 ///
 /// Initialize using [`Multi::new`] or the [`Default`] implementation.
+///
+/// # Example
+///
+/// Here is a basic example illustrating how the session interacts with this interface.
+///
+/// ```
+/// use nucleo_picker_core::{
+///     event::MatchListEvent,
+///     render::StrRenderer,
+///     session::{Exit, ModelOptions},
+/// };
+/// use nucleo_picker_interface::Multi;
+///
+/// let mut model = ModelOptions::new()
+///     .sort_results(false)
+///     .list_reversed(true)
+///     .model(StrRenderer);
+/// model.push_batch(["red", "blue", "green"]);
+/// model.filter().unwrap();
+///
+/// let mut session = model.session(Multi::new());
+///
+/// // recall that we set `list_reversed(true)`, so ToggleDown
+/// // moves to a higher rank
+/// let hovered = {
+///     let mut events = session.events();
+///     events.match_list(MatchListEvent::ToggleDown(1));
+///     events.match_list(MatchListEvent::ToggleDown(1));
+///     events.hovered_id()
+/// };
+///
+/// // we queued 'red' and 'blue' and now the hovered item is at
+/// // 'green'
+/// assert_eq!(session.hovered().unwrap().value(), &"green");
+///
+/// // we exit, which does not include 'green' and only includes
+/// // the hovered items
+/// let selection = session.finish(Exit::Selected(hovered));
+/// assert!(selection.iter().copied().eq(["red", "blue"]));
+/// ```
 #[derive(Clone, Copy, Default)]
 pub struct Multi {
     max_selection_count: Option<NonZero<u32>>,

@@ -29,9 +29,6 @@
 //! - Preparing and drawing frames.
 //! - Handling layout and component visibility.
 //! - Frame timing.
-//!
-//! The high-level [`nucleo-picker`](docs.rs/nucleo-picker) crate implements the above
-//! responsibilities.
 
 mod borrowed;
 mod components;

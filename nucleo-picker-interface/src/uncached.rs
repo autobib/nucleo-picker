@@ -36,6 +36,41 @@ pub struct UncachedPreviewState<S> {
 
 impl<I, F> UncachedPreview<I, F> {
     /// Initialize by wrapping an internal interface.
+    ///
+    /// # Example
+    ///
+    /// Here is a basic preview example which omits drawing and instead does some basic preview pane
+    /// introspection.
+    ///
+    /// ```
+    /// use std::time::{Duration, Instant};
+    /// use nucleo_picker_core::{
+    ///     preview::{Content, Pane},
+    ///     render::StrRenderer,
+    ///     session::{FrameOptions, Model},
+    /// };
+    /// use nucleo_picker_interface::{Single, UncachedPreview};
+    ///
+    /// let mut model = Model::new(StrRenderer);
+    /// model.push_batch(["blue"]);
+    /// model.filter().unwrap();
+    ///
+    /// let interface = UncachedPreview::new(Single, |color: &&str, pane: &mut Pane| {
+    ///     pane.push_text("Color: ");
+    ///     pane.push_text(color);
+    /// });
+    /// let mut session = model.session(interface);
+    /// let deadline = Instant::now() + Duration::from_millis(16);
+    /// let mut frame = session.prepare_frame(FrameOptions::new(deadline));
+    ///
+    /// match frame.preview().content() {
+    ///     Content::Ready(pane) => {
+    ///         assert_eq!(pane.buffer().line(0).unwrap().as_str(), "Color: blue");
+    ///     }
+    ///     _ => unreachable!(),
+    /// }
+    /// frame.complete();
+    /// ```
     #[must_use]
     #[inline]
     pub const fn new(interface: I, previewer: F) -> Self {

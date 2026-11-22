@@ -26,14 +26,13 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use nucleo_picker::event::{Event, LayoutEvent, keybind_single_preview};
-use nucleo_picker_core::{
-    event::PromptEvent,
+use nucleo_picker::{
+    event::{Event, LayoutEvent, PromptEvent, keybind_single_preview},
+    interface::UncachedPreview,
     preview::Pane,
     render::StrRenderer,
     session::{Exit, FrameOptions, ModelOptions},
 };
-use nucleo_picker_interface::UncachedPreview;
 use ratatui_core::{
     layout::{Constraint, Layout},
     style::{Color, Style, Stylize},

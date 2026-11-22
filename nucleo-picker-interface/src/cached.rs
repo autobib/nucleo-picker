@@ -67,6 +67,47 @@ impl<I, P> CachedPreview<I, P> {
     pub const DEFAULT_CACHE_SIZE: Option<NonZero<usize>> = NonZero::new(128);
 
     /// Wrap an interface with a new interface that generates previews.
+    ///
+    /// # Example
+    ///
+    /// Here is a basic synchronous preview example using the `preview-cache` feature.
+    ///
+    /// ```
+    /// use std::time::{Duration, Instant};
+    /// use nucleo_picker_core::{
+    ///     preview::{Content, Pane},
+    ///     render::StrRenderer,
+    ///     session::{FrameOptions, Model},
+    /// };
+    /// use nucleo_picker_interface::{CachedPreview, Single, preview::SyncPreviewer};
+    ///
+    /// let mut model = Model::new(StrRenderer);
+    /// model.push_batch(["blue"]);
+    /// model.filter().unwrap();
+    ///
+    /// // generate the preview in a blocking way using a closure
+    /// let previewer = SyncPreviewer(|color: &&str, pane: &mut Pane| {
+    ///     pane.push_text("Color: ");
+    ///     pane.push_text(color);
+    /// });
+    ///
+    /// // single-selection with the previewer
+    /// let mut session = model.session(CachedPreview::new(Single, previewer));
+    /// let deadline = Instant::now() + Duration::from_millis(16);
+    ///
+    /// // prepare the frame, which calls the underlying preview method
+    /// let mut frame = session.prepare_frame(FrameOptions::new(deadline));
+    ///
+    /// // since the preview is generated synchronously, it is immediately ready
+    /// // this might not be the case with, e.g., `PoolPreviewer`
+    /// match frame.preview().content() {
+    ///     Content::Ready(pane) => {
+    ///         assert_eq!(pane.buffer().line(0).unwrap().as_str(), "Color: blue");
+    ///     }
+    ///     _ => unreachable!(),
+    /// }
+    /// frame.complete();
+    /// ```
     #[must_use]
     #[inline]
     pub fn new(interface: I, previewer: P) -> Self {

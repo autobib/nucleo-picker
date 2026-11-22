@@ -11,16 +11,24 @@
 //!
 //! - To include a preview pane in the picker, see the [`preview`] module. The simplest entry point is to
 //!  enable the [preview-cache feature](#cargo-features) and use [`Picker::with_preview`].
-//! - For headless (non-interactive) use, see the [relevant section of the picker documentation](Picker#headless-non-interactive-use).
+//! - For headless (non-interactive) use, see the [picker documentation](Picker#headless-non-interactive-use).
 //! - For more precise control over the interface and integration with an existing application, see the [`event`] module.
 //! - See the [picker usage documentation](https://github.com/autobib/nucleo-picker/blob/master/USAGE.md)
 //!   for end-user-relevant TUI usage documentation.
 //!
+//! For lower-level control over layout (especially when integrating into a large application, for
+//! instance using Rataui) see the [`nucleo-picker-interface`](nucleo_picker_interface) and
+//! [`nucleo-picker-core`](nucleo_picker_core) crates. This crate already includes many of the
+//! relevant imports; see for instance the [Ratatui
+//! example](https://github.com/autobib/nucleo-picker/blob/master/examples/ratatui.rs)
+//!
 //! ## Usage examples
+//!
 //! For many usage examples, visit the [examples
 //! folder](https://github.com/autobib/nucleo-picker/tree/master/examples) on GitHub.
 //!
 //! ### `fzf` example
+//!
 //! Run this example with `cat myfile.txt | cargo run --release --example fzf_basic`.
 //! ```no_run
 #![doc = include_str!("../examples/fzf_basic.rs")]

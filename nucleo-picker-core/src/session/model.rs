@@ -156,6 +156,28 @@ impl<T: Send + Sync + 'static, R> Model<T, R> {
     /// Finish matching against the current query, or return `None` if injectors are still live.
     ///
     /// Use [`Self::update_matches`] to process matches while items are still being injected.
+    ///
+    /// # Example
+    ///
+    /// Here is a basic example illustrating headless matching.
+    ///
+    /// ```
+    /// use nucleo_picker_core::{render::StrRenderer, session::ModelOptions};
+    ///
+    /// let mut model = ModelOptions::new().query("^blue$").model(StrRenderer);
+    /// let injector = model.injector();
+    /// injector.push_batch(["red", "blue", "green"]);
+    ///
+    /// // a live injector prevents filtering from returning
+    /// assert!(model.filter().is_none());
+    /// drop(injector);
+    ///
+    /// let matches = model.filter().unwrap();
+    /// assert!(matches.iter().map(|item| *item.value()).eq(["blue"]));
+    ///
+    /// model.reset_query();
+    /// assert_eq!(model.filter().unwrap().len(), 3);
+    /// ```
     pub fn filter(&mut self) -> Option<Matches<'_, T>> {
         let items_changed = self.engine.finish_matching()?;
         self.list_state.items_changed |= items_changed;

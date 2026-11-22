@@ -170,6 +170,34 @@ impl Pane {
     /// This method exists since preview navigation depends on the size of the viewport. For
     /// instance, the preview pane will not scroll beyond the bottom of the page or beyond the end
     /// of the longest visible line. These computations depend on knowledge of the dimensions.
+    ///
+    /// # Example
+    ///
+    /// Here is an example demonstrating basic pane navigation.
+    ///
+    /// ```
+    /// use nucleo_picker_core::{preview::Pane, session::Dimensions};
+    ///
+    /// let mut pane = Pane::new();
+    /// pane.push_text("one\ntwo\nthree\nfour\nfive");
+    ///
+    /// // wide but very narrow
+    /// let size = Dimensions { width: 20, height: 2 };
+    ///
+    /// // scroll down a whole page
+    /// pane.viewport(size).page_down(1);
+    /// assert_eq!(pane.offset(), (0, 2));
+    ///
+    /// // align to the bottom, which scrolls down a bit more
+    /// pane.viewport(size).align_bottom();
+    /// assert_eq!(pane.offset(), (0, 3));
+    ///
+    /// // when the size becomes larger, clamping aligns to
+    /// // the bottom of the frame which moves the preview pane
+    /// // origin up
+    /// pane.viewport(Dimensions { height: 4, ..size }).clamp();
+    /// assert_eq!(pane.offset(), (0, 1));
+    /// ```
     #[must_use]
     pub fn viewport(&mut self, size: Dimensions) -> Viewport<'_> {
         Viewport { pane: self, size }
