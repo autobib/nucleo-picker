@@ -1,22 +1,22 @@
-use std::{io, iter::once};
+use std::iter::once;
 
-use crossterm::style::{Color, ContentStyle};
+use crossterm::style::{Color, ContentStyle, Stylize};
 
 use super::{BoundaryChars, Content, Pane};
 use crate::{
-    rect::Rect,
+    draw::Draw,
     util::{
         line::print_line,
         unicode::{AsciiProcessor, UnicodeProcessor},
     },
 };
 
-pub(crate) fn draw<D: Rect>(
+pub(crate) fn draw<D: Draw>(
     rect: &mut D,
     preview: Content<'_>,
     chars: BoundaryChars,
     ellipsis: char,
-) -> io::Result<()> {
+) -> Result<(), D::Error> {
     let (preview, loading) = match preview {
         Content::Empty => (None, false),
         Content::Loading => (None, true),
@@ -51,33 +51,29 @@ pub(crate) fn draw<D: Rect>(
     ] {
         rect.move_to(0, row)?;
         rect.clear_line()?;
-        if is_err {
-            rect.set_foreground(Color::DarkRed)?;
-        }
-        rect.print(left)?;
+        rect.text(left.encode_utf8(&mut [0; 4]), border_style)?;
         let mut remaining = width - 2;
         if is_err && row == 0 && width >= 7 {
             let label = if width < 9 { " Err " } else { " Error " };
             if width >= 11 {
-                rect.print(horizontal)?;
+                rect.text(horizontal.encode_utf8(&mut [0; 4]), border_style)?;
                 remaining -= 1;
             }
-            rect.print(label)?;
+            rect.text(label, border_style)?;
             remaining -= label.len() as u16;
         }
+        let mut encoded = [0; 4];
+        let horizontal = horizontal.encode_utf8(&mut encoded);
         for _ in 0..remaining {
-            rect.print(horizontal)?;
+            rect.text(horizontal, border_style)?;
         }
-        rect.print(right)?;
-        if is_err {
-            rect.reset_style()?;
-        }
+        rect.text(right.encode_utf8(&mut [0; 4]), border_style)?;
     }
 
     for row in 1..height - 1 {
         rect.move_to(0, row)?;
         rect.clear_line()?;
-        rect.print_styled(border_style.apply(vertical))?;
+        rect.text(vertical.encode_utf8(&mut [0; 4]), border_style)?;
         let line = preview.and_then(|(buffer, start)| {
             let index = start + usize::from(row - 1);
             buffer.line(index).map(|line| (index + 1, line))
@@ -85,10 +81,11 @@ pub(crate) fn draw<D: Rect>(
         let remaining = if let Some((number, line)) = line {
             if number_width != 0 {
                 let digits = usize::from(number_width - 1);
-                rect.set_background(Color::Black)?;
-                rect.print(format_args!("{number:>digits$}"))?;
-                rect.reset_style()?;
-                rect.spaces(1)?;
+                rect.ascii(
+                    format_args!("{number:>digits$}"),
+                    ContentStyle::new().on_black(),
+                )?;
+                rect.spaces(1, ContentStyle::new())?;
             }
             let capacity = width - 2 - number_width;
             print_line::<UnicodeProcessor, _>(
@@ -98,26 +95,26 @@ pub(crate) fn draw<D: Rect>(
                 horizontal_position,
                 capacity,
                 ellipsis,
+                ContentStyle::new(),
             )?
         } else if loading && row == 1 {
             let message = "Loading...";
             let capacity = width - 2;
-            rect.set_foreground(Color::DarkGrey)?;
-            let remaining = print_line::<AsciiProcessor, _>(
+            let style = ContentStyle::new().dark_grey();
+            print_line::<AsciiProcessor, _>(
                 rect,
                 message,
-                once(ContentStyle::new().apply(message)),
+                once(style.apply(message)),
                 0,
                 capacity,
                 ellipsis,
-            )?;
-            rect.reset_style()?;
-            remaining
+                style,
+            )?
         } else {
             width - 2
         };
-        rect.spaces(remaining)?;
-        rect.print_styled(border_style.apply(vertical))?;
+        rect.spaces(remaining, ContentStyle::new())?;
+        rect.text(vertical.encode_utf8(&mut [0; 4]), border_style)?;
     }
     Ok(())
 }

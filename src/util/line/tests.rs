@@ -4,7 +4,7 @@ use crossterm::style::{ContentStyle, Stylize};
 
 use super::*;
 use crate::{
-    rect::{Area, ClearState, CrosstermRect},
+    rect::{Area, ClearState, CrosstermTarget},
     util::unicode::{AsciiProcessor, UnicodeProcessor, is_ascii_safe},
 };
 
@@ -101,24 +101,37 @@ fn clipping_does_not_measure_the_hidden_suffix() {
 fn styled_output_only_visits_visible_spans_and_never_moves_the_cursor() {
     for (capacity, expected) in [(0, ""), (3, "ab~")] {
         let mut output = Vec::new();
-        let mut rect = CrosstermRect::new(
-            &mut output,
-            Area {
-                column: 5,
-                width: 3,
-                height: 1,
-                ..Area::default()
-            },
-            ClearState::Precleared,
-        )
-        .unwrap();
+        let mut target = CrosstermTarget::new(&mut output);
+        let mut rect = target
+            .rect(
+                Area {
+                    column: 5,
+                    width: 3,
+                    height: 1,
+                    ..Area::default()
+                },
+                ClearState::Precleared,
+            )
+            .unwrap();
         let spans = once(ContentStyle::new().apply("abc"))
             .take(usize::from(capacity != 0))
             .chain(std::iter::from_fn(|| panic!("visited a hidden style span")));
-        let remaining =
-            print_line::<UnicodeProcessor, _>(&mut rect, "abcdef", spans, 0, capacity, '~')
-                .unwrap();
+        let remaining = print_line::<UnicodeProcessor, _>(
+            &mut rect,
+            "abcdef",
+            spans,
+            0,
+            capacity,
+            '~',
+            ContentStyle::new(),
+        )
+        .unwrap();
         assert_eq!(remaining, 0);
+        let expected = if capacity == 0 {
+            expected.to_owned()
+        } else {
+            format!("\x1b[0m{expected}")
+        };
         assert_eq!(String::from_utf8(output).unwrap(), expected);
     }
 }
@@ -126,28 +139,36 @@ fn styled_output_only_visits_visible_spans_and_never_moves_the_cursor() {
 #[test]
 fn scrolling_and_styles_can_cross_different_grapheme_boundaries() {
     let mut output = Vec::new();
-    let mut rect = CrosstermRect::new(
-        &mut output,
-        Area {
-            width: 5,
-            height: 1,
-            ..Area::default()
-        },
-        ClearState::Precleared,
-    )
-    .unwrap();
+    let mut target = CrosstermTarget::new(&mut output);
+    let mut rect = target
+        .rect(
+            Area {
+                width: 5,
+                height: 1,
+                ..Area::default()
+            },
+            ClearState::Precleared,
+        )
+        .unwrap();
     let spans = [
         "a👩".red(),
         "🏽‍".blue(),
         "💻b".green(),
         ContentStyle::new().apply("c"),
     ];
-    let remaining =
-        print_line::<UnicodeProcessor, _>(&mut rect, "a👩🏽‍💻bc", spans.into_iter(), 1, 5, '…')
-            .unwrap();
+    let remaining = print_line::<UnicodeProcessor, _>(
+        &mut rect,
+        "a👩🏽‍💻bc",
+        spans.into_iter(),
+        1,
+        5,
+        '…',
+        ContentStyle::new(),
+    )
+    .unwrap();
     assert_eq!(remaining, 1);
     assert_eq!(
         String::from_utf8(output).unwrap(),
-        format!("……{}c", "b".green())
+        format!("\x1b[0m……{}c", "b".green())
     );
 }

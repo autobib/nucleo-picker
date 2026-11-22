@@ -1,4 +1,4 @@
-use crossterm::style::Stylize;
+use crossterm::style::{Color, SetForegroundColor};
 use std::time::Duration;
 
 use crate::{
@@ -50,8 +50,8 @@ fn crlf_and_lf_items_render_the_same_highlights_and_line_boundaries() {
     ] {
         let output = render(text);
         assert_eq!(output, render(&text.replace("\r\n", "\n")));
-        assert!(output.contains(&"a".cyan().to_string()));
-        assert!(output.contains(&"b".cyan().to_string()));
+        assert!(output.contains(&format!("{}a", SetForegroundColor(Color::Cyan))));
+        assert!(output.contains(&format!("{}b", SetForegroundColor(Color::Cyan))));
         assert!(!output.contains(['\r', '\n']));
     }
 }

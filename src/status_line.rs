@@ -1,12 +1,11 @@
-use std::io;
-
-use crossterm::style::{Attribute, Color};
+use crossterm::style::{ContentStyle, Stylize};
 use unicode_width::UnicodeWidthChar;
 
 use crate::{
     PickerChars,
     component::Component,
-    rect::{Area, Rect},
+    draw::Draw,
+    rect::Area,
     session::{MatchStatus, QueueStatus},
 };
 
@@ -85,7 +84,7 @@ impl<'a> StatusLine<'a> {
 
 impl Component for StatusLine<'_> {
     fn resize(&mut self, _area: Area) {}
-    fn draw<D: Rect>(&mut self, rect: &mut D) -> io::Result<()> {
+    fn draw<D: Draw>(&mut self, rect: &mut D) -> Result<(), D::Error> {
         let values = self.previous.unwrap_or_default();
         draw_match_counts(
             rect,
@@ -102,14 +101,14 @@ fn decimal_width(value: u32) -> usize {
     value.checked_ilog10().unwrap_or(0) as usize + 1
 }
 
-fn draw_match_counts<D: Rect>(
+fn draw_match_counts<D: Draw>(
     rect: &mut D,
     matched: u32,
     total: u32,
     multi: Option<QueueStatus>,
     status_marker: Option<char>,
     chars: &PickerChars,
-) -> io::Result<()> {
+) -> Result<(), D::Error> {
     let width = rect.width().get();
 
     let mut occupied = status_marker.unwrap_or(' ').width().unwrap_or(0)
@@ -128,33 +127,31 @@ fn draw_match_counts<D: Rect>(
         return rect.clear_line();
     }
 
-    rect.set_attribute(Attribute::Italic)?;
-    rect.set_foreground(Color::Green)?;
-    rect.print(status_marker.unwrap_or(' '))?;
-    rect.print(" ")?;
-    rect.print(matched)?;
-    rect.print("/")?;
-    rect.print(total)?;
+    let counts = ContentStyle::new().italic().green();
+    let secondary = ContentStyle::new().italic().grey();
+    rect.text(
+        status_marker.unwrap_or(' ').encode_utf8(&mut [0; 4]),
+        counts,
+    )?;
+    rect.ascii(format_args!(" {matched}/{total}"), counts)?;
     if let Some(QueueStatus { count, limit }) = multi {
-        rect.set_foreground(Color::Grey)?;
-        rect.print(" (")?;
-        rect.print(count)?;
+        rect.ascii(format_args!(" ({count}"), secondary)?;
         if let Some(max) = limit {
-            rect.print("/")?;
-            rect.print(max)?;
+            rect.ascii(format_args!("/{max}"), secondary)?;
         }
-        rect.print(")")?;
+        rect.text(")", secondary)?;
     }
 
     let fill_width = usize::from(width).saturating_sub(occupied);
     if fill_width != 0 {
-        rect.set_foreground(Color::Grey)?;
-        rect.print(" ")?;
+        rect.spaces(1, secondary)?;
+        let mut encoded = [0; 4];
+        let separator = chars.separator.encode_utf8(&mut encoded);
         for _ in 1..fill_width {
-            rect.print(chars.separator)?;
+            rect.text(separator, secondary)?;
         }
     }
-    rect.reset_style()
+    Ok(())
 }
 
 #[cfg(test)]

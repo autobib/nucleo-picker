@@ -1,4 +1,4 @@
-use std::{io, ops::Range};
+use std::ops::Range;
 
 use nucleo as nc;
 
@@ -9,7 +9,7 @@ use super::{
     unicode::Span,
 };
 use crate::util::unicode::{AsciiProcessor, UnicodeProcessor};
-use crate::{PickerChars, Render, match_engine::MatchEngine, rect::Rect, util::as_u16};
+use crate::{PickerChars, Render, draw::Draw, match_engine::MatchEngine, util::as_u16};
 
 /// Reusable scratch space for match list rendering.
 pub(super) struct RenderScratch {
@@ -41,7 +41,7 @@ fn draw_single_match<
     T: Send + Sync + 'static,
     R: Render<T>,
     L: KeepLines,
-    D: Rect,
+    D: Draw,
     const HOVERED: bool,
 >(
     rect: &mut D,
@@ -53,7 +53,7 @@ fn draw_single_match<
     height: u16,
     render: &R,
     chars: &PickerChars,
-) -> io::Result<()> {
+) -> Result<(), D::Error> {
     // generate the indices
     if config.highlight {
         buffer.indices.clear();
@@ -101,7 +101,7 @@ fn draw_single_match<
 }
 
 #[allow(clippy::too_many_arguments)]
-fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, D: Rect>(
+fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, D: Draw>(
     rect: &mut D,
     buffer: &mut RenderScratch,
     config: &MatchListConfig,
@@ -111,7 +111,7 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, D: Rect>(
     below: &[usize],
     mut item_iter: impl Iterator<Item = (nc::Item<'a, T>, bool)>,
     chars: &PickerChars,
-) -> io::Result<()> {
+) -> Result<(), D::Error> {
     // render above the hovered item
     for (item_height, (item, queued)) in above.iter().rev().zip(item_iter.by_ref()) {
         draw_single_match::<_, _, Tail, _, false>(
@@ -161,7 +161,7 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, D: Rect>(
     Ok(())
 }
 
-fn draw_whitespace<D: Rect>(rect: &mut D, height: u16) -> io::Result<()> {
+fn draw_whitespace<D: Draw>(rect: &mut D, height: u16) -> Result<(), D::Error> {
     for _ in 0..height {
         rect.clear_line()?;
         rect.next_line()?;
@@ -170,13 +170,13 @@ fn draw_whitespace<D: Rect>(rect: &mut D, height: u16) -> io::Result<()> {
 }
 
 impl MatchListState {
-    pub fn draw_items<T: Send + Sync + 'static, R: Render<T>, D: Rect, F: FnMut(u32) -> bool>(
+    pub fn draw_items<T: Send + Sync + 'static, R: Render<T>, D: Draw, F: FnMut(u32) -> bool>(
         &mut self,
         engine: &MatchEngine<T, R>,
         rect: &mut D,
         chars: &PickerChars,
         mut is_queued: F,
-    ) -> std::io::Result<()> {
+    ) -> Result<(), D::Error> {
         let snapshot = engine.snapshot();
         let matched_item_count = snapshot.matched_item_count();
         let total_whitespace = self.layout.whitespace();

@@ -1,10 +1,12 @@
+use crossterm::style::ContentStyle;
+
 use super::{PromptEvent, PromptState, state::PromptStatus};
 use crate::{
     PickerChars,
     component::Component,
-    rect::{Area, Position, Rect},
+    draw::Draw,
+    rect::{Area, Position},
 };
-use std::io;
 
 pub(crate) struct Prompt<'a> {
     state: &'a mut PromptState,
@@ -108,15 +110,18 @@ impl Component for Prompt<'_> {
             self.state.resize(width);
         }
     }
-    fn draw<D: Rect>(&mut self, rect: &mut D) -> io::Result<()> {
+    fn draw<D: Draw>(&mut self, rect: &mut D) -> Result<(), D::Error> {
         rect.clear_line()?;
-        rect.print(self.chars.prompt)?;
+        rect.text(
+            self.chars.prompt.encode_utf8(&mut [0; 4]),
+            ContentStyle::new(),
+        )?;
 
         if rect.width().get() >= 2 {
-            rect.print(" ")?;
+            rect.spaces(1, ContentStyle::new())?;
             let (contents, shift) = self.state.view();
-            rect.spaces(shift)?;
-            rect.print(contents)?;
+            rect.spaces(shift, ContentStyle::new())?;
+            rect.text(contents, ContentStyle::new())?;
         }
         Ok(())
     }

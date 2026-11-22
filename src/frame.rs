@@ -4,7 +4,8 @@
 use crate::{
     Terminal,
     component::Component,
-    rect::{Area, ClearState, CrosstermRect, Dimensions, Rect},
+    draw::Draw,
+    rect::{Area, ClearState, CrosstermTarget, Dimensions},
     session::{Geometry, Redraw},
 };
 use crossterm::{
@@ -253,18 +254,25 @@ pub(crate) fn draw<W: Terminal>(
             .queue(SetAttribute(Attribute::Reset))?
             .queue(Clear(ClearType::All))?;
     }
+    let mut target = CrosstermTarget::new(writer);
     if redraw.list {
-        draw_component(&mut contents.list(), writer, geometry.list, clear)?;
+        draw_component(&mut contents.list(), &mut target, geometry.list, clear)?;
     }
     if redraw.status {
-        draw_component(&mut contents.status(), writer, geometry.status, clear)?;
+        draw_component(&mut contents.status(), &mut target, geometry.status, clear)?;
     }
     if redraw.prompt {
-        draw_component(&mut contents.prompt(), writer, geometry.prompt, clear)?;
+        draw_component(&mut contents.prompt(), &mut target, geometry.prompt, clear)?;
     }
     if redraw.preview {
-        draw_component(&mut contents.preview(), writer, geometry.preview, clear)?;
+        draw_component(
+            &mut contents.preview(),
+            &mut target,
+            geometry.preview,
+            clear,
+        )?;
     }
+    target.reset_style()?;
     if visible.prompt
         && let Some(cursor) = contents.prompt().cursor()
     {
@@ -280,17 +288,15 @@ pub(crate) fn draw<W: Terminal>(
 /// Draw a component to the screen in the provided area with the given clear policy.
 fn draw_component<C: Component, W: io::Write + ?Sized>(
     component: &mut C,
-    writer: &mut W,
+    target: &mut CrosstermTarget<'_, W>,
     area: Area,
     clear: ClearState,
 ) -> io::Result<()> {
-    let Some(mut rect) = CrosstermRect::new(writer, area, clear) else {
+    let Some(mut rect) = target.rect(area, clear) else {
         return Ok(());
     };
-    rect.reset_style()?;
     rect.move_to(0, 0)?;
-    component.draw(&mut rect)?;
-    rect.reset_style()
+    component.draw(&mut rect)
 }
 
 #[cfg(test)]

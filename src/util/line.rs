@@ -1,9 +1,9 @@
-use std::{io, ops::Range};
+use std::{iter, ops::Range};
 
-use crossterm::style::StyledContent;
+use crossterm::style::{ContentStyle, StyledContent};
 
 use super::unicode::Processor;
-use crate::rect::Rect;
+use crate::draw::Draw;
 
 #[cfg(test)]
 mod tests;
@@ -84,40 +84,42 @@ fn clip_line<P: Processor>(text: &str, offset: usize, capacity: u16) -> LineClip
 /// Offset is the viewport origin in source columns. At nonzero offsets, the leading
 /// ellipsis occupies the first viewport cell, so text starts at `offset + 1` (rounded forward to a
 /// grapheme boundary).
-pub fn print_line<'a, P: Processor, D: Rect>(
+pub fn print_line<'a, P: Processor, D: Draw>(
     rect: &mut D,
     text: &'a str,
-    spans: impl Iterator<Item = StyledContent<&'a str>>,
+    mut spans: impl Iterator<Item = StyledContent<&'a str>>,
     offset: usize,
     capacity: u16,
     ellipsis: char,
-) -> io::Result<u16> {
+    marker_style: ContentStyle,
+) -> Result<u16, D::Error> {
     let clip = clip_line::<P>(text, offset, capacity);
+    let mut encoded = [0; 4];
+    let ellipsis = ellipsis.encode_utf8(&mut encoded);
     for _ in 0..clip.leading {
-        rect.print(ellipsis)?;
+        rect.text(ellipsis, marker_style)?;
     }
     if !clip.visible.is_empty() {
         let mut start = 0;
-        for span in spans {
-            let content = span.content();
-            let end = start + content.len();
-            if end > clip.visible.start {
+        let visible_spans = iter::from_fn(|| {
+            while start < clip.visible.end {
+                let span = spans.next()?;
+                let content = span.content();
+                let end = start + content.len();
                 let from = clip.visible.start.saturating_sub(start);
                 let to = content.len().min(clip.visible.end - start);
-                rect.print_styled(span.style().apply(&content[from..to]))?;
-                // Crossterm resets foreground, but not underline colour, for attribute-free spans.
-                if span.style().underline_color.is_some() && span.style().attributes.is_empty() {
-                    rect.reset_style()?;
+                start = end;
+                if from < to {
+                    return Some(span.style().apply(&content[from..to]));
                 }
             }
-            if end >= clip.visible.end {
-                break;
-            }
-            start = end;
-        }
+            None
+        });
+
+        rect.styled_text(&text[clip.visible.clone()], visible_spans)?;
     }
     for _ in 0..clip.trailing {
-        rect.print(ellipsis)?;
+        rect.text(ellipsis, marker_style)?;
     }
     Ok(clip.remaining)
 }

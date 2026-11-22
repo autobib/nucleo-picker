@@ -169,7 +169,7 @@
 //!
 //! - `T` is the *item type*. Running the picker requires
 //!   `T: Send + Sync + 'static`. Selected items are borrowed from the picker.
-//! - `R` is the *renderer*, implementing [`Render<T>`].
+//! - `R` is the *renderer*, implementing [`Render<T>`](crate::Render).
 //! - `I` is the *session interface*, defaulting to [`Single`]. Interactive methods require
 //!   `I: Interface<T>`. Headless methods such as [`Picker::filter`] are independent of the
 //!   interface.
@@ -177,7 +177,7 @@
 //!   original picker. Its `pick*` methods return `I::Output<'a>`.
 //!
 //! In most cases you can use one of the provided interfaces. To customize how
-//! items are displayed, implement [`Render`] or [`Preview`]; to customize IO, use
+//! items are displayed, implement [`Render`](crate::Render) or [`Preview`]; to customize IO, use
 //! [`Picker::pick_with_keybind`] or [`Picker::pick_with_io`].
 //!
 //! ### Writing code which is generic over a picker

@@ -187,12 +187,15 @@ impl Buffer {
         self.push_styled_str(text, ContentStyle::default());
     }
 
-    /// Append an styled segment to the current line in the buffer in the given style.
+    /// Append a styled segment to the current line in the buffer in the given style.
     ///
     /// The text must not contain control characters, or the terminal window will be corrupted.
     ///
     /// The provided text is appended to the current active line. To start a new line, use
     /// [`newline`](Self::newline).
+    ///
+    /// The provided style specifies the complete styling of the given segment. Unspecified
+    /// colors fall back to the default values and unspecified attributes are disabled.
     ///
     /// # Panics
     ///
@@ -200,7 +203,7 @@ impl Buffer {
     pub fn push_styled_str(&mut self, text: &str, style: ContentStyle) {
         assert!(
             memchr(b'\n', text.as_bytes()).is_none(),
-            "preview segments must not contain LF; use newline()"
+            "segments must not contain LF; use newline()"
         );
         if text.is_empty() {
             return;

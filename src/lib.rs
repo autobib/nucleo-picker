@@ -50,6 +50,7 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod component;
+pub mod draw;
 pub mod error;
 pub mod event;
 mod frame;

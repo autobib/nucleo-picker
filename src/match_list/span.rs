@@ -1,13 +1,13 @@
 #[cfg(test)]
 mod tests;
 
-use std::{io, marker::PhantomData, ops::Range, slice::Iter};
+use std::{marker::PhantomData, ops::Range, slice::Iter};
 
-use crossterm::style::{Attribute, Color, ContentStyle, Stylize};
+use crossterm::style::{ContentStyle, StyledContent, Stylize};
 
 use super::unicode::{Span, spans_from_indices};
 use crate::util::{line::print_line, unicode::Processor};
-use crate::{PickerChars, rect::Rect};
+use crate::{PickerChars, draw::Draw};
 
 /// An iterator over lines, as span slices.
 pub struct SpannedLines<'a> {
@@ -140,77 +140,81 @@ impl<'a, P: Processor> Spanned<'a, P> {
     /// Print the header for each line, which is either two spaces or styled indicator. This also
     /// sets the highlighting features for the given line.
     #[inline]
-    fn start_line<D: Rect>(
+    fn start_line<D: Draw>(
         rect: &mut D,
         hovered: bool,
         queued: bool,
         prefix_width: u16,
         highlight_line: bool,
         chars: &PickerChars,
-    ) -> io::Result<()> {
+    ) -> Result<(), D::Error> {
         if prefix_width == 0 {
             return Ok(());
         }
 
+        let mut style = ContentStyle::new();
         if hovered {
             // print the line as bold, and with a 'hovered-item' marker
-            rect.set_attribute(Attribute::Bold)?;
+            style = style.bold();
             if !highlight_line {
-                rect.set_background(Color::DarkGrey)?;
+                style = style.on_dark_grey();
             }
-            rect.print_styled(chars.hover.magenta())?;
+            rect.text(chars.hover.encode_utf8(&mut [0; 4]), style.magenta())?;
         } else {
             // print a blank instead
-            rect.print(" ")?;
+            rect.spaces(1, style)?;
         }
 
         if prefix_width >= 2 {
             if queued {
-                rect.print_styled(chars.queued.magenta())?;
+                rect.text(chars.queued.encode_utf8(&mut [0; 4]), style.magenta())?;
             } else {
-                rect.print(" ")?;
+                rect.spaces(1, style)?;
             }
         }
 
-        if hovered && highlight_line {
-            rect.set_background(Color::DarkGrey)?;
-        }
-
         Ok(())
     }
 
-    /// Printing a string slice to the given rectangle with highlighting.
+    /// Print a string slice to the given rectangle with highlighting.
     #[inline]
-    fn print_span<D: Rect>(rect: &mut D, to_print: &str, highlight: bool) -> io::Result<()> {
-        if highlight {
-            rect.print_styled(to_print.cyan())?;
-        } else {
-            rect.print(to_print)?;
-        }
-        Ok(())
+    fn styled_line<'s>(
+        &'s self,
+        line: &'s [Span],
+        style: ContentStyle,
+    ) -> impl Iterator<Item = StyledContent<&'a str>> + 's {
+        line.iter().map(move |span| {
+            let style = if span.is_match { style.cyan() } else { style };
+            style.apply(self.index_in(span))
+        })
     }
 
-    /// Clean up after printing the line by resetting any display styling and moving to the
-    /// next line.
     #[inline]
-    fn finish_line<D: Rect>(
+    fn line_text(&self, line: &[Span]) -> &'a str {
+        match (line.first(), line.last()) {
+            (Some(first), Some(last)) => &self.rendered[first.range.start..last.range.end],
+            _ => "",
+        }
+    }
+
+    /// Clean up after printing the line by printing any remaining whitespace (for instance for fill
+    /// highlight) and moving to the next line.
+    #[inline]
+    fn finish_line<D: Draw>(
         rect: &mut D,
         remaining: impl FnOnce() -> u16,
-        hovered: bool,
+        style: ContentStyle,
         fill_highlight: bool,
-    ) -> io::Result<()> {
+    ) -> Result<(), D::Error> {
         if fill_highlight {
-            rect.spaces(remaining())?;
-        }
-        if hovered {
-            rect.set_attribute(Attribute::Reset)?;
+            rect.spaces(remaining(), style)?;
         }
         rect.next_line()
     }
 
     /// Print into the rectangle with styling to match if the item is hovered or not.
     #[inline]
-    pub fn queue_print<D: Rect>(
+    pub fn queue_print<D: Draw>(
         &self,
         rect: &mut D,
         hovered: bool,
@@ -218,11 +222,16 @@ impl<'a, P: Processor> Spanned<'a, P> {
         highlight_padding: u16,
         highlight_line: bool,
         chars: &PickerChars,
-    ) -> io::Result<()> {
+    ) -> Result<(), D::Error> {
         let width = rect.width().get();
         let prefix_width = width.min(2);
         let max_width = width.saturating_sub(prefix_width);
         let fill_highlight = hovered && highlight_line;
+        let style = if hovered {
+            ContentStyle::new().bold().on_dark_grey()
+        } else {
+            ContentStyle::new()
+        };
 
         if self.max_line_bytes() <= max_width.saturating_sub(highlight_padding) as usize {
             // Fast path: all of the lines are short, so we can just render them without any Unicode width
@@ -239,9 +248,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
                     rect.clear_line()?;
                 }
                 Self::start_line(rect, hovered, queued, prefix_width, highlight_line, chars)?;
-                for span in line {
-                    Self::print_span(rect, self.index_in(span), span.is_match)?;
-                }
+                rect.styled_text(self.line_text(line), self.styled_line(line, style))?;
 
                 let remaining_capacity = || {
                     let printed_width = if line.is_empty() {
@@ -253,7 +260,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
                     };
                     max_width.saturating_sub(printed_width as u16)
                 };
-                Self::finish_line(rect, remaining_capacity, hovered, fill_highlight)?;
+                Self::finish_line(rect, remaining_capacity, style, fill_highlight)?;
             }
         } else {
             let offset = self.required_offset(max_width, highlight_padding);
@@ -264,8 +271,8 @@ impl<'a, P: Processor> Spanned<'a, P> {
                 }
                 Self::start_line(rect, hovered, queued, prefix_width, highlight_line, chars)?;
                 let remaining_capacity =
-                    self.queue_print_line(rect, line, offset, max_width, chars)?;
-                Self::finish_line(rect, || remaining_capacity, hovered, fill_highlight)?;
+                    self.queue_print_line(rect, line, offset, max_width, chars, style)?;
+                Self::finish_line(rect, || remaining_capacity, style, fill_highlight)?;
             }
         }
         Ok(())
@@ -274,27 +281,24 @@ impl<'a, P: Processor> Spanned<'a, P> {
     /// Print a single line (represented as a slice of [`Span`]) to the terminal screen, with the
     /// given `offset` and the width of the screen in columns, as `capacity`.
     #[inline]
-    fn queue_print_line<D: Rect>(
+    fn queue_print_line<D: Draw>(
         &self,
         rect: &mut D,
         line: &[Span],
         offset: usize,
         capacity: u16,
         chars: &PickerChars,
-    ) -> io::Result<u16> {
-        let text = match (line.first(), line.last()) {
-            (Some(first), Some(last)) => &self.rendered[first.range.start..last.range.end],
-            _ => "",
-        };
-        let spans = line.iter().map(|span| {
-            let style = if span.is_match {
-                ContentStyle::new().cyan()
-            } else {
-                ContentStyle::new()
-            };
-            style.apply(self.index_in(span))
-        });
-        print_line::<P, _>(rect, text, spans, offset, capacity, chars.ellipsis)
+        style: ContentStyle,
+    ) -> Result<u16, D::Error> {
+        print_line::<P, _>(
+            rect,
+            self.line_text(line),
+            self.styled_line(line, style),
+            offset,
+            capacity,
+            chars.ellipsis,
+            style,
+        )
     }
 
     /// Compute the string slice corresponding to the given [`Span`].
@@ -303,7 +307,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
     /// This method must be called with a span with `range.start` and `range.end` corresponding to
     /// valid Unicode indices in `rendered`.
     #[inline]
-    fn index_in(&self, span: &Span) -> &str {
+    fn index_in(&self, span: &Span) -> &'a str {
         &self.rendered[span.range.start..span.range.end]
     }
 

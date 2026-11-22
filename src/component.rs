@@ -13,9 +13,8 @@
 //!
 //! - the previewer
 //!
-use std::io;
-
-use crate::rect::{Area, Position, Rect};
+use crate::draw::Draw;
+use crate::rect::{Area, Position};
 use crate::{interface::Interface, preview::BoundaryChars};
 
 /// A single component in the frame.
@@ -25,7 +24,7 @@ pub(crate) trait Component {
 
     /// Draw this component in the given rectangle taking into account the match data from the
     /// internal engine. Make sure to take into account the rectangle drawing constraints.
-    fn draw<D: Rect>(&mut self, rect: &mut D) -> io::Result<()>;
+    fn draw<D: Draw>(&mut self, rect: &mut D) -> Result<(), D::Error>;
 
     fn cursor(&self) -> Option<Position> {
         None
@@ -42,7 +41,7 @@ pub(crate) struct PreviewPane<'a, T, I: Interface<T>> {
 impl<T, I: Interface<T>> Component for PreviewPane<'_, T, I> {
     fn resize(&mut self, _area: Area) {}
 
-    fn draw<D: Rect>(&mut self, rect: &mut D) -> io::Result<()> {
+    fn draw<D: Draw>(&mut self, rect: &mut D) -> Result<(), D::Error> {
         crate::preview::draw(
             rect,
             self.interface.preview_content(self.state),
@@ -56,7 +55,7 @@ impl<C: Component> Component for &mut C {
     fn resize(&mut self, area: Area) {
         (**self).resize(area);
     }
-    fn draw<D: Rect>(&mut self, rect: &mut D) -> io::Result<()> {
+    fn draw<D: Draw>(&mut self, rect: &mut D) -> Result<(), D::Error> {
         (**self).draw(rect)
     }
     fn cursor(&self) -> Option<Position> {

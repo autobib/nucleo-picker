@@ -2,13 +2,13 @@ use super::{MatchListEvent, MatchListState};
 use crate::{
     PickerChars,
     component::Component,
+    draw::Draw,
     interface::Interface,
     match_engine::MatchEngine,
-    rect::{Area, Rect},
+    rect::Area,
     session::{Context, ItemId, QueueEvent},
     util::as_u32,
 };
-use std::io;
 
 pub(crate) struct MatchList<'a> {
     state: &'a mut MatchListState,
@@ -223,7 +223,7 @@ impl<T: Send + Sync + 'static, R: crate::Render<T>, I: Interface<T>> Component
             .resize(self.engine.snapshot(), area.height, &self.list.state.config);
     }
 
-    fn draw<D: Rect>(&mut self, rect: &mut D) -> io::Result<()> {
+    fn draw<D: Draw>(&mut self, rect: &mut D) -> Result<(), D::Error> {
         self.list
             .state
             .draw_items(self.engine, rect, self.list.chars, |idx| {

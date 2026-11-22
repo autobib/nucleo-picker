@@ -1,4 +1,5 @@
 use super::*;
+use crossterm::style::Stylize;
 
 fn area() -> Area {
     Area {
@@ -12,7 +13,8 @@ fn area() -> Area {
 #[test]
 fn movement_uses_local_coordinates_and_stops_at_the_last_row() {
     let mut output = Vec::new();
-    let mut rect = CrosstermRect::new(&mut output, area(), ClearState::WithinRect).unwrap();
+    let mut target = CrosstermTarget::new(&mut output);
+    let mut rect = target.rect(area(), ClearState::WithinRect).unwrap();
     rect.move_to(2, 0).unwrap();
     rect.move_to_column(4).unwrap();
     rect.next_line().unwrap();
@@ -28,25 +30,26 @@ fn clearing_respects_origin_policy_and_full_width_lines() {
         (ClearState::WithinRect, "\x1b[6G        \x1b[6G"),
     ] {
         let mut output = Vec::new();
-        CrosstermRect::new(&mut output, area(), clear)
-            .unwrap()
-            .clear()
-            .unwrap();
+        let mut target = CrosstermTarget::new(&mut output);
+        target.reset_style().unwrap();
+        target.rect(area(), clear).unwrap().clear().unwrap();
         let expected = if clear == ClearState::Precleared {
             "\x1b[4;6H".to_owned()
         } else {
             format!("\x1b[4;6H{line_clear}\x1b[5;6H{line_clear}\x1b[4;6H")
         };
-        assert_eq!(output, expected.as_bytes());
+        assert_eq!(output, format!("\x1b[0m{expected}").as_bytes());
         for text in ["界", "12345678"] {
             output.clear();
-            let mut rect = CrosstermRect::new(&mut output, area(), clear).unwrap();
+            let mut target = CrosstermTarget::new(&mut output);
+            target.reset_style().unwrap();
+            let mut rect = target.rect(area(), clear).unwrap();
             rect.clear_line().unwrap();
-            rect.print(text).unwrap();
+            rect.text(text, ContentStyle::new()).unwrap();
             rect.next_line().unwrap();
             rect.clear_line().unwrap();
-            rect.print("x").unwrap();
-            let expected = format!("{line_clear}{text}\x1b[5;6H{line_clear}x");
+            rect.text("x", ContentStyle::new()).unwrap();
+            let expected = format!("\x1b[0m{line_clear}{text}\x1b[5;6H{line_clear}x");
             assert_eq!(output, expected.as_bytes());
         }
     }
@@ -56,11 +59,116 @@ fn clearing_respects_origin_policy_and_full_width_lines() {
 fn spaces_preserve_the_active_style() {
     crossterm::style::force_color_output(true);
     let mut output = Vec::new();
-    let mut rect = CrosstermRect::new(&mut output, area(), ClearState::Precleared).unwrap();
-    rect.spaces(2).unwrap();
-    rect.set_background(Color::DarkGrey).unwrap();
-    rect.spaces(3).unwrap();
-    rect.reset_style().unwrap();
-    rect.spaces(0).unwrap();
-    assert_eq!(output, b"  \x1b[48;5;8m   \x1b[0m\x1b[0m");
+    let mut target = CrosstermTarget::new(&mut output);
+    let mut rect = target.rect(area(), ClearState::Precleared).unwrap();
+    rect.spaces(2, ContentStyle::new()).unwrap();
+    rect.spaces(3, ContentStyle::new().on_dark_grey()).unwrap();
+    rect.spaces(0, ContentStyle::new().on_red()).unwrap();
+    target.reset_style().unwrap();
+    assert_eq!(output, b"\x1b[0m  \x1b[48;5;8m   \x1b[49m");
+}
+
+#[test]
+fn styles_are_complete_and_shared_across_rectangle_borrows() {
+    crossterm::style::force_color_output(true);
+    let mut output = Vec::new();
+    let mut target = CrosstermTarget::new(&mut output);
+    let styled = ContentStyle::new()
+        .bold()
+        .red()
+        .on_blue()
+        .underline(Color::Green);
+    for text in ["a", "b"] {
+        target
+            .rect(area(), ClearState::Precleared)
+            .unwrap()
+            .text(text, styled)
+            .unwrap();
+    }
+    target
+        .rect(area(), ClearState::Precleared)
+        .unwrap()
+        .text("c", ContentStyle::new())
+        .unwrap();
+    assert_eq!(
+        output,
+        b"\x1b[0m\x1b[48;5;12m\x1b[38;5;9m\x1b[58;5;10m\x1b[1mab\x1b[0mc",
+    );
+}
+
+#[test]
+fn underline_color_does_not_leak_into_unstyled_text() {
+    crossterm::style::force_color_output(true);
+    let mut output = Vec::new();
+    let mut target = CrosstermTarget::new(&mut output);
+    let mut rect = target.rect(area(), ClearState::Precleared).unwrap();
+    rect.text("a", ContentStyle::new().underline(Color::Green))
+        .unwrap();
+    rect.text("b", ContentStyle::new()).unwrap();
+    assert_eq!(output, b"\x1b[0m\x1b[58;5;10ma\x1b[59mb");
+}
+
+#[test]
+fn clearing_resets_the_blank_style_but_precleared_rows_only_move() {
+    crossterm::style::force_color_output(true);
+    for clear in [
+        ClearState::Precleared,
+        ClearState::ToEndOfLine,
+        ClearState::WithinRect,
+    ] {
+        let mut output = Vec::new();
+        let mut target = CrosstermTarget::new(&mut output);
+        let mut rect = target.rect(area(), clear).unwrap();
+        rect.text("x", ContentStyle::new().bold().on_blue())
+            .unwrap();
+        rect.next_line().unwrap();
+        rect.clear_line().unwrap();
+        let suffix = match clear {
+            ClearState::Precleared => "\x1b[5;6H\x1b[6G",
+            ClearState::ToEndOfLine => "\x1b[5;6H\x1b[6G\x1b[0m\x1b[K",
+            ClearState::WithinRect => "\x1b[5;6H\x1b[6G\x1b[0m        \x1b[6G",
+        };
+        assert!(output.ends_with(suffix.as_bytes()), "{output:?}");
+    }
+}
+
+#[test]
+fn empty_writes_do_not_change_style_or_visit_spans() {
+    let mut output = Vec::new();
+    let mut target = CrosstermTarget::new(&mut output);
+    let mut rect = target.rect(area(), ClearState::Precleared).unwrap();
+    rect.text("", ContentStyle::new().bold()).unwrap();
+    rect.spaces(0, ContentStyle::new().red()).unwrap();
+    rect.ascii(format_args!(""), ContentStyle::new().green())
+        .unwrap();
+    rect.styled_text("", std::iter::from_fn(|| panic!("visited empty text")))
+        .unwrap();
+    assert!(output.is_empty());
+}
+
+#[test]
+fn writer_errors_stop_span_iteration() {
+    struct Fails;
+
+    impl io::Write for Fails {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::ErrorKind::BrokenPipe.into())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            panic!("drawing flushed the writer");
+        }
+    }
+
+    let mut writer = Fails;
+    let mut target = CrosstermTarget::new(&mut writer);
+    let mut rect = target.rect(area(), ClearState::Precleared).unwrap();
+    let error = rect
+        .styled_text(
+            "ab",
+            std::iter::once(ContentStyle::new().apply("a")).chain(std::iter::from_fn(|| {
+                panic!("drawing continued after failure")
+            })),
+        )
+        .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
 }
