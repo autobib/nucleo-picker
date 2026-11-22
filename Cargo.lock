@@ -934,7 +934,7 @@ dependencies = [
 
 [[package]]
 name = "nucleo-picker"
-version = "0.13.0-beta.9"
+version = "0.13.0-beta.10"
 dependencies = [
  "crossbeam",
  "crossterm",
@@ -955,7 +955,7 @@ dependencies = [
 
 [[package]]
 name = "nucleo-picker-core"
-version = "0.1.0"
+version = "0.1.0-beta.10"
 dependencies = [
  "anstyle-parse",
  "crossterm",
@@ -972,7 +972,7 @@ dependencies = [
 
 [[package]]
 name = "nucleo-picker-interface"
-version = "0.1.0"
+version = "0.1.0-beta.10"
 dependencies = [
  "crossbeam",
  "lru 0.19.1",
