@@ -72,7 +72,9 @@ use crossterm::event::KeyEvent;
 use observer::{Notifier, Observer};
 use preview::BoundaryChars;
 
-pub use nucleo_picker_core::{CaseMatching, Injector, Normalization, Render, draw, session};
+pub use nucleo_picker_core::{
+    CaseMatching, Generation, Injector, Normalization, Render, draw, session,
+};
 pub use nucleo_picker_interface::Selection;
 #[doc(inline)]
 pub use picker_ref::PickerRef;
@@ -735,6 +737,15 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
 
 /// Inherent picker methods which are independent of the interface.
 impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
+    /// Returns the generation of this picker.
+    ///
+    /// See the [`Generation`] docs for more detail.
+    #[must_use]
+    #[inline]
+    pub fn generation(&self) -> Generation {
+        self.core.generation()
+    }
+
     /// Get an [`Injector`] to send items to the picker.
     #[must_use]
     #[inline]
@@ -1180,6 +1191,9 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     /// internal memory buffers used for matching and scoring are preserved. To restart the
     /// picker during interactive use, see the [`Event`] documentation or the [restart
     /// example](https://github.com/autobib/nucleo-picker/blob/master/examples/restart.rs).
+    ///
+    /// Also see the documentation for [`Generation`], which uniquely identifies when pickers and
+    /// injectors are in correspondence.
     pub fn restart(&mut self) {
         self.core.restart();
     }

@@ -2,6 +2,7 @@ use std::num::NonZero;
 
 use super::{frame_options, model, update};
 use crate::{
+    Generation,
     event::{MatchListEvent, PromptEvent},
     interface::Interface,
     session::{Context, Exit, ItemId, QueueEvent, QueueStatus},
@@ -9,7 +10,7 @@ use crate::{
 
 #[derive(Default)]
 struct QueueFirst {
-    restarts: Vec<Option<ItemId>>,
+    restarts: Vec<(Generation, Option<ItemId>)>,
 }
 
 impl Interface<String> for QueueFirst {
@@ -48,7 +49,8 @@ impl Interface<String> for QueueFirst {
         if let Some(id) = queued.take() {
             assert!(cx.matches().item(id).is_some());
         }
-        self.restarts.push(cx.hovered().map(|item| item.id()));
+        self.restarts
+            .push((cx.generation(), cx.hovered().map(|item| item.id())));
     }
 
     fn finish<'items>(
@@ -69,7 +71,9 @@ impl Interface<String> for QueueFirst {
 #[test]
 fn custom_queue_hooks_control_navigation_and_allow_selection_after_filtering() {
     let mut model = model(["alpha", "beta", "gamma"]);
+    let generation = model.generation();
     let mut session = model.session(QueueFirst::default());
+    assert_eq!(session.generation(), generation);
     {
         let mut batch = session.events();
         assert_eq!(batch.queue_status().unwrap().count, 0);
@@ -91,6 +95,7 @@ fn custom_queue_hooks_control_navigation_and_allow_selection_after_filtering() {
 
     update(&mut session);
     assert!(session.matches().is_empty());
+    assert_eq!(session.generation(), generation);
     let exit = {
         let batch = session.events();
         let hovered = batch.hovered_id();
@@ -99,6 +104,10 @@ fn custom_queue_hooks_control_navigation_and_allow_selection_after_filtering() {
         Exit::Selected(hovered)
     };
     assert_eq!(session.finish(exit).unwrap(), "alpha");
+    assert_eq!(model.generation(), generation);
+    let session = model.session(super::Select);
+    assert_eq!(session.generation(), generation);
+    assert!(session.matches().is_empty());
 }
 
 #[test]
@@ -106,28 +115,52 @@ fn restart_notifies_with_event_time_context_and_replaces_items_without_resetting
     let mut model = model(["alpha", "beta"]);
     let old_hovered = model.matches().get(1).unwrap().id();
     let old_injector = model.injector();
+    let old_generation = model.generation();
+    assert_eq!(old_injector.generation(), old_generation);
     let mut interface = QueueFirst::default();
     let mut session = model.session(&mut interface);
-    {
+    assert_eq!(session.generation(), old_generation);
+    let intermediate_generation = {
         let mut batch = session.events();
+        assert_eq!(batch.generation(), old_generation);
         batch.match_list(MatchListEvent::ToggleUp(1));
         batch.prompt(PromptEvent::Insert('a'));
-        drop(batch.restart());
+        let injector = batch.restart();
+        assert_ne!(batch.generation(), old_generation);
+        assert_eq!(batch.generation(), injector.generation());
         assert_eq!(batch.hovered_id(), None);
         assert_eq!(batch.queue_status().unwrap().count, 0);
-    }
+        batch.generation()
+    };
+    assert_eq!(session.generation(), intermediate_generation);
     let replacement = session.events().restart();
+    let generation = replacement.generation();
+    assert_ne!(generation, old_generation);
+    assert_ne!(generation, intermediate_generation);
+    assert_eq!(session.generation(), generation);
+    assert_eq!(session.matches().generation(), generation);
+    assert_eq!(old_injector.generation(), old_generation);
     replacement.push("gamma".to_owned());
     old_injector.push("old generation".to_owned());
     drop((replacement, old_injector));
 
     update(&mut session);
     let frame = session.prepare_frame(frame_options());
+    assert_eq!(frame.generation(), generation);
+    assert_eq!(frame.matches().generation(), generation);
+    assert_eq!(frame.hovered().unwrap().id().generation(), generation);
     assert_eq!(frame.query(), "a");
     assert_eq!(frame.match_status().matched_item_count, 1);
     frame.complete();
     let exit = Exit::Selected(session.events().hovered_id());
     assert_eq!(session.finish(exit).unwrap(), "gamma");
-    assert_eq!(interface.restarts, [Some(old_hovered), None]);
+    assert_eq!(
+        interface.restarts,
+        [
+            (old_generation, Some(old_hovered)),
+            (intermediate_generation, None),
+        ],
+    );
+    assert_eq!(model.generation(), generation);
     assert_eq!(model.query(), "a");
 }

@@ -1,5 +1,5 @@
 use super::{ItemId, ItemRef, OwnedItem};
-use crate::match_engine::MatchEngine;
+use crate::{Generation, match_engine::MatchEngine};
 
 /// A snapshot of the matching items in a [`Model`](crate::session::Model).
 ///
@@ -8,7 +8,7 @@ use crate::match_engine::MatchEngine;
 /// This is a view type only, and is only up-to-date as of the time of the last update.
 pub struct Matches<'items, T> {
     pub(crate) snapshot: &'items nucleo::Snapshot<T>,
-    pub(crate) generation: u32,
+    pub(crate) generation: Generation,
 }
 
 impl<T> Copy for Matches<'_, T> {}
@@ -78,20 +78,23 @@ impl<'items, T: Send + Sync + 'static> Matches<'items, T> {
         })
     }
 
-    /// Returns if the given item identifier corresponds to a match.
+    /// Returns the current generation.
+    ///
+    /// See the [`Generation`] docs for more detail.
     #[must_use]
     #[inline]
-    pub fn contains_item(&self, id: ItemId) -> bool {
-        id.generation == self.generation
+    pub const fn generation(&self) -> Generation {
+        self.generation
     }
 
     /// Obtain the item corresponding to the given identifier.
     ///
-    /// The identifiers must correspond to a valid index in this exact picker and generation.
+    /// The identifiers must correspond to a valid index in this exact picker and
+    /// [generation](Self::generation).
     /// Otherwise, this will return [`None`].
     #[inline]
     pub fn item(&self, id: ItemId) -> Option<ItemRef<'items, T>> {
-        if !self.contains_item(id) {
+        if id.generation() != self.generation() {
             return None;
         }
         // SAFETY: identifiers are issued only for initialized items. Equal globally unique
@@ -103,16 +106,17 @@ impl<'items, T: Send + Sync + 'static> Matches<'items, T> {
     /// is valid.
     ///
     /// This [`ItemId`] must have been witnessed in this exact picker and restart generation. For example, this
-    /// is guaranteed to be the case for [`ItemId`]s witnessed in the [`Matches`] here. If you need a persistent
-    /// handle, use [`owned_item`](Self::owned_item).
+    /// is guaranteed to be the case for [`ItemId`]s witnessed in the [`Matches`] here.
+    /// If you need a persistent handle, use [`owned_item`](Self::owned_item).
     ///
     /// # Safety
     ///
     /// The id must correspond to an initialized item in this picker with no restart events
-    /// processed in the interim.
+    /// processed in the interim. Equivalently, the [generation](Generation) of the item and this
+    /// struct must be the same.
     #[inline]
     pub unsafe fn item_unchecked(&self, id: ItemId) -> ItemRef<'items, T> {
-        debug_assert!(self.contains_item(id));
+        debug_assert_eq!(id.generation(), self.generation());
         debug_assert!(self.snapshot.get_item(id.index).is_some());
         // SAFETY: the caller guarantees that id identifies an initialized item in this snapshot.
         let item = unsafe { self.snapshot.get_item_unchecked(id.index) };
@@ -128,7 +132,7 @@ impl<'items, T: Send + Sync + 'static> Matches<'items, T> {
     /// Read the documentation for [`OwnedItem`] for more details.
     #[inline]
     pub fn owned_item(&self, id: ItemId) -> Option<OwnedItem<T>> {
-        if !self.contains_item(id) {
+        if id.generation() != self.generation() {
             return None;
         }
         // SAFETY: issued identifiers identify initialized items in this generation's storage.
@@ -140,10 +144,11 @@ impl<'items, T: Send + Sync + 'static> Matches<'items, T> {
     /// # Safety
     ///
     /// The id must correspond to an initialized item in this picker with no restart events
-    /// processed in the interim.
+    /// processed in the interim. Equivalently, the [generation](Generation) of this struct and of
+    /// the item id must be the same.
     #[inline]
     pub unsafe fn owned_item_unchecked(&self, id: ItemId) -> OwnedItem<T> {
-        debug_assert!(self.contains_item(id));
+        debug_assert_eq!(id.generation(), self.generation());
         debug_assert!(self.snapshot.get_item(id.index).is_some());
         // SAFETY: the caller guarantees that id identifies an initialized item in this snapshot.
         let item = unsafe { self.snapshot.get_detached_item_unchecked(id.index) };

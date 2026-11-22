@@ -150,7 +150,10 @@ fn construction_leaves_unpublished_items_for_an_explicit_update() {
             .query(query)
             .model(StrRenderer);
         model.push_batch(["alpha", "beta"].map(str::to_owned));
+        let generation = model.generation();
         let mut session = model.session(&mut probe);
+        assert_eq!(session.generation(), generation);
+        assert_eq!(session.events().generation(), generation);
         let initial = session.match_status();
         assert_eq!(initial.item_count, 0);
         assert_eq!(initial.matched_item_count, 0);

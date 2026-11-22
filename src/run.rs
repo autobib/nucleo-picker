@@ -252,6 +252,7 @@ where
             let status = frame.match_status();
             let _ = notifier.push(PickerStatus {
                 id,
+                generation: frame.generation(),
                 query: frame.query().to_owned(),
                 changed: std::mem::take(&mut changed_since_status),
                 frame_changed: changed,

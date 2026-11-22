@@ -1,4 +1,5 @@
 use super::{Components, ItemRef, Matches};
+use crate::Generation;
 
 /// Read-only access to match engine and runner context.
 ///
@@ -14,6 +15,15 @@ pub struct Context<'items, T> {
 }
 
 impl<'items, T: Send + Sync + 'static> Context<'items, T> {
+    /// Returns the generation of the underlying item pool.
+    ///
+    /// See the [`Generation`] docs for more detail.
+    #[must_use]
+    #[inline]
+    pub const fn generation(&self) -> Generation {
+        self.matches.generation()
+    }
+
     /// Initialize from a snapshot of [`Matches`] from a picker.
     ///
     /// The rank is initially set to `None` and all components are recorded as hidden. Set these

@@ -90,6 +90,7 @@ fn exits_commit_buffered_edits_without_rematching_the_selection() {
         let mut picker = PickerOptions::new().sort_results(false).picker(StrRenderer);
         picker.push_batch(["alpha", "beta"]);
         picker.filter().unwrap();
+        let generation = picker.generation();
         assert_eq!(
             pick(
                 &mut picker,
@@ -104,6 +105,7 @@ fn exits_commit_buffered_edits_without_rematching_the_selection() {
         assert_eq!(picker.query(), "^alpha$");
         picker.filter().unwrap();
         assert_eq!(pick(&mut picker, [Event::Select]), Some("alpha"));
+        assert_eq!(picker.generation(), generation);
     }
 }
 
@@ -166,6 +168,7 @@ fn busy_events_do_not_starve_frames_or_status() {
         assert!(terminal.frame_changes.contains(&true));
         let response = response.unwrap();
         assert_eq!(response.id, 7);
+        assert_eq!(response.generation, picker.generation());
         assert_eq!(response.query, "x");
         assert!(response.changed);
     }
@@ -294,6 +297,7 @@ fn observers_survive_picker_and_view_conversions() {
     let mut picker = PickerOptions::new()
         .frame_interval(Duration::from_secs(5))
         .picker(StrRenderer);
+    let initial_generation = picker.generation();
     let old_injectors = picker.injector_observer(false);
     let injectors = picker.injector_observer(true);
     let old_statuses = picker.status_observer();
@@ -306,7 +310,11 @@ fn observers_survive_picker_and_view_conversions() {
         old_statuses.try_recv().err(),
         Some(mpsc::TryRecvError::Disconnected),
     );
-    injectors.try_recv().unwrap().push_batch(["initial"]);
+    {
+        let injector = injectors.try_recv().unwrap();
+        assert_eq!(injector.generation(), initial_generation);
+        injector.push_batch(["initial"]);
+    }
     assert_eq!(picker.filter().unwrap().len(), 1);
 
     let picker = picker.multi().single().with_interface(Single);
@@ -316,7 +324,9 @@ fn observers_survive_picker_and_view_conversions() {
         picker.with_preview(previewer).without_preview()
     };
     let mut picker = picker;
+    assert_eq!(picker.generation(), initial_generation);
     for (id, borrowed) in [(0, true), (1, false)] {
+        let previous_generation = picker.generation();
         let events = frame_events([
             Ok(Event::Restart),
             Ok(Event::Status { id }),
@@ -325,19 +335,24 @@ fn observers_survive_picker_and_view_conversions() {
         ]);
         let mut terminal = TestTerminal::default();
         if borrowed {
-            picker
-                .as_multi()
-                .with_interface(Single)
-                .pick_with_terminal_io(events, &mut terminal)
-                .unwrap();
+            let view = picker.as_multi().with_interface(Single);
+            assert_eq!(view.generation(), previous_generation);
+            view.pick_with_terminal_io(events, &mut terminal).unwrap();
         } else {
             picker.pick_with_terminal_io(events, &mut terminal).unwrap();
         }
         let status = statuses.try_recv().unwrap();
         assert_eq!(status.id, id);
+        assert_eq!(status.generation, picker.generation());
+        assert_ne!(status.generation, previous_generation);
+        assert_ne!(status.generation, initial_generation);
         assert_eq!(status.item_count, 0);
         assert!(status.injecting);
-        injectors.try_recv().unwrap().push_batch(["replacement"]);
+        {
+            let injector = injectors.try_recv().unwrap();
+            assert_eq!(injector.generation(), status.generation);
+            injector.push_batch(["replacement"]);
+        }
         assert_eq!(
             picker.filter().unwrap().get(0).unwrap().value(),
             &"replacement",

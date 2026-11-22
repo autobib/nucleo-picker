@@ -43,6 +43,7 @@
 mod component;
 pub mod draw;
 pub mod event;
+mod generation;
 mod incremental;
 mod injector;
 pub mod interface;
@@ -60,6 +61,7 @@ use std::borrow::Cow;
 
 use nucleo::pattern::{CaseMatching as NucleoCaseMatching, Normalization as NucleoNormalization};
 
+pub use generation::Generation;
 pub use injector::Injector;
 
 /// A trait which describes how to render objects for matching and display.

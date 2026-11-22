@@ -1,5 +1,6 @@
 use super::SessionState;
 use crate::{
+    Generation,
     interface::Interface,
     session::{Components, ItemRef, MatchStatus, Matches, QueueStatus},
 };
@@ -10,6 +11,10 @@ pub(super) trait SessionRead {
     type Interface: Interface<Self::Item>;
 
     fn session(&self) -> &SessionState<'_, Self::Item, Self::Renderer, Self::Interface>;
+
+    fn generation(&self) -> Generation {
+        self.session().engine.generation()
+    }
 
     fn query(&self) -> &str {
         self.session().prompt.contents()

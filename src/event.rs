@@ -41,7 +41,7 @@ pub use nucleo_picker_core::event::{MatchListEvent, PreviewEvent, PromptEvent};
 pub use crate::input::{StdinEventSender, StdinReader};
 pub use crate::observer::Observer;
 
-use crate::session::Dimensions;
+use crate::{Generation, session::Dimensions};
 
 /// An event which controls the picker behaviour.
 ///
@@ -141,6 +141,9 @@ use crate::session::Dimensions;
 /// cleared on the next frame. Therefore to receive a valid [`Injector`], the caller must
 /// watch for new injectors using the [`Observer`] returned by
 /// [`Picker::injector_observer`](crate::Picker::injector_observer).
+///
+/// A restart changes the [`Generation`], which can be used to identify injectors and picers which
+/// share the same underlying item pool.
 ///
 /// When the [`Event::Restart`] is processed by the picker, it will clear the item list and
 /// immediately update the observer with the new [`Injector`]. If the send fails because
@@ -257,6 +260,8 @@ pub struct PickerStatus {
     /// The id corresponding to the [`Event::Status`] request which produced this status
     /// response.
     pub id: u64,
+    /// The picker generation at the time that this status was produced.
+    pub generation: Generation,
     /// The query string.
     pub query: String,
     /// The rank of the hovered item in the ordered match list, or `None` if there are no matching items.

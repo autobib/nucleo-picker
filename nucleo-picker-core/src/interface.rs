@@ -53,7 +53,7 @@ pub trait Interface<T>: Sized {
 
     /// Process a restart event.
     ///
-    /// The provided [`Context`] corresponds to the *previous* generation at the moment that the
+    /// The provided [`Context`] corresponds to the *previous* [generation](crate::Generation) at the moment that the
     /// restart event was processed. The internal session state is preserved (i.e., there are no
     /// calls to [`Interface::init`] or [`Interface::on_end`]).
     fn on_restart(&mut self, _state: &mut Self::State, _cx: &Context<'_, T>) {}

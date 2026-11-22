@@ -1,25 +1,29 @@
+use crate::Generation;
+
 /// An opaque item identifier which uniquely identifies an item `T` within its originating picker.
 ///
 /// It is guaranteed that if two [`ItemId`]s are equal then the underlying items are also equal
 /// (i.e., they represent the same memory location of the underlying item `&T`). In particular, this
-/// contract is upheld across restarts and across different pickers using a small amount of atomic
-/// global state. This is done using a global `u32` counter and the picker will panic if the counter
-/// is exhausted (i.e., after restarting `2^32` times, after initializing `2^32` pickers, or some combination of the two).
+/// contract is upheld across restarts and across different pickers.
+///
+/// The contract is upheld by internally storing the [generation](Generation) of the underlying item
+/// pool. Read those docs for more details. Equality of generation does not imply anything about
+/// equality of items.
 ///
 /// Within a single generation, the order corresponds to the order in which items were received by
 /// the picker. Order across generations is unspecified.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ItemId {
-    pub(crate) generation: u32,
+    pub(crate) generation: Generation,
     pub(crate) index: u32,
 }
 
 impl ItemId {
-    /// Check if this identifier is of the same generation as another identifier.
+    /// Returns the generation of the underlying item pool which contains this item.
     #[must_use]
     #[inline]
-    pub const fn same_generation(self, other: Self) -> bool {
-        self.generation == other.generation
+    pub const fn generation(self) -> Generation {
+        self.generation
     }
 }
 
@@ -76,6 +80,12 @@ impl<T> OwnedItem<T> {
     #[inline]
     pub fn id(&self) -> ItemId {
         self.id
+    }
+
+    /// Returns the underlying item's generation.
+    #[inline]
+    pub fn generation(&self) -> Generation {
+        self.id.generation()
     }
 
     /// Borrow the underlying item.

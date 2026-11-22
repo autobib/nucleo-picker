@@ -17,7 +17,7 @@ use std::{
 
 use super::{Components, Context, Exit, ItemId, ItemRef, MatchStatus, Matches, QueueStatus};
 use crate::{
-    Injector, PickerChars, Render,
+    Generation, Injector, PickerChars, Render,
     component::Component,
     draw::Surface,
     event::{MatchListEvent, PreviewEvent, PromptEvent},
@@ -269,6 +269,13 @@ impl<T: Send + Sync + 'static, R, I: Interface<T>> SessionRead for Session<'_, T
 }
 
 impl<T: Send + Sync + 'static, R, I: Interface<T>> Session<'_, T, R, I> {
+    /// Returns the generation of the underlying item pool.
+    #[must_use]
+    #[inline]
+    pub fn generation(&self) -> Generation {
+        SessionRead::generation(self)
+    }
+
     /// Returns the complete contents of the query string (independently of what is visible).
     pub fn query(&self) -> &str {
         SessionRead::query(self)
@@ -341,6 +348,15 @@ pub struct EventBatch<'batch, 'items, T: Send + Sync + 'static, R, I: Interface<
 }
 
 impl<T: Send + Sync + 'static, R, I: Interface<T>> EventBatch<'_, '_, T, R, I> {
+    /// Returns the current [`Generation`].
+    ///
+    /// This takes into account an earlier restart processed in the same batch.
+    #[must_use]
+    #[inline]
+    pub fn generation(&self) -> Generation {
+        self.session.engine.generation()
+    }
+
     /// Send an event which updates the prompt to the picker.
     pub fn prompt(&mut self, event: PromptEvent) {
         self.session.prompt.handle(event);
@@ -417,7 +433,7 @@ impl<T: Send + Sync + 'static, R, I: Interface<T>> EventBatch<'_, '_, T, R, I> {
     /// Restart the picker, discarding the existing items and returning a new injector valid for the new
     /// item pool.
     ///
-    /// Note that this does not clear the query string.
+    /// Note that this does not clear the query string. This updates the [generation](Generation).
     pub fn restart(&mut self) -> Injector<T, R> {
         let session = &mut *self.session;
         let cx = context(
@@ -598,6 +614,13 @@ impl<T: Send + Sync + 'static, R, I: Interface<T>> SessionRead for PreparedFrame
 }
 
 impl<T: Send + Sync + 'static, R, I: Interface<T>> PreparedFrame<'_, '_, T, R, I> {
+    /// Returns the generation of the underlying item pool.
+    #[must_use]
+    #[inline]
+    pub fn generation(&self) -> Generation {
+        SessionRead::generation(self)
+    }
+
     /// Returns the complete contents of the query string (independently of what is visible).
     pub fn query(&self) -> &str {
         SessionRead::query(self)

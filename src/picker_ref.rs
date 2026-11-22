@@ -7,7 +7,7 @@ use crate::Terminal;
 #[cfg(feature = "preview-cache")]
 use crate::interface::{CachedPreview, Multi};
 use crate::{
-    Injector, Render,
+    Generation, Injector, Render,
     error::PickError,
     event::{Event, EventSource, KeybindDefault, PickerStatus},
     input,
@@ -54,6 +54,17 @@ pub struct PickerRef<'a, T, R, I = Single> {
     pub(crate) status_notifier: Option<&'a Notifier<PickerStatus>>,
     pub(crate) interface: I,
     pub(crate) defaults: InterfaceDefaults,
+}
+
+impl<T: Send + Sync + 'static, R, I> PickerRef<'_, T, R, I> {
+    /// Returns the generation of the underlying picker.
+    ///
+    /// See the [`Generation`] docs for more detail.
+    #[must_use]
+    #[inline]
+    pub fn generation(&self) -> Generation {
+        self.core.generation()
+    }
 }
 
 impl<'a, T, R, I> PickerRef<'a, T, R, I>

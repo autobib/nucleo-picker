@@ -5,7 +5,7 @@ use std::time::Duration;
 pub use options::ModelOptions;
 
 use crate::{
-    Injector, PickerChars, Render,
+    Generation, Injector, PickerChars, Render,
     interface::Interface,
     match_engine::MatchEngine,
     match_list::MatchListState,
@@ -39,6 +39,15 @@ impl<T: Send + Sync + 'static, R: Render<T>> Extend<T> for Model<T, R> {
 }
 
 impl<T: Send + Sync + 'static, R> Model<T, R> {
+    /// Returns the generation of the underlying item pool.
+    ///
+    /// See the [`Generation`] docs for more detail.
+    #[must_use]
+    #[inline]
+    pub fn generation(&self) -> Generation {
+        self.engine.generation()
+    }
+
     /// Start a new interactive picker session.
     ///
     /// The session contains the given [`Interface`] and can be driven by the governing application
@@ -122,6 +131,9 @@ impl<T: Send + Sync + 'static, R> Model<T, R> {
     /// All items are removed immediately. Existing injectors will continue to function but the
     /// items will no longer be received by this instance. The old items will only be dropped when
     /// all injectors are dropped.
+    ///
+    /// Calling this method changes the [`Generation`]. Existing injectors and owned items refer to
+    /// the previous generation.
     pub fn restart(&mut self) {
         self.engine.restart();
         self.list_state
@@ -131,6 +143,8 @@ impl<T: Send + Sync + 'static, R> Model<T, R> {
     }
 
     /// Restart matching with a replacement renderer, preserving the current query.
+    ///
+    /// This changes the internal [generation](Generation).
     #[inline]
     pub fn reset_renderer(&mut self, render: R) {
         self.engine.reset_renderer(render);

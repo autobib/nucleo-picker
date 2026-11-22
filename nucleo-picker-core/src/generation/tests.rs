@@ -1,4 +1,4 @@
-use super::*;
+use super::{AtomicU32, next_generation};
 use std::panic::catch_unwind;
 
 #[test]

@@ -73,7 +73,7 @@ impl<T: Send + Sync + 'static> Interface<T> for Multi {
         match event {
             QueueEvent::Toggle(item) => {
                 assert!(
-                    cx.matches().contains_item(item.id()),
+                    cx.generation() == item.id().generation(),
                     "queued item is not in the event context"
                 );
                 state.assert_generation(item.id());
@@ -163,7 +163,8 @@ impl MultiState {
     ///
     /// # Panics
     ///
-    /// Panics if the queue contains items belonging to a different picker or restart generation.
+    /// Panics if the queue contains items belonging to a different picker or restart
+    /// [generation](nucleo_picker_core::Generation).
     #[must_use]
     #[inline]
     pub fn into_selection<'items, T: Send + Sync + 'static>(
@@ -173,7 +174,7 @@ impl MultiState {
         assert!(
             self.inner
                 .first_key_value()
-                .is_none_or(|(&id, _)| matches.contains_item(id)),
+                .is_none_or(|(&id, _)| id.generation() == matches.generation()),
             "queued items are not in the output context"
         );
         // SAFETY: the queue contains initialized IDs from one generation, which either
@@ -187,7 +188,9 @@ impl MultiState {
     /// # Safety
     ///
     /// The identifiers must correspond to an initialized item in the exact picker and restart
-    /// generation corresponding to the provided [`Matches`].
+    /// generation corresponding to the provided [`Matches`]. Equivalently, the
+    /// [generation](nucleo_picker_core::Generation) of the item must match the generation of this
+    /// struct.
     #[must_use]
     #[inline]
     pub unsafe fn into_selection_unchecked<'items, T: Send + Sync + 'static>(
@@ -197,7 +200,7 @@ impl MultiState {
         debug_assert!(
             self.inner
                 .first_key_value()
-                .is_none_or(|(&id, _)| matches.contains_item(id))
+                .is_none_or(|(&id, _)| id.generation() == matches.generation())
         );
         Selection {
             matches,
@@ -210,7 +213,7 @@ impl MultiState {
         assert!(
             self.inner
                 .first_key_value()
-                .is_none_or(|(&queued, _)| queued.same_generation(id)),
+                .is_none_or(|(&queued, _)| queued.generation() == id.generation()),
             "cannot queue items from different picker generations"
         );
     }

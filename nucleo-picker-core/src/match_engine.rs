@@ -7,7 +7,7 @@ use std::{
     num::NonZero,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU32, Ordering, fence},
+        atomic::{AtomicBool, Ordering, fence},
     },
     thread::available_parallelism,
 };
@@ -18,21 +18,9 @@ use nucleo::{
 };
 
 use crate::{
-    Injector, Render,
+    Generation, Injector, Render,
     session::{ItemId, MatchStatus},
 };
-
-static LAST_GENERATION: AtomicU32 = AtomicU32::new(0);
-
-fn next_generation(counter: &AtomicU32) -> u32 {
-    // This counter establishes identity; the matcher synchronizes item publication.
-    counter
-        .try_update(Ordering::Relaxed, Ordering::Relaxed, |generation| {
-            generation.checked_add(1)
-        })
-        .expect("picker item generation exhausted")
-        + 1
-}
 
 pub(crate) struct MatchEngine<T, R> {
     /// The internal matcher engine.
@@ -47,7 +35,7 @@ pub(crate) struct MatchEngine<T, R> {
     prompt: String,
     case_matching: NucleoCaseMatching,
     normalization: NucleoNormalization,
-    generation: u32,
+    generation: Generation,
 }
 
 impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
@@ -59,7 +47,7 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
         case_matching: NucleoCaseMatching,
         normalization: NucleoNormalization,
     ) -> Self {
-        let generation = next_generation(&LAST_GENERATION);
+        let generation = Generation::new();
         let needs_tick = Arc::new(AtomicBool::new(false));
         let notify_tick = Arc::clone(&needs_tick);
         let nucleo = nc::Nucleo::with_match_list_config(
@@ -94,7 +82,7 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
         self.nucleo.snapshot()
     }
 
-    pub fn generation(&self) -> u32 {
+    pub fn generation(&self) -> Generation {
         self.generation
     }
 
@@ -126,12 +114,12 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
 
     /// Get an [`Injector`] to add new match elements.
     pub fn injector(&self) -> Injector<T, R> {
-        Injector::new(self.nucleo.injector(), self.render.clone())
+        Injector::new(self.nucleo.injector(), self.render.clone(), self.generation)
     }
 
     /// Clear all of the items and restart the match engine.
     pub fn restart(&mut self) {
-        self.generation = next_generation(&LAST_GENERATION);
+        self.generation = Generation::new();
         self.nucleo.restart(true);
         self.nucleo_is_running = true;
         self.needs_tick.store(true, Ordering::Relaxed);
@@ -239,6 +227,3 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
         }
     }
 }
-
-#[cfg(test)]
-mod tests;

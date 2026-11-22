@@ -20,6 +20,8 @@ fn options() -> ModelOptions {
 #[test]
 fn replacing_items_preserves_the_query_only_when_resetting_the_renderer() {
     let mut model = options().query("^a").model(StrRenderer);
+    let initial_generation = model.generation();
+    assert_eq!(model.matches().generation(), initial_generation);
     model.extend(["alpha", "beta", "apricot"].map(str::to_owned));
     assert!(
         model
@@ -30,10 +32,21 @@ fn replacing_items_preserves_the_query_only_when_resetting_the_renderer() {
             .eq(["alpha", "apricot"])
     );
     let id = model.matches().get(0).unwrap().id();
+    assert_eq!(id.generation(), initial_generation);
 
     model.update_query("^beta$");
     assert_eq!(model.filter().unwrap().get(0).unwrap().value(), "beta");
+    assert_eq!(model.generation(), initial_generation);
+    let old_injector = model.injector();
+    let old_clone = old_injector.clone();
     model.reset_renderer(StrRenderer);
+    let reset_generation = model.generation();
+    assert_ne!(reset_generation, initial_generation);
+    assert_eq!(model.matches().generation(), reset_generation);
+    assert_eq!(old_injector.generation(), initial_generation);
+    assert_eq!(old_clone.generation(), initial_generation);
+    old_injector.push("beta".to_owned());
+    old_clone.push("beta".to_owned());
     assert_eq!(model.query(), "^beta$");
     assert!(model.matches().is_empty());
     model.push_batch(["beta".to_owned()]);
@@ -41,6 +54,12 @@ fn replacing_items_preserves_the_query_only_when_resetting_the_renderer() {
     assert!(model.matches().item(id).is_none());
 
     model.restart();
+    assert_ne!(model.generation(), initial_generation);
+    assert_ne!(model.generation(), reset_generation);
+    assert_eq!(model.matches().generation(), model.generation());
+    assert_eq!(model.injector().generation(), model.generation());
+    assert_eq!(old_injector.generation(), initial_generation);
+    assert_eq!(old_clone.generation(), initial_generation);
     assert_eq!(model.query(), "");
     model.push_batch(["new".to_owned()]);
     assert_eq!(model.filter().unwrap().get(0).unwrap().value(), "new");
@@ -175,7 +194,8 @@ fn item_provenance_survives_filtering_and_owners_outlive_the_model() {
     let matches = model.filter().unwrap();
     let first = matches.get(1).unwrap().id();
     let last = matches.get(0).unwrap().id();
-    assert!(first.same_generation(last));
+    assert_eq!(first.generation(), last.generation());
+    assert_eq!(first.generation(), matches.generation());
     assert!(first < last);
 
     let mut other = options().model(StrRenderer);
@@ -185,19 +205,19 @@ fn item_provenance_survives_filtering_and_owners_outlive_the_model() {
     differently_typed.push_batch(["other"]);
     let foreign_type = differently_typed.filter().unwrap().get(0).unwrap().id();
     for id in [foreign, foreign_type] {
-        assert!(!first.same_generation(id));
-        assert!(!matches.contains_item(id));
+        assert_ne!(first.generation(), id.generation());
+        assert_ne!(matches.generation(), id.generation());
         assert!(matches.item(id).is_none());
         assert!(matches.owned_item(id).is_none());
     }
-    assert!(!other.matches().contains_item(first));
-    assert!(!differently_typed.matches().contains_item(first));
+    assert_ne!(other.matches().generation(), first.generation());
+    assert_ne!(differently_typed.matches().generation(), first.generation());
 
     model.update_query("absent");
     let (checked, unchecked) = {
         let matches = model.filter().unwrap();
         assert!(matches.is_empty());
-        assert!(matches.contains_item(first));
+        assert_eq!(matches.generation(), first.generation());
         let borrowed = matches.item(first).unwrap();
         let checked = matches.owned_item(first).unwrap();
         // SAFETY: filtering retains the storage that issued this initialized identifier.
@@ -213,8 +233,8 @@ fn item_provenance_survives_filtering_and_owners_outlive_the_model() {
     let matches = model.filter().unwrap();
     let replacement = matches.get(0).unwrap().id();
     for old in [first, last] {
-        assert!(!replacement.same_generation(old));
-        assert!(!matches.contains_item(old));
+        assert_ne!(replacement.generation(), old.generation());
+        assert_ne!(matches.generation(), old.generation());
         assert!(matches.item(old).is_none());
         assert!(matches.owned_item(old).is_none());
     }

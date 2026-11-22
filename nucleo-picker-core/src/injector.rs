@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use nucleo as nc;
 
-use super::Render;
+use super::{Generation, Render};
 
 /// A handle which allows adding new items to a picker.
 ///
@@ -19,6 +19,9 @@ use super::Render;
 ///
 /// - The picker will display an input spinner.
 /// - Headless methods, such as item filtering, will return `None`.
+///
+/// The lifecycle of the underlying item pool is tracked by the [`Generation`]. The
+/// [`Injector::generation`] method uniquely identifies the originating picker and restart.
 ///
 /// ## `DeserializeSeed` implementation
 ///
@@ -63,6 +66,7 @@ use super::Render;
 pub struct Injector<T, R> {
     inner: nc::Injector<T>,
     render: Arc<R>,
+    generation: Generation,
 }
 
 impl<T, R> Clone for Injector<T, R> {
@@ -70,13 +74,31 @@ impl<T, R> Clone for Injector<T, R> {
         Self {
             inner: self.inner.clone(),
             render: self.render.clone(),
+            generation: self.generation,
         }
     }
 }
 
 impl<T: Send + Sync + 'static, R> Injector<T, R> {
-    pub(crate) fn new(inner: nc::Injector<T>, render: Arc<R>) -> Self {
-        Self { inner, render }
+    pub(crate) fn new(inner: nc::Injector<T>, render: Arc<R>, generation: Generation) -> Self {
+        Self {
+            inner,
+            render,
+            generation,
+        }
+    }
+}
+
+impl<T, R> Injector<T, R> {
+    /// Returns the generation of the underlying item pool.
+    ///
+    /// Since an injector always refers to the same item pool, the generation is preserved across
+    /// clones. When the underlying picker restarts, the generation will no longer be the same as
+    /// the generation of the original picker.
+    #[must_use]
+    #[inline]
+    pub const fn generation(&self) -> Generation {
+        self.generation
     }
 }
 
