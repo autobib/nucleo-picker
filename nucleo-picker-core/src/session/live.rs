@@ -335,6 +335,11 @@ impl<T: Send + Sync + 'static, R, I: Interface<T>> Session<'_, T, R, I> {
     pub fn queue_status(&self) -> Option<QueueStatus> {
         SessionRead::queue_status(self)
     }
+
+    /// Access the internal interface and its state.
+    pub fn interface(&self) -> (&I, &I::State) {
+        (&self.inner.interface, &self.inner.state)
+    }
 }
 
 impl<T: Send + Sync + 'static, R, I: Interface<T>> SessionState<'_, T, R, I> {
