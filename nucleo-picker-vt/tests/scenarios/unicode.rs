@@ -73,3 +73,40 @@ fn basic_unicode() -> Result<(), Box<dyn Error>> {
     assert!(sr.finish()?.is_empty());
     Ok(())
 }
+
+#[test]
+fn prompt_width_is_the_sum_of_grapheme_widths() -> Result<(), Box<dyn Error>> {
+    // unicode-width measures the whole lam-alef sequence as one column, but it consists of
+    // two graphemes, each one column wide. Cursor movement, viewport clipping, and initial
+    // query layout must all use the same two-column sum as the match list.
+    let mut sr = ScenarioRunner::start_with_options(
+        "prompt_width_is_the_sum_of_grapheme_widths",
+        vec!["لاab"],
+        PickerOptions::new().query("لاab").prompt_padding(0),
+    );
+    sr.set_dimensions(8, 3)?;
+    sr.wait_for_match_complete(1, 1)?;
+    let initial = checkpoint!(sr, "initial-query");
+    assert_eq!(initial.text[2], "> لاab  ");
+    assert_eq!(initial.cursor.position.as_ref().unwrap().x, 6);
+
+    sr.send(Event::Prompt(PromptEvent::ToStart))?;
+    sr.send(Event::Prompt(PromptEvent::Right(2)))?;
+    let moved = checkpoint!(sr, "after-lam-alef");
+    assert_eq!(moved.text[2], "> لاab  ");
+    assert_eq!(moved.cursor.position.as_ref().unwrap().x, 4);
+
+    sr.send(Event::Prompt(PromptEvent::Backspace(2)))?;
+    sr.send(Event::Prompt(PromptEvent::Paste("لا".into())))?;
+    assert_eq!(sr.checkpoint("pasted-pair")?, moved);
+
+    sr.send(Event::Prompt(PromptEvent::ToEnd))?;
+    sr.set_dimensions(4, 3)?;
+    sr.checkpoint("narrow")?;
+    sr.set_dimensions(8, 3)?;
+    assert_eq!(sr.checkpoint("restored")?, initial);
+
+    sr.send(Event::Quit)?;
+    assert!(sr.finish()?.is_empty());
+    Ok(())
+}

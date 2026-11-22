@@ -3,9 +3,10 @@
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::module_name_repetitions)]
 
-/// A [`Processor`] is an abstraction over the various Unicode operations supported by
-/// the [`UnicodeSegmentation`](`unicode_segmentation::UnicodeSegmentation`) and
-/// [`UnicodeWidthStr`](unicode_width::UnicodeWidthStr) traits.
+/// Grapheme segmentation.
+///
+/// Width calculations are provided directly by the drawing target independently of grapheme
+/// segmentation.
 ///
 /// This abstraction is sealed and only has two implementations [`UnicodeProcessor`] and
 /// [`AsciiProcessor`].
@@ -17,17 +18,21 @@
 pub trait Processor: private::Sealed {
     /// Compute the width (in terms of visible columns) of the input string.
     ///
-    /// This method assumes that `input` is non-empty and does not contain newlines or carriage
-    /// returns. If this is not the case, the returned value is undefined.
-    fn width(input: &str) -> usize;
+    /// The input must not contain control characters or newlines. The width is computed by summing
+    /// over the widths of extended graphemes.
+    fn width(input: &str, width: impl Fn(&str) -> usize) -> usize {
+        Self::grapheme_index_widths(input, width)
+            .map(|(_, width)| width)
+            .sum()
+    }
 
     /// Returns min(width, limit), stopping once the limit is reached.
-    fn width_up_to(input: &str, limit: usize) -> usize {
+    fn width_up_to(input: &str, limit: usize, width: impl Fn(&str) -> usize) -> usize {
         if limit == 0 {
             return 0;
         }
         let mut total = 0;
-        for (_, width) in Self::grapheme_index_widths(input) {
+        for (_, width) in Self::grapheme_index_widths(input, width) {
             if width >= limit - total {
                 return limit;
             }
@@ -36,8 +41,16 @@ pub trait Processor: private::Sealed {
         total
     }
 
+    /// Return graphemes and byte offsets (without width computations).
+    fn grapheme_indices(input: &str) -> impl DoubleEndedIterator<Item = (usize, &str)>;
+
     /// Return an iterator over pairs `(offset, grapheme_width)` for the graphemes in `input`.
-    fn grapheme_index_widths(input: &str) -> impl Iterator<Item = (usize, usize)>;
+    fn grapheme_index_widths(
+        input: &str,
+        width: impl Fn(&str) -> usize,
+    ) -> impl Iterator<Item = (usize, usize)> {
+        Self::grapheme_indices(input).map(move |(offset, grapheme)| (offset, width(grapheme)))
+    }
 }
 
 mod private {
@@ -52,24 +65,21 @@ pub(crate) fn is_ascii_safe(input: &str) -> bool {
     input.is_ascii() && !input.contains("\r\n")
 }
 
+/// Default grapheme width.
+#[inline]
+pub(crate) fn grapheme_width(grapheme: &str) -> usize {
+    unicode_width::UnicodeWidthStr::width(grapheme)
+}
+
 /// A [`Processor`] which is safe for use on all valid UTF-8.
 pub struct UnicodeProcessor;
 
 impl Processor for UnicodeProcessor {
-    #[inline]
-    fn width(input: &str) -> usize {
-        // Sum individual graphemes for consistency with clipping and horizontal alignment.
-        Self::grapheme_index_widths(input)
-            .map(|(_, width)| width)
-            .sum()
-    }
-
     /// Do things properly and use
     /// [`UnicodeSegmentation`](unicode_segmentation::UnicodeSegmentation).
     #[inline]
-    fn grapheme_index_widths(input: &str) -> impl Iterator<Item = (usize, usize)> {
+    fn grapheme_indices(input: &str) -> impl DoubleEndedIterator<Item = (usize, &str)> {
         unicode_segmentation::UnicodeSegmentation::grapheme_indices(input, true)
-            .map(|(offset, grapheme)| (offset, unicode_width::UnicodeWidthStr::width(grapheme)))
     }
 }
 
@@ -79,18 +89,27 @@ impl Processor for AsciiProcessor {
     /// Since we assume there are no carriage returns and no newlines, the width of a string is
     /// just the number of bytes.
     #[inline]
-    fn width(input: &str) -> usize {
+    fn width(input: &str, _width: impl Fn(&str) -> usize) -> usize {
         debug_assert!(is_ascii_safe(input));
         input.len()
     }
 
     #[inline]
-    fn width_up_to(input: &str, limit: usize) -> usize {
+    fn width_up_to(input: &str, limit: usize, _width: impl Fn(&str) -> usize) -> usize {
         input.len().min(limit)
     }
 
     #[inline]
-    fn grapheme_index_widths(input: &str) -> impl Iterator<Item = (usize, usize)> {
+    fn grapheme_indices(input: &str) -> impl DoubleEndedIterator<Item = (usize, &str)> {
+        debug_assert!(is_ascii_safe(input));
+        (0..input.len()).map(|offset| (offset, &input[offset..offset + 1]))
+    }
+
+    #[inline]
+    fn grapheme_index_widths(
+        input: &str,
+        _width: impl Fn(&str) -> usize,
+    ) -> impl Iterator<Item = (usize, usize)> {
         debug_assert!(is_ascii_safe(input));
         std::iter::repeat_n(1, input.len()).enumerate()
     }

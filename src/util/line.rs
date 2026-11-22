@@ -15,7 +15,12 @@ struct LineClip {
     remaining: u16,
 }
 
-fn clip_line<P: Processor>(text: &str, offset: usize, capacity: u16) -> LineClip {
+fn clip_line<P: Processor>(
+    text: &str,
+    offset: usize,
+    capacity: u16,
+    width: impl Fn(&str) -> usize,
+) -> LineClip {
     let mut clip = LineClip {
         visible: 0..0,
         leading: 0,
@@ -34,7 +39,7 @@ fn clip_line<P: Processor>(text: &str, offset: usize, capacity: u16) -> LineClip
     }
 
     let skip_columns = offset.saturating_add(usize::from(clip.leading));
-    let mut graphemes = P::grapheme_index_widths(text).peekable();
+    let mut graphemes = P::grapheme_index_widths(text, width).peekable();
     let mut skipped = 0;
     while skipped < skip_columns {
         let Some((_, width)) = graphemes.next() else {
@@ -93,7 +98,7 @@ pub fn print_line<'a, P: Processor, D: Draw>(
     ellipsis: char,
     marker_style: ContentStyle,
 ) -> Result<u16, D::Error> {
-    let clip = clip_line::<P>(text, offset, capacity);
+    let clip = clip_line::<P>(text, offset, capacity, D::grapheme_width);
     let mut encoded = [0; 4];
     let ellipsis = ellipsis.encode_utf8(&mut encoded);
     for _ in 0..clip.leading {

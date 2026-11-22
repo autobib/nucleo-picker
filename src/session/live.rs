@@ -17,6 +17,7 @@ use crate::{
     prompt::{Prompt, PromptState},
     rect::{Area, Dimensions},
     status_line::StatusLine,
+    util::unicode::grapheme_width,
 };
 
 type Guard<T> = DropGuard<T, fn(T)>;
@@ -188,7 +189,7 @@ impl<'items, T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Session<'i
 impl<T: Send + Sync + 'static, R, I: Interface<T>> SessionState<'_, T, R, I> {
     fn commit(&mut self) {
         self.list.flush(self.engine);
-        let prompt = self.prompt.update();
+        let prompt = self.prompt.update(grapheme_width);
         if prompt.contents_changed {
             self.engine.reparse(self.prompt.contents());
         }
@@ -209,7 +210,7 @@ pub(crate) struct EventBatch<'batch, 'items, T: Send + Sync + 'static, R, I: Int
 
 impl<T: Send + Sync + 'static, R, I: Interface<T>> EventBatch<'_, '_, T, R, I> {
     pub fn prompt(&mut self, event: PromptEvent) {
-        self.session.prompt.handle(event);
+        self.session.prompt.handle(event, grapheme_width);
     }
 
     pub fn match_list(&mut self, event: MatchListEvent) {
@@ -255,7 +256,7 @@ impl<T: Send + Sync + 'static, R, I: Interface<T>> EventBatch<'_, '_, T, R, I> {
     }
 
     pub fn prompt_is_empty(&mut self) -> bool {
-        self.session.prompt.flush();
+        self.session.prompt.flush(grapheme_width);
         self.session.prompt.contents().is_empty()
     }
 

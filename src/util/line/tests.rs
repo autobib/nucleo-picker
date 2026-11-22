@@ -5,7 +5,7 @@ use crossterm::style::{ContentStyle, Stylize};
 use super::*;
 use crate::{
     rect::{Area, ClearState, CrosstermTarget},
-    util::unicode::{AsciiProcessor, UnicodeProcessor, is_ascii_safe},
+    util::unicode::{AsciiProcessor, UnicodeProcessor, grapheme_width, is_ascii_safe},
 };
 
 #[test]
@@ -17,7 +17,7 @@ fn clipping_preserves_whole_graphemes_and_fits_the_available_columns() {
         expected: &str,
         remaining: u16,
     ) {
-        let clip = clip_line::<P>(text, offset, capacity);
+        let clip = clip_line::<P>(text, offset, capacity, grapheme_width);
         let rendered = format!(
             "{}{}{}",
             "…".repeat(usize::from(clip.leading)),
@@ -27,7 +27,7 @@ fn clipping_preserves_whole_graphemes_and_fits_the_available_columns() {
         assert_eq!(rendered, expected, "{text:?}, {offset}, {capacity}");
         assert_eq!(clip.remaining, remaining);
         assert_eq!(
-            UnicodeProcessor::width(&rendered) + usize::from(remaining),
+            UnicodeProcessor::width(&rendered, grapheme_width) + usize::from(remaining),
             usize::from(capacity),
         );
     }
@@ -89,7 +89,7 @@ fn clipping_does_not_measure_the_hidden_suffix() {
             [(0, 20, 64), (100, 20, 400), (usize::MAX, 1, 0), (0, 0, 0)]
         {
             MEASURED_BYTES.set(0);
-            let clip = clip_line::<CountingProcessor>(&text, offset, capacity);
+            let clip = clip_line::<CountingProcessor>(&text, offset, capacity, grapheme_width);
             assert_eq!(clip.remaining, 0);
             assert!(clip.leading + clip.trailing > 0 || capacity == 0);
             assert!(MEASURED_BYTES.get() <= budget, "{}", MEASURED_BYTES.get());

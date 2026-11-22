@@ -160,7 +160,8 @@ impl<T: Send + Sync + 'static, R> Driver<T, R> {
     /// Replace the query and reparse it for matching.
     #[inline]
     pub fn update_query<Q: Into<String>>(&mut self, query: Q) {
-        self.prompt.set_query(query);
+        self.prompt
+            .set_query(query, crate::util::unicode::grapheme_width);
         self.engine.reparse(self.prompt.contents());
     }
 

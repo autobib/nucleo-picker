@@ -32,7 +32,7 @@ pub fn spans_from_indices<P: Processor>(
     spans.clear();
     lines.clear();
 
-    let mut grapheme_index_iter = P::grapheme_index_widths(rendered);
+    let mut grapheme_index_iter = P::grapheme_indices(rendered);
 
     let mut iter_step_count = 0; // how many graphemes we have consumed
     let mut start = 0; // the current offset position for the next block

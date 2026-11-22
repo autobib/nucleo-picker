@@ -17,7 +17,8 @@ use crossterm::style::{ContentStyle, StyledContent};
 /// 3. Text never wraps and is not clipped. The caller must ensure to not write text beyond the
 ///    boundary of the rectangle.
 /// 4. Coordinates and writes must fit inside the rectangle.
-/// 5. Text must not contain control characters and newlines and graphemes must not span text spans.
+/// 5. Text must not contain control characters or newlines. Graphemes must not span separate
+///    text calls (but may span styles within a single [`styled_text`](Self::styled_text) call).
 ///
 /// The columns and rows refer to local coordinates, indexed from `(0,0)` in the top-left corner.
 pub trait Draw {
@@ -29,6 +30,24 @@ pub trait Draw {
 
     /// The height of the rectangle.
     fn height(&self) -> NonZero<u16>;
+
+    /// The number of terminal columns occupied by one extended grapheme cluster.
+    ///
+    /// The caller guarantees that the provided grapheme cluster does not contain any control
+    /// characters or newlines.
+    ///
+    /// Implementations must return a width no greater than `grapheme.len()`.
+    ///
+    /// The default implementation uses [`unicode_width::UnicodeWidthStr`]. Override if the terminal
+    /// has different width rules. Note that zero-width graphemes and graphemes with widths greater
+    /// than 2 are permitted.
+    ///
+    /// This associated function defines the width policy for the backend, independently of a
+    /// drawing surface. [`Viewport::with_grapheme_width`](crate::preview::Viewport::with_grapheme_width) uses
+    /// the same policy for horizontal navigation.
+    fn grapheme_width(grapheme: &str) -> usize {
+        crate::util::unicode::grapheme_width(grapheme)
+    }
 
     /// Move the cursor to the rectangle-local column and row.
     fn move_to(&mut self, column: u16, row: u16) -> Result<(), Self::Error>;

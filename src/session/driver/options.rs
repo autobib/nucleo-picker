@@ -100,7 +100,7 @@ impl DriverOptions {
         let mut prompt = PromptState::new(self.prompt_config);
 
         // set the prompt
-        prompt.set_query(self.query);
+        prompt.set_query(self.query, crate::util::unicode::grapheme_width);
         engine.reparse(prompt.contents());
 
         Driver {

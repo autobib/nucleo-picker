@@ -10,10 +10,12 @@ use crate::{
     prompt::{Prompt, PromptState},
     rect::Area,
     status_line::StatusLine,
+    util::unicode::{Processor, UnicodeProcessor},
 };
 
 #[derive(Debug, PartialEq, Eq)]
 struct Run {
+    row: u16,
     text: String,
     spans: Vec<(String, ContentStyle)>,
 }
@@ -22,6 +24,7 @@ struct RecordingDraw {
     width: NonZero<u16>,
     height: NonZero<u16>,
     row: u16,
+    column: u16,
     runs: Vec<Run>,
     cleared: Vec<u16>,
 }
@@ -32,6 +35,7 @@ impl RecordingDraw {
             width: NonZero::new(width).unwrap(),
             height: NonZero::new(height).unwrap(),
             row: 0,
+            column: 0,
             runs: Vec::new(),
             cleared: Vec::new(),
         }
@@ -52,6 +56,7 @@ impl Draw for RecordingDraw {
     fn move_to(&mut self, column: u16, row: u16) -> Result<(), Self::Error> {
         assert!(column < self.width.get() && row < self.height.get());
         self.row = row;
+        self.column = column;
         Ok(())
     }
 
@@ -62,6 +67,7 @@ impl Draw for RecordingDraw {
     fn next_line(&mut self) -> Result<(), Self::Error> {
         assert!(self.row < self.height.get());
         self.row += 1;
+        self.column = 0;
         Ok(())
     }
 
@@ -74,6 +80,13 @@ impl Draw for RecordingDraw {
             return Ok(());
         }
         assert!(self.row < self.height.get());
+        let width = UnicodeProcessor::width(text, Self::grapheme_width);
+        let end = usize::from(self.column) + width;
+        assert!(
+            end <= usize::from(self.width.get()),
+            "text overflows: {text:?}"
+        );
+        self.column = end as u16;
         let spans: Vec<_> = spans
             .map(|span| ((*span.content()).to_owned(), *span.style()))
             .collect();
@@ -85,6 +98,7 @@ impl Draw for RecordingDraw {
             text
         );
         self.runs.push(Run {
+            row: self.row,
             text: text.to_owned(),
             spans,
         });
@@ -104,12 +118,14 @@ impl Draw for RecordingDraw {
     fn clear_line(&mut self) -> Result<(), Self::Error> {
         assert!(self.row < self.height.get());
         self.cleared.push(self.row);
+        self.column = 0;
         Ok(())
     }
 
     fn clear(&mut self) -> Result<(), Self::Error> {
         self.cleared.extend(0..self.height.get());
         self.row = 0;
+        self.column = 0;
         Ok(())
     }
 }

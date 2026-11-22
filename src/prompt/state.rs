@@ -1,8 +1,11 @@
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_width::UnicodeWidthChar;
 
 use super::{PromptConfig, PromptEvent};
-use crate::util::as_u16;
+use crate::util::{
+    as_u16,
+    unicode::{Processor, UnicodeProcessor},
+};
 
 /// Mutate a given string in-place, discarding carriage returns and ASCII control characters and converting newlines and TABs to ASCII space.
 pub(super) fn normalize_prompt_string(s: &mut String) {
@@ -46,18 +49,24 @@ impl PromptState {
         &self.contents
     }
 
-    pub fn apply(&mut self, e: PromptEvent) -> PromptStatus {
+    pub fn apply(
+        &mut self,
+        e: PromptEvent,
+        grapheme_width: impl Fn(&str) -> usize + Copy,
+    ) -> PromptStatus {
         let mut contents_changed = false;
 
         let needs_redraw = match e {
             PromptEvent::Reset(s) => {
-                contents_changed = self.set_query(s);
+                contents_changed = self.set_query(s, grapheme_width);
                 true
             }
-            PromptEvent::Left(n) => self.move_left_to(self.left_offset(n)),
-            PromptEvent::WordLeft(n) => self.move_left_to(self.left_word_offset(n)),
-            PromptEvent::Right(n) => self.move_right_to(self.right_offset(n)),
-            PromptEvent::WordRight(n) => self.move_right_to(self.right_word_offset(n)),
+            PromptEvent::Left(n) => self.move_left_to(self.left_offset(n), grapheme_width),
+            PromptEvent::WordLeft(n) => self.move_left_to(self.left_word_offset(n), grapheme_width),
+            PromptEvent::Right(n) => self.move_right_to(self.right_offset(n), grapheme_width),
+            PromptEvent::WordRight(n) => {
+                self.move_right_to(self.right_word_offset(n), grapheme_width)
+            }
             PromptEvent::ToStart => {
                 if self.cursor_byte == 0 {
                     false
@@ -67,11 +76,11 @@ impl PromptState {
                     true
                 }
             }
-            PromptEvent::ToEnd => self.move_to_end(),
+            PromptEvent::ToEnd => self.move_to_end(grapheme_width),
             PromptEvent::Insert(ch) => {
                 if let Some(ch) = normalize_char(ch) {
                     contents_changed = true;
-                    self.insert_char(ch);
+                    self.insert_char(ch, grapheme_width);
                     true
                 } else {
                     false
@@ -81,7 +90,7 @@ impl PromptState {
                 normalize_prompt_string(&mut s);
                 if !s.is_empty() {
                     contents_changed = true;
-                    self.insert(&s);
+                    self.insert(&s, grapheme_width);
                     true
                 } else {
                     false
@@ -89,7 +98,7 @@ impl PromptState {
             }
             PromptEvent::Backspace(n) => {
                 let delete_until = self.cursor_byte;
-                if self.move_left_to(self.left_offset(n)) {
+                if self.move_left_to(self.left_offset(n), grapheme_width) {
                     self.contents
                         .replace_range(self.cursor_byte..delete_until, "");
                     contents_changed = true;
@@ -100,7 +109,7 @@ impl PromptState {
             }
             PromptEvent::BackspaceWord(n) => {
                 let delete_until = self.cursor_byte;
-                if self.move_left_to(self.left_word_offset(n)) {
+                if self.move_left_to(self.left_word_offset(n), grapheme_width) {
                     self.contents
                         .replace_range(self.cursor_byte..delete_until, "");
                     contents_changed = true;
@@ -154,7 +163,7 @@ impl PromptState {
 
     /// Return the prompt contents as well as an 'offset' which is required in the presence of an
     /// initial grapheme that is too large to fit at the beginning of the screen.
-    pub fn view(&self) -> (&str, u16) {
+    pub fn view(&self, grapheme_width: impl Fn(&str) -> usize) -> (&str, u16) {
         if self.width == 0 {
             return ("", 0);
         }
@@ -165,7 +174,7 @@ impl PromptState {
             .grapheme_indices(true)
             .rev()
         {
-            let Some(remaining) = extra.checked_sub(grapheme.width()) else {
+            let Some(remaining) = extra.checked_sub(grapheme_width(grapheme)) else {
                 break;
             };
             left_offset = offset;
@@ -178,7 +187,7 @@ impl PromptState {
         let right_offset = loop {
             match right_indices.next() {
                 Some((offset, grapheme)) => {
-                    total_right_width += grapheme.width();
+                    total_right_width += grapheme_width(grapheme);
                     if total_right_width > max_right_width as usize {
                         break self.cursor_byte + offset;
                     }
@@ -191,7 +200,7 @@ impl PromptState {
     }
 
     /// Resize the screen, adjusting the padding and the screen width.
-    pub fn resize(&mut self, width: u16) {
+    pub fn resize(&mut self, width: u16, grapheme_width: impl Fn(&str) -> usize + Copy) {
         if self.width == width {
             return;
         }
@@ -199,8 +208,14 @@ impl PromptState {
 
         let padding = self.padding();
         let capacity = width - padding;
-        let before = as_u16(self.contents[..self.cursor_byte].width());
-        let after = as_u16(self.contents[self.cursor_byte..].width());
+        let before = as_u16(UnicodeProcessor::width(
+            &self.contents[..self.cursor_byte],
+            grapheme_width,
+        ));
+        let after = as_u16(UnicodeProcessor::width(
+            &self.contents[self.cursor_byte..],
+            grapheme_width,
+        ));
 
         let upper = before.min(capacity);
         let lower = padding
@@ -217,13 +232,18 @@ impl PromptState {
     }
 
     /// Reset the prompt, moving the cursor to the end.
-    pub fn set_query<Q: Into<String>>(&mut self, prompt: Q) -> bool {
+    pub fn set_query<Q: Into<String>>(
+        &mut self,
+        prompt: Q,
+        grapheme_width: impl Fn(&str) -> usize,
+    ) -> bool {
         let mut contents = prompt.into();
         normalize_prompt_string(&mut contents);
         let contents_changed = contents != self.contents;
         self.contents = contents;
         self.cursor_byte = self.contents.len();
-        self.cursor_column = as_u16(self.contents.width()).min(self.width - self.padding());
+        self.cursor_column = as_u16(UnicodeProcessor::width(&self.contents, grapheme_width))
+            .min(self.width - self.padding());
         contents_changed
     }
 
@@ -236,39 +256,45 @@ impl PromptState {
     }
 
     /// Insert a character at the cursor position.
-    fn insert_char(&mut self, ch: char) {
+    fn insert_char(&mut self, ch: char, grapheme_width: impl Fn(&str) -> usize + Copy) {
         let mut encoded = [0; 4];
-        self.insert(ch.encode_utf8(&mut encoded));
+        self.insert(ch.encode_utf8(&mut encoded), grapheme_width);
     }
 
     /// Insert a string at the cursor position.
-    fn insert(&mut self, string: &str) {
+    fn insert(&mut self, string: &str, grapheme_width: impl Fn(&str) -> usize + Copy) {
         let previous_grapheme = self.contents[..self.cursor_byte]
             .grapheme_indices(true)
             .next_back()
             .map_or(self.cursor_byte, |(offset, _)| offset);
-        let old_width = self.contents[previous_grapheme..self.cursor_byte].width();
+        let old_width = UnicodeProcessor::width(
+            &self.contents[previous_grapheme..self.cursor_byte],
+            grapheme_width,
+        );
 
         self.contents.insert_str(self.cursor_byte, string);
         self.cursor_byte += string.len();
 
-        let new_width = self.contents[previous_grapheme..self.cursor_byte].width();
+        let new_width = UnicodeProcessor::width(
+            &self.contents[previous_grapheme..self.cursor_byte],
+            grapheme_width,
+        );
         if new_width > old_width {
             self.right_by(new_width - old_width);
         } else if old_width > new_width {
-            self.left_by(old_width - new_width);
+            self.left_by(old_width - new_width, grapheme_width);
         }
     }
 
     #[inline]
-    fn left_by(&mut self, width: usize) {
+    fn left_by(&mut self, width: usize, grapheme_width: impl Fn(&str) -> usize) {
         // check if we would hit the beginning of the string
         let mut total_left_width = 0;
         let mut graphemes = self.contents[..self.cursor_byte].graphemes(true).rev();
         let left_padding = loop {
             match graphemes.next() {
                 Some(g) => {
-                    total_left_width += g.width();
+                    total_left_width += grapheme_width(g);
                     let left_padding = self.padding();
                     if total_left_width >= left_padding as usize {
                         break left_padding;
@@ -321,33 +347,41 @@ impl PromptState {
             .map_or(self.contents.len(), |(offset, _)| self.cursor_byte + offset)
     }
 
-    fn move_left_to(&mut self, new_offset: usize) -> bool {
+    fn move_left_to(
+        &mut self,
+        new_offset: usize,
+        grapheme_width: impl Fn(&str) -> usize + Copy,
+    ) -> bool {
         if new_offset == self.cursor_byte {
             return false;
         }
-        let step_width = self.contents[new_offset..self.cursor_byte].width();
+        let step_width =
+            UnicodeProcessor::width(&self.contents[new_offset..self.cursor_byte], grapheme_width);
         self.cursor_byte = new_offset;
-        self.left_by(step_width);
+        self.left_by(step_width, grapheme_width);
         true
     }
 
-    fn move_right_to(&mut self, new_offset: usize) -> bool {
+    fn move_right_to(&mut self, new_offset: usize, grapheme_width: impl Fn(&str) -> usize) -> bool {
         if new_offset == self.cursor_byte {
             return false;
         }
-        let step_width = self.contents[self.cursor_byte..new_offset].width();
+        let step_width =
+            UnicodeProcessor::width(&self.contents[self.cursor_byte..new_offset], grapheme_width);
         self.cursor_byte = new_offset;
         self.right_by(step_width);
         true
     }
 
-    fn move_to_end(&mut self) -> bool {
+    fn move_to_end(&mut self, grapheme_width: impl Fn(&str) -> usize) -> bool {
         if self.cursor_byte == self.contents.len() {
             return false;
         }
         let max_offset = self.width - self.padding();
         for gp in self.contents[self.cursor_byte..].graphemes(true) {
-            self.cursor_column = self.cursor_column.saturating_add(as_u16(gp.width()));
+            self.cursor_column = self
+                .cursor_column
+                .saturating_add(as_u16(grapheme_width(gp)));
             if self.cursor_column >= max_offset {
                 self.cursor_column = max_offset;
                 break;

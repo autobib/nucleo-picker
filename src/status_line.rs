@@ -1,5 +1,4 @@
 use crossterm::style::{ContentStyle, Stylize};
-use unicode_width::UnicodeWidthChar;
 
 use crate::{
     PickerChars,
@@ -111,11 +110,10 @@ fn draw_match_counts<D: Draw>(
 ) -> Result<(), D::Error> {
     let width = rect.width().get();
 
-    let mut occupied = status_marker.unwrap_or(' ').width().unwrap_or(0)
-        + 1
-        + decimal_width(matched)
-        + 1
-        + decimal_width(total);
+    let mut encoded = [0; 4];
+    let marker = status_marker.unwrap_or(' ').encode_utf8(&mut encoded);
+    let mut occupied =
+        D::grapheme_width(marker) + 1 + decimal_width(matched) + 1 + decimal_width(total);
     if let Some(QueueStatus { count, limit }) = multi {
         occupied += 2 + decimal_width(count) + 1;
         if let Some(max) = limit {
@@ -129,10 +127,7 @@ fn draw_match_counts<D: Draw>(
 
     let counts = ContentStyle::new().italic().green();
     let secondary = ContentStyle::new().italic().grey();
-    rect.text(
-        status_marker.unwrap_or(' ').encode_utf8(&mut [0; 4]),
-        counts,
-    )?;
+    rect.text(marker, counts)?;
     rect.ascii(format_args!(" {matched}/{total}"), counts)?;
     if let Some(QueueStatus { count, limit }) = multi {
         rect.ascii(format_args!(" ({count}"), secondary)?;

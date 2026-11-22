@@ -31,19 +31,19 @@ impl<'a> Prompt<'a> {
         self.state.contents()
     }
 
-    pub fn flush(&mut self) {
+    pub fn flush(&mut self, grapheme_width: impl Fn(&str) -> usize + Copy) {
         if let Some(event) = self.buffered_event.take() {
-            self.apply(event);
+            self.apply(event, grapheme_width);
         }
     }
 
-    fn apply(&mut self, event: PromptEvent) {
-        let status = self.state.apply(event);
+    fn apply(&mut self, event: PromptEvent, grapheme_width: impl Fn(&str) -> usize + Copy) {
+        let status = self.state.apply(event, grapheme_width);
         self.pending.needs_redraw |= status.needs_redraw;
         self.pending.contents_changed |= status.contents_changed;
     }
 
-    pub fn handle(&mut self, event: PromptEvent) {
+    pub fn handle(&mut self, event: PromptEvent, grapheme_width: impl Fn(&str) -> usize + Copy) {
         let Some(ref mut buffered) = self.buffered_event else {
             self.buffered_event = Some(event);
             return;
@@ -92,13 +92,13 @@ impl<'a> Prompt<'a> {
             (b, mut e) => {
                 // move the incoming event into the buffer and handle the buffered event
                 std::mem::swap(b, &mut e);
-                self.apply(e);
+                self.apply(e, grapheme_width);
             }
         }
     }
 
-    pub fn update(&mut self) -> PromptStatus {
-        self.flush();
+    pub fn update(&mut self, grapheme_width: impl Fn(&str) -> usize + Copy) -> PromptStatus {
+        self.flush(grapheme_width);
         std::mem::take(&mut self.pending)
     }
 }
@@ -106,11 +106,10 @@ impl<'a> Prompt<'a> {
 impl Component for Prompt<'_> {
     fn resize(&mut self, area: Area) {
         self.area = area;
-        if let Some(width) = area.width.checked_sub(2) {
-            self.state.resize(width);
-        }
     }
     fn draw<D: Draw>(&mut self, rect: &mut D) -> Result<(), D::Error> {
+        self.state
+            .resize(rect.width().get().saturating_sub(2), D::grapheme_width);
         rect.clear_line()?;
         rect.text(
             self.chars.prompt.encode_utf8(&mut [0; 4]),
@@ -119,7 +118,7 @@ impl Component for Prompt<'_> {
 
         if rect.width().get() >= 2 {
             rect.spaces(1, ContentStyle::new())?;
-            let (contents, shift) = self.state.view();
+            let (contents, shift) = self.state.view(D::grapheme_width);
             rect.spaces(shift, ContentStyle::new())?;
             rect.text(contents, ContentStyle::new())?;
         }

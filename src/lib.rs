@@ -324,8 +324,7 @@ impl Normalization {
 
 /// Decorative characters used by the picker UI.
 ///
-/// Note that all of the supplied characters must be single-width, or the picker screen will be
-/// corrupted.
+/// All characters must occupy one terminal column.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub(crate) struct PickerChars {

@@ -87,24 +87,20 @@ impl<'a, P: Processor> Spanned<'a, P> {
         }
     }
 
-    /// Compute the maximum number of bytes over all lines.
+    /// Check whether all the lines fit.
     #[inline]
-    fn max_line_bytes(&self) -> usize {
-        let mut max_line_bytes = 0;
-        for line in self.lines() {
-            if !line.is_empty() {
-                max_line_bytes = max_line_bytes
-                    .max(line.last().unwrap().range.end - line.first().unwrap().range.start);
-            }
-        }
-
-        max_line_bytes
+    fn lines_fit<D: Draw>(&self, capacity: u16) -> bool {
+        let limit = usize::from(capacity) + 1;
+        self.lines().all(|line| {
+            let text = self.line_text(line);
+            text.len() < limit || P::width_up_to(text, limit, D::grapheme_width) < limit
+        })
     }
 
     /// Return the viewport origin in source columns, accounting for highlight padding
     /// and keeping the first highlight beyond the leading ellipsis when scrolled.
     #[inline]
-    fn required_offset(&self, max_width: u16, highlight_padding: u16) -> usize {
+    fn required_offset<D: Draw>(&self, max_width: u16, highlight_padding: u16) -> usize {
         if max_width == 0 {
             return 0;
         }
@@ -115,7 +111,10 @@ impl<'a, P: Processor> Spanned<'a, P> {
                 continue;
             };
             let last = line.iter().rfind(|span| span.is_match).unwrap();
-            let before = P::width(&self.rendered[line[0].range.start..first.range.start]);
+            let before = P::width(
+                &self.rendered[line[0].range.start..first.range.start],
+                D::grapheme_width,
+            );
             first_column = first_column.min(before);
             if first_column <= 1 {
                 return 0;
@@ -128,6 +127,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
             let matched = P::width_up_to(
                 &self.rendered[first.range.start..last.range.end],
                 limit.saturating_sub(before),
+                D::grapheme_width,
             );
             required_width = required_width.max(before + matched);
         }
@@ -202,12 +202,12 @@ impl<'a, P: Processor> Spanned<'a, P> {
     #[inline]
     fn finish_line<D: Draw>(
         rect: &mut D,
-        remaining: impl FnOnce() -> u16,
+        remaining: u16,
         style: ContentStyle,
         fill_highlight: bool,
     ) -> Result<(), D::Error> {
         if fill_highlight {
-            rect.spaces(remaining(), style)?;
+            rect.spaces(remaining, style)?;
         }
         rect.next_line()
     }
@@ -233,16 +233,10 @@ impl<'a, P: Processor> Spanned<'a, P> {
             ContentStyle::new()
         };
 
-        if self.max_line_bytes() <= max_width.saturating_sub(highlight_padding) as usize {
-            // Fast path: all of the lines are short, so we can just render them without any Unicode width
-            // checks. This should be the case for the majority of situations, unless the screen is
-            // very narrow or the rendered items are very wide.
-            //
-            // This check is safe since the only Unicode characters which require two columns consist of
-            // at least two bytes, so the number of bytes is always an upper bound for the number of
-            // columns.
-            //
-            // If the input is ASCII, this check is optimal.
+        if self.lines_fit::<D>(max_width.saturating_sub(highlight_padding)) {
+            // Fast path: all of the lines are short, so we can just render them without any width
+            // computations. This should also be the typical case so it is worthwhile to use this
+            // optimization
             for line in self.lines() {
                 if !fill_highlight {
                     rect.clear_line()?;
@@ -250,20 +244,23 @@ impl<'a, P: Processor> Spanned<'a, P> {
                 Self::start_line(rect, hovered, queued, prefix_width, highlight_line, chars)?;
                 rect.styled_text(self.line_text(line), self.styled_line(line, style))?;
 
-                let remaining_capacity = || {
+                let remaining_capacity = if fill_highlight {
                     let printed_width = if line.is_empty() {
                         0
                     } else {
                         P::width(
                             &self.rendered[line[0].range.start..line.last().unwrap().range.end],
+                            D::grapheme_width,
                         )
                     };
                     max_width.saturating_sub(printed_width as u16)
+                } else {
+                    0
                 };
                 Self::finish_line(rect, remaining_capacity, style, fill_highlight)?;
             }
         } else {
-            let offset = self.required_offset(max_width, highlight_padding);
+            let offset = self.required_offset::<D>(max_width, highlight_padding);
 
             for line in self.lines() {
                 if !fill_highlight {
@@ -272,7 +269,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
                 Self::start_line(rect, hovered, queued, prefix_width, highlight_line, chars)?;
                 let remaining_capacity =
                     self.queue_print_line(rect, line, offset, max_width, chars, style)?;
-                Self::finish_line(rect, || remaining_capacity, style, fill_highlight)?;
+                Self::finish_line(rect, remaining_capacity, style, fill_highlight)?;
             }
         }
         Ok(())
