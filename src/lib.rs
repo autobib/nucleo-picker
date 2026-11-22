@@ -44,6 +44,7 @@
 //! | `preview-cache` | No | [`lru`] | — | This enables the [`Preview`](preview::Preview) trait and [`CachedPreview`]. |
 //! | `serde`   | No | [`serde`] | — | This enables `DeserializeSeed` for an [`Injector`]. |
 //! | <code style="white-space: nowrap;">preview-ansi</code> | No | [`anstyle_parse`] | — | This adds ANSI-parsing support for the preview buffer. |
+//! | <code style="white-space: nowrap;">ratatui</code> | No | [`ratatui_core`] | — | This adds a Ratatui buffer and widget API. |
 
 #![deny(missing_docs)]
 #![warn(rustdoc::unescaped_backticks)]

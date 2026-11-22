@@ -6,6 +6,10 @@ use std::{fmt, num::NonZero};
 
 use crossterm::style::{ContentStyle, StyledContent};
 
+#[cfg(feature = "ratatui")]
+#[cfg_attr(docsrs, doc(cfg(feature = "ratatui")))]
+pub mod ratatui;
+
 /// A non-empty surface for drawing in a single pass.
 ///
 /// In order to reduce the number of calls required to actually draw, any draws to a rectangle must
