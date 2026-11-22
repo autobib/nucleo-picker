@@ -333,7 +333,7 @@ mod tests {
         let mut output = Vec::new();
         queue!(
             output,
-            crossterm::style::Print("a"),
+            crossterm::style::Print("e\u{301}"),
             PrintStyledContent("B".red().bold()),
             crossterm::style::Print("界c")
         )?;
@@ -345,7 +345,7 @@ mod tests {
         assert_eq!(snapshot.version, 1);
         assert_eq!(snapshot.size, Size { cols: 6, rows: 2 });
         assert_eq!(snapshot.screen, ScreenName::Primary);
-        assert_eq!(snapshot.text, ["aB界c ", "      "]);
+        assert_eq!(snapshot.text, ["e\u{301}B界c ", "      "]);
         assert_eq!(snapshot.cursor.position, Some(Position { x: 5, y: 0 }));
         assert_eq!(snapshot.styles.len(), 1);
         assert_eq!(
@@ -362,7 +362,7 @@ mod tests {
 
         terminal.vt_write(b"de");
         let wrapped = snapshotter.capture(&terminal)?;
-        assert_eq!(wrapped.text, ["aB界cd", "e     "]);
+        assert_eq!(wrapped.text, ["e\u{301}B界cd", "e     "]);
         assert_eq!(
             wrapped.row_flags,
             [
@@ -378,21 +378,6 @@ mod tests {
                 },
             ]
         );
-        Ok(())
-    }
-
-    #[test]
-    fn preserves_combining_graphemes() -> Result<(), Box<dyn StdError>> {
-        let mut terminal = Terminal::new(TerminalOptions {
-            cols: 4,
-            rows: 1,
-            max_scrollback: 0,
-        })?;
-        terminal.vt_write("e\u{301}".as_bytes());
-
-        let snapshot = Snapshotter::new()?.capture(&terminal)?;
-
-        assert_eq!(snapshot.text, ["e\u{301}   "]);
         Ok(())
     }
 }

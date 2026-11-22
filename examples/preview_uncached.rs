@@ -1,4 +1,9 @@
-use nucleo_picker::{Picker, Single, UncachedPreview, preview::Pane, render::StrRenderer};
+use nucleo_picker::{
+    Picker,
+    interface::{Single, UncachedPreview},
+    preview::Pane,
+    render::StrRenderer,
+};
 
 fn main() -> std::io::Result<()> {
     let interface = UncachedPreview::new(Single, |color: &&str, pane: &mut Pane| {

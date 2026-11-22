@@ -52,7 +52,10 @@ fn clearing_a_message_allows_its_destructor_to_observe_the_channel() {
             .is_ok()
     );
 
-    let clearing = thread::spawn(move || observer.clear());
+    let clearing = thread::spawn(move || {
+        observer.clear();
+        drop(notifier);
+    });
     received.recv_timeout(Duration::from_secs(5)).unwrap();
     clearing.join().unwrap();
 }

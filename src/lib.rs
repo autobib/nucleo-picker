@@ -11,16 +11,24 @@
 //!
 //! - To include a preview pane in the picker, see the [`preview`] module. The simplest entry point is to
 //!  enable the [preview-cache feature](#cargo-features) and use [`Picker::with_preview`].
-//! - For headless (non-interactive) use, see the [relevant section of the picker documentation](Picker#headless-non-interactive-use).
+//! - For headless (non-interactive) use, see the [picker documentation](Picker#headless-non-interactive-use).
 //! - For more precise control over the interface and integration with an existing application, see the [`event`] module.
 //! - See the [picker usage documentation](https://github.com/autobib/nucleo-picker/blob/master/USAGE.md)
 //!   for end-user-relevant TUI usage documentation.
 //!
+//! For lower-level control over layout (especially when integrating into a large application, for
+//! instance using Rataui) see the [`nucleo-picker-interface`](nucleo_picker_interface) and
+//! [`nucleo-picker-core`](nucleo_picker_core) crates. This crate already includes many of the
+//! relevant imports; see for instance the [Ratatui
+//! example](https://github.com/autobib/nucleo-picker/blob/master/examples/ratatui.rs)
+//!
 //! ## Usage examples
+//!
 //! For many usage examples, visit the [examples
 //! folder](https://github.com/autobib/nucleo-picker/tree/master/examples) on GitHub.
 //!
 //! ### `fzf` example
+//!
 //! Run this example with `cat myfile.txt | cargo run --release --example fzf_basic`.
 //! ```no_run
 #![doc = include_str!("../examples/fzf_basic.rs")]
@@ -38,352 +46,78 @@
 //! behaviour would require additional dependencies to operate.
 //! The features are as follows:
 //!
-//! | Feature | Default | Dependencies | Requires | Description |
+//! | Feature | Default | Dependencies | Enables | Description |
 //! | --- | --- | --- | --- | --- |
-//! | <code style="white-space: nowrap;">unix-poll</code> | Yes | — | — | This enables the <code style="white-space: nowrap;">use-dev-tty</code> feature of `crossterm` to fix a polling issue on macOS which breaks non-interactive STDIN. (Note that the <code style="white-space: nowrap;">use-dev-tty</code> feature is confusingly named, since even with this feature disabled, crossterm uses `/dev/tty` anyway.) |
-//! | `preview-cache` | No | [`lru`] | — | This enables the [`Preview`](preview::Preview) trait and [`CachedPreview`]. |
-//! | `serde`   | No | [`serde`] | — | This enables `DeserializeSeed` for an [`Injector`]. |
-//! | <code style="white-space: nowrap;">preview-ansi</code> | No | [`anstyle_parse`] | — | This adds ANSI-parsing support for the preview buffer. |
+//! | <code style="white-space: nowrap;">unix-poll</code> | Yes | — | `crossterm/use-dev-tty` | Enables the <code style="white-space: nowrap;">use-dev-tty</code> feature of `crossterm` to fix a polling issue on macOS which breaks non-interactive STDIN. (Note that the <code style="white-space: nowrap;">use-dev-tty</code> feature is confusingly named, since even with this feature disabled, crossterm uses `/dev/tty` anyway.) |
+//! | `preview-cache` | No | [`lru`](https://docs.rs/lru) | `nucleo-picker-interface/preview-cache` | Enables the [`Preview`](preview::Preview) trait and [`CachedPreview`]. |
+//! | `serde` | No | [`serde`](https://docs.rs/serde) | `nucleo-picker-core/serde` | Adds a `DeserializeSeed` implementation for `&Injector`. |
+//! | <code style="white-space: nowrap;">preview-ansi</code> | No | [`anstyle-parse`](https://docs.rs/anstyle-parse) | `nucleo-picker-core/preview-ansi` | Adds ANSI-parsing support for the preview buffer. |
+//! | <code style="white-space: nowrap;">ratatui</code> | No | [`ratatui-core`](https://docs.rs/ratatui-core) | `nucleo-picker-core/ratatui` | Adds support for Ratatui styles and a convience widget API |
 
 #![deny(missing_docs)]
 #![warn(rustdoc::unescaped_backticks)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-mod component;
-mod driver;
 pub mod error;
 pub mod event;
 mod frame;
-mod incremental;
-mod injector;
 mod input;
-mod interface;
-mod keybind;
-mod match_engine;
-mod match_list;
+pub mod interface;
 mod observer;
+mod picker_ref;
 pub mod preview;
-mod prompt;
 mod rect;
 pub mod render;
-pub mod session;
-mod status_line;
+mod run;
+#[cfg(test)]
+mod session_tests;
 mod terminal;
 mod util;
 
-use std::{borrow::Cow, io, iter::Extend, num::NonZero, time::Duration};
+use std::{io, iter::Extend, num::NonZero, time::Duration};
 
 use crossterm::event::KeyEvent;
-use nucleo::pattern::{CaseMatching as NucleoCaseMatching, Normalization as NucleoNormalization};
-use observer::Observer;
+use observer::{Notifier, Observer};
 use preview::BoundaryChars;
+
+pub use nucleo_picker_core::{
+    CaseMatching, Generation, Injector, Normalization, Render, draw, session,
+};
+pub use nucleo_picker_interface::Selection;
+#[doc(inline)]
+pub use picker_ref::PickerRef;
 
 use crate::{
     error::PickError,
-    event::{Event, EventSource, PickerStatus},
-    interface::InterfaceDefaults,
-    session::{MatchStatus, Matches},
+    event::{Event, EventSource, KeybindDefault, PickerStatus},
+    interface::{Interface, Multi, Single},
+    run::RunnerConfig,
+    session::{MatchStatus, Matches, Model, ModelOptions},
+    terminal::CrosstermTerminal,
 };
 
-pub use crate::driver::{Driver, DriverOptions};
-pub use crate::injector::Injector;
 #[cfg(feature = "preview-cache")]
-#[doc(inline)]
-pub use crate::interface::CachedPreview;
-#[doc(inline)]
-pub use crate::interface::{Multi, PickerRef, Single, UncachedPreview};
-pub use crate::interface::{Selection, SelectionIntoIter};
-#[doc(inline)]
-pub use crate::keybind::KeybindDefault;
-#[doc(inline)]
-pub use crate::session::Interface;
+use crate::interface::CachedPreview;
 
 #[cfg(feature = "unstable-backend")]
 pub use terminal::Terminal;
 #[cfg(not(feature = "unstable-backend"))]
 pub(crate) use terminal::Terminal;
 
-/// A trait which describes how to render objects for matching and display.
-///
-/// Some renderers for common types are already implemented in the [`render`] module. In
-/// many cases, the [`DisplayRenderer`](render::DisplayRenderer) is particularly easy to use.
-/// This trait is also automatically implemented for [closures which return `Cow<'a,
-/// str>`](#impl-Render<T>-for-R).
-///
-/// Rendering *must* be **pure**: for a given render implementation `R` and an item `T`, the call
-/// `R::render(&self, &T)` must depend only on the specific render instance and the specific item,
-/// and not any other state. Violation of this condition is normally only possible via interior
-/// mutability, global state, I/O, or unsafe code.
-///
-/// If purism is violated, internal index computations which depend on the rendered format
-/// will become invalid and the picker may panic or return incorrect results. Note that such
-/// errors are encapsulated within the picker and will not result in undefined behaviour.
-///
-/// ## Examples
-/// Here is a basic example for how one would implement a renderer for a `DirEntry` from the
-/// [ignore](https://docs.rs/ignore/latest/ignore/) crate.
-/// ```
-/// use std::borrow::Cow;
-///
-/// use nucleo_picker::Render;
-/// use ignore::DirEntry;
-///
-/// pub struct DirEntryRenderer;
-///
-/// impl Render<DirEntry> for DirEntryRenderer {
-///     type Str<'a> = Cow<'a, str>;
-///
-///     fn render<'a>(&self, item: &'a DirEntry) -> Self::Str<'a> {
-///         item.path().to_string_lossy()
-///     }
-/// }
-/// ```
-/// Here is another example showing that a renderer can use internal (immutable) state to customize
-/// the rendered format.
-/// ```
-/// use nucleo_picker::Render;
-///
-/// pub struct PrefixRenderer {
-///     prefix: String,
-/// }
-///
-/// impl<T: AsRef<str>> Render<T> for PrefixRenderer {
-///     type Str<'a> = String
-///         where T: 'a;
-///
-///     fn render<'a>(&self, item: &'a T) -> Self::Str<'a> {
-///         let mut rendered = String::new();
-///         rendered.push_str(&self.prefix);
-///         rendered.push_str(item.as_ref());
-///         rendered
-///     }
-/// }
-/// ```
-///
-/// Here is an example using a function directly as a renderer.
-///
-/// ```
-/// use std::borrow::Cow;
-/// use nucleo_picker::Picker;
-///
-/// struct Item {
-///     name: String,
-/// }
-///
-/// fn render(item: &Item) -> Cow<'_, str> {
-///     Cow::Borrowed(&item.name)
-/// }
-///
-/// let picker = Picker::new(render);
-/// let item = Item { name: "README.md".into() };
-/// assert_eq!(picker.render(&item), "README.md");
-/// picker.push_batch([item]);
-/// ```
-///
-/// ## Render considerations
-/// The picker is capable of correctly displaying most Unicode data. Internally, Unicode width
-/// calculations are performed to keep track of the amount of space that it takes on the screen to
-/// display a given item.
-///
-/// The main exception is control characters which are not newlines (`\n` or `\r\n`). Even visible
-/// control characters such as tabs (`\t`) will cause issues: width calculations will most likely
-/// be incorrect since the amount of space a tab occupies depends on its position within the
-/// screen.
-///
-/// It is best to avoid such characters in your rendered format. If you do not have control
-/// over the incoming data, the most robust solution is likely to perform substitutions while
-/// rendering.
-/// ```
-/// # use nucleo_picker::Render;
-/// use std::borrow::Cow;
-///
-/// fn renderable(c: char) -> bool {
-///     !c.is_control() || c == '\n'
-/// }
-///
-/// struct ControlReplaceRenderer;
-///
-/// impl<T: AsRef<str>> Render<T> for ControlReplaceRenderer {
-///     type Str<'a>
-///         = Cow<'a, str>
-///     where
-///         T: 'a;
-///
-///     fn render<'a>(&self, item: &'a T) -> Self::Str<'a> {
-///         let mut str = Cow::Borrowed(item.as_ref());
-///
-///         if str.contains(|c| !renderable(c)) {
-///             str.to_mut().retain(renderable);
-///         }
-///
-///         str
-///     }
-/// }
-/// ```
-///
-/// ## Performance considerations
-/// In the majority of situations, performance of the [`Render`] implementation is only relevant
-/// when sending the items to the picker, and not for generating the match list interactively. In
-/// particular, in the majority of situations, [`Render::render`] is called exactly once per item
-/// when it is sent to the picker.
-///
-/// The **only** exception to this rule occurs when the value returned by [`Render::render`] contains
-/// non-ASCII characters. In this situation, it can happen that *exceptionally slow* [`Render`]
-/// implementations will reduce interactivity. A crude rule of thumb is that rendering a single
-/// item should take (in the worst case) at most 100μs. For comparison, display formatting a
-/// `f64` takes around 100ns.
-///
-/// 100μs is an extremely large amount of time in the vast majority of situations. If after
-/// benchmarking you determine that this is not the case for your [`Render`] implementation,
-/// and moreover your [`Render`] implementation outputs (in the majority of cases) non-ASCII
-/// Unicode, you can internally cache the render computation (at the cost of increased memory
-/// overhead):
-/// ```
-/// # use nucleo_picker::Render;
-/// pub struct Item<D> {
-///     data: D,
-///     /// the pre-computed rendered version of `data`
-///     rendered: String,
-/// }
-///
-/// pub struct ItemRenderer;
-///
-/// impl<D> Render<Item<D>> for ItemRenderer {
-///     type Str<'a>
-///         = &'a str
-///     where
-///         D: 'a;
-///
-///     fn render<'a>(&self, item: &'a Item<D>) -> Self::Str<'a> {
-///         &item.rendered
-///     }
-/// }
-/// ```
-pub trait Render<T> {
-    /// The string type that `T` is rendered as, most commonly a [`&'a str`](str), a
-    /// [`Cow<'a, str>`](std::borrow::Cow), or a [`String`].
-    type Str<'a>: AsRef<str>
-    where
-        T: 'a;
-
-    /// Render the given item as it should appear in the picker. See the
-    /// [trait-level docs](Render) for more detail.
-    fn render<'a>(&self, item: &'a T) -> Self::Str<'a>;
+#[derive(Clone, Copy)]
+pub(crate) struct InterfaceDefaults {
+    pub(crate) multi: Multi,
+    #[cfg(feature = "preview-cache")]
+    pub(crate) preview_cache_size: Option<NonZero<usize>>,
 }
 
-impl<T, R: for<'a> Fn(&'a T) -> Cow<'a, str>> Render<T> for R {
-    type Str<'a>
-        = Cow<'a, str>
-    where
-        T: 'a;
-
-    #[inline]
-    fn render<'a>(&self, item: &'a T) -> Self::Str<'a> {
-        self(item)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-#[non_exhaustive]
-/// How to treat a case mismatch between two characters.
-pub enum CaseMatching {
-    /// Characters never match their case folded version (`a != A`).
-    Respect,
-    /// Characters always match their case folded version (`a == A`).
-    Ignore,
-    /// Act like [`Ignore`](CaseMatching::Ignore) if all characters in a pattern atom are
-    /// lowercase and like [`Respect`](CaseMatching::Respect) otherwise.
-    #[default]
-    Smart,
-}
-
-impl CaseMatching {
-    pub(crate) const fn convert(self) -> NucleoCaseMatching {
-        match self {
-            Self::Respect => NucleoCaseMatching::Respect,
-            Self::Ignore => NucleoCaseMatching::Ignore,
-            Self::Smart => NucleoCaseMatching::Smart,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-#[non_exhaustive]
-/// How to handle Unicode Latin normalization.
-pub enum Normalization {
-    /// Characters never match their normalized version (`a != ä`).
-    Never,
-    /// Act like [`Never`](Normalization::Never) if any character would need to be normalized, and
-    /// otherwise perform normalization (`a == ä` but `ä != a`).
-    #[default]
-    Smart,
-}
-
-impl Normalization {
-    pub(crate) const fn convert(self) -> NucleoNormalization {
-        match self {
-            Self::Never => NucleoNormalization::Never,
-            Self::Smart => NucleoNormalization::Smart,
-        }
-    }
-}
-
-/// Decorative characters used by the picker UI.
-///
-/// Note that all of the supplied characters must be single-width, or the picker screen will be
-/// corrupted.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[non_exhaustive]
-pub(crate) struct PickerChars {
-    /// The prompt indicator.
-    pub prompt: char,
-    /// The marker for the hovered item.
-    pub hover: char,
-    /// The marker for any queued items.
-    pub queued: char,
-    /// An indicator for truncated text.
-    pub ellipsis: char,
-    /// The horizontal separator between the prompt and the match list.
-    pub separator: char,
-    /// The characters used by the item spinner.
-    pub spinner_chars: &'static [char],
-    /// An indicator that matching is ongoing in the background.
-    pub matching_indicator: char,
-}
-
-impl PickerChars {
-    /// The default Unicode character set.
-    #[must_use]
-    pub const fn new() -> Self {
+impl InterfaceDefaults {
+    pub(crate) const fn new() -> Self {
         Self {
-            prompt: '>',
-            hover: '▌',
-            queued: '┃',
-            ellipsis: '…',
-            separator: '─',
-            spinner_chars: &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'],
-            matching_indicator: '·',
+            multi: Multi::new(),
+            #[cfg(feature = "preview-cache")]
+            preview_cache_size: CachedPreview::<(), ()>::DEFAULT_CACHE_SIZE,
         }
-    }
-
-    /// An ASCII-compatible character set.
-    #[must_use]
-    pub const fn ascii() -> Self {
-        Self {
-            prompt: '>',
-            hover: '>',
-            queued: '|',
-            ellipsis: '.',
-            separator: '-',
-            spinner_chars: &['|', '|', '/', '/', '-', '-', '\\', '\\'],
-            matching_indicator: '.',
-        }
-    }
-}
-
-impl Default for PickerChars {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -423,22 +157,14 @@ impl Default for PickerChars {
 /// | `false`        | `false`         | Index (asc)                                |
 /// | `false`        | `true`          | Index (desc)                               |
 pub struct PickerOptions {
-    driver: DriverOptions,
+    model: ModelOptions,
+    runner: RunnerConfig,
     defaults: InterfaceDefaults,
 }
 
 impl Default for PickerOptions {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl From<DriverOptions> for PickerOptions {
-    fn from(driver: DriverOptions) -> Self {
-        Self {
-            driver,
-            defaults: InterfaceDefaults::new(),
-        }
     }
 }
 
@@ -450,7 +176,8 @@ impl PickerOptions {
     #[inline]
     pub const fn new() -> Self {
         Self {
-            driver: DriverOptions::new(),
+            model: ModelOptions::new(),
+            runner: RunnerConfig::new(),
             defaults: InterfaceDefaults::new(),
         }
     }
@@ -459,7 +186,13 @@ impl PickerOptions {
     #[must_use]
     pub fn picker<T: Send + Sync + 'static, R>(self, render: R) -> Picker<T, R> {
         Picker {
-            core: self.driver.driver(render),
+            core: self
+                .model
+                .list_reversed(self.runner.layout.reversed)
+                .model(render),
+            runner: self.runner,
+            restart_notifier: None,
+            status_notifier: None,
             interface: Single,
             defaults: self.defaults,
         }
@@ -475,7 +208,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn reversed(mut self, reversed: bool) -> Self {
-        self.driver.match_list_config.reversed = reversed;
+        self.runner.layout.reversed = reversed;
         self
     }
 
@@ -490,7 +223,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn reverse_items(mut self, reversed: bool) -> Self {
-        self.driver.reverse_items = reversed;
+        self.model.set_reverse_items(reversed);
         self
     }
 
@@ -504,7 +237,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn sort_results(mut self, sort: bool) -> Self {
-        self.driver.sort_results = sort;
+        self.model.set_sort_results(sort);
         self
     }
 
@@ -536,7 +269,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn frame_interval(mut self, interval: Duration) -> Self {
-        self.driver.interval = interval;
+        self.runner.timing.interval = interval;
         self
     }
 
@@ -547,7 +280,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn threads(mut self, threads: Option<NonZero<usize>>) -> Self {
-        self.driver.threads = threads;
+        self.model.set_threads(threads);
         self
     }
 
@@ -555,7 +288,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn normalization(mut self, normalization: Normalization) -> Self {
-        self.driver.normalization = normalization.convert();
+        self.model.set_normalization(normalization);
         self
     }
 
@@ -563,7 +296,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn case_matching(mut self, case_matching: CaseMatching) -> Self {
-        self.driver.case_matching = case_matching.convert();
+        self.model.set_case_matching(case_matching);
         self
     }
 
@@ -571,7 +304,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn match_paths(mut self) -> Self {
-        self.driver.config = self.driver.config.match_paths();
+        self.model.set_match_paths();
         self
     }
 
@@ -581,7 +314,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn prefer_prefix(mut self, prefer_prefix: bool) -> Self {
-        self.driver.config.prefer_prefix = prefer_prefix;
+        self.model.set_prefer_prefix(prefer_prefix);
         self
     }
 
@@ -589,7 +322,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn highlight(mut self, highlight: bool) -> Self {
-        self.driver.match_list_config.highlight = highlight;
+        self.model.set_highlight(highlight);
         self
     }
 
@@ -599,7 +332,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn highlight_line(mut self, highlight_line: bool) -> Self {
-        self.driver.match_list_config.highlight_line = highlight_line;
+        self.model.set_highlight_line(highlight_line);
         self
     }
 
@@ -607,7 +340,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn highlight_padding(mut self, size: u16) -> Self {
-        self.driver.match_list_config.highlight_padding = size;
+        self.model.set_highlight_padding(size);
         self
     }
 
@@ -615,7 +348,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn scroll_padding(mut self, size: u16) -> Self {
-        self.driver.match_list_config.scroll_padding = size;
+        self.model.set_scroll_padding(size);
         self
     }
 
@@ -623,7 +356,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn prompt_padding(mut self, size: u16) -> Self {
-        self.driver.prompt_config.padding = size;
+        self.model.set_prompt_padding(size);
         self
     }
 
@@ -633,7 +366,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn prompt_indicator(mut self, prompt: char) -> Self {
-        self.driver.chars.prompt = prompt;
+        self.model.set_prompt_indicator(prompt);
         self
     }
 
@@ -643,7 +376,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn hover_indicator(mut self, hover: char) -> Self {
-        self.driver.chars.hover = hover;
+        self.model.set_hover_indicator(hover);
         self
     }
 
@@ -661,7 +394,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn queued_indicator(mut self, queued: char) -> Self {
-        self.driver.chars.queued = queued;
+        self.model.set_queued_indicator(queued);
         self
     }
 
@@ -671,7 +404,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn truncation_ellipsis(mut self, ellipsis: char) -> Self {
-        self.driver.chars.ellipsis = ellipsis;
+        self.model.set_truncation_ellipsis(ellipsis);
         self
     }
 
@@ -681,7 +414,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn separator(mut self, sep: char) -> Self {
-        self.driver.chars.separator = sep;
+        self.model.set_separator(sep);
         self
     }
 
@@ -694,7 +427,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn spinner_chars(mut self, spinner: &'static [char]) -> Self {
-        self.driver.chars.spinner_chars = spinner;
+        self.model.set_spinner_chars(spinner);
         self
     }
 
@@ -706,7 +439,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn matching_indicator(mut self, indicator: char) -> Self {
-        self.driver.chars.matching_indicator = indicator;
+        self.model.set_matching_indicator(indicator);
         self
     }
 
@@ -727,7 +460,12 @@ impl PickerOptions {
     /// ```
     /// If `ascii` is `false`, this uses the default Unicode character set.
     pub const fn ascii_compatible(mut self, ascii: bool) -> Self {
-        self.driver.set_ascii_compatible(ascii);
+        self.model.set_ascii_compatible(ascii);
+        self.runner.preview_boundary_chars = if ascii {
+            BoundaryChars::ascii()
+        } else {
+            BoundaryChars::new()
+        };
         self
     }
 
@@ -746,18 +484,16 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn background_frame_interval(mut self, interval: Duration) -> Self {
-        self.driver.background_frame_interval = interval;
+        self.runner.timing.background_frame_interval = interval;
         self
     }
 
     /// Provide an initial query string for the prompt (defaults to `""`).
     #[must_use]
     #[inline]
-    pub fn query<Q: Into<String>>(self, query: Q) -> Self {
-        Self {
-            driver: self.driver.query(query),
-            defaults: self.defaults,
-        }
+    pub fn query<Q: Into<String>>(mut self, query: Q) -> Self {
+        self.model.set_query(query);
+        self
     }
 }
 
@@ -772,8 +508,8 @@ impl PickerOptions {
     /// the value will simply be set to `0.5`
     #[must_use]
     #[inline]
-    pub const fn preview_dimensions(mut self, ratio: f64) -> Self {
-        self.driver.set_preview_dimensions(ratio);
+    pub const fn preview_split(mut self, ratio: f64) -> Self {
+        self.runner.layout.set_preview_split(ratio);
         self
     }
 
@@ -784,7 +520,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn preview_boundary_chars(mut self, chars: BoundaryChars) -> Self {
-        self.driver.set_preview_boundary_chars(chars);
+        self.runner.preview_boundary_chars = chars;
         self
     }
 
@@ -856,12 +592,12 @@ impl PickerOptions {
 /// 2. Whether the picker has item previews (the wrapper state [`CachedPreview`]).
 ///
 /// For more details on picker variants read the [`Interface`] trait documentation and the read the
-/// [session module documentation](session). In particular, jump to the sections on:
+/// [interface module documentation](interface). In particular, jump to the sections on:
 ///
-/// - [multiple selections](session#multiple-selections)
-/// - [adding previews](session#adding-previews)
-/// - [changing the interface](session#changing-the-interface)
-/// - [generics](session#picker-generics)
+/// - [multiple selections](interface#multiple-selections)
+/// - [adding previews](interface#adding-previews)
+/// - [changing the interface](interface#changing-the-interface)
+/// - [generics](interface#picker-generics)
 ///
 /// ## Headless (non-interactive) use
 ///
@@ -922,8 +658,66 @@ impl PickerOptions {
 /// ```no_run
 #[doc = include_str!("../examples/custom_io.rs")]
 /// ```
+///
+/// ## Interface call order
+///
+/// The [`Picker`] drives an interface implementation in order to produce the interactive picker.
+/// The picker drives the loop until [completion](#completion-and-errors) (i.e. if a selection is
+/// made, the picker quits, or there is an error).
+///
+/// ### Initialization
+///
+/// When the session starts, the following call sequence is made.
+///
+/// 1. The match engine is updated with any changes which were processed in the background.
+/// 2. [`init`](Interface::init) is called once. The preview pane is enabled according to [`PREVIEW`](Interface::PREVIEW)
+///    and is dimensionless.
+/// 3. The terminal is initialized.
+/// 4. [`before_frame`](Interface::before_frame) is called with the initial hovered item.
+///    Note that this is called before the component dimensions are computed; in general, the layout
+///    information comes from the *previous* frame.
+/// 5. [`queue_status`](Interface::queue_status) is called to update the status line.
+/// 6. The first full frame is drawn. Immediately before drawing, terminal dimensions are queried
+///    and resizes are propagated, for instance via [`preview_resize`](Interface::preview_resize)
+///    (if the preview pane is enabled).
+/// 7. [`after_frame`](Interface::after_frame) is called. The draw mask is used for the next frame.
+///
+/// ### Frame loop
+///
+/// On each frame:
+///
+/// 1. A bounded batch of events is processed. Events which cause the picker to exit are immediately
+///    processed. This updates the prompt and match list, reparses if the query changed, and updates
+///    the match engine. Depending on the precise events received, this calls [`on_queue`](Interface::on_queue), [`preview_event`](Interface::preview_event) and [`on_restart`](Interface::on_restart).
+/// 2. [`before_frame`](Interface::before_frame) is called.
+/// 3. [`queue_status`](Interface::queue_status) is called to update the status line.
+/// 4. Check for pending redraws either from events or as required by the interface. If a resize is
+///    required, a full redraw is done. If [`PREVIEW`](Interface::PREVIEW) is true,
+///    [`preview_resize`](Interface::preview_resize) is called with the new dimensions (or `None` if the
+///    preview pane is hidden).
+/// 5. Draw the components. Internally, this calls [`is_queued`](Interface::is_queued) and
+///    [`preview_content`](Interface::preview_content).
+/// 6. If a status request can be processed, call [`queue_status`](Interface::queue_status).
+/// 7. [`after_frame`](Interface::after_frame) is called. Its redraw mask is carried over to the next
+///    frame.
+///
+/// Note that the frame hooks ([`before_frame`](Interface::before_frame) and
+/// [`after_frame`](Interface::after_frame)) are run on all frames in which an error does not occur,
+/// independently of whether or not changes were made.
+///
+/// ### Completion and errors
+///
+/// After an exit or error while processing events, the picker internally records any changes,
+/// attempts to clean up the terminal, and then calls [`on_end`](Interface::on_end). If the exit
+/// and cleanup succeeds, [`finish`](Interface::finish) is called.
+///
+/// Abnormal exit during panics will still result in attempted terminal cleanup but
+/// will not result in usual interface cleanup methods from being called.
 pub struct Picker<T, R, I = Single> {
-    core: Driver<T, R>,
+    core: Model<T, R>,
+    runner: RunnerConfig,
+    restart_notifier: Option<Notifier<Injector<T, R>>>,
+    status_notifier: Option<Notifier<PickerStatus>>,
     interface: I,
     defaults: InterfaceDefaults,
 }
@@ -949,6 +743,15 @@ impl<T: Send + Sync + 'static, R> Picker<T, R> {
 
 /// Inherent picker methods which are independent of the interface.
 impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
+    /// Returns the generation of this picker.
+    ///
+    /// See the [`Generation`] docs for more detail.
+    #[must_use]
+    #[inline]
+    pub fn generation(&self) -> Generation {
+        self.core.generation()
+    }
+
     /// Get an [`Injector`] to send items to the picker.
     #[must_use]
     #[inline]
@@ -1026,7 +829,13 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
         R: Render<T>,
         I: Interface<T> + KeybindDefault,
     {
-        input::pick(&mut self.core, &mut self.interface)
+        input::pick(
+            &mut self.core,
+            &mut self.interface,
+            self.runner,
+            self.restart_notifier.as_ref(),
+            self.status_notifier.as_ref(),
+        )
     }
 
     /// Open the interactive picker prompt and return the picked item, if any. The provided
@@ -1063,7 +872,14 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
         I: Interface<T>,
         F: FnMut(KeyEvent) -> Option<Event>,
     {
-        input::pick_with_keybind(&mut self.core, &mut self.interface, keybind)
+        input::pick_with_keybind(
+            &mut self.core,
+            &mut self.interface,
+            self.runner,
+            self.restart_notifier.as_ref(),
+            self.status_notifier.as_ref(),
+            keybind,
+        )
     }
 
     /// Run the picker interactively with a custom event source and writer, returning the selected
@@ -1104,8 +920,15 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
         E: EventSource,
         W: io::Write,
     {
-        self.core
-            .pick_with_io(&mut self.interface, event_source, writer)
+        run::pick_impl(
+            &mut self.core,
+            &mut self.interface,
+            self.runner,
+            self.restart_notifier.as_ref(),
+            self.status_notifier.as_ref(),
+            event_source,
+            &mut CrosstermTerminal::new(writer),
+        )
     }
 }
 
@@ -1116,6 +939,9 @@ impl<T, R> Picker<T, R> {
     pub fn multi(self) -> Picker<T, R, Multi> {
         Picker {
             core: self.core,
+            runner: self.runner,
+            restart_notifier: self.restart_notifier,
+            status_notifier: self.status_notifier,
             interface: self.defaults.multi,
             defaults: self.defaults,
         }
@@ -1130,6 +956,9 @@ impl<T, R> Picker<T, R> {
     pub fn as_multi(&mut self) -> PickerRef<'_, T, R, Multi> {
         PickerRef {
             core: &mut self.core,
+            runner: self.runner,
+            restart_notifier: self.restart_notifier.as_ref(),
+            status_notifier: self.status_notifier.as_ref(),
             interface: self.defaults.multi,
             defaults: self.defaults,
         }
@@ -1143,6 +972,9 @@ impl<T, R> Picker<T, R, Multi> {
     pub fn single(self) -> Picker<T, R> {
         Picker {
             core: self.core,
+            runner: self.runner,
+            restart_notifier: self.restart_notifier,
+            status_notifier: self.status_notifier,
             interface: Single,
             defaults: self.defaults,
         }
@@ -1154,6 +986,9 @@ impl<T, R> Picker<T, R, Multi> {
     pub fn as_single(&mut self) -> PickerRef<'_, T, R, Single> {
         PickerRef {
             core: &mut self.core,
+            runner: self.runner,
+            restart_notifier: self.restart_notifier.as_ref(),
+            status_notifier: self.status_notifier.as_ref(),
             interface: Single,
             defaults: self.defaults,
         }
@@ -1173,6 +1008,9 @@ impl<T, R, I> Picker<T, R, I> {
     pub fn with_preview<P>(self, previewer: P) -> Picker<T, R, CachedPreview<I, P>> {
         Picker {
             core: self.core,
+            runner: self.runner,
+            restart_notifier: self.restart_notifier,
+            status_notifier: self.status_notifier,
             interface: CachedPreview::new(self.interface, previewer)
                 .cache_size(self.defaults.preview_cache_size),
             defaults: self.defaults,
@@ -1185,6 +1023,9 @@ impl<T, R, I> Picker<T, R, I> {
     pub fn with_interface<J: Interface<T>>(self, interface: J) -> Picker<T, R, J> {
         Picker {
             core: self.core,
+            runner: self.runner,
+            restart_notifier: self.restart_notifier,
+            status_notifier: self.status_notifier,
             interface,
             defaults: self.defaults,
         }
@@ -1196,6 +1037,9 @@ impl<T, R, I> Picker<T, R, I> {
     pub fn as_interface<J: Interface<T>>(&mut self, interface: J) -> PickerRef<'_, T, R, J> {
         PickerRef {
             core: &mut self.core,
+            runner: self.runner,
+            restart_notifier: self.restart_notifier.as_ref(),
+            status_notifier: self.status_notifier.as_ref(),
             interface,
             defaults: self.defaults,
         }
@@ -1209,14 +1053,12 @@ impl<T, R, P> Picker<T, R, CachedPreview<Single, P>> {
     #[must_use]
     #[inline]
     pub fn multi(self) -> Picker<T, R, CachedPreview<Multi, P>> {
-        let interface = CachedPreview {
-            interface: self.defaults.multi,
-            previewer: self.interface.previewer,
-            cache_size: self.interface.cache_size,
-        };
         Picker {
             core: self.core,
-            interface,
+            runner: self.runner,
+            restart_notifier: self.restart_notifier,
+            status_notifier: self.status_notifier,
+            interface: self.interface.with_interface(self.defaults.multi),
             defaults: self.defaults,
         }
     }
@@ -1227,11 +1069,10 @@ impl<T, R, P> Picker<T, R, CachedPreview<Single, P>> {
     pub fn as_multi(&mut self) -> PickerRef<'_, T, R, CachedPreview<Multi, &mut P>> {
         PickerRef {
             core: &mut self.core,
-            interface: CachedPreview {
-                interface: self.defaults.multi,
-                previewer: &mut self.interface.previewer,
-                cache_size: self.interface.cache_size,
-            },
+            runner: self.runner,
+            restart_notifier: self.restart_notifier.as_ref(),
+            status_notifier: self.status_notifier.as_ref(),
+            interface: self.interface.as_interface(self.defaults.multi),
             defaults: self.defaults,
         }
     }
@@ -1246,11 +1087,10 @@ impl<T, R, P> Picker<T, R, CachedPreview<Multi, P>> {
     pub fn single(self) -> Picker<T, R, CachedPreview<Single, P>> {
         Picker {
             core: self.core,
-            interface: CachedPreview {
-                interface: Single,
-                previewer: self.interface.previewer,
-                cache_size: self.interface.cache_size,
-            },
+            runner: self.runner,
+            restart_notifier: self.restart_notifier,
+            status_notifier: self.status_notifier,
+            interface: self.interface.with_interface(Single),
             defaults: self.defaults,
         }
     }
@@ -1261,11 +1101,10 @@ impl<T, R, P> Picker<T, R, CachedPreview<Multi, P>> {
     pub fn as_single(&mut self) -> PickerRef<'_, T, R, CachedPreview<Single, &mut P>> {
         PickerRef {
             core: &mut self.core,
-            interface: CachedPreview {
-                interface: Single,
-                previewer: &mut self.interface.previewer,
-                cache_size: self.interface.cache_size,
-            },
+            runner: self.runner,
+            restart_notifier: self.restart_notifier.as_ref(),
+            status_notifier: self.status_notifier.as_ref(),
+            interface: self.interface.as_interface(Single),
             defaults: self.defaults,
         }
     }
@@ -1281,36 +1120,36 @@ impl<T, R, I, P> Picker<T, R, CachedPreview<I, P>> {
     #[must_use]
     #[inline]
     pub fn without_preview(self) -> Picker<T, R, I> {
-        Picker {
-            core: self.core,
-            interface: self.interface.interface,
-            defaults: self.defaults,
-        }
+        self.into_parts().0
     }
 
     /// Decompose a previewing picker into the constituent picker and previewer.
     #[inline]
     pub fn into_parts(self) -> (Picker<T, R, I>, P) {
+        let (interface, previewer) = self.interface.into_parts();
         (
             Picker {
                 core: self.core,
-                interface: self.interface.interface,
+                runner: self.runner,
+                restart_notifier: self.restart_notifier,
+                status_notifier: self.status_notifier,
+                interface,
                 defaults: self.defaults,
             },
-            self.interface.previewer,
+            previewer,
         )
     }
 
     /// Returns a reference to the internal previewer.
     #[inline]
     pub fn previewer(&self) -> &P {
-        &self.interface.previewer
+        self.interface.previewer()
     }
 
     /// Returns an exclusive reference to the internal previewer.
     #[inline]
     pub fn previewer_mut(&mut self) -> &mut P {
-        &mut self.interface.previewer
+        self.interface.previewer_mut()
     }
 }
 
@@ -1358,6 +1197,9 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     /// internal memory buffers used for matching and scoring are preserved. To restart the
     /// picker during interactive use, see the [`Event`] documentation or the [restart
     /// example](https://github.com/autobib/nucleo-picker/blob/master/examples/restart.rs).
+    ///
+    /// Also see the documentation for [`Generation`], which uniquely identifies when pickers and
+    /// injectors are in correspondence.
     pub fn restart(&mut self) {
         self.core.restart();
     }
@@ -1466,7 +1308,13 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     #[must_use]
     #[inline]
     pub fn injector_observer(&mut self, with_injector: bool) -> Observer<Injector<T, R>> {
-        self.core.injector_observer(with_injector)
+        let (notifier, observer) = if with_injector {
+            observer::occupied_channel(self.injector())
+        } else {
+            observer::channel()
+        };
+        self.restart_notifier = Some(notifier);
+        observer
     }
 
     /// Returns an [`Observer`] containing up-to-date responses from [status
@@ -1485,7 +1333,9 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
     #[must_use]
     #[inline]
     pub fn status_observer(&mut self) -> Observer<PickerStatus> {
-        self.core.status_observer()
+        let (notifier, observer) = observer::channel();
+        self.status_notifier = Some(notifier);
+        observer
     }
 }
 
@@ -1509,8 +1359,15 @@ impl<T: Send + Sync + 'static, R, I> Picker<T, R, I> {
         E: EventSource,
         W: Terminal,
     {
-        self.core
-            .pick_with_terminal_io(&mut self.interface, event_source, terminal)
+        run::pick_impl(
+            &mut self.core,
+            &mut self.interface,
+            self.runner,
+            self.restart_notifier.as_ref(),
+            self.status_notifier.as_ref(),
+            event_source,
+            terminal,
+        )
     }
 }
 

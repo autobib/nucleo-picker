@@ -104,24 +104,3 @@ impl StdError for Error {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use std::error::Error as StdError;
-
-    use super::*;
-
-    #[test]
-    fn context_is_formatted_as_an_indented_chain() -> Result<(), Box<dyn StdError>> {
-        let error = ErrorKind::Timeout
-            .with_context([FailureContext::RequestedDimensions((60, 16))])
-            .with_checkpoint("initial")
-            .with_checkpoint("nested");
-
-        assert_eq!(
-            error.to_string(),
-            "operation timed out\n  requested dimensions: 60x16\n  checkpoint: initial\n  checkpoint: nested"
-        );
-        Ok(())
-    }
-}

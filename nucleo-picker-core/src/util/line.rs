@@ -1,0 +1,123 @@
+use std::{iter, ops::Range};
+
+use super::unicode::Processor;
+use crate::draw::{Style, StyledStr, Surface};
+
+#[cfg(test)]
+mod tests;
+
+struct LineClip {
+    visible: Range<usize>,
+    leading: u16,
+    trailing: u16,
+    remaining: u16,
+}
+
+fn clip_line<P: Processor>(text: &str, offset: usize, capacity: u16) -> LineClip {
+    let mut clip = LineClip {
+        visible: 0..0,
+        leading: 0,
+        trailing: 0,
+        remaining: capacity,
+    };
+    if capacity == 0 || text.is_empty() {
+        return clip;
+    }
+    if offset != 0 {
+        clip.leading = 1;
+        clip.remaining -= 1;
+        if clip.remaining == 0 {
+            return clip;
+        }
+    }
+
+    let skip_columns = offset.saturating_add(usize::from(clip.leading));
+    let mut graphemes = P::grapheme_index_widths(text).peekable();
+    let mut skipped = 0;
+    while skipped < skip_columns {
+        let Some((_, width)) = graphemes.next() else {
+            clip.visible = text.len()..text.len();
+            return clip;
+        };
+        skipped += width;
+    }
+    let alignment = (skipped - skip_columns).min(usize::from(clip.remaining)) as u16;
+    clip.leading += alignment;
+    clip.remaining -= alignment;
+    if clip.remaining == 0 {
+        return clip;
+    }
+
+    clip.visible.start = graphemes.peek().map_or(text.len(), |&(index, _)| index);
+    let mut reserved = (clip.visible.start, clip.remaining);
+    for (index, width) in graphemes {
+        if width > usize::from(clip.remaining) {
+            let (end, markers) = if clip.remaining == 0 {
+                reserved
+            } else {
+                (index, clip.remaining)
+            };
+            clip.visible.end = end;
+            clip.trailing = markers;
+            clip.remaining = 0;
+            return clip;
+        }
+        // Keep the boundary before the last occupied columns, including any following
+        // zero-width graphemes, until we know whether the line fits exactly.
+        if width != 0 && width == usize::from(clip.remaining) {
+            reserved = (index, clip.remaining);
+        }
+        clip.remaining -= width as u16;
+    }
+    clip.visible.end = text.len();
+    clip
+}
+
+/// Print a single line at the given offset with the provided capacity, returning the number of
+/// unused columns.
+///
+/// The caller is required to position the cursor correctly. The span contents and `text` must be
+/// identical.
+///
+/// Offset is the viewport origin in source columns. At nonzero offsets, the leading
+/// ellipsis occupies the first viewport cell, so text starts at `offset + 1` (rounded forward to a
+/// grapheme boundary).
+pub fn print_line<'a, P: Processor, S: Surface>(
+    surface: &mut S,
+    text: &'a str,
+    mut spans: impl Iterator<Item = StyledStr<'a>>,
+    offset: usize,
+    capacity: u16,
+    ellipsis: char,
+    marker_style: Style,
+) -> Result<u16, S::Error> {
+    let clip = clip_line::<P>(text, offset, capacity);
+    let mut encoded = [0; 4];
+    let ellipsis = ellipsis.encode_utf8(&mut encoded);
+    for _ in 0..clip.leading {
+        surface.text(ellipsis, marker_style)?;
+    }
+    if !clip.visible.is_empty() {
+        let mut start = 0;
+        let visible_spans = iter::from_fn(|| {
+            while start < clip.visible.end {
+                let span = spans.next()?;
+                let content = span.text;
+                let end = start + content.len();
+                let from = clip.visible.start.saturating_sub(start);
+                let to = content.len().min(clip.visible.end - start);
+                start = end;
+                if from < to {
+                    return Some(span.style.apply(&content[from..to]));
+                }
+            }
+            None
+        });
+
+        surface.styled_text(&text[clip.visible.clone()], visible_spans)?;
+    }
+    for _ in 0..clip.trailing {
+        surface.text(ellipsis, marker_style)?;
+    }
+    Ok(clip.remaining)
+}

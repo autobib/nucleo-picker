@@ -5,31 +5,58 @@ use std::{
     time::Duration,
 };
 
-use crossterm::event::{KeyEvent, poll, read};
+use crossterm::event::{Event as CrosstermEvent, KeyEvent, poll, read};
 
-#[cfg(doc)]
-use crate::event::keybind_single;
 use crate::{
-    Driver, Interface, KeybindDefault, Render,
+    Injector, Render,
     error::PickError,
-    event::{Event, EventSource, RecvError},
-    keybind::{convert_crossterm_event, keybind_default},
+    event::{
+        Event, EventSource, KeybindDefault, PickerStatus, PromptEvent, RecvError, keybind_default,
+    },
+    interface::Interface,
+    observer::Notifier,
+    run::{self, RunnerConfig},
+    session::Model,
+    terminal::CrosstermTerminal,
 };
+
+/// Convert a crossterm event into an [`Event`], mapping key events with the given keybindings.
+fn convert_crossterm_event<A, F: FnMut(KeyEvent) -> Option<Event<A>>>(
+    ct_event: CrosstermEvent,
+    mut keybind: F,
+) -> Option<Event<A>> {
+    match ct_event {
+        CrosstermEvent::Key(key_event) => keybind(key_event),
+        CrosstermEvent::Resize(_, _) => Some(Event::Redraw),
+        CrosstermEvent::Paste(contents) => Some(Event::Prompt(PromptEvent::Paste(contents))),
+        _ => None,
+    }
+}
 
 /// Run an interface interactively with its default keybindings.
 ///
 /// Uses the terminal and error behavior described by [`Picker::pick`](crate::Picker::pick).
 #[inline]
 pub(crate) fn pick<'items, T, R, I>(
-    driver: &'items mut Driver<T, R>,
+    model: &'items mut Model<T, R>,
     interface: &mut I,
+    config: RunnerConfig,
+    restart_notifier: Option<&Notifier<Injector<T, R>>>,
+    status_notifier: Option<&Notifier<PickerStatus>>,
 ) -> Result<I::Output<'items>, PickError>
 where
     T: Send + Sync + 'static,
     R: Render<T>,
     I: Interface<T> + KeybindDefault,
 {
-    pick_with_keybind(driver, interface, I::keybind_default)
+    pick_with_keybind(
+        model,
+        interface,
+        config,
+        restart_notifier,
+        status_notifier,
+        I::keybind_default,
+    )
 }
 
 /// Run an interface interactively with custom keybindings.
@@ -38,8 +65,11 @@ where
 /// [`Picker::pick_with_keybind`](crate::Picker::pick_with_keybind).
 #[inline]
 pub(crate) fn pick_with_keybind<'items, T, R, I, F>(
-    driver: &'items mut Driver<T, R>,
+    model: &'items mut Model<T, R>,
     interface: &mut I,
+    config: RunnerConfig,
+    restart_notifier: Option<&Notifier<Injector<T, R>>>,
+    status_notifier: Option<&Notifier<PickerStatus>>,
     keybind: F,
 ) -> Result<I::Output<'items>, PickError>
 where
@@ -50,10 +80,14 @@ where
 {
     let stderr = io::stderr().lock();
     if stderr.is_terminal() {
-        driver.pick_with_io(
+        run::pick_impl(
+            model,
             interface,
+            config,
+            restart_notifier,
+            status_notifier,
             StdinReader::new(keybind),
-            &mut BufWriter::new(stderr),
+            &mut CrosstermTerminal::new(&mut BufWriter::new(stderr)),
         )
     } else {
         Err(PickError::NotInteractive)
@@ -75,7 +109,7 @@ where
 ///
 /// ## Example
 ///
-/// Use [`keybind_single`] to simplify your implementation of keybindings:
+/// Use [`keybind_single`](crate::event::keybind_single) to simplify your implementation of keybindings:
 ///
 /// ```
 /// use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};

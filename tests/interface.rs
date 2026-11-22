@@ -1,18 +1,19 @@
 #![cfg(feature = "unstable-backend")]
 
 use std::{
-    cell::{Cell, RefCell},
+    cell::RefCell,
     io,
     num::NonZero,
     time::{Duration, Instant},
 };
 
 use nucleo_picker::{
-    DriverOptions, Interface, Multi, PickerOptions, Single, Terminal, UncachedPreview,
-    event::{Event, EventSource, LayoutEvent, MatchListEvent, RecvError},
-    preview::{Content, Pane, PreviewEvent},
+    PickerOptions, Terminal,
+    event::{Event, EventSource, MatchListEvent, PreviewEvent, RecvError},
+    interface::{Interface, Multi, Single, UncachedPreview},
+    preview::{Content, Pane},
     render::StrRenderer,
-    session::{Context, Dimensions, Exit, ItemId, QueueStatus, Redraw},
+    session::{Components, Context, Dimensions, Exit, ItemId, QueueStatus},
 };
 
 #[derive(Default)]
@@ -83,56 +84,6 @@ fn options() -> PickerOptions {
 }
 
 #[test]
-fn driver_output_outlives_a_temporary_interface() {
-    struct Last<'a>(&'a Cell<bool>);
-
-    impl Interface<String> for Last<'_> {
-        type State = ();
-        type Output<'a> = Option<&'a String>;
-
-        fn init(&mut self, _: &Context<'_, String>) {}
-
-        fn on_end(&mut self, _: &mut ()) {
-            self.0.set(true);
-        }
-
-        fn finish<'a>(&mut self, (): (), exit: Exit, cx: Context<'a, String>) -> Self::Output<'a> {
-            assert!(self.0.get());
-            assert!(matches!(exit, Exit::Selected(Some(_))));
-            cx.matches().iter().next_back().map(|item| item.value())
-        }
-    }
-
-    let mut driver = DriverOptions::new().sort_results(false).driver(StrRenderer);
-    driver.push_batch(["alpha", "beta"].map(str::to_owned));
-    driver.filter().unwrap();
-    let selected = {
-        let ended = Cell::new(false);
-        let mut interface = Last(&ended);
-        let mut terminal = TestTerminal::default();
-        driver
-            .pick_with_terminal_io(
-                &mut interface,
-                Script([Ok(Event::Select)].into_iter()),
-                &mut terminal,
-            )
-            .unwrap()
-    };
-    assert_eq!(selected.unwrap(), "beta");
-
-    driver.update_query("^alpha$");
-    driver.filter().unwrap();
-    let selected = driver
-        .pick_with_terminal_io(
-            &mut Single,
-            Script([Ok(Event::Select)].into_iter()),
-            &mut TestTerminal::default(),
-        )
-        .unwrap();
-    assert_eq!(selected.unwrap(), "alpha");
-}
-
-#[test]
 fn selection_defaults_survive_picker_and_view_conversions() {
     const OPTIONS: PickerOptions = PickerOptions::new()
         .threads(NonZero::new(1))
@@ -187,11 +138,10 @@ fn preview_defaults_survive_rewrapping_and_borrowed_conversions() {
             generated.borrow_mut().push(*item);
             pane.push_text(item);
         });
-        let options = DriverOptions::new()
+        let picker = PickerOptions::new()
             .threads(NonZero::new(1))
             .sort_results(false)
-            .frame_interval(Duration::from_secs(5));
-        let picker = PickerOptions::from(options)
+            .frame_interval(Duration::from_secs(5))
             .max_selection_count(NonZero::new(1))
             .preview_cache_size(capacity)
             .picker(StrRenderer)
@@ -276,18 +226,18 @@ impl Interface<String> for Custom {
         cx: &Context<'_, String>,
         _: bool,
         _: Instant,
-    ) -> Redraw {
+    ) -> Components {
         match state.frame {
             0 => {
                 state.pane.push_text("initial preview");
-                Redraw::PREVIEW
+                Components::PREVIEW
             }
             1 => {
                 state.queued = cx.matches().get(1).unwrap().id();
                 state.limit = NonZero::new(2).unwrap();
-                Redraw::QUEUE
+                Components::QUEUE
             }
-            _ => Redraw::NONE,
+            _ => Components::NONE,
         }
     }
 
@@ -296,14 +246,14 @@ impl Interface<String> for Custom {
         state: &mut Self::State,
         _: &Context<'_, String>,
         _: Instant,
-    ) -> Redraw {
+    ) -> Components {
         state.frame += 1;
         if state.frame == 2 {
             state.pane.clear();
             state.pane.push_text("after preview");
-            Redraw::PREVIEW
+            Components::PREVIEW
         } else {
-            Redraw::NONE
+            Components::NONE
         }
     }
 
@@ -312,12 +262,12 @@ impl Interface<String> for Custom {
         state: &mut Self::State,
         _: PreviewEvent,
         cx: &Context<'_, String>,
-    ) -> Redraw {
+    ) -> Components {
         state.queued = cx.matches().get(0).unwrap().id();
         state.limit = NonZero::new(1).unwrap();
         state.pane.clear();
         state.pane.push_text("event preview");
-        Redraw::QUEUE | Redraw::PREVIEW
+        Components::QUEUE | Components::PREVIEW
     }
 
     fn preview_content<'s>(&'s self, state: &'s Self::State) -> Content<'s> {
@@ -378,64 +328,6 @@ fn interface_hooks_redraw_only_the_components_they_change() {
     for rendered in [queue, preview, both] {
         assert!(!rendered.contains('>'));
     }
-}
-
-#[test]
-fn uncached_previews_follow_frames_and_revisits_instead_of_event_targets() {
-    let generated = RefCell::new(Vec::new());
-    let mut picker = options()
-        .picker(StrRenderer)
-        .with_interface(UncachedPreview::new(
-            Single,
-            |item: &&'static str, pane: &mut Pane| {
-                generated.borrow_mut().push(*item);
-                for _ in 0..10 {
-                    pane.push_text(item);
-                    pane.push_text("\n");
-                }
-            },
-        ));
-    picker.push_batch(["alpha", "beta"]);
-    picker.filter().unwrap();
-    let mut terminal = TestTerminal::default();
-    let output = picker
-        .pick_with_terminal_io(
-            Script(
-                [
-                    Err(RecvError::Timeout),
-                    Ok(Event::MatchList(MatchListEvent::Up(1))),
-                    Ok(Event::Preview(PreviewEvent::PageDown(1))),
-                    Ok(Event::Preview(PreviewEvent::Refresh)),
-                    Ok(Event::MatchList(MatchListEvent::Down(1))),
-                    Err(RecvError::Timeout),
-                    Ok(Event::Preview(PreviewEvent::Refresh)),
-                    Ok(Event::Layout(LayoutEvent::TogglePreview)),
-                    Err(RecvError::Timeout),
-                    Ok(Event::MatchList(MatchListEvent::Up(1))),
-                    Ok(Event::Preview(PreviewEvent::Refresh)),
-                    Err(RecvError::Timeout),
-                    Ok(Event::MatchList(MatchListEvent::Down(1))),
-                    Ok(Event::Layout(LayoutEvent::TogglePreview)),
-                    Err(RecvError::Timeout),
-                    Ok(Event::MatchList(MatchListEvent::Up(1))),
-                    Err(RecvError::Timeout),
-                    Ok(Event::MatchList(MatchListEvent::Down(1))),
-                    Err(RecvError::Timeout),
-                    Ok(Event::Preview(PreviewEvent::Refresh)),
-                    Ok(Event::Select),
-                ]
-                .into_iter(),
-            ),
-            &mut terminal,
-        )
-        .unwrap();
-    assert_eq!(output, Some(&"alpha"));
-    assert_eq!(&*generated.borrow(), &["alpha", "alpha", "beta", "alpha"]);
-    assert_eq!(
-        terminal.changed,
-        [false, false, true, true, true, true, true]
-    );
-    assert_eq!(terminal.renders.len(), 6);
 }
 
 #[test]

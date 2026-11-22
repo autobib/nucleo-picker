@@ -1,8 +1,8 @@
 use std::{fmt::Write, io, time::Duration};
 
-use crossterm::style::{ContentStyle, Stylize};
 use nucleo_picker::{
     Picker, Render,
+    draw::{Color as PickerColor, Style},
     preview::{
         CachedPreview, Preview,
         request::{Request, Response},
@@ -49,11 +49,11 @@ impl Preview<Color> for ColorPreview {
     fn preview(&mut self, request: Request<'_, Color>, _timeout: Duration) -> Response {
         self.generated += 1;
         let style = match request.item() {
-            Color::Red => ContentStyle::new().on_red(),
-            Color::Blue => ContentStyle::new().on_blue(),
-            Color::Green => ContentStyle::new().on_green(),
-            Color::Yellow => ContentStyle::new().on_yellow(),
-            Color::Magenta => ContentStyle::new().on_magenta(),
+            Color::Red => Style::new().bg(PickerColor::Red),
+            Color::Blue => Style::new().bg(PickerColor::Blue),
+            Color::Green => Style::new().bg(PickerColor::Green),
+            Color::Yellow => Style::new().bg(PickerColor::Yellow),
+            Color::Magenta => Style::new().bg(PickerColor::Magenta),
         };
         let mut pane = request.ready();
         let _ = writeln!(pane.text_writer(), "Preview #{}", self.generated);

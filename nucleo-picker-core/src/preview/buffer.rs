@@ -1,0 +1,405 @@
+#[cfg(test)]
+mod tests;
+
+use std::ops::Range;
+
+use memchr::memchr;
+
+use super::Pane;
+use crate::draw::{Style, StyledStr};
+
+/// A buffer holding the contents of a single preview pane.
+///
+/// This is an append-only buffer: to edit an existing buffer, one must [clear](Self::clear) the
+/// entire buffer and start again.
+///
+/// The buffer consists of a vector of completed lines as well as a final active line. An
+/// empty buffer consists only of an empty active line. There are three main input modes:
+///
+/// - Segment-based input: [`push_str`](Self::push_str) and
+///   [`push_styled_str`](Self::push_styled_str). These methods append text to the current active
+///   line, and the caller promises that the pushed text does not contain any line breaks or other
+///   control characters. Use [`newline`](Self::newline) to create line breaks. These methods are
+///   most useful when you want fine-grained control over how text is added to the preview buffer.
+/// - Text-based input: [`push_text`](Self::push_text) and
+///   [`push_styled_text`](Self::push_styled_text). These convenience methods accept strings which
+///   may contain line breaks and control characters. Line breaks are processed to break input
+///   into lines, and control characters are either substituted or discarded. These methods
+///   are most useful for rendering untrusted text directly into the preview buffer. Here, there is
+///   also a convenience [`fmt::Write`](std::fmt::Write) adapter available at
+///   [`text_writer`](Self::text_writer).
+/// - ANSI-styled input: [`ansi_writer`](Self::ansi_writer). This allows writing ANSI-styled text
+///   directly into a preview buffer. Note that this requires the `preview-ansi` feature to be enabled.
+///
+/// # Example
+///
+/// Render a BibTeX entry with styled field names and values.
+///
+/// ```
+/// use std::collections::BTreeMap;
+/// use nucleo_picker_core::draw::{Color, Style};
+/// use nucleo_picker_core::preview::Buffer;
+///
+/// // In this example, `kind` and `citation_key` are strings which we know do not contain control
+/// // characters, but the field values may contain newlines or control characters.
+/// fn render_entry(
+///     buffer: &mut Buffer,
+///     kind: &str,
+///     citation_key: &str,
+///     fields: &BTreeMap<&str, &str>,
+/// ) {
+///     let keyword = Style::new().fg(Color::Magenta).bold();
+///     let identifier = Style::new().fg(Color::Cyan);
+///     let field_name = Style::new().fg(Color::Blue);
+///     let value_style = Style::new().fg(Color::Green);
+///
+///     buffer.clear();
+///
+///     buffer.push_str("@");
+///     buffer.push_styled_str(kind, keyword);
+///     buffer.push_str("{");
+///     buffer.push_styled_str(citation_key, identifier);
+///     buffer.push_str(",");
+///     buffer.newline();
+///
+///     for (&name, &value) in fields {
+///         buffer.push_str("  ");
+///         buffer.push_styled_str(name, field_name);
+///         buffer.push_str(" = {");
+///         buffer.push_styled_text(value, value_style);
+///         buffer.push_str("},");
+///         buffer.newline();
+///     }
+///
+///     buffer.push_str("}");
+/// }
+///
+/// let fields = BTreeMap::from([
+///     ("author", "John Doe"),
+///     ("title", "A title which is very long and\n           contains an internal newline"),
+///     ("year", "2025"),
+/// ]);
+/// let mut buffer = Buffer::new();
+/// render_entry(&mut buffer, "article", "key", &fields);
+/// // @article{key,
+/// //   author = {John Doe},
+/// //   title = {A title which is very long and
+/// //            contains an internal newline},
+/// //   year = {2025},
+/// // }
+/// # assert_eq!(
+/// #     buffer.lines().map(|line| line.as_str()).collect::<Vec<_>>(),
+/// #     [
+/// #         "@article{key,",
+/// #         "  author = {John Doe},",
+/// #         "  title = {A title which is very long and",
+/// #         "           contains an internal newline},",
+/// #         "  year = {2025},",
+/// #         "}",
+/// #     ]
+/// # );
+/// # assert_eq!(
+/// #     buffer.line(3).unwrap().spans().next().unwrap(),
+/// #     Style::new().fg(Color::Green).apply("           contains an internal newline")
+/// # );
+/// ```
+#[derive(Debug)]
+pub struct Buffer {
+    text: String,
+    lines: Vec<LineIndex>,
+    active_line: LineIndex,
+    styles: Vec<StyleSpan>,
+}
+
+#[derive(Debug, Default)]
+struct LineIndex {
+    text: Range<usize>,
+    styles: Range<usize>,
+}
+
+#[derive(Debug)]
+struct StyleSpan {
+    bytes: Range<usize>,
+    style: Style,
+}
+
+/// A view of a single styled line of a preview buffer.
+///
+/// A line consists of the underlying text (excluding line breaks) as well
+/// as the style spans.
+#[derive(Clone, Copy, Debug)]
+pub struct Line<'a> {
+    text: &'a str,
+    styles: &'a [StyleSpan],
+}
+
+impl Default for Buffer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Buffer {
+    /// Initialize a new buffer consisting of a single empty line.
+    ///
+    /// This is the same as the [`Default`] implementation, but as a const function.
+    pub const fn new() -> Self {
+        Self {
+            text: String::new(),
+            lines: Vec::new(),
+            active_line: LineIndex {
+                text: 0..0,
+                styles: 0..0,
+            },
+            styles: Vec::new(),
+        }
+    }
+
+    /// Clear this buffer.
+    ///
+    /// This removes all lines and styles (leaving a single empty line), but retains the underlying
+    /// allocations.
+    pub fn clear(&mut self) {
+        self.text.clear();
+        self.lines.clear();
+        self.styles.clear();
+        self.active_line = LineIndex::default();
+    }
+
+    /// Convert into a preview pane with default offset, without line numbers, and with error flag
+    /// set to `false`.
+    #[must_use]
+    pub const fn into_pane(self) -> Pane {
+        Pane::from_buffer(self)
+    }
+
+    /// Append an unstyled segment to the current line in the buffer.
+    ///
+    /// The text must not contain control characters. This is a convenience call to
+    /// [`push_styled_str`](Self::push_styled_str) with [`Style::default()`].
+    /// See that method for more details.
+    ///
+    /// # Panics
+    ///
+    /// Panics without modifying the buffer if `text` contains a newline.
+    #[inline]
+    pub fn push_str(&mut self, text: &str) {
+        self.push_styled_str(text, Style::default());
+    }
+
+    /// Append a styled segment to the current line in the buffer in the given style.
+    ///
+    /// The text must not contain control characters, or the terminal window will be corrupted.
+    ///
+    /// The provided text is appended to the current active line. To start a new line, use
+    /// [`newline`](Self::newline).
+    ///
+    /// The provided style specifies the complete styling of the given segment. Unspecified
+    /// colors fall back to the default values and unspecified attributes are disabled.
+    ///
+    /// # Panics
+    ///
+    /// Panics without modifying the buffer if `text` contains a newline.
+    pub fn push_styled_str(&mut self, text: &str, style: Style) {
+        assert!(
+            memchr(b'\n', text.as_bytes()).is_none(),
+            "segments must not contain LF; use newline()"
+        );
+        if text.is_empty() {
+            return;
+        }
+
+        self.text.push_str(text);
+        let line = &mut self.active_line;
+        let start = line.text.len();
+        line.text.end = self.text.len();
+        let end = line.text.len();
+        if style == Style::default() {
+            return;
+        }
+
+        if !line.styles.is_empty()
+            && let Some(last) = self.styles.last_mut()
+            && last.bytes.end == start
+            && last.style == style
+        {
+            last.bytes.end = end;
+        } else {
+            self.styles.push(StyleSpan {
+                bytes: start..end,
+                style,
+            });
+            line.styles.end += 1;
+        }
+    }
+
+    /// Append unstyled text and process newlines and control characters automatically.
+    ///
+    /// This is a convenience method to call [`push_styled_text`](Self::push_styled_text) with
+    /// the default style. See that method for more details.
+    #[inline]
+    pub fn push_text(&mut self, text: &str) {
+        self.push_styled_text(text, Style::default());
+    }
+
+    /// Append styled text and process newlines and control characters automatically.
+    ///
+    /// This is an opinionated convenience method implemented only using [`push_styled_str`](Self::push_styled_str)
+    /// and [`newline`](Self::newline) as follows:
+    ///
+    /// - Empty input does nothing.
+    /// - Line endings are converted into calls to [`newline`](Self::newline).
+    /// - Segments not containing control characters are written using [`push_styled_str`](Self::push_styled_str)
+    /// - C0 control characters and DEL become Unicode control placeholders. C1 controls are
+    ///   discarded.
+    ///
+    /// For more complex use-cases, perform string parsing yourself and directly call the
+    /// lower-level methods.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use nucleo_picker_core::draw::{Color, Style};
+    /// use nucleo_picker_core::preview::Buffer;
+    ///
+    /// let mut buffer = Buffer::new();
+    /// let style = Style::new().fg(Color::Green);
+    /// buffer.push_styled_text("a\r\nb\tc\n", style);
+    /// assert!(buffer.lines().map(|line| line.as_str()).eq(["a", "b␉c", ""]));
+    /// assert!(buffer.line(1).unwrap().spans().eq([style.apply("b␉c")]));
+    /// ```
+    pub fn push_styled_text(&mut self, text: &str, style: Style) {
+        for chunk in text.split_inclusive('\n') {
+            let (line, newline) = match chunk.strip_suffix('\n') {
+                Some(line) => (line.trim_suffix('\r'), true),
+                None => (chunk, false),
+            };
+            let mut start = 0;
+            for (offset, ch) in line.char_indices().filter(|(_, ch)| ch.is_control()) {
+                self.push_styled_str(&line[start..offset], style);
+                let picture = match ch {
+                    '\x00'..='\x1f' => char::from_u32(0x2400 + u32::from(ch)),
+                    '\x7f' => Some('\u{2421}'),
+                    _ => None,
+                };
+                if let Some(picture) = picture {
+                    self.push_styled_str(picture.encode_utf8(&mut [0; 4]), style);
+                }
+                start = offset + ch.len_utf8();
+            }
+            self.push_styled_str(&line[start..], style);
+            if newline {
+                self.newline();
+            }
+        }
+    }
+
+    /// Complete the current line and start the next empty line.
+    #[inline]
+    pub fn newline(&mut self) {
+        let text_start = self.text.len();
+        let style_start = self.styles.len();
+        let next_line = LineIndex {
+            text: text_start..text_start,
+            styles: style_start..style_start,
+        };
+        self.lines
+            .push(std::mem::replace(&mut self.active_line, next_line));
+    }
+
+    /// Append an unstyled segment to the current line, then start a new line.
+    ///
+    /// This calls [`push_styled_line`](Self::push_styled_line) with the default style.
+    ///
+    /// # Panics
+    ///
+    /// Panics before modifying the buffer if `text` contains a newline.
+    #[inline]
+    pub fn push_line(&mut self, text: &str) {
+        self.push_styled_line(text, Style::default());
+    }
+
+    /// Append a segment in the given style to the current line, then start a new line.
+    ///
+    /// This is a convenience method to call [`push_styled_str`](Self::push_styled_str), followed by
+    /// [`newline`](Self::newline). Note that a line break will still be produced even if the input
+    /// is empty.
+    ///
+    /// # Panics
+    ///
+    /// Panics before modifying the buffer if `text` contains a newline.
+    #[inline]
+    pub fn push_styled_line(&mut self, text: &str, style: Style) {
+        self.push_styled_str(text, style);
+        self.newline();
+    }
+
+    /// Get the `n`th line as a styled line view, excluding the newline and carriage
+    /// return (if any).
+    ///
+    /// The underlying string slice can be obtained with [`Line::as_str`].
+    #[inline]
+    pub fn line(&self, index: usize) -> Option<Line<'_>> {
+        let line = if index == self.lines.len() {
+            &self.active_line
+        } else {
+            self.lines.get(index)?
+        };
+        Some(self.line_view(line))
+    }
+
+    /// Iterate over all of the lines in this buffer.
+    #[inline]
+    pub fn lines(&self) -> impl DoubleEndedIterator<Item = Line<'_>> + ExactSizeIterator {
+        // An index range preserves exact sizing and constant-time skips in both directions.
+        (0..self.lines.len() + 1)
+            .map(|index| self.line_view(self.lines.get(index).unwrap_or(&self.active_line)))
+    }
+
+    #[inline]
+    fn line_view(&self, line: &LineIndex) -> Line<'_> {
+        // SAFETY: Both callers pass a line from this buffer. Its ranges are recorded from
+        // buffer lengths and extended only after appending, so they remain ordered and in
+        // bounds. Text endpoints are UTF-8 boundaries because only &str values are appended.
+        unsafe {
+            Line {
+                text: self.text.get_unchecked(line.text.clone()),
+                styles: self.styles.get_unchecked(line.styles.clone()),
+            }
+        }
+    }
+}
+
+impl<'a> Line<'a> {
+    /// Returns the raw text of the current line.
+    #[inline]
+    pub fn as_str(&self) -> &'a str {
+        self.text
+    }
+
+    /// Consume this line and return an iterator over styled content.
+    pub fn spans(self) -> impl Iterator<Item = StyledStr<'a>> {
+        let Self { text, mut styles } = self;
+        let mut offset = 0;
+        std::iter::from_fn(move || {
+            if offset == text.len() {
+                return None;
+            }
+
+            let (end, style) = match styles.first() {
+                Some(span) if offset < span.bytes.start => (span.bytes.start, Style::default()),
+                Some(span) => {
+                    styles = &styles[1..];
+                    (span.bytes.end, span.style)
+                }
+                None => (text.len(), Style::default()),
+            };
+            // SAFETY: Spans are ordered, non-overlapping ranges within this line, with UTF-8
+            // boundaries recorded when appending &str values. `offset` is zero or a previous
+            // endpoint, and `end` is the next span boundary or text.len().
+            let content = unsafe { text.get_unchecked(offset..end) };
+            offset = end;
+            Some(style.apply(content))
+        })
+    }
+}

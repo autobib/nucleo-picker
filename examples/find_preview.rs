@@ -28,10 +28,10 @@ use std::{
     thread,
 };
 
-use crossterm::style::{ContentStyle, Stylize};
 use ignore::{DirEntry, WalkBuilder, WalkState};
 use nucleo_picker::{
     PickerOptions, Render,
+    draw::Style,
     preview::{Pane, PoolPreviewer, Worker},
 };
 
@@ -62,7 +62,7 @@ fn preview_sync(entry: &DirEntry, pane: &mut Pane) -> bool {
     if let Some(label) = label {
         // push the information label
         pane.buffer_mut()
-            .push_styled_str(label, ContentStyle::new().dim().italic());
+            .push_styled_str(label, Style::new().dim().italic());
         return true;
     }
 
@@ -148,12 +148,12 @@ fn read_preview(
             buffer.newline();
             buffer.push_styled_str(
                 "[Preview truncated at 256 KiB]",
-                ContentStyle::new().dim().italic(),
+                Style::new().dim().italic(),
             );
         }
     } else {
         pane.buffer_mut()
-            .push_styled_str("[Binary file]", ContentStyle::new().dim().italic());
+            .push_styled_str("[Binary file]", Style::new().dim().italic());
     }
     Ok(true)
 }

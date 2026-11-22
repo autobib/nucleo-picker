@@ -29,10 +29,10 @@ use std::{
     time::Duration,
 };
 
-use crossterm::style::{ContentStyle, Stylize};
 use ignore::{DirEntry, WalkBuilder, WalkState};
 use nucleo_picker::{
     PickerOptions, Render,
+    draw::Style,
     preview::{
         Pane, Preview,
         request::{ActiveRequest, QueuedRequest, Request, Response},
@@ -98,7 +98,7 @@ impl Preview<DirEntry> for FilePreview {
             let mut pane = request.ready();
             // push the information label
             pane.buffer_mut()
-                .push_styled_str(label, ContentStyle::new().dim().italic());
+                .push_styled_str(label, Style::new().dim().italic());
             return Response::Ready(pane);
         }
         // defer file IO to the worker pool to not delay the frame render
@@ -227,12 +227,12 @@ fn read_preview(
             buffer.newline();
             buffer.push_styled_str(
                 "[Preview truncated at 256 KiB]",
-                ContentStyle::new().dim().italic(),
+                Style::new().dim().italic(),
             );
         }
     } else {
         pane.buffer_mut()
-            .push_styled_str("[Binary file]", ContentStyle::new().dim().italic());
+            .push_styled_str("[Binary file]", Style::new().dim().italic());
     }
     Ok(())
 }

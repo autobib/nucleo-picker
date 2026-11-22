@@ -2,10 +2,11 @@
 //!
 //! The terminal frame is the entire contents of the terminal interface.
 use crate::{
-    Terminal,
-    component::Component,
-    rect::{Area, ClearState, CrosstermRect, Dimensions, Rect},
-    session::{Geometry, Redraw},
+    Render, Terminal,
+    interface::Interface,
+    preview::BoundaryChars,
+    rect::{Area, ClearState, CrosstermTarget},
+    session::{Components, Dimensions, PreparedFrame},
 };
 use crossterm::{
     QueueableCommand,
@@ -15,31 +16,25 @@ use crossterm::{
 };
 use std::io;
 
-/// Events which modify the layout of the picker screen.
-#[derive(Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum LayoutEvent {
-    /// Toggle visibility of the status line.
-    ///
-    /// This event has no default keybinding.
-    ToggleStatus,
-    /// Toggle visibility of the preview pane.
-    ///
-    /// When the preview is hidden, the preview cache is preserved but events which target
-    /// the preview have no effect.
-    TogglePreview,
-    /// Move the divider between the match list and the previewer to the left.
-    MoveDividerLeft(u16),
-    /// Move the divider between the match list and the previewer to the right.
-    MoveDividerRight(u16),
+#[derive(Clone, Copy)]
+pub(crate) struct LayoutConfig {
+    pub(crate) reversed: bool,
+    pub(crate) preview_ratio: f64,
 }
 
-pub(crate) trait Contents {
-    fn prompt(&mut self) -> impl Component;
-    fn list(&mut self) -> impl Component;
-    fn status(&mut self) -> impl Component;
-    fn preview(&mut self) -> impl Component;
-    fn preview_resize(&mut self, area: Option<Area>);
+impl LayoutConfig {
+    pub(crate) const fn new() -> Self {
+        Self {
+            reversed: false,
+            preview_ratio: 0.5,
+        }
+    }
+
+    pub(crate) const fn set_preview_split(&mut self, ratio: f64) {
+        let valid = ratio >= 0.0 && ratio <= 1.0;
+        debug_assert!(valid, "preview ratio must be in 0..=1");
+        self.preview_ratio = if valid { ratio } else { 0.5 };
+    }
 }
 
 /// The entire terminal frame.
@@ -49,9 +44,7 @@ pub(crate) struct Layout {
     /// The dimensions of the frame.
     dimensions: Dimensions,
     reversed: bool,
-    status_hidden: bool,
-    preview_ratio: Option<f64>,
-    pending_resize: bool,
+    preview_ratio: f64,
     prompt: Area,
     list: Area,
     status: Area,
@@ -60,63 +53,26 @@ pub(crate) struct Layout {
 
 impl Layout {
     /// initialize a new frame.
-    ///
-    /// `preview_ratio = None` means that the preview pane is not displayed at all
-    pub fn new(dimensions: Dimensions, reversed: bool, preview_ratio: Option<f64>) -> Self {
+    pub fn new(
+        dimensions: Dimensions,
+        reversed: bool,
+        preview_ratio: f64,
+        visible: Components,
+    ) -> Self {
         let mut frame = Self {
             dimensions,
             reversed,
-            status_hidden: false,
             preview_ratio,
-            pending_resize: false,
             prompt: Area::default(),
             list: Area::default(),
             status: Area::default(),
             preview: Area::default(),
         };
-        frame.layout(preview_ratio.is_some());
+        frame.layout(visible);
         frame
     }
 
-    pub fn status_enabled(&self) -> bool {
-        !self.status_hidden
-    }
-
-    pub fn handle(&mut self, event: LayoutEvent, preview_enabled: bool) {
-        match event {
-            LayoutEvent::ToggleStatus => {
-                self.status_hidden.toggle();
-                self.layout(preview_enabled);
-                // TODO: maybe limit redraws only to match list / status line instead
-                self.pending_resize = true;
-            }
-            LayoutEvent::TogglePreview => {
-                if self.preview_ratio.is_some() {
-                    self.layout(preview_enabled);
-                    self.pending_resize = true;
-                }
-            }
-            LayoutEvent::MoveDividerLeft(columns) => {
-                self.pending_resize |= self.shift_preview(i32::from(columns), preview_enabled);
-            }
-            LayoutEvent::MoveDividerRight(columns) => {
-                self.pending_resize |= self.shift_preview(-i32::from(columns), preview_enabled);
-            }
-        }
-    }
-
-    /// Update the size of the frame, returning `true` if the frame size changed and a redraw is
-    /// required.
-    fn update_dimensions(&mut self, dimensions: Dimensions, preview_enabled: bool) -> bool {
-        if dimensions == self.dimensions {
-            return false;
-        }
-        self.dimensions = dimensions;
-        self.layout(preview_enabled);
-        true
-    }
-
-    fn shift_preview(&mut self, columns: i32, preview_enabled: bool) -> bool {
+    pub fn shift_preview(&mut self, columns: i32, visible: Components) -> bool {
         if self.preview.is_empty() {
             return false;
         }
@@ -126,13 +82,13 @@ impl Layout {
         if width == self.preview.width {
             return false;
         }
-        self.preview_ratio = Some(f64::from(width) / f64::from(self.dimensions.width));
-        self.layout(preview_enabled);
+        self.preview_ratio = f64::from(width) / f64::from(self.dimensions.width);
+        self.layout(visible);
         true
     }
 
     /// Recompute the areas based on the current size.
-    fn layout(&mut self, preview_enabled: bool) {
+    fn layout(&mut self, visible: Components) {
         // resize policy for terminal width W:
         //
         // 1. round ratio * W to the nearest column, with ties rounded up
@@ -147,12 +103,9 @@ impl Layout {
         // 7. Adjustments which do not result in a change (e.g. against a limit) do not adjust the
         //    ratio.
         let Dimensions { mut width, height } = self.dimensions;
-        self.preview = if let Some(ratio) = self.preview_ratio
-            && preview_enabled
-            && width >= 6
-            && height >= 3
-        {
-            let preview_width = ((ratio * f64::from(width)).round() as u16).clamp(3, width - 3);
+        self.preview = if visible.preview && width >= 6 && height >= 3 {
+            let preview_width =
+                ((self.preview_ratio * f64::from(width)).round() as u16).clamp(3, width - 3);
             width -= preview_width;
             Area {
                 column: width,
@@ -163,134 +116,154 @@ impl Layout {
         } else {
             Area::default()
         };
-        self.prompt = Area {
-            column: 0,
-            row: if self.reversed {
-                0
-            } else {
-                height.saturating_sub(1)
+        let prompt_height = u16::from(visible.prompt);
+        self.prompt = visible_area(
+            Area {
+                column: 0,
+                row: if self.reversed {
+                    0
+                } else {
+                    height.saturating_sub(1)
+                },
+                width,
+                height: height.min(prompt_height),
             },
-            width,
-            height: height.min(1),
-        };
-        let reserved_height = 1 + u16::from(!self.status_hidden);
-        self.list = Area {
-            column: 0,
-            row: if self.reversed {
-                height.min(reserved_height)
-            } else {
-                0
+            visible.prompt,
+        );
+        let reserved_height = prompt_height + u16::from(visible.status);
+        self.list = visible_area(
+            Area {
+                column: 0,
+                row: if self.reversed {
+                    height.min(reserved_height)
+                } else {
+                    0
+                },
+                width,
+                height: height.saturating_sub(reserved_height),
             },
-            width,
-            height: height.saturating_sub(reserved_height),
-        };
-        self.status = Area {
-            column: 0,
-            row: if self.reversed {
-                height.min(1)
-            } else {
-                height.saturating_sub(2)
+            visible.match_list,
+        );
+        self.status = visible_area(
+            Area {
+                column: 0,
+                row: if self.reversed {
+                    height.min(prompt_height)
+                } else {
+                    height.saturating_sub(reserved_height)
+                },
+                width,
+                height: u16::from(height > prompt_height),
             },
-            width,
-            height: u16::from(!self.status_hidden && height >= 2),
-        };
+            visible.status,
+        );
     }
 
     /// Resolve the geometry of the standard layout without resizing the underlying components.
-    pub fn geometry(&mut self, dimensions: Dimensions, preview_enabled: bool) -> Geometry {
-        if !self.update_dimensions(dimensions, preview_enabled) {
-            self.layout(preview_enabled);
-        }
-        self.pending_resize = false;
-        Geometry {
-            dimensions: self.dimensions,
-            prompt: self.prompt,
-            list: self.list,
-            status: self.status,
-            preview: self.preview,
-        }
+    ///
+    /// Return `true` if the terminal dimensions or any component rectangle changed.
+    pub fn resolve(&mut self, dimensions: Dimensions, visible: Components) -> bool {
+        let previous = (
+            self.dimensions,
+            self.prompt,
+            self.list,
+            self.status,
+            self.preview,
+        );
+        self.dimensions = dimensions;
+        self.layout(visible);
+        previous
+            != (
+                self.dimensions,
+                self.prompt,
+                self.list,
+                self.status,
+                self.preview,
+            )
     }
 
-    /// Returns whether layout changes are pending.
-    pub fn layout_changed(&self) -> bool {
-        self.pending_resize
-    }
-
-    pub fn visible_components(&self, preview_enabled: bool) -> Redraw {
-        Redraw {
-            status: self.status_enabled(),
-            preview: preview_enabled,
-            ..Redraw::FULL
-        }
+    pub fn dimensions(&self) -> Dimensions {
+        self.dimensions
     }
 }
 
-/// Draw the contents of the frame.
-pub(crate) fn draw<W: Terminal>(
-    geometry: Geometry,
-    contents: &mut impl Contents,
+/// Draw the requested components, or clear the screen and repaint all visible components.
+pub(crate) fn draw<T, R, I, W>(
+    layout: &Layout,
+    frame: &mut PreparedFrame<'_, '_, T, R, I>,
     writer: &mut W,
-    mut redraw: Redraw,
-    visible: Redraw,
-) -> io::Result<()> {
-    if geometry.dimensions.width == 0 || geometry.dimensions.height == 0 {
-        return Ok(());
-    }
-    let clear = if redraw.prompt && redraw.list && redraw.status {
-        redraw = Redraw::FULL;
+    mut redraw: Components,
+    clear_screen: bool,
+    preview_boundary_chars: BoundaryChars,
+) -> io::Result<()>
+where
+    T: Send + Sync + 'static,
+    R: Render<T>,
+    I: Interface<T>,
+    W: Terminal,
+{
+    let visible = frame.active_components();
+    let empty = layout.dimensions.width == 0 || layout.dimensions.height == 0;
+    let clear = if clear_screen {
+        redraw = Components::ALL;
         ClearState::Precleared
-    } else if geometry.preview.is_empty() {
+    } else if layout.preview.is_empty() {
         ClearState::ToEndOfLine
     } else {
         ClearState::WithinRect
     };
     redraw = redraw & visible;
-    writer.begin_render()?;
-    writer.queue(BeginSynchronizedUpdate)?;
-    if clear == ClearState::Precleared {
-        writer
-            .queue(ResetColor)?
-            .queue(SetAttribute(Attribute::Reset))?
-            .queue(Clear(ClearType::All))?;
+    if !empty {
+        writer.begin_render()?;
+        writer.queue(BeginSynchronizedUpdate)?;
+        if clear == ClearState::Precleared {
+            writer
+                .queue(ResetColor)?
+                .queue(SetAttribute(Attribute::Reset))?
+                .queue(Clear(ClearType::All))?;
+        }
     }
-    if redraw.list {
-        draw_component(&mut contents.list(), writer, geometry.list, clear)?;
+    let mut target = CrosstermTarget::new(writer);
+    if redraw.match_list || !visible.match_list || layout.list.is_empty() {
+        frame
+            .match_list()
+            .draw(&mut target.rect(layout.list, clear))?;
     }
-    if redraw.status {
-        draw_component(&mut contents.status(), writer, geometry.status, clear)?;
+    if redraw.status || !visible.status || layout.status.is_empty() {
+        frame
+            .status()
+            .draw(&mut target.rect(layout.status, clear))?;
     }
-    if redraw.prompt {
-        draw_component(&mut contents.prompt(), writer, geometry.prompt, clear)?;
+    if redraw.prompt || !visible.prompt || layout.prompt.is_empty() {
+        frame
+            .prompt()
+            .draw(&mut target.rect(layout.prompt, clear))?;
     }
-    if redraw.preview {
-        draw_component(&mut contents.preview(), writer, geometry.preview, clear)?;
+    if redraw.preview || !visible.preview || layout.preview.is_empty() {
+        frame
+            .preview()
+            .border(preview_boundary_chars)
+            .draw(&mut target.rect(layout.preview, clear))?;
     }
+    if empty {
+        return Ok(());
+    }
+    target.reset_style()?;
     if visible.prompt
-        && let Some(cursor) = contents.prompt().cursor()
+        && !layout.prompt.is_empty()
+        && let Some(cursor) = frame.prompt().cursor()
     {
         writer.queue(MoveTo(
-            geometry.prompt.column + cursor.column,
-            geometry.prompt.row + cursor.row,
+            layout.prompt.column + cursor.column,
+            layout.prompt.row + cursor.row,
         ))?;
     }
     writer.queue(EndSynchronizedUpdate)?;
     writer.end_render()
 }
 
-/// Draw a component to the screen in the provided area with the given clear policy.
-fn draw_component<C: Component, W: io::Write + ?Sized>(
-    component: &mut C,
-    writer: &mut W,
-    area: Area,
-    clear: ClearState,
-) -> io::Result<()> {
-    let Some(mut rect) = CrosstermRect::new(writer, area, clear) else {
-        return Ok(());
-    };
-    rect.reset_style()?;
-    rect.move_to(0, 0)?;
-    component.draw(&mut rect)?;
-    rect.reset_style()
+fn visible_area(area: Area, visible: bool) -> Area {
+    if visible { area } else { Area::default() }
 }
 
 #[cfg(test)]

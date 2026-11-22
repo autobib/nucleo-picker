@@ -2,20 +2,39 @@
 
 set -euxo pipefail
 
-export INSTA_UPDATE=new
+case "${MATRIX-full}" in
+    no-features|all-features|full) ;;
+    *)
+        printf 'MATRIX=%q; allowed=no-features,all-features,full\n' "$MATRIX" >&2
+        exit 2
+        ;;
+esac
 
-manifest_path="$(cargo locate-project --message-format plain)"
+manifest_path="$(cargo locate-project --workspace --message-format plain)"
 cd "$(dirname "$manifest_path")"
 
-cargo test --quiet --locked --no-run --all-features
-cargo test --quiet --locked --no-fail-fast --all-features
-cargo test --quiet --locked --no-fail-fast
-cargo test --quiet --locked --no-fail-fast --no-default-features
-cargo test --quiet --locked --no-fail-fast --no-default-features --features unstable-backend,preview-ansi
-cargo test --quiet --locked --release --package nucleo-picker-vt --no-default-features --no-run
-cargo test --quiet --locked --release --package nucleo-picker-vt --no-default-features --no-fail-fast
-cargo test --quiet --locked --release --package nucleo-picker-vt --all-features --no-run
-cargo test --quiet --locked --release --package nucleo-picker-vt --all-features --no-fail-fast
-cargo doc --quiet --locked --workspace --no-deps --all-features
-cargo clippy --quiet --locked --workspace --all-targets --all-features
 cargo fmt --all --check
+
+# job control gives each helper a process group for cleanup.
+set -m
+
+# shellcheck disable=SC2329
+cleanup() {
+    local pid
+    for pid in $(jobs -p); do
+        kill -- "-$pid" 2>/dev/null || true
+    done
+}
+trap 'cleanup' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+./scripts/test_debug.sh &
+debug_pid=$!
+./scripts/test_vt.sh &
+vt_pid=$!
+
+status=0
+wait "$debug_pid" || status=$?
+wait "$vt_pid" || status=$?
+exit "$status"

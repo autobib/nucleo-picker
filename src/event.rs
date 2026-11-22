@@ -22,23 +22,26 @@
 //! the [restart
 //! example](https://github.com/autobib/nucleo-picker/blob/master/examples/restart.rs).
 
+mod keybind;
+
 use std::{
     io,
     sync::mpsc::{Receiver, RecvTimeoutError, TryRecvError},
     time::Duration,
 };
 
-pub use crate::input::{StdinEventSender, StdinReader};
-#[expect(deprecated)]
-pub use crate::keybind::keybind_no_multi;
-pub use crate::keybind::{keybind_default, keybind_multi, keybind_single};
-pub use crate::keybind::{keybind_multi_preview, keybind_single_preview};
-pub use crate::preview::PreviewEvent;
-pub use crate::{
-    frame::LayoutEvent, match_list::MatchListEvent, observer::Observer, prompt::PromptEvent,
-};
+use crossterm::event::KeyEvent;
 
-use crate::session::Dimensions;
+pub use keybind::{
+    KeybindDefault, keybind_default, keybind_multi, keybind_multi_preview, keybind_single,
+    keybind_single_preview,
+};
+pub use nucleo_picker_core::event::{MatchListEvent, PreviewEvent, PromptEvent};
+
+pub use crate::input::{StdinEventSender, StdinReader};
+pub use crate::observer::Observer;
+
+use crate::{Generation, session::Dimensions};
 
 /// An event which controls the picker behaviour.
 ///
@@ -139,6 +142,9 @@ use crate::session::Dimensions;
 /// watch for new injectors using the [`Observer`] returned by
 /// [`Picker::injector_observer`](crate::Picker::injector_observer).
 ///
+/// A restart changes the [`Generation`], which can be used to identify injectors and picers which
+/// share the same underlying item pool.
+///
 /// When the [`Event::Restart`] is processed by the picker, it will clear the item list and
 /// immediately update the observer with the new [`Injector`]. If the send fails because
 /// there is no receiver, the picker will fail with
@@ -201,7 +207,7 @@ pub enum Event<A = !> {
     UserInterrupt,
     /// Abort the picker (error) for another reason.
     Abort(A),
-    /// Redraw the screen.
+    /// Request an immediate screen redraw.
     Redraw,
     /// Quit the picker by selecting items.
     Select,
@@ -214,6 +220,37 @@ pub enum Event<A = !> {
     Restart,
 }
 
+/// Events which modify the layout of the picker screen.
+#[derive(Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum LayoutEvent {
+    /// Toggle visibility of the status line.
+    ///
+    /// This event has no default keybinding.
+    ToggleStatus,
+    /// Toggle visibility of the preview pane.
+    ///
+    /// When the preview is hidden, the preview cache is preserved but events which target
+    /// the preview have no effect.
+    TogglePreview,
+    /// Move the divider between the match list and the previewer to the left.
+    MoveDividerLeft(u16),
+    /// Move the divider between the match list and the previewer to the right.
+    MoveDividerRight(u16),
+}
+
+/// Keybindings which do not emit [multi-selection events](MatchListEvent#multi-selection-events).
+///
+/// This function has been deprecated in favour of [`keybind_single`] and [`keybind_single_preview`].
+#[deprecated(
+    since = "0.13.0",
+    note = "Use `keybind_single` or `keybind_single_preview` instead"
+)]
+#[inline]
+pub fn keybind_no_multi<A>(key_event: KeyEvent) -> Option<Event<A>> {
+    keybind_single_preview(key_event)
+}
+
 /// The response corresponding to a [status request](Event::Status).
 ///
 /// Read the [status event docs](Event#status) for more detail.
@@ -223,6 +260,8 @@ pub struct PickerStatus {
     /// The id corresponding to the [`Event::Status`] request which produced this status
     /// response.
     pub id: u64,
+    /// The picker generation at the time that this status was produced.
+    pub generation: Generation,
     /// The query string.
     pub query: String,
     /// The rank of the hovered item in the ordered match list, or `None` if there are no matching items.
@@ -235,9 +274,9 @@ pub struct PickerStatus {
     pub selected_item_count: u32,
     /// The dimensions of the picker screen.
     pub dimensions: Dimensions,
-    /// Whether any frame required rendering since the previous status request.
+    /// Whether any frame changed since the previous status request.
     pub changed: bool,
-    /// Whether the exact frame during which this status response required rendering.
+    /// Whether the exact frame during which this status response was processed includes changes.
     pub frame_changed: bool,
     /// Whether the internal match engine is processing matches.
     pub matching: bool,
@@ -249,7 +288,7 @@ pub struct PickerStatus {
 ///
 /// This is quite similar to the standard library
 /// [`mpsc::RecvTimeoutError`](std::sync::mpsc::RecvTimeoutError), but also permitting an
-/// [`io::Error`] which may result from reading from standard input.
+/// [`io::Error`] which may result from reading from the terminal.
 pub enum RecvError {
     /// No event was received because we timed out.
     Timeout,
