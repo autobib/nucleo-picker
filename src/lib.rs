@@ -669,12 +669,10 @@ impl PickerOptions {
 ///    Note that this is called before the component dimensions are computed; in general, the layout
 ///    information comes from the *previous* frame.
 /// 5. [`queue_status`](Interface::queue_status) is called to update the status line.
-/// 6. Terminal dimensions are queried and resizes are propagated, for instance via
-///    [`preview_resize`](Interface::preview_resize) if the preview pane is enabled.
 /// 6. The first full frame is drawn. Immediately before drawing, terminal dimensions are queried
 ///    and resizes are propagated, for instance via [`preview_resize`](Interface::preview_resize)
 ///    (if the preview pane is enabled).
-/// 8. [`after_frame`](Interface::after_frame) is called. The draw mask is used for the next frame.
+/// 7. [`after_frame`](Interface::after_frame) is called. The draw mask is used for the next frame.
 ///
 /// ### Frame loop
 ///

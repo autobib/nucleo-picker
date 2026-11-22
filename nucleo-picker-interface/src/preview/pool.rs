@@ -25,6 +25,8 @@ use super::{
 /// thread pool. Each worker lives in its own thread and manages its own scratch space. There are no
 /// synchronization methods between workers. This trait is designed for use with a [`PoolPreviewer`];
 /// read those docs for more detail.
+///
+/// See `nucleo-picker`'s [thread-pool example](https://docs.rs/nucleo-picker/latest/nucleo_picker/preview/index.html#thread-pool-preview-example) for an example of a file-preview worker implemetation.
 #[cfg_attr(docsrs, doc(cfg(feature = "preview-cache")))]
 pub trait Worker<T> {
     /// Generate a preview in the provided default pane.
@@ -97,6 +99,12 @@ pub trait Worker<T> {
 /// preview pool. The next call to `preview` will immediately propagate the panic. However, note
 /// that the picker can return between the panic and the next call to `preview`, so the panic
 /// might not be observed by the picker.
+///
+/// ## Example
+///
+/// See [`nucleo-picker`'s thread-pool preview
+/// example](https://docs.rs/nucleo-picker/latest/nucleo_picker/preview/index.html#thread-pool-preview-example)
+/// demonstrating how this thread pool can be used with a picker.
 #[cfg_attr(docsrs, doc(cfg(feature = "preview-cache")))]
 pub struct PoolPreviewer<T, F = fn(&T, &mut Pane) -> bool> {
     pool: Pool<T>,

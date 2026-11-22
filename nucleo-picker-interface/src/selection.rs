@@ -8,8 +8,10 @@ use nucleo_picker_core::session::{ItemId, Matches};
 /// The selected items when the picker quits.
 ///
 /// This is the selection type of the `pick*` methods of the multi-selection picker variants.
-/// Iterate over the picked items with [`iter`](Self::iter) or using `IntoIterator`. Also see the documentation
-/// for [multiple selections](https://docs.rs/nucleo-picker/latest/nucleo_picker/interface/index.html#multiple-selections)
+/// Iterate over the picked items with [`iter`](Self::iter) or using `IntoIterator`.
+///
+/// See the documentation for [multiple selections](https://docs.rs/nucleo-picker/latest/nucleo_picker/interface/index.html#multiple-selections)
+/// as an example for how the high-level `nucleo-picker` produces this selection.
 ///
 /// The lifetime of the selection is bound to the lifetime of the picker from which it originated.
 pub struct Selection<'a, T: Send + Sync + 'static> {

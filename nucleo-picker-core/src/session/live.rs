@@ -41,7 +41,7 @@ trait Draw {
 /// This is the main entry-point for externally driving a picker. Essentially, the session consists
 /// of the reusable picker state combined with an interface.
 ///
-/// # Typical use
+/// ## Typical use
 ///
 /// Initialize this struct with [`Model::session`](crate::session::Model::session) and use the
 /// relevant methods to drive the session. In short, the frame loop typically looks something like
@@ -53,16 +53,17 @@ trait Draw {
 /// 3. Prepare a frame with [`Session::prepare_frame`]. Use the prepared frame for drawing to the
 ///    actual terminal. When rendering is complete, call [`PreparedFrame::complete`].
 ///
-/// # Exiting the session
+/// ## Exiting the session
 ///
 /// The session terminates when the [`Session::finish`] method is called. The resulting output items
 /// are determined by consuming the session state (in particular, the interface state iself) and
 /// returning the corresponding output.
 ///
-/// Dropping a session saves the state in the underlying [`Model`](crate::session::Model)
-/// and calls [`Interface::on_end`], but does *not* call [`Interface::finish`].
+/// Ordinarily, dropping a session saves the state in the underlying [`Model`](crate::session::Model)
+/// and calls [`Interface::on_end`], but does *not* call [`Interface::finish`]. The callback is
+/// skipped when unwinding from a panic.
 ///
-/// # Redraw policy
+/// ## Redraw policy
 ///
 /// Generally speaking, the runner is responsible for layout and redrawing. However, the various
 /// components must generally speaking aware of their size. Therefore size changes are propagated to
@@ -76,6 +77,23 @@ trait Draw {
 /// Components can be drawn independently if a redraw is required or not. The state is mainly tracked
 /// for those backends which may benefit from not redrawing on every frame. The redraw state is
 /// reset when the frame is completed by calling [`PreparedFrame::complete`].
+///
+/// ## Driving the interface
+///
+/// Calls to various methods in the session (and sub-types) propagate calls to the underlying
+/// interface as follows:
+///
+/// | Session operation | Interface operation |
+/// | --- | --- |
+/// | [`Model::session`](crate::session::Model::session) | Calls [`Interface::init`]. |
+/// | [`Session::prepare_frame`] | Calls [`Interface::before_frame`] then [`Interface::queue_status`] to update the status line. |
+/// | [`PreparedPreview::resize`] or [`PreparedPreview::draw`] | Calls [`Interface::preview_resize`] when preview dimensions or visibility change and [`Interface::PREVIEW`] is enabled. |
+/// | [`PreparedFrame::complete`] | Calls [`Interface::after_frame`]. |
+/// | [`Session::finish`] | Calls [`Interface::on_end`], then [`Interface::finish`] to produce the output. |
+/// | Session drop | Calls [`Interface::on_end`] only (except during panic unwinding). |
+///
+/// Also see [`nucleo-picker`'s interface call order](https://docs.rs/nucleo-picker/latest/nucleo_picker/struct.Picker.html#interface-call-order)
+/// for an example of how a runner might drive a session.
 pub struct Session<'items, T: Send + Sync + 'static, R, I: Interface<T>> {
     // Dismissing the guard lets finish move the original storage borrow into the output context.
     inner: Guard<SessionState<'items, T, R, I>>,

@@ -9,6 +9,15 @@ use crate::{Interface, Selection};
 
 /// The multiple-selection picker interface.
 ///
+/// This is an interface with no preview pane, but permits the user to make multiple selections.
+/// Internally, this struct stores configuration for a [maximum selection count](Self::max_selection_count).
+/// Items can be added to the internal item queue as long as the total item count is less than the
+/// maximum permitted. Queued items persist even if they no longer match the query, and are cleared
+/// on restart.
+///
+/// When this interface exits, it ignores the hovered item if and only if there are queued items.
+/// The returned items are propagated as a [`Selection`].
+///
 /// Initialize using [`Multi::new`] or the [`Default`] implementation.
 #[derive(Clone, Copy, Default)]
 pub struct Multi {

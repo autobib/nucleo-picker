@@ -32,6 +32,10 @@ use crate::{
 ///
 /// Read the [session documentation](crate::session) for an overview of how this trait fits into the
 /// session API more generally.
+///
+/// Also see [`nucleo-picker`'s interface call
+/// order documentation](https://docs.rs/nucleo-picker/latest/nucleo_picker/struct.Picker.html#interface-call-order)
+/// to see documentation of the standard callback order.
 pub trait Interface<T>: Sized {
     /// Arbitrary state which persists for exactly one session.
     type State;

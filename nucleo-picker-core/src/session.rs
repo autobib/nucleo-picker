@@ -10,6 +10,28 @@
 //!
 //! - About interfaces in the [`interface`](crate::interface) module documentation.
 //! - About the session API in the [`Session`] struct documentation.
+//!
+//! ## Session boundary
+//!
+//! In short, [`Session`] consists of the following components:
+//!
+//! - The [`Model`], which contains the item pool, query, and navigation state.
+//! - The [`Interface`](crate::interface::Interface), representing external state which coordinates
+//!   with the session.
+//! - The [interface state](crate::interface::Interface::State), which persists only for a single
+//!   session and includes the mutable state (such as an item queue for multiple selections).
+//!
+//! The caller drives a session to run a picker interface. Generally speaking, the following are the
+//! responsibility of the runner:
+//!
+//! - Converting input into events.
+//! - Advancing matching
+//! - Preparing and drawing frames.
+//! - Handling layout and component visibility.
+//! - Frame timing.
+//!
+//! The high-level [`nucleo-picker`](docs.rs/nucleo-picker) crate implements the above
+//! responsibilities.
 
 mod borrowed;
 mod components;

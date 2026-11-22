@@ -26,7 +26,7 @@ impl<T: Send + Sync + 'static, R, I: Interface<T>> SessionRead for PreparedPromp
 }
 
 impl<T: Send + Sync + 'static, R, I: Interface<T>> PreparedPrompt<'_, '_, T, R, I> {
-    /// Returns the query string as visible in the prompt.
+    /// Returns the full query string (independently of what is visible in the prompt).
     pub fn query(&self) -> &str {
         SessionRead::query(self)
     }

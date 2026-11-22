@@ -55,8 +55,6 @@ use super::request::{Request, Response};
 ///
 /// ## Handling errors
 ///
-/// ### Non-fatal errors
-///
 /// For non-fatal errors, for instance errors which occur while generating a preview for a
 /// specific item, the previewer should instead write an appropriate error message directly into the preview buffer.
 ///

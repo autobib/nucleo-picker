@@ -3,6 +3,9 @@ use nucleo_picker_core::session::{Context, Exit};
 use crate::Interface;
 
 /// The single-selection picker interface.
+///
+/// This is essentially a minimal [`Interface`] implementation which only allows selection of a single item and
+/// has no preview pane.
 pub struct Single;
 
 impl<T: Send + Sync + 'static> Interface<T> for Single {
