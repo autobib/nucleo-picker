@@ -5,8 +5,8 @@ use std::{
 };
 
 use crate::{
-    interface::{CachedPreview, Interface},
-    preview::{Content, DEFAULT_CACHE_SIZE, Pane, PreviewEvent, SyncPreviewer},
+    interface::{CachedPreview, Interface, Multi, Single},
+    preview::{Content, Pane, PreviewEvent, SyncPreviewer},
     session::{Components, Dimensions, Exit},
 };
 
@@ -107,7 +107,7 @@ fn cached_presentation_follows_item_identity_through_filtering_duplicates_and_re
 
 #[test]
 fn unbounded_cache_retains_more_than_the_default_capacity() {
-    let count = DEFAULT_CACHE_SIZE.unwrap().get() + 1;
+    let count = CachedPreview::<(), ()>::DEFAULT_CACHE_SIZE.unwrap().get() + 1;
     let model = model(std::iter::repeat_n("item", count));
     let previewer = RefCell::new(TestPreviewer::default());
     let mut interface = CachedPreview::new_single(&previewer).cache_size(None);
@@ -119,6 +119,51 @@ fn unbounded_cache_retains_more_than_the_default_capacity() {
         }
     }
     assert_eq!(previewer.borrow().requested.len(), count);
+}
+
+#[test]
+fn composition_preserves_cache_configuration_and_borrows_the_previewer() {
+    let model = model(["alpha", "beta"]);
+    let cx = context(&model, Some(0));
+    for capacity in [NonZero::new(1), NonZero::new(2), None] {
+        let mut interface = CachedPreview::new_single(TestPreviewer::default())
+            .cache_size(capacity)
+            .with_interface(Multi::new().max_selection_count(NonZero::new(1)));
+        {
+            let mut borrowed = interface.as_interface(Single);
+            borrowed.previewer_mut().lines = 2;
+            let mut state = borrowed.init(&cx);
+            assert!(borrowed.queue_status(&state).is_none());
+            for rank in [0, 1, 0] {
+                let cx = context(&model, Some(rank));
+                let _ = before(&mut borrowed, &mut state, &cx);
+                let pane = ready(borrowed.preview_content(&state));
+                assert_eq!(pane.buffer().lines().len(), 2);
+                assert_eq!(
+                    pane.buffer().line(0).unwrap().as_str(),
+                    *cx.hovered().unwrap().value(),
+                );
+            }
+            borrowed.on_end(&mut state);
+        }
+        let expected = if capacity == NonZero::new(1) {
+            &["alpha", "beta", "alpha"][..]
+        } else {
+            &["alpha", "beta"][..]
+        };
+        assert_eq!(interface.previewer().requested, expected);
+
+        let (mut inner, previewer) = interface.into_parts();
+        let state = inner.init(&cx);
+        assert_eq!(
+            <Multi as Interface<&str>>::queue_status(&inner, &state)
+                .unwrap()
+                .limit,
+            NonZero::new(1),
+        );
+        assert_eq!(previewer.lines, 2);
+        assert_eq!(previewer.requested, expected);
+    }
 }
 
 #[test]

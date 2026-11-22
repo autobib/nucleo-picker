@@ -227,10 +227,7 @@ use crate::{
     session::{Components, Context, Dimensions, Exit, ItemId, QueueEvent, QueueStatus},
 };
 #[cfg(feature = "preview-cache")]
-use crate::{
-    keybind::keybind_passthrough_preview,
-    preview::{DEFAULT_CACHE_SIZE, Preview},
-};
+use crate::{keybind::keybind_passthrough_preview, preview::Preview};
 #[cfg(feature = "preview-cache")]
 use controller::PreviewState;
 
@@ -398,7 +395,7 @@ impl InterfaceDefaults {
         Self {
             multi: Multi::new(),
             #[cfg(feature = "preview-cache")]
-            preview_cache_size: DEFAULT_CACHE_SIZE,
+            preview_cache_size: CachedPreview::<(), ()>::DEFAULT_CACHE_SIZE,
         }
     }
 }
@@ -482,9 +479,9 @@ impl Multi {
 #[cfg(feature = "preview-cache")]
 #[cfg_attr(docsrs, doc(cfg(feature = "preview-cache")))]
 pub struct CachedPreview<I, P> {
-    pub(crate) interface: I,
-    pub(crate) previewer: P,
-    pub(crate) cache_size: Option<NonZero<usize>>,
+    interface: I,
+    previewer: P,
+    cache_size: Option<NonZero<usize>>,
 }
 
 /// Composite state used by [`CachedPreview`].
@@ -499,6 +496,9 @@ pub struct CachedPreviewState<S> {
 
 #[cfg(feature = "preview-cache")]
 impl<I, P> CachedPreview<I, P> {
+    /// The default main preview cache capacity.
+    pub const DEFAULT_CACHE_SIZE: Option<NonZero<usize>> = NonZero::new(128);
+
     /// Wrap an interface with a new interface that generates previews.
     #[must_use]
     #[inline]
@@ -506,7 +506,7 @@ impl<I, P> CachedPreview<I, P> {
         Self {
             interface,
             previewer,
-            cache_size: DEFAULT_CACHE_SIZE,
+            cache_size: Self::DEFAULT_CACHE_SIZE,
         }
     }
 
@@ -534,6 +534,50 @@ impl<I, P> CachedPreview<I, P> {
     #[inline]
     pub const fn inner_mut(&mut self) -> &mut I {
         &mut self.interface
+    }
+
+    /// Get a reference to the previewer.
+    #[must_use]
+    #[inline]
+    pub const fn previewer(&self) -> &P {
+        &self.previewer
+    }
+
+    /// Get a mutable reference to the previewer.
+    #[must_use]
+    #[inline]
+    pub const fn previewer_mut(&mut self) -> &mut P {
+        &mut self.previewer
+    }
+
+    /// Recover the inner interface and previewer, discarding configuration.
+    #[inline]
+    pub fn into_parts(self) -> (I, P) {
+        (self.interface, self.previewer)
+    }
+
+    /// Set a new inner interface, retaining the previewer and configuration.
+    #[must_use]
+    #[inline]
+    pub fn with_interface<J>(self, interface: J) -> CachedPreview<J, P> {
+        CachedPreview {
+            interface,
+            previewer: self.previewer,
+            cache_size: self.cache_size,
+        }
+    }
+
+    /// Borrow the preview with a temporary replacement interface.
+    ///
+    /// Configuration from the original previewer is retained.
+    #[must_use]
+    #[inline]
+    pub const fn as_interface<J>(&mut self, interface: J) -> CachedPreview<J, &mut P> {
+        CachedPreview {
+            interface,
+            previewer: &mut self.previewer,
+            cache_size: self.cache_size,
+        }
     }
 }
 

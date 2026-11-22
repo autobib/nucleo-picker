@@ -115,9 +115,6 @@ mod provider;
 pub mod request;
 mod text;
 
-#[cfg(feature = "preview-cache")]
-use std::num::NonZero;
-
 use crate::rect::Dimensions;
 
 #[cfg(feature = "preview-cache")]
@@ -257,6 +254,3 @@ impl Default for BoundaryChars {
         Self::new()
     }
 }
-
-#[cfg(feature = "preview-cache")]
-pub(crate) const DEFAULT_CACHE_SIZE: Option<NonZero<usize>> = NonZero::new(128);

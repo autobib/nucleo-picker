@@ -169,11 +169,7 @@ impl<'a, T, R, P> PickerRef<'a, T, R, CachedPreview<Single, P>> {
     #[inline]
     pub fn multi(self) -> PickerRef<'a, T, R, CachedPreview<Multi, P>> {
         PickerRef {
-            interface: CachedPreview {
-                interface: self.defaults.multi,
-                previewer: self.interface.previewer,
-                cache_size: self.interface.cache_size,
-            },
+            interface: self.interface.with_interface(self.defaults.multi),
             core: self.core,
             runner: self.runner,
             restart_notifier: self.restart_notifier,
@@ -195,11 +191,7 @@ impl<'a, T, R, P> PickerRef<'a, T, R, CachedPreview<Multi, P>> {
             runner: self.runner,
             restart_notifier: self.restart_notifier,
             status_notifier: self.status_notifier,
-            interface: CachedPreview {
-                interface: Single,
-                previewer: self.interface.previewer,
-                cache_size: self.interface.cache_size,
-            },
+            interface: self.interface.with_interface(Single),
             defaults: self.defaults,
         }
     }
@@ -212,41 +204,35 @@ impl<'a, T, R, I, P> PickerRef<'a, T, R, CachedPreview<I, P>> {
     #[must_use]
     #[inline]
     pub fn without_preview(self) -> PickerRef<'a, T, R, I> {
-        PickerRef {
-            core: self.core,
-            runner: self.runner,
-            restart_notifier: self.restart_notifier,
-            status_notifier: self.status_notifier,
-            interface: self.interface.interface,
-            defaults: self.defaults,
-        }
+        self.into_parts().0
     }
 
     /// Convert this into a picker without previews, retaining the previewer.
     #[inline]
     pub fn into_parts(self) -> (PickerRef<'a, T, R, I>, P) {
+        let (interface, previewer) = self.interface.into_parts();
         (
             PickerRef {
                 core: self.core,
                 runner: self.runner,
                 restart_notifier: self.restart_notifier,
                 status_notifier: self.status_notifier,
-                interface: self.interface.interface,
+                interface,
                 defaults: self.defaults,
             },
-            self.interface.previewer,
+            previewer,
         )
     }
 
     /// Returns a reference to the internal previewer.
     #[inline]
     pub fn previewer(&self) -> &P {
-        &self.interface.previewer
+        self.interface.previewer()
     }
 
     /// Returns an exclusive reference to the internal previewer.
     #[inline]
     pub fn previewer_mut(&mut self) -> &mut P {
-        &mut self.interface.previewer
+        self.interface.previewer_mut()
     }
 }

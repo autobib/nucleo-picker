@@ -1309,17 +1309,12 @@ impl<T, R, P> Picker<T, R, CachedPreview<Single, P>> {
     #[must_use]
     #[inline]
     pub fn multi(self) -> Picker<T, R, CachedPreview<Multi, P>> {
-        let interface = CachedPreview {
-            interface: self.defaults.multi,
-            previewer: self.interface.previewer,
-            cache_size: self.interface.cache_size,
-        };
         Picker {
             core: self.core,
             runner: self.runner,
             restart_notifier: self.restart_notifier,
             status_notifier: self.status_notifier,
-            interface,
+            interface: self.interface.with_interface(self.defaults.multi),
             defaults: self.defaults,
         }
     }
@@ -1333,11 +1328,7 @@ impl<T, R, P> Picker<T, R, CachedPreview<Single, P>> {
             runner: self.runner,
             restart_notifier: self.restart_notifier.as_ref(),
             status_notifier: self.status_notifier.as_ref(),
-            interface: CachedPreview {
-                interface: self.defaults.multi,
-                previewer: &mut self.interface.previewer,
-                cache_size: self.interface.cache_size,
-            },
+            interface: self.interface.as_interface(self.defaults.multi),
             defaults: self.defaults,
         }
     }
@@ -1355,11 +1346,7 @@ impl<T, R, P> Picker<T, R, CachedPreview<Multi, P>> {
             runner: self.runner,
             restart_notifier: self.restart_notifier,
             status_notifier: self.status_notifier,
-            interface: CachedPreview {
-                interface: Single,
-                previewer: self.interface.previewer,
-                cache_size: self.interface.cache_size,
-            },
+            interface: self.interface.with_interface(Single),
             defaults: self.defaults,
         }
     }
@@ -1373,11 +1360,7 @@ impl<T, R, P> Picker<T, R, CachedPreview<Multi, P>> {
             runner: self.runner,
             restart_notifier: self.restart_notifier.as_ref(),
             status_notifier: self.status_notifier.as_ref(),
-            interface: CachedPreview {
-                interface: Single,
-                previewer: &mut self.interface.previewer,
-                cache_size: self.interface.cache_size,
-            },
+            interface: self.interface.as_interface(Single),
             defaults: self.defaults,
         }
     }
@@ -1393,42 +1376,36 @@ impl<T, R, I, P> Picker<T, R, CachedPreview<I, P>> {
     #[must_use]
     #[inline]
     pub fn without_preview(self) -> Picker<T, R, I> {
-        Picker {
-            core: self.core,
-            runner: self.runner,
-            restart_notifier: self.restart_notifier,
-            status_notifier: self.status_notifier,
-            interface: self.interface.interface,
-            defaults: self.defaults,
-        }
+        self.into_parts().0
     }
 
     /// Decompose a previewing picker into the constituent picker and previewer.
     #[inline]
     pub fn into_parts(self) -> (Picker<T, R, I>, P) {
+        let (interface, previewer) = self.interface.into_parts();
         (
             Picker {
                 core: self.core,
                 runner: self.runner,
                 restart_notifier: self.restart_notifier,
                 status_notifier: self.status_notifier,
-                interface: self.interface.interface,
+                interface,
                 defaults: self.defaults,
             },
-            self.interface.previewer,
+            previewer,
         )
     }
 
     /// Returns a reference to the internal previewer.
     #[inline]
     pub fn previewer(&self) -> &P {
-        &self.interface.previewer
+        self.interface.previewer()
     }
 
     /// Returns an exclusive reference to the internal previewer.
     #[inline]
     pub fn previewer_mut(&mut self) -> &mut P {
-        &mut self.interface.previewer
+        self.interface.previewer_mut()
     }
 }
 
