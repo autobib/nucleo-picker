@@ -4,12 +4,56 @@
 //! determined by the [`Interface`](crate::interface::Interface) of the picker.
 //!
 //! The picker can be re-used for multiple sessions: the items and query are retained between
-//! sessions (but can be cleared by restarting).
+//! sessions (but can be cleared by restarting). The two main entry points are:
 //!
-//! Read more:
+//! - The [`interface`](crate::interface) module documentation.
+//! - The [`Session`] struct documentation.
 //!
-//! - About interfaces in the [`interface`](crate::interface) module documentation.
-//! - About the session API in the [`Session`] struct documentation.
+//! ## Session API overview.
+//!
+//! Here is an overview of using the session API.
+//! For an example in code, see the [Ratatui
+//! example](https://github.com/autobib/nucleo-picker/blob/master/examples/ratatui.rs).
+//!
+//! 1. *Initialize the [`Model`].*
+//!    The [`Model`] is the core reusable matching state which is independent of the session.
+//!    Think of it as the item pool as well as the matching engine.
+//!    The most common route is to start with [`ModelOptions`], set configuration as desired, and
+//!    then convert it into a [`Model`].
+//! 2. *Add items to the [`Model`].*
+//!    Using an [injector](Model::injector) or the [convenience blocking API](Model::push_batch),
+//!    add items to the model either from a separate thread or inline.
+//!    You don't have to add all items now; you can continue to use the injector whenever you wish.
+//! 3. *Initialize the [`Session`].*
+//!    Do this by calling [`Model::session`].
+//! 4. *Execute the frame loop.*
+//!    1. *Synchronize matches with the background matching threadpool.*
+//!       Do this by calling [`Session::update_matches`].
+//!       Matches will not appear without calling this method.
+//!    2. *Prepare the frame for rendering.*
+//!       Do this by calling [`Session::prepare_frame`].
+//!       Preparing the frame gives the [interface](crate::interface::Interface) the chance to do any work which shold occur immediately before the frame is rendering.
+//!    3. *Render the frame.*
+//!       What this will look like depends on your application.
+//!       For a Ratatui application, the various components (accessible on the [`PreparedFrame`])
+//!       implement [`Widget`](ratatui_core::widgets::Widget).
+//!       You're responsible for managing the screen.
+//!       Note that the picker keeps track of components which have logically changed and reports
+//!       them using [`PreparedFrame::redraw`], which may be useful to reduce render calls.
+//!    4. *Declare rendering to be complete.*
+//!       Do this by calling [`PreparedFrame::complete`].
+//!       Dropping the prepared frame without calling this method will mean that post-frame
+//!       interface hooks will not run.
+//!    5. *Propagate events to the picker.*
+//!       Begin by getting an [`EventBatch`] with [`Session::events`]
+//!       Event handling will depend on the application, but the events which are
+//!       relevant for the picker should be forwarded using the various methods on an
+//!       [`EventBatch`]. This is how you forward user actions and application actions to the
+//!       picker.
+//! 5. *Close the session and obtain the selected items.*
+//!    When picking is complete, close the session by calling [`Session::finish`]. The passed
+//!    [`Exit`] enum indicates if a selection should be made (and if so, what). The interface
+//!    subsequently returns the output items for downstream use.
 //!
 //! ## Session boundary
 //!
@@ -21,14 +65,8 @@
 //! - The [interface state](crate::interface::Interface::State), which persists only for a single
 //!   session and includes the mutable state (such as an item queue for multiple selections).
 //!
-//! The caller drives a session to run a picker interface. Generally speaking, the following are the
-//! responsibility of the runner:
-//!
-//! - Converting input into events.
-//! - Advancing matching
-//! - Preparing and drawing frames.
-//! - Handling layout and component visibility.
-//! - Frame timing.
+//! The caller drives a session to run a picker interface. Generally speaking, the runner is
+//! responsible for converting input into events, advancing matching, preparing and drawing frames, handling layout and component visibility, and correctly timing the frame.
 
 mod borrowed;
 mod components;
