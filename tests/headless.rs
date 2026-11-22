@@ -8,51 +8,51 @@ use std::{
 use nucleo_picker::{
     Injector,
     render::StrRenderer,
-    session::{Driver, DriverOptions, MatchStatus},
+    session::{MatchStatus, Model, ModelOptions},
 };
 
-fn options() -> DriverOptions {
-    DriverOptions::new()
+fn options() -> ModelOptions {
+    ModelOptions::new()
         .threads(NonZero::new(1))
         .sort_results(false)
 }
 
 #[test]
 fn replacing_items_preserves_the_query_only_when_resetting_the_renderer() {
-    let mut driver = options().query("^a").driver(StrRenderer);
-    driver.extend(["alpha", "beta", "apricot"].map(str::to_owned));
+    let mut model = options().query("^a").model(StrRenderer);
+    model.extend(["alpha", "beta", "apricot"].map(str::to_owned));
     assert!(
-        driver
+        model
             .filter()
             .unwrap()
             .iter()
             .map(|item| item.value().as_str())
             .eq(["alpha", "apricot"])
     );
-    let id = driver.matches().get(0).unwrap().id();
+    let id = model.matches().get(0).unwrap().id();
 
-    driver.update_query("^beta$");
-    assert_eq!(driver.filter().unwrap().get(0).unwrap().value(), "beta");
-    driver.reset_renderer(StrRenderer);
-    assert_eq!(driver.query(), "^beta$");
-    assert!(driver.matches().is_empty());
-    driver.push_batch(["beta".to_owned()]);
-    assert_eq!(driver.filter().unwrap().len(), 1);
-    assert!(driver.matches().item(id).is_none());
+    model.update_query("^beta$");
+    assert_eq!(model.filter().unwrap().get(0).unwrap().value(), "beta");
+    model.reset_renderer(StrRenderer);
+    assert_eq!(model.query(), "^beta$");
+    assert!(model.matches().is_empty());
+    model.push_batch(["beta".to_owned()]);
+    assert_eq!(model.filter().unwrap().len(), 1);
+    assert!(model.matches().item(id).is_none());
 
-    driver.restart();
-    assert_eq!(driver.query(), "");
-    driver.push_batch(["new".to_owned()]);
-    assert_eq!(driver.filter().unwrap().get(0).unwrap().value(), "new");
+    model.restart();
+    assert_eq!(model.query(), "");
+    model.push_batch(["new".to_owned()]);
+    assert_eq!(model.filter().unwrap().get(0).unwrap().value(), "new");
 }
 
 fn update_until(
-    driver: &mut Driver<&'static str, StrRenderer>,
+    model: &mut Model<&'static str, StrRenderer>,
     ready: impl Fn(MatchStatus) -> bool,
 ) -> MatchStatus {
     let start = Instant::now();
     loop {
-        let status = driver.update_matches(Duration::ZERO);
+        let status = model.update_matches(Duration::ZERO);
         if ready(status) {
             return status;
         }
@@ -64,20 +64,20 @@ fn update_until(
 #[test]
 fn filtering_requires_all_current_injectors_to_be_dropped() {
     for last in [None, Some("last")] {
-        let mut driver = options().driver(StrRenderer);
-        let injector = driver.injector();
+        let mut model = options().model(StrRenderer);
+        let injector = model.injector();
         let last_injector = injector.clone();
-        assert!(driver.filter().is_none());
+        assert!(model.filter().is_none());
         injector.push("first");
         drop(injector);
-        assert!(driver.filter().is_none());
-        assert!(driver.matches().is_empty());
+        assert!(model.filter().is_none());
+        assert!(model.matches().is_empty());
 
-        let status = update_until(&mut driver, |status| !status.matching);
+        let status = update_until(&mut model, |status| !status.matching);
         assert!(status.injecting);
         assert!(!status.is_complete());
         assert_eq!(status.matched_item_count, 1);
-        assert!(driver.filter().is_none());
+        assert!(model.filter().is_none());
 
         let producer = thread::spawn(move || {
             if let Some(last) = last {
@@ -86,20 +86,20 @@ fn filtering_requires_all_current_injectors_to_be_dropped() {
         });
         producer.join().unwrap();
         assert!(
-            driver
+            model
                 .filter()
                 .unwrap()
                 .iter()
                 .map(|item| *item.value())
                 .eq(["first"].into_iter().chain(last))
         );
-        assert!(driver.update_matches(Duration::ZERO).is_complete());
+        assert!(model.update_matches(Duration::ZERO).is_complete());
     }
 }
 
 #[test]
 fn completion_includes_input_published_during_updates() {
-    let mut driver = options().driver(StrRenderer);
+    let mut model = options().model(StrRenderer);
     let (sender, receiver) = mpsc::channel::<Injector<&'static str, StrRenderer>>();
     let producer = thread::spawn(move || {
         for injector in receiver {
@@ -110,13 +110,13 @@ fn completion_includes_input_published_during_updates() {
     });
 
     for _ in 0..64 {
-        driver.restart();
-        driver.update_query("^last$");
-        sender.send(driver.injector()).unwrap();
-        let status = update_until(&mut driver, |status| status.is_complete());
+        model.restart();
+        model.update_query("^last$");
+        sender.send(model.injector()).unwrap();
+        let status = update_until(&mut model, |status| status.is_complete());
         assert_eq!(status.item_count, 2);
         assert!(
-            driver
+            model
                 .matches()
                 .iter()
                 .map(|item| *item.value())
@@ -136,13 +136,13 @@ fn ranked_items_and_ids_follow_configured_match_order() {
         (true, false, ["ab", "ab2", "ab1", "ablong"]),
         (true, true, ["ab", "ab1", "ab2", "ablong"]),
     ] {
-        let mut driver = options()
+        let mut model = options()
             .sort_results(sort_results)
             .reverse_items(reverse_items)
             .query("^ab")
-            .driver(StrRenderer);
-        driver.push_batch(["ablong", "ab2", "zz", "ab", "ab1"]);
-        let matches = driver.filter().unwrap();
+            .model(StrRenderer);
+        model.push_batch(["ablong", "ab2", "zz", "ab", "ab1"]);
+        let matches = model.filter().unwrap();
         assert_eq!(matches.len(), expected.len());
         assert!(matches.get(expected.len()).is_none());
         assert!(matches.get(usize::MAX).is_none());
@@ -169,19 +169,19 @@ fn ranked_items_and_ids_follow_configured_match_order() {
 }
 
 #[test]
-fn item_provenance_survives_filtering_and_owners_outlive_the_driver() {
-    let mut driver = options().reverse_items(true).driver(StrRenderer);
-    driver.push_batch(["first", "last"].map(str::to_owned));
-    let matches = driver.filter().unwrap();
+fn item_provenance_survives_filtering_and_owners_outlive_the_model() {
+    let mut model = options().reverse_items(true).model(StrRenderer);
+    model.push_batch(["first", "last"].map(str::to_owned));
+    let matches = model.filter().unwrap();
     let first = matches.get(1).unwrap().id();
     let last = matches.get(0).unwrap().id();
     assert!(first.same_generation(last));
     assert!(first < last);
 
-    let mut other = options().driver(StrRenderer);
+    let mut other = options().model(StrRenderer);
     other.push_batch(["other".to_owned()]);
     let foreign = other.filter().unwrap().get(0).unwrap().id();
-    let mut differently_typed = options().driver(StrRenderer);
+    let mut differently_typed = options().model(StrRenderer);
     differently_typed.push_batch(["other"]);
     let foreign_type = differently_typed.filter().unwrap().get(0).unwrap().id();
     for id in [foreign, foreign_type] {
@@ -193,9 +193,9 @@ fn item_provenance_survives_filtering_and_owners_outlive_the_driver() {
     assert!(!other.matches().contains_item(first));
     assert!(!differently_typed.matches().contains_item(first));
 
-    driver.update_query("absent");
+    model.update_query("absent");
     let (checked, unchecked) = {
-        let matches = driver.filter().unwrap();
+        let matches = model.filter().unwrap();
         assert!(matches.is_empty());
         assert!(matches.contains_item(first));
         let borrowed = matches.item(first).unwrap();
@@ -208,9 +208,9 @@ fn item_provenance_survives_filtering_and_owners_outlive_the_driver() {
         (checked, unchecked)
     };
 
-    driver.restart();
-    driver.push_batch(["replacement".to_owned()]);
-    let matches = driver.filter().unwrap();
+    model.restart();
+    model.push_batch(["replacement".to_owned()]);
+    let matches = model.filter().unwrap();
     let replacement = matches.get(0).unwrap().id();
     for old in [first, last] {
         assert!(!replacement.same_generation(old));
@@ -218,7 +218,7 @@ fn item_provenance_survives_filtering_and_owners_outlive_the_driver() {
         assert!(matches.item(old).is_none());
         assert!(matches.owned_item(old).is_none());
     }
-    drop(driver);
+    drop(model);
 
     assert_eq!(checked.id(), first);
     assert_eq!(checked.value(), "first");

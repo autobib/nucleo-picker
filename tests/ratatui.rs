@@ -7,7 +7,7 @@ use nucleo_picker::{
     interface::Interface,
     preview::{BoundaryChars, Content, Pane},
     render::StrRenderer,
-    session::{Components, Context, Dimensions, Driver, DriverOptions, Exit, FrameOptions},
+    session::{Components, Context, Dimensions, Exit, FrameOptions, Model, ModelOptions},
 };
 use ratatui_core::{
     backend::TestBackend,
@@ -57,16 +57,16 @@ impl Interface<&'static str> for &Probe {
     }
 }
 
-fn driver() -> Driver<&'static str, StrRenderer> {
-    let mut driver = DriverOptions::new()
+fn model() -> Model<&'static str, StrRenderer> {
+    let mut model = ModelOptions::new()
         .threads(NonZero::new(1))
         .sort_results(false)
         .list_reversed(true)
-        .driver(StrRenderer);
-    driver.push_batch(["ｶﾞalpha", "ｶﾞbeta"]);
-    driver.update_query("ｶﾞ");
-    driver.filter().unwrap();
-    driver
+        .model(StrRenderer);
+    model.push_batch(["ｶﾞalpha", "ｶﾞbeta"]);
+    model.update_query("ｶﾞ");
+    model.filter().unwrap();
+    model
 }
 
 fn contents(buffer: &Buffer, area: Rect) -> String {
@@ -78,9 +78,9 @@ fn contents(buffer: &Buffer, area: Rect) -> String {
 
 #[test]
 fn widgets_compose_in_offset_regions_and_repaint_unchanged_frames() {
-    let mut driver = driver();
+    let mut model = model();
     let probe = Probe::default();
-    let mut session = driver.session(&probe);
+    let mut session = model.session(&probe);
     let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
     let mut host = Buffer::filled(Rect::new(0, 0, 40, 12), BufferCell::new("."));
     Line::from("Application").render(Rect::new(1, 1, 15, 1), &mut host);
@@ -157,12 +157,12 @@ fn widgets_compose_in_offset_regions_and_repaint_unchanged_frames() {
 
 #[test]
 fn prepared_preview_widget_and_direct_drawing_replace_dirty_cells_with_a_styled_border() {
-    let mut driver = driver();
+    let mut model = model();
     let probe = Probe {
         error_on_resize: true,
         ..Probe::default()
     };
-    let mut session = driver.session(&probe);
+    let mut session = model.session(&probe);
     let mut dirty = BufferCell::new("x");
     dirty.set_style(
         Style::new()
@@ -250,9 +250,9 @@ fn prepared_preview_widget_and_direct_drawing_replace_dirty_cells_with_a_styled_
 
 #[test]
 fn widgets_deliver_empty_and_hidden_preview_transitions_without_painting() {
-    let mut driver = driver();
+    let mut model = model();
     let probe = Probe::default();
-    let mut session = driver.session(&probe);
+    let mut session = model.session(&probe);
     let host = Buffer::filled(Rect::new(4, 6, 30, 10), BufferCell::new("."));
     let mut expected = Vec::new();
 

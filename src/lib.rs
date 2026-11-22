@@ -85,7 +85,7 @@ use crate::{
     event::{Event, EventSource, KeybindDefault, PickerStatus},
     interface::{Interface, InterfaceDefaults, Multi, Single},
     run::RunnerConfig,
-    session::{Driver, DriverOptions, MatchStatus, Matches},
+    session::{MatchStatus, Matches, Model, ModelOptions},
     terminal::CrosstermTerminal,
 };
 
@@ -420,7 +420,7 @@ impl Default for PickerChars {
 /// | `false`        | `false`         | Index (asc)                                |
 /// | `false`        | `true`          | Index (desc)                               |
 pub struct PickerOptions {
-    driver: DriverOptions,
+    model: ModelOptions,
     runner: RunnerConfig,
     defaults: InterfaceDefaults,
 }
@@ -439,7 +439,7 @@ impl PickerOptions {
     #[inline]
     pub const fn new() -> Self {
         Self {
-            driver: DriverOptions::new(),
+            model: ModelOptions::new(),
             runner: RunnerConfig::new(),
             defaults: InterfaceDefaults::new(),
         }
@@ -450,9 +450,9 @@ impl PickerOptions {
     pub fn picker<T: Send + Sync + 'static, R>(self, render: R) -> Picker<T, R> {
         Picker {
             core: self
-                .driver
+                .model
                 .list_reversed(self.runner.layout.reversed)
-                .driver(render),
+                .model(render),
             runner: self.runner,
             restart_notifier: None,
             status_notifier: None,
@@ -486,7 +486,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn reverse_items(mut self, reversed: bool) -> Self {
-        self.driver.reverse_items = reversed;
+        self.model.set_reverse_items(reversed);
         self
     }
 
@@ -500,7 +500,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn sort_results(mut self, sort: bool) -> Self {
-        self.driver.sort_results = sort;
+        self.model.set_sort_results(sort);
         self
     }
 
@@ -543,7 +543,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn threads(mut self, threads: Option<NonZero<usize>>) -> Self {
-        self.driver.threads = threads;
+        self.model.set_threads(threads);
         self
     }
 
@@ -551,7 +551,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn normalization(mut self, normalization: Normalization) -> Self {
-        self.driver.normalization = normalization.convert();
+        self.model.set_normalization(normalization);
         self
     }
 
@@ -559,7 +559,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn case_matching(mut self, case_matching: CaseMatching) -> Self {
-        self.driver.case_matching = case_matching.convert();
+        self.model.set_case_matching(case_matching);
         self
     }
 
@@ -567,7 +567,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn match_paths(mut self) -> Self {
-        self.driver.config = self.driver.config.match_paths();
+        self.model.set_match_paths();
         self
     }
 
@@ -577,7 +577,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn prefer_prefix(mut self, prefer_prefix: bool) -> Self {
-        self.driver.config.prefer_prefix = prefer_prefix;
+        self.model.set_prefer_prefix(prefer_prefix);
         self
     }
 
@@ -585,7 +585,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn highlight(mut self, highlight: bool) -> Self {
-        self.driver.match_list_config.highlight = highlight;
+        self.model.set_highlight(highlight);
         self
     }
 
@@ -595,7 +595,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn highlight_line(mut self, highlight_line: bool) -> Self {
-        self.driver.match_list_config.highlight_line = highlight_line;
+        self.model.set_highlight_line(highlight_line);
         self
     }
 
@@ -603,7 +603,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn highlight_padding(mut self, size: u16) -> Self {
-        self.driver.match_list_config.highlight_padding = size;
+        self.model.set_highlight_padding(size);
         self
     }
 
@@ -611,7 +611,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn scroll_padding(mut self, size: u16) -> Self {
-        self.driver.match_list_config.scroll_padding = size;
+        self.model.set_scroll_padding(size);
         self
     }
 
@@ -619,7 +619,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn prompt_padding(mut self, size: u16) -> Self {
-        self.driver.prompt_config.padding = size;
+        self.model.set_prompt_padding(size);
         self
     }
 
@@ -629,7 +629,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn prompt_indicator(mut self, prompt: char) -> Self {
-        self.driver.chars.prompt = prompt;
+        self.model.set_prompt_indicator(prompt);
         self
     }
 
@@ -639,7 +639,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn hover_indicator(mut self, hover: char) -> Self {
-        self.driver.chars.hover = hover;
+        self.model.set_hover_indicator(hover);
         self
     }
 
@@ -657,7 +657,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn queued_indicator(mut self, queued: char) -> Self {
-        self.driver.chars.queued = queued;
+        self.model.set_queued_indicator(queued);
         self
     }
 
@@ -667,7 +667,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn truncation_ellipsis(mut self, ellipsis: char) -> Self {
-        self.driver.chars.ellipsis = ellipsis;
+        self.model.set_truncation_ellipsis(ellipsis);
         self
     }
 
@@ -677,7 +677,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn separator(mut self, sep: char) -> Self {
-        self.driver.chars.separator = sep;
+        self.model.set_separator(sep);
         self
     }
 
@@ -690,7 +690,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn spinner_chars(mut self, spinner: &'static [char]) -> Self {
-        self.driver.chars.spinner_chars = spinner;
+        self.model.set_spinner_chars(spinner);
         self
     }
 
@@ -702,7 +702,7 @@ impl PickerOptions {
     #[must_use]
     #[inline]
     pub const fn matching_indicator(mut self, indicator: char) -> Self {
-        self.driver.chars.matching_indicator = indicator;
+        self.model.set_matching_indicator(indicator);
         self
     }
 
@@ -723,7 +723,7 @@ impl PickerOptions {
     /// ```
     /// If `ascii` is `false`, this uses the default Unicode character set.
     pub const fn ascii_compatible(mut self, ascii: bool) -> Self {
-        self.driver.set_ascii_compatible(ascii);
+        self.model.set_ascii_compatible(ascii);
         self.runner.preview_boundary_chars = if ascii {
             BoundaryChars::ascii()
         } else {
@@ -754,12 +754,9 @@ impl PickerOptions {
     /// Provide an initial query string for the prompt (defaults to `""`).
     #[must_use]
     #[inline]
-    pub fn query<Q: Into<String>>(self, query: Q) -> Self {
-        Self {
-            driver: self.driver.query(query),
-            runner: self.runner,
-            defaults: self.defaults,
-        }
+    pub fn query<Q: Into<String>>(mut self, query: Q) -> Self {
+        self.model.set_query(query);
+        self
     }
 }
 
@@ -975,14 +972,14 @@ impl PickerOptions {
 ///
 /// ### Completion and errors
 ///
-/// After an exit or error while processing events, the driver records any changes in the underlying
-/// picker, attempts to clean up the terminal, and then calls [`on_end`](Interface::on_end). If the exit
+/// After an exit or error while processing events, the picker internally records any changes,
+/// attempts to clean up the terminal, and then calls [`on_end`](Interface::on_end). If the exit
 /// and cleanup succeeds, [`finish`](Interface::finish) is called.
 ///
 /// Abnormal exit during panics will still result in attempted terminal cleanup but
 /// will not result in usual interface cleanup methods from being called.
 pub struct Picker<T, R, I = Single> {
-    core: Driver<T, R>,
+    core: Model<T, R>,
     runner: RunnerConfig,
     restart_notifier: Option<Notifier<Injector<T, R>>>,
     status_notifier: Option<Notifier<PickerStatus>>,

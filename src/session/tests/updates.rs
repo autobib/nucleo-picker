@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use super::{Select, driver, frame_options, update};
+use super::{Select, frame_options, model, update};
 use crate::{
     event::{MatchListEvent, PromptEvent},
     interface::Interface,
@@ -76,10 +76,10 @@ fn frame<I: Interface<String>>(session: &mut Session<'_, String, StrRenderer, I>
 
 #[test]
 fn idle_and_navigation_frames_run_both_hooks_without_match_notifications() {
-    let mut driver = driver(["alpha", "beta"]);
-    let ids: Vec<_> = driver.matches().ids().collect();
+    let mut model = model(["alpha", "beta"]);
+    let ids: Vec<_> = model.matches().ids().collect();
     let mut updates = Vec::new();
-    let mut session = driver.session(Probe::<false>(
+    let mut session = model.session(Probe::<false>(
         &mut updates,
         Components::NONE,
         Components::NONE,
@@ -114,10 +114,10 @@ fn idle_and_navigation_frames_run_both_hooks_without_match_notifications() {
 
 #[test]
 fn query_batches_notify_only_after_publication_and_keep_changes_until_preparation() {
-    let mut driver = driver(["alpha", "beta"]);
-    let beta = driver.matches().get(1).unwrap().id();
+    let mut model = model(["alpha", "beta"]);
+    let beta = model.matches().get(1).unwrap().id();
     let mut updates = Vec::new();
-    let mut session = driver.session(Probe::<false>(
+    let mut session = model.session(Probe::<false>(
         &mut updates,
         Components::NONE,
         Components::NONE,
@@ -142,15 +142,15 @@ fn query_batches_notify_only_after_publication_and_keep_changes_until_preparatio
     );
     assert_eq!(updates[2].hovered, Some(beta));
     assert!(updates.iter().all(|update| update.completed));
-    assert_eq!(driver.query(), "beta");
+    assert_eq!(model.query(), "beta");
 }
 
 #[test]
 fn hidden_publications_and_repeated_restarts_are_reported_once_per_frame() {
-    let mut driver = driver(["alpha", "beta"]);
-    let injector = driver.injector();
+    let mut model = model(["alpha", "beta"]);
+    let injector = model.injector();
     let mut updates = Vec::new();
-    let mut session = driver.session(Probe::<true>(
+    let mut session = model.session(Probe::<true>(
         &mut updates,
         Components::NONE,
         Components::NONE,
@@ -204,8 +204,8 @@ fn hidden_publications_and_repeated_restarts_are_reported_once_per_frame() {
 #[test]
 fn preview_wrappers_forward_frame_hooks_and_combine_invalidations() {
     fn check<I: Interface<String>>(interface: I) {
-        let mut driver = driver(["alpha", "beta"]);
-        let mut session = driver.session(interface);
+        let mut model = model(["alpha", "beta"]);
+        let mut session = model.session(interface);
         frame(&mut session);
         session.events().match_list(MatchListEvent::Up(1));
         let navigation = session.prepare_frame(frame_options());

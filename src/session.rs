@@ -15,10 +15,10 @@
 mod borrowed;
 mod components;
 mod context;
-mod driver;
 mod item;
 mod live;
 mod matches;
+mod model;
 #[cfg(test)]
 pub(crate) mod tests;
 
@@ -32,13 +32,13 @@ use crate::interface::{Interface, Multi, Single, UncachedPreview};
 pub use crate::rect::{Dimensions, Position};
 pub use components::Components;
 pub use context::Context;
-pub use driver::{Driver, DriverOptions};
 pub use item::{ItemId, ItemRef, OwnedItem};
 pub use live::{
     EventBatch, FrameOptions, PreparedFrame, PreparedMatchList, PreparedPreview, PreparedPrompt,
     PreparedStatus, Session,
 };
 pub use matches::Matches;
+pub use model::{Model, ModelOptions};
 
 #[cfg(doc)]
 use crate::event::Event;

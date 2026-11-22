@@ -5,7 +5,7 @@ use nucleo::{
     pattern::{CaseMatching as NucleoCaseMatching, Normalization as NucleoNormalization},
 };
 
-use super::Driver;
+use super::Model;
 use crate::{
     CaseMatching, Normalization, PickerChars,
     match_engine::MatchEngine,
@@ -13,29 +13,29 @@ use crate::{
     prompt::{PromptConfig, PromptState},
 };
 
-/// Configuration for a [`Driver`].
-pub struct DriverOptions {
+/// Configuration for a [`Model`].
+pub struct ModelOptions {
     // PickerOptions updates fields in place: const evaluation rejects consuming a nested
     // value with drop glue, even when all of its fields are moved into the result.
-    pub(crate) config: nc::Config,
+    config: nc::Config,
     query: String,
-    pub(crate) threads: Option<NonZero<usize>>,
-    pub(crate) chars: PickerChars,
-    pub(crate) match_list_config: MatchListConfig,
-    pub(crate) case_matching: NucleoCaseMatching,
-    pub(crate) normalization: NucleoNormalization,
-    pub(crate) prompt_config: PromptConfig,
-    pub(crate) sort_results: bool,
-    pub(crate) reverse_items: bool,
+    threads: Option<NonZero<usize>>,
+    chars: PickerChars,
+    match_list_config: MatchListConfig,
+    case_matching: NucleoCaseMatching,
+    normalization: NucleoNormalization,
+    prompt_config: PromptConfig,
+    sort_results: bool,
+    reverse_items: bool,
 }
 
-impl Default for DriverOptions {
+impl Default for ModelOptions {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl DriverOptions {
+impl ModelOptions {
     /// Initialize with default configuration.
     #[must_use]
     #[inline]
@@ -54,9 +54,9 @@ impl DriverOptions {
         }
     }
 
-    /// Construct a driver with this configuration and the provided renderer.
+    /// Construct a picker model with this configuration and the provided renderer.
     #[must_use]
-    pub fn driver<T: Send + Sync + 'static, R>(self, render: R) -> Driver<T, R> {
+    pub fn model<T: Send + Sync + 'static, R>(self, render: R) -> Model<T, R> {
         let list_state = MatchListState::new(self.match_list_config, self.config.clone());
         let mut engine = MatchEngine::new(
             self.config,
@@ -75,7 +75,7 @@ impl DriverOptions {
         prompt.set_query(self.query);
         engine.reparse(prompt.contents());
 
-        Driver {
+        Model {
             engine,
             list_state,
             prompt,
@@ -89,169 +89,291 @@ impl DriverOptions {
     #[must_use]
     #[inline]
     pub const fn list_reversed(mut self, reversed: bool) -> Self {
-        self.match_list_config.reversed = reversed;
+        self.set_list_reversed(reversed);
         self
+    }
+
+    /// In-place version of [`Self::list_reversed`].
+    #[inline]
+    pub const fn set_list_reversed(&mut self, reversed: bool) {
+        self.match_list_config.reversed = reversed;
     }
 
     /// See [`PickerOptions::reverse_items`](crate::PickerOptions::reverse_items).
     #[must_use]
     #[inline]
     pub const fn reverse_items(mut self, reversed: bool) -> Self {
-        self.reverse_items = reversed;
+        self.set_reverse_items(reversed);
         self
+    }
+
+    /// In-place version of [`Self::reverse_items`].
+    #[inline]
+    pub const fn set_reverse_items(&mut self, reversed: bool) {
+        self.reverse_items = reversed;
     }
 
     /// See [`PickerOptions::sort_results`](crate::PickerOptions::sort_results).
     #[must_use]
     #[inline]
     pub const fn sort_results(mut self, sort: bool) -> Self {
-        self.sort_results = sort;
+        self.set_sort_results(sort);
         self
+    }
+
+    /// In-place version of [`Self::sort_results`].
+    #[inline]
+    pub const fn set_sort_results(&mut self, sort: bool) {
+        self.sort_results = sort;
     }
 
     /// See [`PickerOptions::threads`](crate::PickerOptions::threads).
     #[must_use]
     #[inline]
     pub const fn threads(mut self, threads: Option<NonZero<usize>>) -> Self {
-        self.threads = threads;
+        self.set_threads(threads);
         self
+    }
+
+    /// In-place version of [`Self::threads`].
+    #[inline]
+    pub const fn set_threads(&mut self, threads: Option<NonZero<usize>>) {
+        self.threads = threads;
     }
 
     /// See [`PickerOptions::normalization`](crate::PickerOptions::normalization).
     #[must_use]
     #[inline]
     pub const fn normalization(mut self, normalization: Normalization) -> Self {
-        self.normalization = normalization.convert();
+        self.set_normalization(normalization);
         self
+    }
+
+    /// In-place version of [`Self::normalization`].
+    #[inline]
+    pub const fn set_normalization(&mut self, normalization: Normalization) {
+        self.normalization = normalization.convert();
     }
 
     /// See [`PickerOptions::case_matching`](crate::PickerOptions::case_matching).
     #[must_use]
     #[inline]
     pub const fn case_matching(mut self, case_matching: CaseMatching) -> Self {
-        self.case_matching = case_matching.convert();
+        self.set_case_matching(case_matching);
         self
+    }
+
+    /// In-place version of [`Self::case_matching`].
+    #[inline]
+    pub const fn set_case_matching(&mut self, case_matching: CaseMatching) {
+        self.case_matching = case_matching.convert();
     }
 
     /// See [`PickerOptions::match_paths`](crate::PickerOptions::match_paths).
     #[must_use]
     #[inline]
     pub const fn match_paths(mut self) -> Self {
-        self.config = self.config.match_paths();
+        self.set_match_paths();
         self
+    }
+
+    /// In-place version of [`Self::match_paths`].
+    #[inline]
+    pub const fn set_match_paths(&mut self) {
+        self.config.set_match_paths();
     }
 
     /// See [`PickerOptions::prefer_prefix`](crate::PickerOptions::prefer_prefix).
     #[must_use]
     #[inline]
     pub const fn prefer_prefix(mut self, prefer_prefix: bool) -> Self {
-        self.config.prefer_prefix = prefer_prefix;
+        self.set_prefer_prefix(prefer_prefix);
         self
+    }
+
+    /// In-place version of [`Self::prefer_prefix`].
+    #[inline]
+    pub const fn set_prefer_prefix(&mut self, prefer_prefix: bool) {
+        self.config.prefer_prefix = prefer_prefix;
     }
 
     /// See [`PickerOptions::highlight`](crate::PickerOptions::highlight).
     #[must_use]
     #[inline]
     pub const fn highlight(mut self, highlight: bool) -> Self {
-        self.match_list_config.highlight = highlight;
+        self.set_highlight(highlight);
         self
+    }
+
+    /// In-place version of [`Self::highlight`].
+    #[inline]
+    pub const fn set_highlight(&mut self, highlight: bool) {
+        self.match_list_config.highlight = highlight;
     }
 
     /// See [`PickerOptions::highlight_line`](crate::PickerOptions::highlight_line).
     #[must_use]
     #[inline]
     pub const fn highlight_line(mut self, highlight_line: bool) -> Self {
-        self.match_list_config.highlight_line = highlight_line;
+        self.set_highlight_line(highlight_line);
         self
+    }
+
+    /// In-place version of [`Self::highlight_line`].
+    #[inline]
+    pub const fn set_highlight_line(&mut self, highlight_line: bool) {
+        self.match_list_config.highlight_line = highlight_line;
     }
 
     /// See [`PickerOptions::highlight_padding`](crate::PickerOptions::highlight_padding).
     #[must_use]
     #[inline]
     pub const fn highlight_padding(mut self, size: u16) -> Self {
-        self.match_list_config.highlight_padding = size;
+        self.set_highlight_padding(size);
         self
+    }
+
+    /// In-place version of [`Self::highlight_padding`].
+    #[inline]
+    pub const fn set_highlight_padding(&mut self, size: u16) {
+        self.match_list_config.highlight_padding = size;
     }
 
     /// See [`PickerOptions::scroll_padding`](crate::PickerOptions::scroll_padding).
     #[must_use]
     #[inline]
     pub const fn scroll_padding(mut self, size: u16) -> Self {
-        self.match_list_config.scroll_padding = size;
+        self.set_scroll_padding(size);
         self
+    }
+
+    /// In-place version of [`Self::scroll_padding`].
+    #[inline]
+    pub const fn set_scroll_padding(&mut self, size: u16) {
+        self.match_list_config.scroll_padding = size;
     }
 
     /// See [`PickerOptions::prompt_padding`](crate::PickerOptions::prompt_padding).
     #[must_use]
     #[inline]
     pub const fn prompt_padding(mut self, size: u16) -> Self {
-        self.prompt_config.padding = size;
+        self.set_prompt_padding(size);
         self
+    }
+
+    /// In-place version of [`Self::prompt_padding`].
+    #[inline]
+    pub const fn set_prompt_padding(&mut self, size: u16) {
+        self.prompt_config.padding = size;
     }
 
     /// See [`PickerOptions::prompt_indicator`](crate::PickerOptions::prompt_indicator).
     #[must_use]
     #[inline]
     pub const fn prompt_indicator(mut self, prompt: char) -> Self {
-        self.chars.prompt = prompt;
+        self.set_prompt_indicator(prompt);
         self
+    }
+
+    /// In-place version of [`Self::prompt_indicator`].
+    #[inline]
+    pub const fn set_prompt_indicator(&mut self, prompt: char) {
+        self.chars.prompt = prompt;
     }
 
     /// See [`PickerOptions::hover_indicator`](crate::PickerOptions::hover_indicator).
     #[must_use]
     #[inline]
     pub const fn hover_indicator(mut self, hover: char) -> Self {
-        self.chars.hover = hover;
+        self.set_hover_indicator(hover);
         self
+    }
+
+    /// In-place version of [`Self::hover_indicator`].
+    #[inline]
+    pub const fn set_hover_indicator(&mut self, hover: char) {
+        self.chars.hover = hover;
     }
 
     /// See [`PickerOptions::queued_indicator`](crate::PickerOptions::queued_indicator).
     #[must_use]
     #[inline]
     pub const fn queued_indicator(mut self, queued: char) -> Self {
-        self.chars.queued = queued;
+        self.set_queued_indicator(queued);
         self
+    }
+
+    /// In-place version of [`Self::queued_indicator`].
+    #[inline]
+    pub const fn set_queued_indicator(&mut self, queued: char) {
+        self.chars.queued = queued;
     }
 
     /// See [`PickerOptions::truncation_ellipsis`](crate::PickerOptions::truncation_ellipsis).
     #[must_use]
     #[inline]
     pub const fn truncation_ellipsis(mut self, ellipsis: char) -> Self {
-        self.chars.ellipsis = ellipsis;
+        self.set_truncation_ellipsis(ellipsis);
         self
+    }
+
+    /// In-place version of [`Self::truncation_ellipsis`].
+    #[inline]
+    pub const fn set_truncation_ellipsis(&mut self, ellipsis: char) {
+        self.chars.ellipsis = ellipsis;
     }
 
     /// See [`PickerOptions::separator`](crate::PickerOptions::separator).
     #[must_use]
     #[inline]
     pub const fn separator(mut self, sep: char) -> Self {
-        self.chars.separator = sep;
+        self.set_separator(sep);
         self
+    }
+
+    /// In-place version of [`Self::separator`].
+    #[inline]
+    pub const fn set_separator(&mut self, sep: char) {
+        self.chars.separator = sep;
     }
 
     /// See [`PickerOptions::spinner_chars`](crate::PickerOptions::spinner_chars).
     #[must_use]
     #[inline]
     pub const fn spinner_chars(mut self, spinner: &'static [char]) -> Self {
-        self.chars.spinner_chars = spinner;
+        self.set_spinner_chars(spinner);
         self
+    }
+
+    /// In-place version of [`Self::spinner_chars`].
+    #[inline]
+    pub const fn set_spinner_chars(&mut self, spinner: &'static [char]) {
+        self.chars.spinner_chars = spinner;
     }
 
     /// See [`PickerOptions::matching_indicator`](crate::PickerOptions::matching_indicator).
     #[must_use]
     #[inline]
     pub const fn matching_indicator(mut self, indicator: char) -> Self {
-        self.chars.matching_indicator = indicator;
+        self.set_matching_indicator(indicator);
         self
     }
 
-    /// This is similar to [`PickerOptions::ascii_compatible`](crate::PickerOptions::ascii_compatible) but only resets driver component chars.
+    /// In-place version of [`Self::matching_indicator`].
+    #[inline]
+    pub const fn set_matching_indicator(&mut self, indicator: char) {
+        self.chars.matching_indicator = indicator;
+    }
+
+    /// This is similar to [`PickerOptions::ascii_compatible`](crate::PickerOptions::ascii_compatible) but only resets picker component chars.
     pub const fn ascii_compatible(mut self, ascii: bool) -> Self {
         self.set_ascii_compatible(ascii);
         self
     }
 
-    pub(crate) const fn set_ascii_compatible(&mut self, ascii: bool) {
+    /// In-place version of [`Self::ascii_compatible`].
+    #[inline]
+    pub const fn set_ascii_compatible(&mut self, ascii: bool) {
         self.chars = if ascii {
             PickerChars::ascii()
         } else {
@@ -263,7 +385,13 @@ impl DriverOptions {
     #[must_use]
     #[inline]
     pub fn query<Q: Into<String>>(mut self, query: Q) -> Self {
-        self.query = query.into();
+        self.set_query(query);
         self
+    }
+
+    /// In-place version of [`Self::query`].
+    #[inline]
+    pub fn set_query<Q: Into<String>>(&mut self, query: Q) {
+        self.query = query.into();
     }
 }

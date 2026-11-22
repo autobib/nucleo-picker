@@ -4,19 +4,19 @@ use crate::{
     rect::{Area, ClearState, CrosstermTarget},
     render::StrRenderer,
     session::{
-        DriverOptions,
+        ModelOptions,
         tests::{Select, frame_options},
     },
 };
 
 fn render(text: &str) -> String {
-    let mut driver = DriverOptions::new()
+    let mut model = ModelOptions::new()
         .query("ab")
         .list_reversed(true)
-        .driver(StrRenderer);
-    driver.push_batch([text.to_owned()]);
-    assert_eq!(driver.filter().unwrap().len(), 1);
-    let mut session = driver.session(Select);
+        .model(StrRenderer);
+    model.push_batch([text.to_owned()]);
+    assert_eq!(model.filter().unwrap().len(), 1);
+    let mut session = model.session(Select);
     let mut frame = session.prepare_frame(frame_options());
     let mut output = Vec::new();
     let mut target = CrosstermTarget::new(&mut output);

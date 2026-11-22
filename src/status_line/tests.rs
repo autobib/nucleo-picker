@@ -4,16 +4,16 @@ use crate::{
     interface::{Multi, Single},
     render::StrRenderer,
     session::{
-        DriverOptions,
+        ModelOptions,
         tests::{frame_options, update},
     },
 };
 
 #[test]
 fn counts_fit_the_status_area_and_spinners_advance_on_background_frames() {
-    let mut driver = DriverOptions::new().driver::<&str, _>(StrRenderer);
-    let injector = driver.injector();
-    let mut session = driver.session(Single);
+    let mut model = ModelOptions::new().model::<&str, _>(StrRenderer);
+    let injector = model.injector();
+    let mut session = model.session(Single);
     for (width, height, background, marker) in [
         (12, 1, false, ' '),
         (0, 1, false, ' '),
@@ -40,10 +40,10 @@ fn counts_fit_the_status_area_and_spinners_advance_on_background_frames() {
 
 #[test]
 fn status_redraws_follow_counts_instead_of_list_changes() {
-    let mut driver = DriverOptions::new().sort_results(false).driver(StrRenderer);
-    driver.push_batch(["alpha", "beta"]);
-    driver.filter().unwrap();
-    let mut session = driver.session(Multi::new());
+    let mut model = ModelOptions::new().sort_results(false).model(StrRenderer);
+    model.push_batch(["alpha", "beta"]);
+    model.filter().unwrap();
+    let mut session = model.session(Multi::new());
     let initial = session.prepare_frame(frame_options());
     initial.complete();
 

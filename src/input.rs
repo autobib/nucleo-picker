@@ -17,7 +17,7 @@ use crate::{
     keybind::{convert_crossterm_event, keybind_default},
     observer::Notifier,
     run::{self, RunnerConfig},
-    session::Driver,
+    session::Model,
     terminal::CrosstermTerminal,
 };
 
@@ -26,7 +26,7 @@ use crate::{
 /// Uses the terminal and error behavior described by [`Picker::pick`](crate::Picker::pick).
 #[inline]
 pub(crate) fn pick<'items, T, R, I>(
-    driver: &'items mut Driver<T, R>,
+    model: &'items mut Model<T, R>,
     interface: &mut I,
     config: RunnerConfig,
     restart_notifier: Option<&Notifier<Injector<T, R>>>,
@@ -38,7 +38,7 @@ where
     I: Interface<T> + KeybindDefault,
 {
     pick_with_keybind(
-        driver,
+        model,
         interface,
         config,
         restart_notifier,
@@ -53,7 +53,7 @@ where
 /// [`Picker::pick_with_keybind`](crate::Picker::pick_with_keybind).
 #[inline]
 pub(crate) fn pick_with_keybind<'items, T, R, I, F>(
-    driver: &'items mut Driver<T, R>,
+    model: &'items mut Model<T, R>,
     interface: &mut I,
     config: RunnerConfig,
     restart_notifier: Option<&Notifier<Injector<T, R>>>,
@@ -69,7 +69,7 @@ where
     let stderr = io::stderr().lock();
     if stderr.is_terminal() {
         run::pick_impl(
-            driver,
+            model,
             interface,
             config,
             restart_notifier,

@@ -3,21 +3,21 @@ use std::cell::RefCell;
 use super::*;
 use crate::{
     render::StrRenderer,
-    session::{Driver, DriverOptions},
+    session::{Model, ModelOptions},
 };
 
-fn driver() -> Driver<&'static str, StrRenderer> {
-    let mut driver = DriverOptions::new().sort_results(false).driver(StrRenderer);
-    driver.push_batch(["alpha", "beta", "alpha"]);
-    driver.filter().unwrap();
-    driver
+fn model() -> Model<&'static str, StrRenderer> {
+    let mut model = ModelOptions::new().sort_results(false).model(StrRenderer);
+    model.push_batch(["alpha", "beta", "alpha"]);
+    model.filter().unwrap();
+    model
 }
 
 fn context<'a>(
-    driver: &'a Driver<&'static str, StrRenderer>,
+    model: &'a Model<&'static str, StrRenderer>,
     rank: Option<u32>,
 ) -> Context<'a, &'static str> {
-    Context::new(driver.matches())
+    Context::new(model.matches())
         .with_rank(rank)
         .with_active_components(Components::ALL)
 }
@@ -31,7 +31,7 @@ fn pane<'a, I: Interface<&'static str>>(interface: &'a I, state: &'a I::State) -
 
 #[test]
 fn identity_changes_and_refresh_regenerate_clean_panes_but_hidden_frames_wait() {
-    let driver = driver();
+    let model = model();
     let generated = RefCell::new(Vec::new());
     let mut interface = UncachedPreview::new_single(|item: &&'static str, pane: &mut Pane| {
         assert_eq!(pane.buffer().lines().len(), 1);
@@ -45,7 +45,7 @@ fn identity_changes_and_refresh_regenerate_clean_panes_but_hidden_frames_wait() 
         pane.set_line_numbers(true);
         pane.set_err(true);
     });
-    let mut state = interface.init(&context(&driver, None));
+    let mut state = interface.init(&context(&model, None));
     assert!(matches!(interface.preview_content(&state), Content::Empty));
     for (rank, redraw, count) in [
         (0, Components::PREVIEW, 1),
@@ -56,7 +56,7 @@ fn identity_changes_and_refresh_regenerate_clean_panes_but_hidden_frames_wait() 
         assert_eq!(
             interface.before_frame(
                 &mut state,
-                &context(&driver, Some(rank)),
+                &context(&model, Some(rank)),
                 true,
                 Instant::now()
             ),
@@ -70,11 +70,11 @@ fn identity_changes_and_refresh_regenerate_clean_panes_but_hidden_frames_wait() 
         assert!(pane.is_err());
     }
 
-    let cx = context(&driver, Some(0));
+    let cx = context(&model, Some(0));
     for _ in 0..2 {
         let _ = interface.preview_event(&mut state, PreviewEvent::Refresh, &cx);
     }
-    let hidden = context(&driver, Some(1)).with_active_components(Components {
+    let hidden = context(&model, Some(1)).with_active_components(Components {
         preview: false,
         ..Components::ALL
     });
@@ -90,7 +90,7 @@ fn identity_changes_and_refresh_regenerate_clean_panes_but_hidden_frames_wait() 
         Components::PREVIEW
     );
     assert_eq!(generated.borrow().len(), 4);
-    let empty = context(&driver, None);
+    let empty = context(&model, None);
     assert_eq!(
         interface.before_frame(&mut state, &empty, true, Instant::now()),
         Components::PREVIEW
@@ -105,12 +105,12 @@ fn identity_changes_and_refresh_regenerate_clean_panes_but_hidden_frames_wait() 
 
 #[test]
 fn events_require_the_displayed_identity_and_use_delivered_dimensions() {
-    let driver = driver();
+    let model = model();
     let mut interface = UncachedPreview::new_single(|_: &&str, pane: &mut Pane| {
         pane.push_text("abcdefghijklmnop\n1\n2\n3\n4\n5\n6\n7\n8\n9");
     });
-    let cx = context(&driver, Some(0));
-    let other = context(&driver, Some(1));
+    let cx = context(&model, Some(0));
+    let other = context(&model, Some(1));
     let mut state = interface.init(&cx);
     interface.preview_resize(
         &mut state,
@@ -185,8 +185,8 @@ fn events_require_the_displayed_identity_and_use_delivered_dimensions() {
 }
 
 fn assert_navigation_across_preview_changes(mut interface: impl Interface<&'static str>) {
-    let driver = driver();
-    let cx = context(&driver, Some(0));
+    let model = model();
+    let cx = context(&model, Some(0));
     let mut state = interface.init(&cx);
     interface.preview_resize(
         &mut state,
@@ -196,7 +196,7 @@ fn assert_navigation_across_preview_changes(mut interface: impl Interface<&'stat
         }),
     );
     for rank in [0, 1, 0] {
-        let cx = context(&driver, Some(rank));
+        let cx = context(&model, Some(rank));
         let _ = interface.before_frame(&mut state, &cx, true, Instant::now());
         let _ = interface.preview_event(&mut state, PreviewEvent::AlignRight, &cx);
         assert_eq!(pane(&interface, &state).offset(), (6, 0));
@@ -234,22 +234,22 @@ fn cached_navigation_uses_grapheme_widths_across_preview_changes() {
 
 #[test]
 fn restart_invalidates_content_even_when_item_values_and_indices_are_reused() {
-    let mut driver = driver();
+    let mut model = model();
     let generated = RefCell::new(Vec::new());
     let mut interface = UncachedPreview::new_single(|item: &&'static str, pane: &mut Pane| {
         generated.borrow_mut().push(*item);
         pane.push_text(item);
     });
-    let cx = context(&driver, Some(0));
+    let cx = context(&model, Some(0));
     let old_id = cx.hovered().unwrap().id();
     let mut state = interface.init(&cx);
     let _ = interface.before_frame(&mut state, &cx, true, Instant::now());
     interface.on_restart(&mut state, &cx);
     assert!(matches!(interface.preview_content(&state), Content::Empty));
-    driver.restart();
-    driver.push_batch(["alpha"]);
-    driver.filter().unwrap();
-    let cx = context(&driver, Some(0));
+    model.restart();
+    model.push_batch(["alpha"]);
+    model.filter().unwrap();
+    let cx = context(&model, Some(0));
     assert_ne!(cx.hovered().unwrap().id(), old_id);
     assert_eq!(
         interface.before_frame(&mut state, &cx, true, Instant::now()),

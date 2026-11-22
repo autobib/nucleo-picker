@@ -44,7 +44,7 @@ trait Draw {
 ///
 /// # Typical use
 ///
-/// Initialize this struct with [`Driver::session`](crate::session::Driver::session) and use the
+/// Initialize this struct with [`Model::session`](crate::session::Model::session) and use the
 /// relevant methods to drive the session. In short, the frame loop typically looks something like
 /// the following:
 ///
@@ -60,7 +60,7 @@ trait Draw {
 /// are determined by consuming the session state (in particular, the interface state iself) and
 /// returning the corresponding output.
 ///
-/// Dropping a session saves the state in the underlying [`Driver`](crate::session::Driver)
+/// Dropping a session saves the state in the underlying [`Model`](crate::session::Model)
 /// and calls [`Interface::on_end`], but does *not* call [`Interface::finish`].
 ///
 /// # Redraw policy

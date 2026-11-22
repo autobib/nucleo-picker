@@ -31,7 +31,7 @@ use nucleo_picker::{
     interface::UncachedPreview,
     preview::Pane,
     render::StrRenderer,
-    session::{DriverOptions, Exit, FrameOptions},
+    session::{Exit, FrameOptions, ModelOptions},
 };
 use ratatui_core::{
     layout::{Constraint, Layout},
@@ -68,8 +68,8 @@ fn main() -> io::Result<()> {
 }
 
 fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<Option<&'static str>> {
-    // initialize the underlying match engine driver
-    let mut driver = DriverOptions::new().list_reversed(true).driver(StrRenderer);
+    // initialize the underlying picker model
+    let mut model = ModelOptions::new().list_reversed(true).model(StrRenderer);
 
     // initialize the preview interface
     let interface = UncachedPreview::new_single(|item: &&'static str, pane: &mut Pane| {
@@ -80,10 +80,10 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<Opti
     // we just manually push a few items for convenience in this example.
     // more generally, you should use the injector API to send items to the picker from a separate
     // thread
-    driver.push_batch(["red", "green", "blue", "yellow", "purple"]);
+    model.push_batch(["red", "green", "blue", "yellow", "purple"]);
 
     // initialize a new session.
-    let mut session = driver.session(interface);
+    let mut session = model.session(interface);
     let mut focused = true;
     let mut next_background = Instant::now();
 

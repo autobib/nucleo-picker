@@ -2,7 +2,7 @@ mod options;
 
 use std::time::Duration;
 
-pub use options::DriverOptions;
+pub use options::ModelOptions;
 
 use crate::{
     Injector, PickerChars, Render,
@@ -17,34 +17,34 @@ use crate::{
 ///
 /// This is an externally driven match engine which contains the internal matching engine and query state.
 ///
-/// Initialize with [`Self::new`] or [`DriverOptions::driver`]. In order to use this struct, there
+/// Initialize with [`Self::new`] or [`ModelOptions::model`]. In order to use this struct, there
 /// are two options:
 ///
 /// - Use headless methods (like [`Self::filter`]) to run matching only, independently of an
 ///   interface.
 /// - Combine this struct with an [`Interface`] to start a session with [`Self::session`]. This
 ///   is for rendering your own picker interface, for instance as part of a larger application.
-pub struct Driver<T, R> {
+pub struct Model<T, R> {
     pub(crate) engine: MatchEngine<T, R>,
     pub(crate) list_state: MatchListState,
     pub(crate) chars: PickerChars,
     pub(crate) prompt: PromptState,
 }
 
-impl<T: Send + Sync + 'static, R: Render<T>> Extend<T> for Driver<T, R> {
+impl<T: Send + Sync + 'static, R: Render<T>> Extend<T> for Model<T, R> {
     #[inline]
     fn extend<U: IntoIterator<Item = T>>(&mut self, iter: U) {
         self.push_batch(iter);
     }
 }
 
-impl<T: Send + Sync + 'static, R> Driver<T, R> {
+impl<T: Send + Sync + 'static, R> Model<T, R> {
     /// Start a new interactive picker session.
     ///
     /// The session contains the given [`Interface`] and can be driven by the governing application
     /// in order to run a picker. See the [`Session`] documentation for more details.
     ///
-    /// This method does not perform any IO or match updates. For newly initialized drivers, if it
+    /// This method does not perform any IO or match updates. For newly initialized model, if it
     /// is desirable for the first match list state to be up-to-date, call
     /// [`update_matches`](Self::update_matches).
     pub fn session<I: Interface<T>>(&mut self, interface: I) -> Session<'_, T, R, I>
@@ -60,17 +60,17 @@ impl<T: Send + Sync + 'static, R> Driver<T, R> {
         )
     }
 
-    /// Initialize a driver with default configuration and the provided renderer.
+    /// Initialize a picker model with default configuration and the provided renderer.
     #[must_use]
     #[inline]
     pub fn new(render: R) -> Self
     where
         R: Render<T>,
     {
-        DriverOptions::new().driver(render)
+        ModelOptions::new().model(render)
     }
 
-    /// Get an injector to send items to this driver.
+    /// Get an injector to send items to this picker model.
     #[must_use]
     #[inline]
     pub fn injector(&self) -> Injector<T, R> {

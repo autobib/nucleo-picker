@@ -16,8 +16,8 @@ use support::*;
 
 #[test]
 fn synchronous_refresh_clears_the_pane_and_preserves_generated_presentation() {
-    let driver = driver(["alpha"]);
-    let cx = context(&driver, Some(0));
+    let model = model(["alpha"]);
+    let cx = context(&model, Some(0));
     let generated = Cell::new(0);
     let mut interface = CachedPreview::new_single(SyncPreviewer(|item: &&str, pane: &mut Pane| {
         assert_eq!(pane.buffer().lines().len(), 1);
@@ -50,14 +50,14 @@ fn synchronous_refresh_clears_the_pane_and_preserves_generated_presentation() {
 
 #[test]
 fn cached_presentation_follows_item_identity_through_filtering_duplicates_and_restart() {
-    let mut driver = driver(["alpha", "beta", "alpha"]);
-    let first = driver.matches().get(0).unwrap().id();
+    let mut model = model(["alpha", "beta", "alpha"]);
+    let first = model.matches().get(0).unwrap().id();
     let previewer = RefCell::new(TestPreviewer {
         lines: 30,
         ..TestPreviewer::default()
     });
     let mut interface = CachedPreview::new_single(&previewer);
-    let mut state = interface.init(&context(&driver, Some(0)));
+    let mut state = interface.init(&context(&model, Some(0)));
     interface.preview_resize(
         &mut state,
         Some(Dimensions {
@@ -65,22 +65,22 @@ fn cached_presentation_follows_item_identity_through_filtering_duplicates_and_re
             height: 5,
         }),
     );
-    let _ = before(&mut interface, &mut state, &context(&driver, Some(0)));
+    let _ = before(&mut interface, &mut state, &context(&model, Some(0)));
     for event in [PreviewEvent::Down(7), PreviewEvent::ToggleLineNumbers] {
-        let _ = interface.preview_event(&mut state, event, &context(&driver, Some(0)));
+        let _ = interface.preview_event(&mut state, event, &context(&model, Some(0)));
     }
 
-    driver.update_query("beta");
-    driver.filter().unwrap();
-    let beta = context(&driver, Some(0));
+    model.update_query("beta");
+    model.filter().unwrap();
+    let beta = context(&model, Some(0));
     let _ = before(&mut interface, &mut state, &beta);
     assert_eq!(ready(interface.preview_content(&state)).offset(), (0, 0));
     assert_eq!(previewer.borrow().ids[1], beta.hovered().unwrap().id());
 
-    driver.update_query("");
-    driver.filter().unwrap();
+    model.update_query("");
+    model.filter().unwrap();
     for (rank, offset, numbers) in [(2, (0, 0), false), (0, (0, 7), true)] {
-        let _ = before(&mut interface, &mut state, &context(&driver, Some(rank)));
+        let _ = before(&mut interface, &mut state, &context(&model, Some(rank)));
         let pane = ready(interface.preview_content(&state));
         assert_eq!(pane.offset(), offset);
         assert_eq!(pane.line_numbers(), numbers);
@@ -89,12 +89,12 @@ fn cached_presentation_follows_item_identity_through_filtering_duplicates_and_re
     assert_eq!(previewer.borrow().requested, ["alpha", "beta", "alpha"]);
     assert_ne!(previewer.borrow().ids[0], previewer.borrow().ids[2]);
 
-    interface.on_restart(&mut state, &context(&driver, Some(0)));
+    interface.on_restart(&mut state, &context(&model, Some(0)));
     assert!(matches!(interface.preview_content(&state), Content::Empty));
-    driver.restart();
-    driver.push_batch(["alpha"]);
-    driver.filter().unwrap();
-    let _ = before(&mut interface, &mut state, &context(&driver, Some(0)));
+    model.restart();
+    model.push_batch(["alpha"]);
+    model.filter().unwrap();
+    let _ = before(&mut interface, &mut state, &context(&model, Some(0)));
     let pane = ready(interface.preview_content(&state));
     assert_eq!(pane.offset(), (0, 0));
     assert!(!pane.line_numbers());
@@ -108,13 +108,13 @@ fn cached_presentation_follows_item_identity_through_filtering_duplicates_and_re
 #[test]
 fn unbounded_cache_retains_more_than_the_default_capacity() {
     let count = DEFAULT_CACHE_SIZE.unwrap().get() + 1;
-    let driver = driver(std::iter::repeat_n("item", count));
+    let model = model(std::iter::repeat_n("item", count));
     let previewer = RefCell::new(TestPreviewer::default());
     let mut interface = CachedPreview::new_single(&previewer).cache_size(None);
-    let mut state = interface.init(&context(&driver, Some(0)));
+    let mut state = interface.init(&context(&model, Some(0)));
     for _ in 0..2 {
         for rank in 0..count as u32 {
-            let _ = before(&mut interface, &mut state, &context(&driver, Some(rank)));
+            let _ = before(&mut interface, &mut state, &context(&model, Some(rank)));
             assert_eq!(text(interface.preview_content(&state)), "item");
         }
     }
@@ -123,14 +123,14 @@ fn unbounded_cache_retains_more_than_the_default_capacity() {
 
 #[test]
 fn refresh_targets_the_event_item_and_waits_until_it_is_displayed() {
-    let driver = driver(["alpha", "beta", "missing"]);
+    let model = model(["alpha", "beta", "missing"]);
     let previewer = RefCell::new(TestPreviewer {
         lines: 20,
         ..TestPreviewer::default()
     });
     let mut interface = CachedPreview::new_single(&previewer);
-    let alpha = context(&driver, Some(0));
-    let beta = context(&driver, Some(1));
+    let alpha = context(&model, Some(0));
+    let beta = context(&model, Some(1));
     let mut state = interface.init(&alpha);
     interface.preview_resize(
         &mut state,
@@ -145,7 +145,7 @@ fn refresh_targets_the_event_item_and_waits_until_it_is_displayed() {
     for rank in [None, Some(2)] {
         assert!(
             interface
-                .preview_event(&mut state, PreviewEvent::Refresh, &context(&driver, rank))
+                .preview_event(&mut state, PreviewEvent::Refresh, &context(&model, rank))
                 .is_none()
         );
     }
@@ -169,14 +169,14 @@ fn refresh_targets_the_event_item_and_waits_until_it_is_displayed() {
 
 #[test]
 fn revisits_promote_queued_requests_but_preserve_active_work() {
-    let driver = driver(["alpha", "beta"]);
+    let model = model(["alpha", "beta"]);
     let previewer = RefCell::new(TestPreviewer {
         defer: true,
         ..TestPreviewer::default()
     });
     let mut interface = CachedPreview::new_single(&previewer);
-    let alpha = context(&driver, Some(0));
-    let beta = context(&driver, Some(1));
+    let alpha = context(&model, Some(0));
+    let beta = context(&model, Some(1));
     let mut state = interface.init(&alpha);
     for cx in [&alpha, &alpha, &beta, &alpha, &alpha] {
         let _ = before(&mut interface, &mut state, cx);
@@ -188,7 +188,7 @@ fn revisits_promote_queued_requests_but_preserve_active_work() {
         .take_request("alpha")
         .start()
         .unwrap();
-    let hidden = context(&driver, Some(1)).with_active_components(Components {
+    let hidden = context(&model, Some(1)).with_active_components(Components {
         preview: false,
         ..Components::ALL
     });
@@ -211,14 +211,14 @@ fn revisits_promote_queued_requests_but_preserve_active_work() {
 
 #[test]
 fn dropped_requests_retry_once_per_frame_and_can_eventually_complete() {
-    let driver = driver(["alpha"]);
+    let model = model(["alpha"]);
     let previewer = RefCell::new(TestPreviewer {
         defer: true,
         drop_requests: true,
         ..TestPreviewer::default()
     });
     let mut interface = CachedPreview::new_single(&previewer);
-    let cx = context(&driver, Some(0));
+    let cx = context(&model, Some(0));
     let mut state = interface.init(&cx);
     for count in 1..=3 {
         let _ = before(&mut interface, &mut state, &cx);
@@ -255,13 +255,13 @@ fn dropped_requests_retry_once_per_frame_and_can_eventually_complete() {
 #[test]
 fn refresh_and_eviction_cancel_outstanding_work() {
     for evict in [false, true] {
-        let driver = driver(["alpha", "beta"]);
+        let model = model(["alpha", "beta"]);
         let previewer = RefCell::new(TestPreviewer {
             defer: true,
             ..TestPreviewer::default()
         });
         let mut interface = CachedPreview::new_single(&previewer).cache_size(NonZero::new(1));
-        let alpha = context(&driver, Some(0));
+        let alpha = context(&model, Some(0));
         let mut state = interface.init(&alpha);
         let _ = before(&mut interface, &mut state, &alpha);
         let queued = previewer.borrow_mut().take_request("alpha");
@@ -276,7 +276,7 @@ fn refresh_and_eviction_cancel_outstanding_work() {
             .unwrap();
 
         previewer.borrow_mut().defer = false;
-        let cx = context(&driver, Some(u32::from(evict)));
+        let cx = context(&model, Some(u32::from(evict)));
         if !evict {
             let _ = interface.preview_event(&mut state, PreviewEvent::Refresh, &cx);
         }
@@ -290,13 +290,13 @@ fn refresh_and_eviction_cancel_outstanding_work() {
 
 #[test]
 fn pending_events_are_ignored_until_a_frame_collects_the_publication() {
-    let driver = driver(["alpha"]);
+    let model = model(["alpha"]);
     let previewer = RefCell::new(TestPreviewer {
         defer: true,
         ..TestPreviewer::default()
     });
     let mut interface = CachedPreview::new_single(&previewer);
-    let cx = context(&driver, Some(0));
+    let cx = context(&model, Some(0));
     let mut state = interface.init(&cx);
     interface.preview_resize(
         &mut state,
@@ -338,13 +338,13 @@ fn pending_events_are_ignored_until_a_frame_collects_the_publication() {
 
 #[test]
 fn events_use_delivered_dimensions_and_only_redraw_on_presentation_changes() {
-    let driver = driver(["abcdefghijklmnop"]);
+    let model = model(["abcdefghijklmnop"]);
     let previewer = RefCell::new(TestPreviewer {
         lines: 30,
         ..TestPreviewer::default()
     });
     let mut interface = CachedPreview::new_single(&previewer);
-    let cx = context(&driver, Some(0));
+    let cx = context(&model, Some(0));
     let mut state = interface.init(&cx);
     interface.preview_resize(
         &mut state,
@@ -399,14 +399,14 @@ fn events_use_delivered_dimensions_and_only_redraw_on_presentation_changes() {
 
 #[test]
 fn revisited_cached_previews_respect_resized_height() {
-    let driver = driver(["alpha", "beta"]);
+    let model = model(["alpha", "beta"]);
     let previewer = RefCell::new(TestPreviewer {
         lines: 30,
         ..TestPreviewer::default()
     });
     let mut interface = CachedPreview::new_single(&previewer);
-    let alpha = context(&driver, Some(0));
-    let beta = context(&driver, Some(1));
+    let alpha = context(&model, Some(0));
+    let beta = context(&model, Some(1));
     let mut state = interface.init(&alpha);
     interface.preview_resize(
         &mut state,
@@ -436,7 +436,7 @@ fn restart_and_finish_cancel_foreground_and_prefetch_before_clearing_hover() {
     use crate::session::FrameOptions;
 
     for restart in [false, true] {
-        let mut driver = driver(["alpha", "beta", "gamma"]);
+        let mut model = model(["alpha", "beta", "gamma"]);
         let previewer = RefCell::new(TestPreviewer {
             defer: true,
             prefetch_limit: 2,
@@ -444,7 +444,7 @@ fn restart_and_finish_cancel_foreground_and_prefetch_before_clearing_hover() {
             prefetch_defer: true,
             ..TestPreviewer::default()
         });
-        let mut session = driver.session(CachedPreview::new_single(&previewer));
+        let mut session = model.session(CachedPreview::new_single(&previewer));
         let options = || FrameOptions::new(deadline());
         session.prepare_frame(options()).complete();
         let foreground = previewer
@@ -513,13 +513,13 @@ fn reopening_coalesces_hidden_navigation_and_notifies_the_queued_hover_before_pr
         }
     }
 
-    let mut driver = driver(["alpha", "beta"]);
+    let mut model = model(["alpha", "beta"]);
     let previewer = RefCell::new(TestPreviewer {
         defer: true,
         ..TestPreviewer::default()
     });
     let active = RefCell::new(None);
-    let mut session = driver.session(CachedPreview::new_single(StartOnReveal {
+    let mut session = model.session(CachedPreview::new_single(StartOnReveal {
         previewer: &previewer,
         active: &active,
     }));

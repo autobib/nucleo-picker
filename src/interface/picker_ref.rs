@@ -14,7 +14,7 @@ use crate::{
     input,
     observer::Notifier,
     run::{self, RunnerConfig},
-    session::Driver,
+    session::Model,
     terminal::CrosstermTerminal,
 };
 
@@ -45,7 +45,7 @@ use crate::{
 /// }
 /// ```
 pub struct PickerRef<'a, T, R, I = Single> {
-    pub(crate) core: &'a mut Driver<T, R>,
+    pub(crate) core: &'a mut Model<T, R>,
     pub(crate) runner: RunnerConfig,
     pub(crate) restart_notifier: Option<&'a Notifier<Injector<T, R>>>,
     pub(crate) status_notifier: Option<&'a Notifier<PickerStatus>>,

@@ -1,12 +1,12 @@
 use std::time::Instant;
 
-use super::{Select, driver, frame_options};
+use super::{Select, frame_options, model};
 use crate::{
     event::{MatchListEvent, PromptEvent},
     interface::Interface,
     preview::PreviewEvent,
     render::StrRenderer,
-    session::{Components, Context, DriverOptions, Exit, ItemId, QueueEvent},
+    session::{Components, Context, Exit, ItemId, ModelOptions, QueueEvent},
 };
 
 struct Observation {
@@ -92,19 +92,19 @@ impl<const PREVIEW: bool> Interface<String> for Probe<'_, PREVIEW> {
 
 #[test]
 fn event_contexts_and_borrowed_output_use_navigation_without_publishing_matches() {
-    let mut driver = DriverOptions::new()
+    let mut model = ModelOptions::new()
         .sort_results(false)
         .query("ta")
-        .driver(StrRenderer);
-    driver.push_batch(["alpha", "beta", "delta"].map(str::to_owned));
-    driver.filter().unwrap();
-    let expected_ids: Vec<_> = driver.matches().ids().collect();
-    let selected_ptr = driver.matches().get(1).unwrap().value() as *const String;
+        .model(StrRenderer);
+    model.push_batch(["alpha", "beta", "delta"].map(str::to_owned));
+    model.filter().unwrap();
+    let expected_ids: Vec<_> = model.matches().ids().collect();
+    let selected_ptr = model.matches().get(1).unwrap().value() as *const String;
 
     let selected = {
         let mut observations = Vec::new();
         let mut interface = Probe::<false>(&mut observations);
-        let mut session = driver.session(&mut interface);
+        let mut session = model.session(&mut interface);
         {
             let mut batch = session.events();
             batch.match_list(MatchListEvent::UnqueueAll);
@@ -131,8 +131,8 @@ fn event_contexts_and_borrowed_output_use_navigation_without_publishing_matches(
 
     assert_eq!(selected, "delta");
     assert_eq!(selected as *const String, selected_ptr);
-    assert_eq!(driver.query(), "absent");
-    assert!(driver.filter().unwrap().is_empty());
+    assert_eq!(model.query(), "absent");
+    assert!(model.filter().unwrap().is_empty());
 }
 
 #[test]
@@ -153,9 +153,9 @@ fn hooks_observe_all_component_visibility_flags_and_normalize_unsupported_previe
                 preview: components.preview && PREVIEW,
                 ..components
             };
-            let mut driver = driver(["alpha"]);
+            let mut model = model(["alpha"]);
             let mut observations = Vec::new();
-            let mut session = driver.session(Probe::<PREVIEW>(&mut observations));
+            let mut session = model.session(Probe::<PREVIEW>(&mut observations));
             {
                 let mut batch = session.events();
                 batch.match_list(MatchListEvent::UnqueueAll);

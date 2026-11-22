@@ -15,10 +15,10 @@ fn previewer(limit: usize) -> RefCell<TestPreviewer> {
 
 #[test]
 fn idle_frames_prefetch_one_neighbour_in_distance_order_within_the_deadline() {
-    let driver = driver(["a", "b", "c", "d", "e", "f"]);
+    let model = model(["a", "b", "c", "d", "e", "f"]);
     let previewer = previewer(3);
     let mut interface = CachedPreview::new_single(&previewer);
-    let cx = context(&driver, Some(2));
+    let cx = context(&model, Some(2));
     let mut state = interface.init(&cx);
     assert_eq!(
         frame(&mut interface, &mut state, &cx, Instant::now()),
@@ -39,12 +39,12 @@ fn idle_frames_prefetch_one_neighbour_in_distance_order_within_the_deadline() {
 
 #[test]
 fn queued_work_gates_prefetch_and_started_work_is_reused_on_hover() {
-    let driver = driver(["a", "b", "c", "d", "e"]);
+    let model = model(["a", "b", "c", "d", "e"]);
     let previewer = previewer(4);
     previewer.borrow_mut().defer = true;
     previewer.borrow_mut().prefetch_defer = true;
     let mut interface = CachedPreview::new_single(&previewer);
-    let cx = context(&driver, Some(0));
+    let cx = context(&model, Some(0));
     let mut state = interface.init(&cx);
     for _ in 0..2 {
         let _ = frame(&mut interface, &mut state, &cx, deadline());
@@ -59,7 +59,7 @@ fn queued_work_gates_prefetch_and_started_work_is_reused_on_hover() {
     let _ = frame(&mut interface, &mut state, &cx, deadline());
     assert_eq!(previewer.borrow().prefetched, ["b", "c"]);
 
-    let next = context(&driver, Some(1));
+    let next = context(&model, Some(1));
     let _ = before(&mut interface, &mut state, &next);
     assert!(!neighbour.is_cancelled());
     assert!(previewer.borrow().queued[0].is_cancelled());
@@ -77,16 +77,16 @@ fn queued_work_gates_prefetch_and_started_work_is_reused_on_hover() {
 
 #[test]
 fn hovering_a_queued_prefetch_promotes_it_to_a_foreground_request() {
-    let driver = driver(["a", "b"]);
+    let model = model(["a", "b"]);
     let previewer = previewer(1);
     previewer.borrow_mut().prefetch_defer = true;
     let mut interface = CachedPreview::new_single(&previewer);
-    let cx = context(&driver, Some(0));
+    let cx = context(&model, Some(0));
     let mut state = interface.init(&cx);
     let _ = frame(&mut interface, &mut state, &cx, deadline());
     let queued = previewer.borrow_mut().take_request("b");
     previewer.borrow_mut().defer = true;
-    let next = context(&driver, Some(1));
+    let next = context(&model, Some(1));
     let _ = before(&mut interface, &mut state, &next);
     assert!(queued.is_cancelled());
     assert_eq!(previewer.borrow().requested, ["a", "b"]);
@@ -97,11 +97,11 @@ fn hovering_a_queued_prefetch_promotes_it_to_a_foreground_request() {
 
 #[test]
 fn refresh_invalidates_a_prefetched_result_before_it_is_displayed() {
-    let driver = driver(["a", "b"]);
+    let model = model(["a", "b"]);
     let previewer = previewer(1);
     let mut interface = CachedPreview::new_single(&previewer);
-    let current = context(&driver, Some(0));
-    let next = context(&driver, Some(1));
+    let current = context(&model, Some(0));
+    let next = context(&model, Some(1));
     let mut state = interface.init(&current);
     let _ = frame(&mut interface, &mut state, &current, deadline());
     assert_eq!(previewer.borrow().prefetched, ["b"]);
@@ -122,18 +122,18 @@ fn refresh_invalidates_a_prefetched_result_before_it_is_displayed() {
 
 #[test]
 fn filtering_replaces_stale_neighbours_without_regenerating_the_current_preview() {
-    let mut driver = driver(["alpha", "beta", "alpine", "alphabet"]);
+    let mut model = model(["alpha", "beta", "alpine", "alphabet"]);
     let previewer = previewer(1);
     previewer.borrow_mut().prefetch_defer = true;
     let mut interface = CachedPreview::new_single(&previewer);
-    let cx = context(&driver, Some(0));
+    let cx = context(&model, Some(0));
     let mut state = interface.init(&cx);
     let _ = frame(&mut interface, &mut state, &cx, deadline());
     let outdated = previewer.borrow_mut().take_request("beta");
 
-    driver.update_query("al");
-    driver.filter().unwrap();
-    let cx = context(&driver, Some(0));
+    model.update_query("al");
+    model.filter().unwrap();
+    let cx = context(&model, Some(0));
     assert!(
         interface
             .before_frame(&mut state, &cx, true, deadline())
@@ -149,18 +149,18 @@ fn filtering_replaces_stale_neighbours_without_regenerating_the_current_preview(
             .start()
             .unwrap(),
     );
-    let _ = before(&mut interface, &mut state, &context(&driver, Some(1)));
+    let _ = before(&mut interface, &mut state, &context(&model, Some(1)));
     assert_eq!(text(interface.preview_content(&state)), "alpine");
     assert_eq!(previewer.borrow().requested, ["alpha"]);
 }
 
 #[test]
 fn dropped_prefetches_retry_after_navigation_instead_of_every_idle_frame() {
-    let driver = driver(["a", "b", "c"]);
+    let model = model(["a", "b", "c"]);
     let previewer = previewer(1);
     previewer.borrow_mut().prefetch_defer = true;
     let mut interface = CachedPreview::new_single(&previewer);
-    let cx = context(&driver, Some(0));
+    let cx = context(&model, Some(0));
     let mut state = interface.init(&cx);
     let _ = frame(&mut interface, &mut state, &cx, deadline());
     drop(previewer.borrow_mut().take_request("b").start().unwrap());
@@ -168,30 +168,30 @@ fn dropped_prefetches_retry_after_navigation_instead_of_every_idle_frame() {
         let _ = frame(&mut interface, &mut state, &cx, deadline());
     }
     assert_eq!(previewer.borrow().prefetched, ["b"]);
-    let _ = before(&mut interface, &mut state, &context(&driver, Some(2)));
+    let _ = before(&mut interface, &mut state, &context(&model, Some(2)));
     let _ = frame(&mut interface, &mut state, &cx, deadline());
     assert_eq!(previewer.borrow().prefetched, ["b", "b"]);
     publish(previewer.borrow_mut().take_request("b").start().unwrap());
-    let _ = before(&mut interface, &mut state, &context(&driver, Some(1)));
+    let _ = before(&mut interface, &mut state, &context(&model, Some(1)));
     assert_eq!(text(interface.preview_content(&state)), "b");
     assert_eq!(previewer.borrow().requested, ["a", "c"]);
 }
 
 #[test]
 fn match_changes_while_hidden_allow_declined_prefetches_to_retry_on_reveal() {
-    let mut driver = driver(["a", "b", "c"]);
+    let mut model = model(["a", "b", "c"]);
     let previewer = previewer(1);
     previewer.borrow_mut().prefetch_enabled = false;
     let mut interface = CachedPreview::new_single(&previewer);
-    let cx = context(&driver, Some(0));
+    let cx = context(&model, Some(0));
     let mut state = interface.init(&cx);
     for _ in 0..2 {
         let _ = frame(&mut interface, &mut state, &cx, deadline());
     }
     assert_eq!(previewer.borrow().prefetched, ["b"]);
-    driver.push_batch(["d"]);
-    driver.filter().unwrap();
-    let hidden = context(&driver, Some(0)).with_active_components(Components {
+    model.push_batch(["d"]);
+    model.filter().unwrap();
+    let hidden = context(&model, Some(0)).with_active_components(Components {
         preview: false,
         ..Components::ALL
     });
@@ -200,34 +200,34 @@ fn match_changes_while_hidden_allow_declined_prefetches_to_retry_on_reveal() {
     assert_eq!(previewer.borrow().prefetched, ["b"]);
 
     previewer.borrow_mut().prefetch_enabled = true;
-    let cx = context(&driver, Some(0));
+    let cx = context(&model, Some(0));
     for _ in 0..2 {
         let _ = frame(&mut interface, &mut state, &cx, deadline());
     }
     assert_eq!(previewer.borrow().prefetched, ["b", "b"]);
-    let _ = before(&mut interface, &mut state, &context(&driver, Some(1)));
+    let _ = before(&mut interface, &mut state, &context(&model, Some(1)));
     assert_eq!(text(interface.preview_content(&state)), "b");
     assert_eq!(previewer.borrow().requested, ["a"]);
 }
 
 #[test]
 fn declined_prefetch_preserves_previous_results_and_active_requests() {
-    let driver = driver(["a", "b", "c", "d", "e", "f", "g", "h"]);
+    let model = model(["a", "b", "c", "d", "e", "f", "g", "h"]);
     let previewer = previewer(1);
     previewer.borrow_mut().prefetch_defer = true;
     let mut interface = CachedPreview::new_single(&previewer);
-    let mut state = interface.init(&context(&driver, Some(0)));
+    let mut state = interface.init(&context(&model, Some(0)));
     let _ = frame(
         &mut interface,
         &mut state,
-        &context(&driver, Some(0)),
+        &context(&model, Some(0)),
         deadline(),
     );
     publish(previewer.borrow_mut().take_request("b").start().unwrap());
     let _ = frame(
         &mut interface,
         &mut state,
-        &context(&driver, Some(7)),
+        &context(&model, Some(7)),
         deadline(),
     );
     let active = previewer.borrow_mut().take_request("g").start().unwrap();
@@ -236,7 +236,7 @@ fn declined_prefetch_preserves_previous_results_and_active_requests() {
         let _ = frame(
             &mut interface,
             &mut state,
-            &context(&driver, Some(4)),
+            &context(&model, Some(4)),
             deadline(),
         );
     }
@@ -246,7 +246,7 @@ fn declined_prefetch_preserves_previous_results_and_active_requests() {
     assert!(!active.is_cancelled());
     publish(active);
     for (rank, item) in [(1, "b"), (6, "g")] {
-        let _ = before(&mut interface, &mut state, &context(&driver, Some(rank)));
+        let _ = before(&mut interface, &mut state, &context(&model, Some(rank)));
         assert_eq!(text(interface.preview_content(&state)), item);
     }
     assert_eq!(previewer.borrow().requested, ["a", "h", "e"]);
@@ -254,11 +254,11 @@ fn declined_prefetch_preserves_previous_results_and_active_requests() {
 
 #[test]
 fn checking_cached_neighbours_preserves_main_cache_recency_and_scroll() {
-    let driver = driver(["a", "b", "c", "d"]);
+    let model = model(["a", "b", "c", "d"]);
     let previewer = previewer(1);
     previewer.borrow_mut().lines = 20;
     let mut interface = CachedPreview::new_single(&previewer).cache_size(NonZero::new(3));
-    let mut state = interface.init(&context(&driver, Some(1)));
+    let mut state = interface.init(&context(&model, Some(1)));
     interface.preview_resize(
         &mut state,
         Some(Dimensions {
@@ -267,22 +267,22 @@ fn checking_cached_neighbours_preserves_main_cache_recency_and_scroll() {
         }),
     );
     for rank in [1, 2, 0] {
-        let cx = context(&driver, Some(rank));
+        let cx = context(&model, Some(rank));
         let _ = before(&mut interface, &mut state, &cx);
         let _ = interface.preview_event(&mut state, PreviewEvent::Down(7), &cx);
     }
     let _ = frame(
         &mut interface,
         &mut state,
-        &context(&driver, Some(0)),
+        &context(&model, Some(0)),
         deadline(),
     );
     assert!(previewer.borrow().prefetched.is_empty());
     for rank in [3, 2] {
-        let _ = before(&mut interface, &mut state, &context(&driver, Some(rank)));
+        let _ = before(&mut interface, &mut state, &context(&model, Some(rank)));
     }
     assert_eq!(ready(interface.preview_content(&state)).offset(), (0, 7));
-    let _ = before(&mut interface, &mut state, &context(&driver, Some(1)));
+    let _ = before(&mut interface, &mut state, &context(&model, Some(1)));
     assert_eq!(ready(interface.preview_content(&state)).offset(), (0, 0));
     assert_eq!(previewer.borrow().requested, ["b", "c", "a", "d", "b"]);
 }
@@ -325,7 +325,7 @@ fn hover_callback_can_start_a_prefetch_before_stale_work_is_cancelled() {
         }
     }
 
-    let mut driver = driver(["alpha", "beta", "gamma"]);
+    let mut model = model(["alpha", "beta", "gamma"]);
     let previewer = previewer(1);
     previewer.borrow_mut().prefetch_defer = true;
     let active = RefCell::new(None);
@@ -333,12 +333,12 @@ fn hover_callback_can_start_a_prefetch_before_stale_work_is_cancelled() {
         previewer: &previewer,
         active: &active,
     });
-    let cx = context(&driver, Some(0));
+    let cx = context(&model, Some(0));
     let mut state = interface.init(&cx);
     let _ = frame(&mut interface, &mut state, &cx, deadline());
-    driver.update_query("beta");
-    driver.filter().unwrap();
-    let cx = context(&driver, Some(0));
+    model.update_query("beta");
+    model.filter().unwrap();
+    let cx = context(&model, Some(0));
     let _ = interface.before_frame(&mut state, &cx, true, deadline());
     let active = active.borrow_mut().take().unwrap();
     assert!(!active.is_cancelled());
@@ -350,12 +350,12 @@ fn hover_callback_can_start_a_prefetch_before_stale_work_is_cancelled() {
 
 #[test]
 fn immediately_dropped_prefetches_are_attempted_once_per_neighbour() {
-    let driver = driver(["a", "b", "c", "d"]);
+    let model = model(["a", "b", "c", "d"]);
     let previewer = previewer(3);
     previewer.borrow_mut().prefetch_defer = true;
     previewer.borrow_mut().drop_requests = true;
     let mut interface = CachedPreview::new_single(&previewer);
-    let cx = context(&driver, Some(0));
+    let cx = context(&model, Some(0));
     let mut state = interface.init(&cx);
     for count in 1..=5 {
         let _ = frame(&mut interface, &mut state, &cx, deadline());
@@ -366,29 +366,29 @@ fn immediately_dropped_prefetches_are_attempted_once_per_neighbour() {
 
 #[test]
 fn prefetch_eviction_cancels_active_work() {
-    let driver = driver(["a", "b", "c", "d", "e", "f", "g", "h"]);
+    let model = model(["a", "b", "c", "d", "e", "f", "g", "h"]);
     let previewer = previewer(1);
     previewer.borrow_mut().prefetch_defer = true;
     let mut interface = CachedPreview::new_single(&previewer);
-    let mut state = interface.init(&context(&driver, Some(0)));
+    let mut state = interface.init(&context(&model, Some(0)));
     let _ = frame(
         &mut interface,
         &mut state,
-        &context(&driver, Some(0)),
+        &context(&model, Some(0)),
         deadline(),
     );
     let first = previewer.borrow_mut().take_request("b").start().unwrap();
     let _ = frame(
         &mut interface,
         &mut state,
-        &context(&driver, Some(7)),
+        &context(&model, Some(7)),
         deadline(),
     );
     let second = previewer.borrow_mut().take_request("g").start().unwrap();
     let _ = frame(
         &mut interface,
         &mut state,
-        &context(&driver, Some(4)),
+        &context(&model, Some(4)),
         deadline(),
     );
     assert!(first.is_cancelled());

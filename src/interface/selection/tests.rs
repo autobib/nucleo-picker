@@ -2,28 +2,28 @@ use super::*;
 use crate::{
     interface::Single,
     render::StrRenderer,
-    session::{Driver, DriverOptions},
+    session::{Model, ModelOptions},
 };
 use std::{
     num::NonZero,
     panic::{AssertUnwindSafe, catch_unwind},
 };
 
-fn driver(items: impl IntoIterator<Item = &'static str>) -> Driver<&'static str, StrRenderer> {
-    let mut driver = DriverOptions::new()
+fn model(items: impl IntoIterator<Item = &'static str>) -> Model<&'static str, StrRenderer> {
+    let mut model = ModelOptions::new()
         .threads(NonZero::new(1))
         .sort_results(false)
-        .driver(StrRenderer);
-    driver.push_batch(items);
-    driver.filter().unwrap();
-    driver
+        .model(StrRenderer);
+    model.push_batch(items);
+    model.filter().unwrap();
+    model
 }
 
 #[test]
 fn selection_rejects_stale_and_foreign_output_identifiers() {
     for stale in [false, true] {
-        let mut source = driver(["original"]);
-        let other = driver(["other"]);
+        let mut source = model(["original"]);
+        let other = model(["other"]);
         let cx = Context::new(source.matches());
         let item = cx.matches().get(0).unwrap();
         let id = item.id();
@@ -62,8 +62,8 @@ fn selection_rejects_stale_and_foreign_output_identifiers() {
 
 #[test]
 fn queue_rejects_mixed_generations_until_existing_items_are_cleared() {
-    let source = driver(["zero", "one"]);
-    let other = driver(["other"]);
+    let source = model(["zero", "one"]);
+    let other = model(["other"]);
     let cx = Context::new(source.matches());
     let other_cx = Context::new(other.matches());
     let local = cx.matches().get(0).unwrap();
@@ -104,8 +104,8 @@ fn queue_rejects_mixed_generations_until_existing_items_are_cleared() {
 #[test]
 fn checked_and_unchecked_conversions_preserve_filtered_items_and_order() {
     for unchecked in [false, true] {
-        let mut driver = driver(["zero", "one", "two", "three", "four"]);
-        let cx = Context::new(driver.matches());
+        let mut model = model(["zero", "one", "two", "three", "four"]);
+        let cx = Context::new(model.matches());
         let mut multi = Multi::new();
         let mut state = multi.init(&cx);
         for rank in [4, 2, 0, 3, 1] {
@@ -115,8 +115,8 @@ fn checked_and_unchecked_conversions_preserve_filtered_items_and_order() {
                 &cx,
             ));
         }
-        driver.update_query("absent");
-        let matches = driver.filter().unwrap();
+        model.update_query("absent");
+        let matches = model.filter().unwrap();
         assert!(matches.is_empty());
         let selection = if unchecked {
             // SAFETY: filtering preserves the item storage that supplied every queued ID.
@@ -147,8 +147,8 @@ fn checked_and_unchecked_conversions_preserve_filtered_items_and_order() {
 
 #[test]
 fn finish_validates_only_items_in_the_effective_output() {
-    let source = driver(["original"]);
-    let other = driver(["other"]);
+    let source = model(["original"]);
+    let other = model(["other"]);
     let cx = Context::new(source.matches());
     let foreign = other.matches().get(0).unwrap().id();
     let mut multi = Multi::new();
@@ -170,14 +170,14 @@ fn finish_validates_only_items_in_the_effective_output() {
 
 #[test]
 fn queue_lifecycle_preserves_selection_order_and_obeys_the_limit() {
-    let mut driver = DriverOptions::new()
+    let mut model = ModelOptions::new()
         .threads(NonZero::new(1))
         .sort_results(false)
         .reverse_items(true)
-        .driver(StrRenderer);
-    driver.push_batch(["zero", "one", "two", "three"]);
-    driver.filter().unwrap();
-    let cx = Context::new(driver.matches());
+        .model(StrRenderer);
+    model.push_batch(["zero", "one", "two", "three"]);
+    model.filter().unwrap();
+    let cx = Context::new(model.matches());
     let toggle = |index: usize| QueueEvent::Toggle(cx.matches().get(3 - index).unwrap());
     let mut interface = Multi::new().max_selection_count(NonZero::new(2));
     let mut state = interface.init(&cx);

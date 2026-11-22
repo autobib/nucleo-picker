@@ -15,7 +15,7 @@ use crate::{
     observer::Notifier,
     preview::BoundaryChars,
     rect::Dimensions,
-    session::{Components, Driver, Exit, FrameOptions},
+    session::{Components, Exit, FrameOptions, Model},
     terminal::session,
 };
 
@@ -69,7 +69,7 @@ impl FrameTiming {
 }
 
 pub(crate) fn pick_impl<'items, T, R, E, W, I>(
-    driver: &'items mut Driver<T, R>,
+    model: &'items mut Model<T, R>,
     interface: &mut I,
     config: RunnerConfig,
     restart_notifier: Option<&Notifier<Injector<T, R>>>,
@@ -88,8 +88,8 @@ where
     let match_budget = timing.match_budget();
     let background_frame_frequency = timing.background_frame_frequency();
     let mut frame_start = Instant::now();
-    driver.update_matches(match_budget);
-    let mut picker = driver.session(interface);
+    model.update_matches(match_budget);
+    let mut picker = model.session(interface);
     let mut terminal = session(writer);
     terminal.init()?;
 

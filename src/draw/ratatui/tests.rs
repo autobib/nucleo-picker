@@ -8,7 +8,7 @@ use crate::{
     interface::Multi,
     preview::Content,
     render::StrRenderer,
-    session::{DriverOptions, tests::frame_options},
+    session::{ModelOptions, tests::frame_options},
 };
 
 fn dirty_cell() -> Cell {
@@ -410,13 +410,13 @@ fn preview_paints_split_graphemes_and_clears_its_buffer_region() {
 #[test]
 fn match_list_paints_unicode_highlights_and_full_row_padding() {
     let chars = PickerChars::new();
-    let mut driver = DriverOptions::new()
+    let mut model = ModelOptions::new()
         .query("e")
         .highlight_line(true)
-        .driver(StrRenderer);
-    driver.push_batch(["界e\u{301}"]);
-    driver.filter().unwrap();
-    let mut session = driver.session(Multi::new());
+        .model(StrRenderer);
+    model.push_batch(["界e\u{301}"]);
+    model.filter().unwrap();
+    let mut session = model.session(Multi::new());
     session.events().match_list(MatchListEvent::ToggleDown(0));
     let mut frame = session.prepare_frame(frame_options());
 

@@ -5,7 +5,7 @@ use crate::{
     event::MatchListEvent,
     interface::{Multi, Single},
     render::StrRenderer,
-    session::{Dimensions, DriverOptions, Exit, tests::frame_options},
+    session::{Dimensions, Exit, ModelOptions, tests::frame_options},
 };
 
 use super::{MatchList, MatchListView};
@@ -15,13 +15,13 @@ type Movement = fn(usize) -> MatchListEvent;
 #[test]
 fn navigation_survives_empty_dimensions_and_clamps_in_both_orientations() {
     for reversed in [false, true] {
-        let mut driver = DriverOptions::new()
+        let mut model = ModelOptions::new()
             .sort_results(false)
             .list_reversed(reversed)
-            .driver(StrRenderer);
-        driver.push_batch(["alpha", "beta", "gamma"]);
-        driver.filter().unwrap();
-        let mut session = driver.session(Single);
+            .model(StrRenderer);
+        model.push_batch(["alpha", "beta", "gamma"]);
+        model.filter().unwrap();
+        let mut session = model.session(Single);
         let (forward, backward): (Movement, Movement) = if reversed {
             (MatchListEvent::Down, MatchListEvent::Up)
         } else {
@@ -54,16 +54,16 @@ fn navigation_survives_empty_dimensions_and_clamps_in_both_orientations() {
 #[test]
 fn drawing_resizes_the_list_and_skips_empty_targets() {
     for reversed in [false, true] {
-        let mut driver = DriverOptions::new()
+        let mut model = ModelOptions::new()
             .sort_results(false)
             .list_reversed(reversed)
-            .driver(StrRenderer);
-        driver.push_batch(["first\nsecond", "third"]);
-        driver.filter().unwrap();
-        let mut list = MatchList::new(&mut driver.list_state, &driver.chars);
+            .model(StrRenderer);
+        model.push_batch(["first\nsecond", "third"]);
+        model.filter().unwrap();
+        let mut list = MatchList::new(&mut model.list_state, &model.chars);
         let mut view = MatchListView {
             list: &mut list,
-            engine: &driver.engine,
+            engine: &model.engine,
             interface: &Single,
             state: &(),
         };
@@ -73,13 +73,13 @@ fn drawing_resizes_the_list_and_skips_empty_targets() {
             let mut target = TestSurface::new(width, height);
             view.draw(&mut target).unwrap();
             assert_eq!(target.touched, width != 0 && height != 0);
-            assert_eq!(view.list.hovered_rank(&driver.engine), Some(0));
+            assert_eq!(view.list.hovered_rank(&model.engine), Some(0));
             if width != 0 && height != 0 {
                 assert!(
                     target
                         .rows
                         .iter()
-                        .any(|row| row.starts_with(driver.chars.hover))
+                        .any(|row| row.starts_with(model.chars.hover))
                 );
             }
         }
@@ -89,13 +89,13 @@ fn drawing_resizes_the_list_and_skips_empty_targets() {
 #[test]
 fn a_full_queue_blocks_insertion_movement_but_allows_removal_movement() {
     for reversed in [false, true] {
-        let mut driver = DriverOptions::new()
+        let mut model = ModelOptions::new()
             .sort_results(false)
             .list_reversed(reversed)
-            .driver(StrRenderer);
-        driver.push_batch(["alpha", "beta", "gamma"]);
-        driver.filter().unwrap();
-        let mut session = driver.session(Multi::new().max_selection_count(NonZero::new(1)));
+            .model(StrRenderer);
+        model.push_batch(["alpha", "beta", "gamma"]);
+        model.filter().unwrap();
+        let mut session = model.session(Multi::new().max_selection_count(NonZero::new(1)));
         let toggle = if reversed {
             MatchListEvent::ToggleDown
         } else {
@@ -123,13 +123,13 @@ fn a_full_queue_blocks_insertion_movement_but_allows_removal_movement() {
 #[expect(deprecated)]
 fn range_queueing_traverses_existing_entries_at_capacity() {
     for reversed in [false, true] {
-        let mut driver = DriverOptions::new()
+        let mut model = ModelOptions::new()
             .sort_results(false)
             .list_reversed(reversed)
-            .driver(StrRenderer);
-        driver.push_batch(["alpha", "beta", "gamma"]);
-        driver.filter().unwrap();
-        let mut session = driver.session(Multi::new().max_selection_count(NonZero::new(2)));
+            .model(StrRenderer);
+        model.push_batch(["alpha", "beta", "gamma"]);
+        model.filter().unwrap();
+        let mut session = model.session(Multi::new().max_selection_count(NonZero::new(2)));
         let (toggle, queue): (Movement, Movement) = if reversed {
             (MatchListEvent::ToggleDown, MatchListEvent::QueueBelow)
         } else {

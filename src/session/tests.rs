@@ -9,7 +9,7 @@ use crate::{
     Render, Terminal,
     interface::Interface,
     render::StrRenderer,
-    session::{Dimensions, Driver, DriverOptions, FrameOptions, Session},
+    session::{Dimensions, FrameOptions, Model, ModelOptions, Session},
 };
 
 pub(crate) use crate::interface::Single as Select;
@@ -44,11 +44,11 @@ pub(crate) fn update<T: Send + Sync + 'static, R: Render<T>, I: Interface<T>>(
     }
 }
 
-fn driver(items: impl IntoIterator<Item = &'static str>) -> Driver<String, StrRenderer> {
-    let mut driver = DriverOptions::new().sort_results(false).driver(StrRenderer);
-    driver.push_batch(items.into_iter().map(str::to_owned));
-    driver.filter().unwrap();
-    driver
+fn model(items: impl IntoIterator<Item = &'static str>) -> Model<String, StrRenderer> {
+    let mut model = ModelOptions::new().sort_results(false).model(StrRenderer);
+    model.push_batch(items.into_iter().map(str::to_owned));
+    model.filter().unwrap();
+    model
 }
 
 #[derive(Default)]

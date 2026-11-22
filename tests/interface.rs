@@ -13,7 +13,7 @@ use nucleo_picker::{
     interface::{Interface, Multi, Single, UncachedPreview},
     preview::{Content, Pane, PreviewEvent},
     render::StrRenderer,
-    session::{Components, Context, Dimensions, DriverOptions, Exit, ItemId, QueueStatus},
+    session::{Components, Context, Dimensions, Exit, ItemId, ModelOptions, QueueStatus},
 };
 
 #[derive(Default)]
@@ -84,7 +84,7 @@ fn options() -> PickerOptions {
 }
 
 #[test]
-fn driver_output_outlives_a_temporary_interface() {
+fn model_output_outlives_a_temporary_interface() {
     struct Last<'a>(&'a Cell<bool>);
 
     impl Interface<String> for Last<'_> {
@@ -104,21 +104,21 @@ fn driver_output_outlives_a_temporary_interface() {
         }
     }
 
-    let mut driver = DriverOptions::new().sort_results(false).driver(StrRenderer);
-    driver.push_batch(["alpha", "beta"].map(str::to_owned));
-    driver.filter().unwrap();
+    let mut model = ModelOptions::new().sort_results(false).model(StrRenderer);
+    model.push_batch(["alpha", "beta"].map(str::to_owned));
+    model.filter().unwrap();
     let selected = {
         let ended = Cell::new(false);
         let mut interface = Last(&ended);
-        let mut session = driver.session(&mut interface);
+        let mut session = model.session(&mut interface);
         let exit = Exit::Selected(session.events().hovered_id());
         session.finish(exit)
     };
     assert_eq!(selected.unwrap(), "beta");
 
-    driver.update_query("^alpha$");
-    driver.filter().unwrap();
-    let mut session = driver.session(Single);
+    model.update_query("^alpha$");
+    model.filter().unwrap();
+    let mut session = model.session(Single);
     let exit = Exit::Selected(session.events().hovered_id());
     let selected = session.finish(exit);
     assert_eq!(selected.unwrap(), "alpha");

@@ -9,7 +9,7 @@ use crate::{
     rect::Area,
     render::StrRenderer,
     session::{
-        Components, Context, Dimensions, DriverOptions, Exit,
+        Components, Context, Dimensions, Exit, ModelOptions,
         tests::{Select, TestTerminal, frame_options},
     },
 };
@@ -83,8 +83,8 @@ fn render(
     size: (u16, u16),
     interface: impl Interface<&'static str>,
 ) -> String {
-    let mut driver = DriverOptions::new().driver(StrRenderer);
-    let mut session = driver.session(interface);
+    let mut model = ModelOptions::new().model(StrRenderer);
+    let mut session = model.session(interface);
     let layout = Layout::new(dimensions(size), false, 0.5, session.active_components());
     let mut initial = session.prepare_frame(frame_options());
     super::draw(
@@ -166,8 +166,8 @@ fn host_repaints_respect_component_boundaries_without_changing_the_frame() {
 
 #[test]
 fn moved_and_empty_layout_is_applied_while_painting() {
-    let mut driver = DriverOptions::new().driver::<&str, _>(StrRenderer);
-    let mut session = driver.session(Select);
+    let mut model = ModelOptions::new().model::<&str, _>(StrRenderer);
+    let mut session = model.session(Select);
     session.prepare_frame(frame_options()).complete();
     let mut layout = Layout::new(dimensions((20, 8)), false, 0.5, session.active_components());
     for (width, height) in [(20, 8), (0, 8), (20, 0), (20, 8)] {
@@ -219,8 +219,8 @@ fn moved_and_empty_layout_is_applied_while_painting() {
 #[test]
 fn hidden_and_empty_components_are_sized_without_repaint_requests() {
     let resizes = RefCell::new(Vec::new());
-    let mut driver = DriverOptions::new().driver::<&str, _>(StrRenderer);
-    let mut session = driver.session(EmptyPreview(Some(&resizes)));
+    let mut model = ModelOptions::new().model::<&str, _>(StrRenderer);
+    let mut session = model.session(EmptyPreview(Some(&resizes)));
     let mut layout = Layout::new(dimensions((20, 4)), false, 0.5, session.active_components());
     for (shown, size) in [
         (true, (20, 4)),
@@ -423,8 +423,8 @@ fn preview_border_reads_content_after_resize() {
         }
     }
 
-    let mut driver = DriverOptions::new().driver(StrRenderer);
-    let mut session = driver.session(ResizeError);
+    let mut model = ModelOptions::new().model(StrRenderer);
+    let mut session = model.session(ResizeError);
     let layout = Layout::new(dimensions((30, 5)), false, 0.5, session.active_components());
     let mut frame = session.prepare_frame(frame_options());
     let mut terminal = TestTerminal::default();
@@ -485,8 +485,8 @@ fn empty_and_tiny_targets_keep_preview_borders_in_bounds() {
 #[test]
 fn preview_resize_reaches_hidden_and_empty_targets() {
     let resizes = RefCell::new(Vec::new());
-    let mut driver = DriverOptions::new().driver(StrRenderer);
-    let mut session = driver.session(EmptyPreview(Some(&resizes)));
+    let mut model = ModelOptions::new().model(StrRenderer);
+    let mut session = model.session(EmptyPreview(Some(&resizes)));
     let mut layout = Layout::new(dimensions((20, 5)), false, 0.5, session.active_components());
     for (size, enabled) in [
         ((20, 5), true),

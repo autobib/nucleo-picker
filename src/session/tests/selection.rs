@@ -1,6 +1,6 @@
 use std::num::NonZero;
 
-use super::{driver, frame_options, update};
+use super::{frame_options, model, update};
 use crate::{
     event::{MatchListEvent, PromptEvent},
     interface::Interface,
@@ -68,8 +68,8 @@ impl Interface<String> for QueueFirst {
 
 #[test]
 fn custom_queue_hooks_control_navigation_and_allow_selection_after_filtering() {
-    let mut driver = driver(["alpha", "beta", "gamma"]);
-    let mut session = driver.session(QueueFirst::default());
+    let mut model = model(["alpha", "beta", "gamma"]);
+    let mut session = model.session(QueueFirst::default());
     {
         let mut batch = session.events();
         assert_eq!(batch.queue_status().unwrap().count, 0);
@@ -103,11 +103,11 @@ fn custom_queue_hooks_control_navigation_and_allow_selection_after_filtering() {
 
 #[test]
 fn restart_notifies_with_event_time_context_and_replaces_items_without_resetting_the_query() {
-    let mut driver = driver(["alpha", "beta"]);
-    let old_hovered = driver.matches().get(1).unwrap().id();
-    let old_injector = driver.injector();
+    let mut model = model(["alpha", "beta"]);
+    let old_hovered = model.matches().get(1).unwrap().id();
+    let old_injector = model.injector();
     let mut interface = QueueFirst::default();
-    let mut session = driver.session(&mut interface);
+    let mut session = model.session(&mut interface);
     {
         let mut batch = session.events();
         batch.match_list(MatchListEvent::ToggleUp(1));
@@ -129,5 +129,5 @@ fn restart_notifies_with_event_time_context_and_replaces_items_without_resetting
     let exit = Exit::Selected(session.events().hovered_id());
     assert_eq!(session.finish(exit).unwrap(), "gamma");
     assert_eq!(interface.restarts, [Some(old_hovered), None]);
-    assert_eq!(driver.query(), "a");
+    assert_eq!(model.query(), "a");
 }

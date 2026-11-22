@@ -5,7 +5,7 @@ use crate::{
     event::MatchListEvent,
     interface::{
         CachedPreview,
-        controller::tests::support::{TestPreviewer, driver, ready},
+        controller::tests::support::{TestPreviewer, model, ready},
     },
     preview::PreviewEvent,
     session::Dimensions,
@@ -13,12 +13,12 @@ use crate::{
 
 #[test]
 fn buffered_navigation_targets_cached_event_items_without_generating_unseen_previews() {
-    let mut driver = driver(["alpha", "beta", "unseen"]);
+    let mut model = model(["alpha", "beta", "unseen"]);
     let previewer = RefCell::new(TestPreviewer {
         lines: 30,
         ..TestPreviewer::default()
     });
-    let mut session = driver.session(CachedPreview::new_single(&previewer));
+    let mut session = model.session(CachedPreview::new_single(&previewer));
     let mut initial = session.prepare_frame(frame_options());
     initial.preview().resize(Dimensions {
         width: 30,

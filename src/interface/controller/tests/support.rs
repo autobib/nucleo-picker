@@ -10,26 +10,26 @@ use crate::{
         request::{ActiveRequest, QueuedRequest, Request, Response},
     },
     render::StrRenderer,
-    session::{Components, Context, Driver, DriverOptions, ItemId, ItemRef},
+    session::{Components, Context, ItemId, ItemRef, Model, ModelOptions},
 };
 
-pub(crate) fn driver(
+pub(crate) fn model(
     items: impl IntoIterator<Item = &'static str>,
-) -> Driver<&'static str, StrRenderer> {
-    let mut driver = DriverOptions::new()
+) -> Model<&'static str, StrRenderer> {
+    let mut model = ModelOptions::new()
         .reverse_items(false)
         .sort_results(false)
-        .driver(StrRenderer);
-    driver.push_batch(items);
-    driver.filter().unwrap();
-    driver
+        .model(StrRenderer);
+    model.push_batch(items);
+    model.filter().unwrap();
+    model
 }
 
 pub(crate) fn context<'a>(
-    driver: &'a Driver<&'static str, StrRenderer>,
+    model: &'a Model<&'static str, StrRenderer>,
     rank: Option<u32>,
 ) -> Context<'a, &'static str> {
-    Context::new(driver.matches())
+    Context::new(model.matches())
         .with_rank(rank)
         .with_active_components(Components::ALL)
 }

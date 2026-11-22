@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use super::{Select, driver, frame_options, update};
+use super::{Select, frame_options, model, update};
 use crate::{
     component::tests::TestSurface,
     event::{MatchListEvent, PromptEvent},
@@ -12,7 +12,7 @@ use crate::{
     preview::{BoundaryChars, PreviewEvent},
     rect::{Area, ClearState, CrosstermTarget},
     render::StrRenderer,
-    session::{Components, Context, Dimensions, DriverOptions, Exit, Position},
+    session::{Components, Context, Dimensions, Exit, ModelOptions, Position},
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -113,9 +113,9 @@ impl Interface<String> for Probe {
 
 #[test]
 fn host_presentation_changes_do_not_invalidate_session_content() {
-    let mut driver = driver(["alpha", "beta"]);
+    let mut model = model(["alpha", "beta"]);
     let mut probe = Probe::default();
-    let mut session = driver.session(&mut probe);
+    let mut session = model.session(&mut probe);
     session.prepare_frame(frame_options()).complete();
     for (width, height) in [(20, 7), (13, 4), (0, 4), (13, 0), (20, 7)] {
         let mut frame = session.prepare_frame(frame_options());
@@ -146,12 +146,12 @@ fn host_presentation_changes_do_not_invalidate_session_content() {
 fn construction_leaves_unpublished_items_for_an_explicit_update() {
     for (query, matched) in [("", 2), ("^alpha$", 1)] {
         let mut probe = Probe::default();
-        let mut driver = DriverOptions::new()
+        let mut model = ModelOptions::new()
             .sort_results(false)
             .query(query)
-            .driver(StrRenderer);
-        driver.push_batch(["alpha", "beta"].map(str::to_owned));
-        let mut session = driver.session(&mut probe);
+            .model(StrRenderer);
+        model.push_batch(["alpha", "beta"].map(str::to_owned));
+        let mut session = model.session(&mut probe);
         let initial = session.match_status();
         assert_eq!(initial.item_count, 0);
         assert_eq!(initial.matched_item_count, 0);
@@ -172,10 +172,10 @@ fn construction_leaves_unpublished_items_for_an_explicit_update() {
 
 #[test]
 fn construction_preserves_the_published_snapshot_after_query_edits_and_restarts() {
-    let mut driver = driver(["alpha", "beta"]);
-    driver.update_query("^beta$");
+    let mut model = model(["alpha", "beta"]);
+    model.update_query("^beta$");
     let mut probe = Probe::default();
-    let session = driver.session(&mut probe);
+    let session = model.session(&mut probe);
     assert_eq!(session.query(), "^beta$");
     assert_eq!(session.match_status().matched_item_count, 2);
     assert!(session.match_status().matching);
@@ -185,12 +185,12 @@ fn construction_preserves_the_published_snapshot_after_query_edits_and_restarts(
 
     for reset_renderer in [false, true] {
         if reset_renderer {
-            driver.reset_renderer(StrRenderer);
+            model.reset_renderer(StrRenderer);
         } else {
-            driver.restart();
+            model.restart();
         }
-        driver.push_batch(["replacement".to_owned()]);
-        let mut session = driver.session(Select);
+        model.push_batch(["replacement".to_owned()]);
+        let mut session = model.session(Select);
         assert_eq!(session.match_status().item_count, 0);
         assert!(session.match_status().matching);
         assert!(!session.match_status().injecting);
@@ -202,22 +202,19 @@ fn construction_preserves_the_published_snapshot_after_query_edits_and_restarts(
 
 #[test]
 fn headless_updates_reconcile_the_hover_before_interface_initialization() {
-    let mut driver = driver(["alpha", "beta", "gamma"]);
-    driver
+    let mut model = model(["alpha", "beta", "gamma"]);
+    model
         .session(Select)
         .events()
         .match_list(MatchListEvent::Up(2));
-    driver.update_query("^beta$");
+    model.update_query("^beta$");
     let deadline = Instant::now() + Duration::from_secs(5);
-    while !driver
-        .update_matches(Duration::from_millis(5))
-        .is_complete()
-    {
+    while !model.update_matches(Duration::from_millis(5)).is_complete() {
         assert!(Instant::now() < deadline, "matching did not complete");
         std::thread::yield_now();
     }
     let mut probe = Probe::default();
-    let session = driver.session(&mut probe);
+    let session = model.session(&mut probe);
     assert_eq!(session.hovered_rank(), Some(0));
     assert_eq!(session.match_status().matched_item_count, 1);
     assert!(!session.match_status().items_changed);
@@ -227,10 +224,10 @@ fn headless_updates_reconcile_the_hover_before_interface_initialization() {
 
 #[test]
 fn observations_do_not_advance_matching_or_run_frame_hooks() {
-    let mut driver = driver(["alpha", "beta"]);
-    let expected_hovered = driver.matches().get(1).unwrap().id();
+    let mut model = model(["alpha", "beta"]);
+    let expected_hovered = model.matches().get(1).unwrap().id();
     let mut probe = Probe::default();
-    let mut session = driver.session(&mut probe);
+    let mut session = model.session(&mut probe);
     let initial = session.match_status();
     assert_eq!(initial.matched_item_count, 2);
     {
@@ -254,12 +251,12 @@ fn observations_do_not_advance_matching_or_run_frame_hooks() {
 
 #[test]
 fn observations_preserve_pending_and_idle_frame_state() {
-    let mut driver = driver(["alpha", "beta"]);
+    let mut model = model(["alpha", "beta"]);
     let mut probe = Probe {
         after_redraw: vec![Components::PREVIEW].into_iter(),
         ..Probe::default()
     };
-    let mut session = driver.session(&mut probe);
+    let mut session = model.session(&mut probe);
     session.prepare_frame(frame_options()).complete();
     for redraw in [Components::PREVIEW, Components::NONE] {
         let hovered = session.hovered().unwrap().id();
@@ -279,10 +276,10 @@ fn observations_preserve_pending_and_idle_frame_state() {
 
 #[test]
 fn batch_query_reads_allow_more_events_without_advancing_matching_or_frame_hooks() {
-    let mut driver = driver(["alpha", "beta", "gamma"]);
-    let expected_hovered = driver.matches().get(2).unwrap().id();
+    let mut model = model(["alpha", "beta", "gamma"]);
+    let expected_hovered = model.matches().get(2).unwrap().id();
     let mut probe = Probe::default();
-    let mut session = driver.session(&mut probe);
+    let mut session = model.session(&mut probe);
     let initial = session.match_status();
     session.prepare_frame(frame_options()).complete();
     {
@@ -319,8 +316,8 @@ fn batch_query_reads_allow_more_events_without_advancing_matching_or_frame_hooks
 
 #[test]
 fn flushed_prompt_changes_survive_later_batches_and_matching_updates() {
-    let mut driver = driver(["alpha", "beta"]);
-    let mut session = driver.session(Select);
+    let mut model = model(["alpha", "beta"]);
+    let mut session = model.session(Select);
     session.prepare_frame(frame_options()).complete();
     {
         let mut batch = session.events();
@@ -339,9 +336,9 @@ fn flushed_prompt_changes_survive_later_batches_and_matching_updates() {
 
 #[test]
 fn preview_events_use_event_time_context_and_last_delivered_size_even_when_hidden() {
-    let mut driver = driver(["alpha", "beta"]);
+    let mut model = model(["alpha", "beta"]);
     let mut probe = Probe::default();
-    let mut session = driver.session(&mut probe);
+    let mut session = model.session(&mut probe);
     let mut initial = session.prepare_frame(frame_options());
     initial.preview().resize(Dimensions::default());
     initial.complete();
@@ -400,9 +397,9 @@ fn preview_events_use_event_time_context_and_last_delivered_size_even_when_hidde
 
 #[test]
 fn enabled_preview_receives_events_without_items_or_delivered_dimensions() {
-    let mut driver = driver([]);
+    let mut model = model([]);
     let mut probe = Probe::default();
-    let mut session = driver.session(&mut probe);
+    let mut session = model.session(&mut probe);
     session.events().preview(PreviewEvent::Refresh);
     drop(session);
     assert!(probe.calls.contains(&Call::Preview(None, None, true)));
@@ -410,12 +407,12 @@ fn enabled_preview_receives_events_without_items_or_delivered_dimensions() {
 
 #[test]
 fn idle_completion_retains_invalidations_and_abandoned_frames_require_a_full_repaint() {
-    let mut driver = driver(["alpha", "beta"]);
+    let mut model = model(["alpha", "beta"]);
     let mut probe = Probe {
         after_redraw: vec![Components::NONE, Components::PREVIEW].into_iter(),
         ..Probe::default()
     };
-    let mut session = driver.session(&mut probe);
+    let mut session = model.session(&mut probe);
     let initial = session.prepare_frame(frame_options());
     assert!(initial.redraw().is_all());
     initial.complete();
@@ -434,12 +431,12 @@ fn idle_completion_retains_invalidations_and_abandoned_frames_require_a_full_rep
 
 #[test]
 fn hidden_component_invalidations_are_acknowledged_by_completion() {
-    let mut driver = driver(["alpha"]);
+    let mut model = model(["alpha"]);
     let mut probe = Probe {
         after_redraw: vec![Components::ALL].into_iter(),
         ..Probe::default()
     };
-    let mut session = driver.session(&mut probe);
+    let mut session = model.session(&mut probe);
     session.events().set_active_components(Components::NONE);
     session.prepare_frame(frame_options()).complete();
 
@@ -455,9 +452,9 @@ fn hidden_component_invalidations_are_acknowledged_by_completion() {
 
 #[test]
 fn visibility_changes_persist_and_request_redraw_until_completed() {
-    let mut driver = driver(["alpha"]);
+    let mut model = model(["alpha"]);
     let mut probe = Probe::default();
-    let mut session = driver.session(&mut probe);
+    let mut session = model.session(&mut probe);
     assert!(session.active_components().is_all());
     session.prepare_frame(frame_options()).complete();
 
@@ -523,8 +520,8 @@ fn visibility_changes_persist_and_request_redraw_until_completed() {
 
 #[test]
 fn unsupported_preview_is_excluded_without_requesting_a_redraw() {
-    let mut driver = driver(["alpha"]);
-    let mut session = driver.session(Select);
+    let mut model = model(["alpha"]);
+    let mut session = model.session(Select);
     let supported = Components {
         preview: false,
         ..Components::ALL
@@ -554,9 +551,9 @@ fn unsupported_preview_is_excluded_without_requesting_a_redraw() {
 
 #[test]
 fn hidden_components_do_not_paint_nonempty_targets_or_expose_a_cursor() {
-    let mut driver = driver(["alpha"]);
+    let mut model = model(["alpha"]);
     let mut probe = Probe::default();
-    let mut session = driver.session(&mut probe);
+    let mut session = model.session(&mut probe);
     for active in [Components::NONE, Components::ALL] {
         session.events().set_active_components(active);
         let mut frame = session.prepare_frame(frame_options());
@@ -583,9 +580,9 @@ fn hidden_components_do_not_paint_nonempty_targets_or_expose_a_cursor() {
 
 #[test]
 fn content_invalidations_coalesce_across_batches_until_frame_completion() {
-    let mut driver = driver(["alpha", "beta"]);
+    let mut model = model(["alpha", "beta"]);
     let mut probe = Probe::default();
-    let mut session = driver.session(&mut probe);
+    let mut session = model.session(&mut probe);
     session.prepare_frame(frame_options()).complete();
     let idle = session.prepare_frame(frame_options());
     assert!(!idle.changed());
@@ -625,9 +622,9 @@ fn a_failed_paint_can_be_retried_without_repeating_frame_hooks_or_preview_resize
         }
     }
 
-    let mut driver = driver(["alpha", "beta"]);
+    let mut model = model(["alpha", "beta"]);
     let mut probe = Probe::default();
-    let mut session = driver.session(&mut probe);
+    let mut session = model.session(&mut probe);
     let mut frame = session.prepare_frame(frame_options());
     let area = Area {
         column: 9,
@@ -665,9 +662,9 @@ fn a_failed_paint_can_be_retried_without_repeating_frame_hooks_or_preview_resize
 #[test]
 fn preview_resize_delivers_first_changed_zero_and_restored_content_sizes() {
     for draw in [false, true] {
-        let mut driver = driver(["alpha"]);
+        let mut model = model(["alpha"]);
         let mut probe = Probe::default();
-        let mut session = driver.session(&mut probe);
+        let mut session = model.session(&mut probe);
         for (width, height) in [
             (13, 7),
             (13, 7),
@@ -733,9 +730,9 @@ fn preview_resize_delivers_first_changed_zero_and_restored_content_sizes() {
 
 #[test]
 fn prepared_preview_delivers_content_sizes_for_bordered_targets() {
-    let mut driver = driver(["alpha"]);
+    let mut model = model(["alpha"]);
     let mut probe = Probe::default();
-    let mut session = driver.session(&mut probe);
+    let mut session = model.session(&mut probe);
     for (width, height, active) in [
         (13, 7, true),
         (13, 7, true),
@@ -800,9 +797,9 @@ fn prepared_preview_delivers_content_sizes_for_bordered_targets() {
 
 #[test]
 fn prepared_preview_border_changes_do_not_invalidate_or_repeat_content_resize() {
-    let mut driver = driver(["alpha"]);
+    let mut model = model(["alpha"]);
     let mut probe = Probe::default();
-    let mut session = driver.session(&mut probe);
+    let mut session = model.session(&mut probe);
     let mut initial = session.prepare_frame(frame_options());
     initial.preview().resize(Dimensions {
         width: 13,
@@ -840,9 +837,9 @@ fn prepared_preview_border_changes_do_not_invalidate_or_repeat_content_resize() 
 
 #[test]
 fn initially_disabled_preview_is_distinct_from_enabled_zero_size() {
-    let mut driver = driver(["alpha"]);
+    let mut model = model(["alpha"]);
     let mut probe = Probe::default();
-    let mut session = driver.session(&mut probe);
+    let mut session = model.session(&mut probe);
     for enabled in [false, true] {
         session.events().set_active_components(Components {
             preview: enabled,
@@ -868,9 +865,9 @@ fn initially_disabled_preview_is_distinct_from_enabled_zero_size() {
 
 #[test]
 fn repainting_unchanged_widgets_into_fresh_buffers_preserves_logical_frame_state() {
-    let mut driver = driver(["alpha", "beta"]);
+    let mut model = model(["alpha", "beta"]);
     let mut probe = Probe::default();
-    let mut session = driver.session(&mut probe);
+    let mut session = model.session(&mut probe);
     let mut previous = None;
     let [prompt, list, status, preview] = [
         (7, 11, 20, 1),
@@ -917,8 +914,8 @@ fn repainting_unchanged_widgets_into_fresh_buffers_preserves_logical_frame_state
 
 #[test]
 fn size_only_prompt_preparation_sets_local_cursor_and_subsequent_paint() {
-    let mut driver = driver(["alpha"]);
-    let mut session = driver.session(Select);
+    let mut model = model(["alpha"]);
+    let mut session = model.session(Select);
     session
         .events()
         .prompt(PromptEvent::Reset("ＡＡＡＡＡ".to_owned()));
@@ -968,8 +965,8 @@ fn size_only_prompt_preparation_sets_local_cursor_and_subsequent_paint() {
 
 #[test]
 fn grapheme_width_is_used_for_prompt_events_between_frames() {
-    let mut driver = driver(["alpha"]);
-    let mut session = driver.session(Select);
+    let mut model = model(["alpha"]);
+    let mut session = model.session(Select);
     let mut frame = session.prepare_frame(frame_options());
     frame.prompt().resize(Dimensions {
         width: 12,
@@ -1002,8 +999,8 @@ fn ratatui_prompt_edits_use_grapheme_widths_at_unchanged_dimensions() {
     use crate::draw::ratatui::RatatuiSurface;
 
     for draw_first in [false, true] {
-        let mut driver = driver(["alpha"]);
-        let mut session = driver.session(Select);
+        let mut model = model(["alpha"]);
+        let mut session = model.session(Select);
         let area = Rect::new(9, 4, 12, 1);
         let mut buffer = Buffer::empty(area);
         let mut frame = session.prepare_frame(frame_options());
@@ -1048,17 +1045,17 @@ fn ratatui_prompt_edits_use_grapheme_widths_at_unchanged_dimensions() {
 #[test]
 fn abandonment_commits_edits_and_unwinding_skips_interface_cleanup() {
     for panic in [false, true] {
-        let mut driver = driver(["alpha", "beta"]);
+        let mut model = model(["alpha", "beta"]);
         let mut probe = Probe::default();
         let result = catch_unwind(AssertUnwindSafe(|| {
-            let mut session = driver.session(&mut probe);
+            let mut session = model.session(&mut probe);
             let mut batch = session.events();
             batch.prompt(PromptEvent::Insert('x'));
             batch.match_list(MatchListEvent::Up(1));
             assert!(!panic, "unwind with an active batch");
         }));
         assert_eq!(result.is_err(), panic);
-        assert_eq!(driver.query(), "x");
+        assert_eq!(model.query(), "x");
         assert_eq!(
             probe
                 .calls
@@ -1068,6 +1065,6 @@ fn abandonment_commits_edits_and_unwinding_skips_interface_cleanup() {
             usize::from(!panic)
         );
         assert!(!probe.calls.contains(&Call::Finish));
-        assert!(driver.filter().unwrap().is_empty());
+        assert!(model.filter().unwrap().is_empty());
     }
 }
