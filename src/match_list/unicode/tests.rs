@@ -1,40 +1,36 @@
 use crossterm::style::{Color, SetForegroundColor};
-use std::time::Duration;
 
 use crate::{
-    rect::Area,
+    rect::{Area, ClearState, CrosstermTarget},
     render::StrRenderer,
     session::{
-        Dimensions, DriverOptions, Geometry, Redraw,
-        tests::{Select, TestTerminal, frame_options},
+        DriverOptions,
+        tests::{Select, frame_options},
     },
 };
 
 fn render(text: &str) -> String {
     let mut driver = DriverOptions::new()
         .query("ab")
-        .reversed(true)
+        .list_reversed(true)
         .driver(StrRenderer);
     driver.push_batch([text.to_owned()]);
     assert_eq!(driver.filter().unwrap().len(), 1);
-    let mut session = driver.session(Select, Duration::ZERO);
+    let mut session = driver.session(Select);
     let mut frame = session.prepare_frame(frame_options());
-    frame.resize(Geometry {
-        dimensions: Dimensions {
-            width: 20,
-            height: 4,
-        },
-        list: Area {
+    let mut output = Vec::new();
+    let mut target = CrosstermTarget::new(&mut output);
+    let mut rect = target.rect(
+        Area {
             width: 20,
             height: 4,
             ..Area::default()
         },
-        ..Geometry::default()
-    });
-    let mut terminal = TestTerminal::default();
-    frame.draw(&mut terminal, Redraw::FULL).unwrap();
+        ClearState::Precleared,
+    );
+    frame.match_list().draw(&mut rect).unwrap();
     frame.complete();
-    String::from_utf8(terminal.output).unwrap()
+    String::from_utf8(output).unwrap()
 }
 
 #[test]

@@ -1,6 +1,11 @@
 use crossterm::style::{ContentStyle, Stylize};
 
 use super::*;
+use crate::{
+    component::tests::TestSurface,
+    preview::{BoundaryChars, Content},
+    rect::{Area, ClearState, CrosstermTarget},
+};
 
 fn pane(text: &str) -> Pane {
     let mut pane = Pane::new();
@@ -135,4 +140,80 @@ fn scrolling_preserves_overshoot_until_explicitly_clamped() {
     assert_eq!(pane.offset(), (4, 3));
     pane.viewport(Dimensions::default()).align_bottom().clamp();
     assert_eq!(pane.offset(), (0, 4));
+}
+
+#[test]
+fn grapheme_width_controls_navigation_and_matches_drawing() {
+    let mut pane = pane("ＡＡＡＡＡ");
+    let size = Dimensions {
+        width: 3,
+        height: 1,
+    };
+    pane.viewport(size).align_right();
+    assert_eq!(pane.offset(), (7, 0));
+
+    pane.set_offset(0, 0);
+    pane.viewport(size).right(usize::MAX);
+    assert_eq!(pane.offset(), (7, 0));
+
+    let mut target = TestSurface::new(3, 1);
+    crate::preview::draw(&mut target, Content::Ready(&pane), None, '…').unwrap();
+    assert_eq!(target.rows[0], "…Ａ");
+}
+
+#[test]
+fn bordered_preview_streams_rows_without_preclearing_or_interior_cursor_moves() {
+    let pane = pane("hi\nx");
+    for clear in [
+        ClearState::Precleared,
+        ClearState::ToEndOfLine,
+        ClearState::WithinRect,
+    ] {
+        let mut output = Vec::new();
+        crate::preview::draw(
+            &mut CrosstermTarget::new(&mut output).rect(
+                Area {
+                    column: 2,
+                    row: 3,
+                    width: 6,
+                    height: 4,
+                },
+                clear,
+            ),
+            Content::Ready(&pane),
+            Some(BoundaryChars::ascii()),
+            '…',
+        )
+        .unwrap();
+        assert_eq!(
+            output,
+            b"\x1b[4;3H\x1b[0m+----+\x1b[7;3H+----+\x1b[5;3H|hi  |\x1b[6;3H|x   |",
+        );
+    }
+}
+
+#[test]
+fn empty_and_tiny_targets_keep_preview_content_in_bounds() {
+    let mut pane = pane("Ａabc\nsecond").with_line_numbers(true);
+    for is_err in [false, true] {
+        pane.set_err(is_err);
+        for width in 0..=4 {
+            for height in 0..=4 {
+                for content in [Content::Empty, Content::Loading, Content::Ready(&pane)] {
+                    let mut target = TestSurface::new(width, height);
+                    crate::preview::draw(&mut target, content, None, '…').unwrap();
+                    assert_eq!(target.touched, width != 0 && height != 0);
+                    if width == 0 || height == 0 {
+                        continue;
+                    }
+                    for row in &target.rows {
+                        assert_eq!(
+                            unicode_width::UnicodeWidthStr::width(row.as_str()),
+                            usize::from(width),
+                        );
+                    }
+                }
+            }
+        }
+    }
 }

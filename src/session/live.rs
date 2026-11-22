@@ -1,30 +1,80 @@
+mod match_list;
+mod preview;
+mod prompt;
+mod read;
+mod status;
+
+pub use match_list::PreparedMatchList;
+pub use preview::PreparedPreview;
+pub use prompt::PreparedPrompt;
+pub use status::PreparedStatus;
+
+use read::SessionRead;
 use std::{
-    io,
     mem::DropGuard,
     time::{Duration, Instant},
 };
 
-use super::{Context, Exit, MatchStatus, Matches, QueueStatus, Redraw};
+use super::{Components, Context, Exit, ItemId, ItemRef, MatchStatus, Matches, QueueStatus};
 use crate::{
-    Injector, PickerChars, Render, Terminal,
+    Injector, PickerChars, Render,
     component::Component,
+    draw::Surface,
     event::{MatchListEvent, PromptEvent},
-    frame::Contents,
     interface::Interface,
     match_engine::MatchEngine,
     match_list::{MatchList, MatchListState, MatchListView},
-    preview::{PreviewConfig, PreviewEvent},
+    preview::PreviewEvent,
     prompt::{Prompt, PromptState},
-    rect::{Area, Dimensions},
+    rect::Dimensions,
     status_line::StatusLine,
-    util::unicode::grapheme_width,
 };
 
 type Guard<T> = DropGuard<T, fn(T)>;
 
+trait Draw {
+    fn resize(&mut self, size: Dimensions);
+    fn draw<S: Surface>(&mut self, surface: &mut S) -> Result<(), S::Error>;
+}
+
 /// An externally-driven interactive picker session.
-// TODO: add all of the relevant docs, esp. batch/update/prepare/complete lifecycle and normal abandonment
-pub(crate) struct Session<'items, T: Send + Sync + 'static, R, I: Interface<T>> {
+///
+/// This is the main entry-point for externally driving a picker. Essentially, the session consists
+/// of the reusable picker state combined with an interface.
+///
+/// # Typical use
+///
+/// Initialize this struct with [`Driver::session`](crate::session::Driver::session) and use the
+/// relevant methods to drive the session. In short, the frame loop typically looks something like
+/// the following:
+///
+/// 1. Begin an event batch with [`Session::events`], and update the picker state with changes
+///    coming from the user (such as key presses) or elsewhere.
+/// 2. Update the match list using [`Session::update_matches`].
+/// 3. Prepare a frame with [`Session::prepare_frame`]. Use the prepared frame for drawing to the
+///    actual terminal. When rendering is complete, call [`PreparedFrame::complete`].
+///
+/// # Exiting the session
+///
+/// The session terminates when the [`Session::finish`] method is called. The resulting output items
+/// are determined by consuming the session state (in particular, the interface state iself) and
+/// returning the corresponding output.
+///
+/// # Redraw policy
+///
+/// Generally speaking, the runner is responsible for layout and redrawing. However, the various
+/// components must generally speaking aware of their size. Therefore size changes are propagated to
+/// components (specifically, the [`PreparedPrompt`], [`PreparedMatchList`], [`PreparedStatus`], and [`PreparedPreview`])
+/// whenever the corresponding `resize` or `draw` methods are called.
+///
+/// When the session processes events (through an [`EventBatch`]), this may cause changes to the
+/// internal components. Therefore, the session keeps track of a list of components which have
+/// changed and reports them using [`PreparedFrame::redraw`] (see also [`PreparedFrame::changed`]).
+///
+/// Components can be drawn independently if a redraw is required or not. The state is mainly tracked
+/// for those backends which may benefit from not redrawing on every frame. The redraw state is
+/// reset when the frame is completed by calling [`PreparedFrame::complete`].
+pub struct Session<'items, T: Send + Sync + 'static, R, I: Interface<T>> {
     // Dismissing the guard lets finish move the original storage borrow into the output context.
     inner: Guard<SessionState<'items, T, R, I>>,
 }
@@ -37,15 +87,12 @@ struct SessionState<'items, T, R, I: Interface<T>> {
     list: MatchList<'items>,
     status_line: StatusLine<'items>,
     chars: &'items PickerChars,
-    preview_config: &'items PreviewConfig,
     status: MatchStatus,
-    preview_enabled: bool,
+    visible_components: Components,
     query_changed: bool,
     matches_changed: bool,
-    pending_redraw: Redraw,
-    pending_resize: bool,
-    full_redraw: bool,
-    geometry: Option<Geometry>,
+    pending_redraw: Components,
+    preview_resize: Option<Option<Dimensions>>,
 }
 
 /// Options concerning the presentation of the frame.
@@ -54,22 +101,34 @@ struct SessionState<'items, T, R, I: Interface<T>> {
 /// importantly, this is used to communicate the frame processing deadline to the session.
 ///
 /// The session also uses this information to elide certain operations and to influence presentation.
-/// For example, if the preview pane is hidden, the session will skip update checks.
-pub(crate) struct FrameOptions {
-    pub deadline: Instant,
-    pub background: bool,
-    pub visible_components: Redraw,
-    pub layout_changed: bool,
-    pub force_redraw: bool,
+pub struct FrameOptions {
+    deadline: Instant,
+    background: bool,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct Geometry {
-    pub dimensions: Dimensions,
-    pub prompt: Area,
-    pub list: Area,
-    pub status: Area,
-    pub preview: Area,
+impl FrameOptions {
+    /// Set options for rendering the frame.
+    ///
+    /// The provided deadline is passed to the interface hooks when preparing the frame.
+    #[must_use]
+    #[inline]
+    pub const fn new(deadline: Instant) -> Self {
+        Self {
+            deadline,
+            background: false,
+        }
+    }
+
+    /// Set whether this is a background frame.
+    ///
+    /// The various components may use this for low-frequency updates (for instance, the spinner
+    /// animation). The default value is false.
+    #[must_use]
+    #[inline]
+    pub const fn background(mut self, background: bool) -> Self {
+        self.background = background;
+        self
+    }
 }
 
 impl<'items, T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Session<'items, T, R, I> {
@@ -78,9 +137,7 @@ impl<'items, T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Session<'i
         list_state: &'items mut MatchListState,
         prompt_state: &'items mut PromptState,
         chars: &'items PickerChars,
-        preview_config: &'items PreviewConfig,
         mut interface: I,
-        startup_wait: Duration,
     ) -> Self {
         // Headless updates defer layout work until the next interactive session.
         if std::mem::take(&mut list_state.items_changed) {
@@ -91,8 +148,7 @@ impl<'items, T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Session<'i
         let prompt = Prompt::new(prompt_state, chars);
         let mut list = MatchList::new(list_state, chars);
         list.flush(engine);
-        let status = engine.update(wait_millis(startup_wait));
-        list.update(engine, status.items_changed, false);
+        let status = engine.status();
         let cx = context(engine, list.rank(engine), I::PREVIEW);
         let state = interface.init(&cx);
         Self {
@@ -105,15 +161,15 @@ impl<'items, T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Session<'i
                     list,
                     status_line: StatusLine::new(chars),
                     chars,
-                    preview_config,
                     status,
-                    preview_enabled: I::PREVIEW,
+                    visible_components: Components {
+                        preview: I::PREVIEW,
+                        ..Components::ALL
+                    },
                     query_changed: false,
                     matches_changed: true,
-                    pending_redraw: Redraw::FULL,
-                    pending_resize: true,
-                    full_redraw: true,
-                    geometry: None,
+                    pending_redraw: Components::ALL,
+                    preview_resize: None,
                 },
                 |mut session| {
                     session.commit();
@@ -125,13 +181,23 @@ impl<'items, T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Session<'i
         }
     }
 
+    /// Begin an event batch.
+    ///
+    /// The event batch is used to change the state of the picker, mainly by processing events.
+    /// Read the [`EventBatch`] documentation for more details.
     pub fn events(&mut self) -> EventBatch<'_, 'items, T, R, I> {
         EventBatch {
             session: &mut self.inner,
         }
     }
 
-    pub fn update(&mut self, wait: Duration) -> MatchStatus {
+    /// Update the internal match engine and match list after an event batch, returning the status
+    /// of the match list.
+    ///
+    /// The suggested wait time is used to acquire a lock on the background match worker thread
+    /// pool. A wait time of 0, while allowed, may result in the lock not being acquired and the
+    /// event list not being updated. It is recommend to set this to at least a few milliseconds.
+    pub fn update_matches(&mut self, wait: Duration) -> MatchStatus {
         let session = &mut *self.inner;
         session.status = session.engine.update(wait_millis(wait));
         session.matches_changed |= session.status.items_changed;
@@ -143,12 +209,19 @@ impl<'items, T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Session<'i
         session.status
     }
 
+    /// Prepare a frame for rendering.
+    ///
+    /// This runs the [`Interface::before_frame`] status hook and propagates state between changes
+    /// between components.
+    ///
+    /// The returned [`PreparedFrame`] can be used for drawing the frame and introspecting the
+    /// state.
     pub fn prepare_frame(&mut self, options: FrameOptions) -> PreparedFrame<'_, 'items, T, R, I> {
         let session = &mut *self.inner;
         let cx = context(
             session.engine,
             session.list.rank(session.engine),
-            session.preview_enabled,
+            session.visible_components.preview,
         );
         session.pending_redraw |= session.interface.before_frame(
             &mut session.state,
@@ -161,18 +234,14 @@ impl<'items, T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Session<'i
             session.interface.queue_status(&session.state),
             options.background,
         );
-        session.pending_resize |= options.layout_changed;
-        session.full_redraw |= options.force_redraw || session.pending_resize;
-        let mut visible = options.visible_components;
-        visible.preview &= session.preview_enabled;
         PreparedFrame {
             session,
-            visible,
             deadline: options.deadline,
             completed: false,
         }
     }
 
+    /// Complete the session, returning the final output items.
     pub fn finish(self, exit: Exit) -> I::Output<'items> {
         let mut session = DropGuard::dismiss(self.inner);
         session.commit();
@@ -180,16 +249,73 @@ impl<'items, T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Session<'i
         let cx = context(
             session.engine,
             session.list.rank(session.engine),
-            session.preview_enabled,
+            session.visible_components.preview,
         );
         session.interface.finish(session.state, exit, cx)
+    }
+}
+
+impl<T: Send + Sync + 'static, R, I: Interface<T>> SessionRead for Session<'_, T, R, I> {
+    type Item = T;
+    type Renderer = R;
+    type Interface = I;
+
+    fn session(&self) -> &SessionState<'_, T, R, I> {
+        &self.inner
+    }
+}
+
+impl<T: Send + Sync + 'static, R, I: Interface<T>> Session<'_, T, R, I> {
+    /// Returns the complete contents of the query string (independently of what is visible).
+    pub fn query(&self) -> &str {
+        SessionRead::query(self)
+    }
+
+    /// Returns a view of the current match snapshot in match-rank order.
+    pub fn matches(&self) -> Matches<'_, T> {
+        SessionRead::matches(self)
+    }
+
+    /// Returns the match rank of the hovered item, or `None` if there are no matches.
+    pub fn rank(&self) -> Option<u32> {
+        SessionRead::rank(self)
+    }
+
+    /// Returns the item at the committed hovered rank, or `None` if there are no matches.
+    pub fn hovered(&self) -> Option<ItemRef<'_, T>> {
+        SessionRead::hovered(self)
+    }
+
+    /// Returns the set of visible components, as understood by the session.
+    ///
+    /// The visible component list is used internally to avoid unnecessary background work. The
+    /// runner may find it convenient to also use this state to keep track of which components are
+    /// visible on the screen.
+    ///
+    /// This value is only updated using [`EventBatch::set_visible_components`].
+    pub fn visible_components(&self) -> Components {
+        SessionRead::visible_components(self)
+    }
+
+    /// Returns the current status of matching progress.
+    ///
+    /// This only returns the status from the last call to [`update_matches`](Session::update_matches), and does not provide any internal matching updates.
+    pub fn match_status(&self) -> MatchStatus {
+        SessionRead::match_status(self)
+    }
+
+    /// Returns the current status of the item queue.
+    ///
+    /// Note that [`None`] means that the interface does not support queueing at all.
+    pub fn queue_status(&self) -> Option<QueueStatus> {
+        SessionRead::queue_status(self)
     }
 }
 
 impl<T: Send + Sync + 'static, R, I: Interface<T>> SessionState<'_, T, R, I> {
     fn commit(&mut self) {
         self.list.flush(self.engine);
-        let prompt = self.prompt.update(grapheme_width);
+        let prompt = self.prompt.update();
         if prompt.contents_changed {
             self.engine.reparse(self.prompt.contents());
         }
@@ -203,35 +329,44 @@ impl<T: Send + Sync + 'static, R, I: Interface<T>> SessionState<'_, T, R, I> {
 ///
 /// This handle is used to propagate events to the session. The session batches events together
 /// before processing them in order to reduce overhead. When this handle is dropped, the changes
-/// from events are recorded in the underlying session.
-pub(crate) struct EventBatch<'batch, 'items, T: Send + Sync + 'static, R, I: Interface<T>> {
+/// from events are recorded in the underlying session. Reading [`Self::query`] also applies
+/// buffered changes while continuing to use the batch.
+pub struct EventBatch<'batch, 'items, T: Send + Sync + 'static, R, I: Interface<T>> {
     session: &'batch mut SessionState<'items, T, R, I>,
 }
 
 impl<T: Send + Sync + 'static, R, I: Interface<T>> EventBatch<'_, '_, T, R, I> {
+    /// Send an event which updates the prompt to the picker.
     pub fn prompt(&mut self, event: PromptEvent) {
-        self.session.prompt.handle(event, grapheme_width);
+        self.session.prompt.handle(event);
     }
 
+    /// Send an event which updates the match list to the picker.
     pub fn match_list(&mut self, event: MatchListEvent) {
         let session = &mut *self.session;
         let cx = context(
             session.engine,
             session.list.event_rank(session.engine),
-            session.preview_enabled,
+            session.visible_components.preview,
         );
         session
             .list
             .handle(event, &mut session.interface, &mut session.state, &cx);
     }
 
+    /// Send an event which updates the preview pane to the picker.
+    ///
+    /// Events are forwarded whenever [`Interface::PREVIEW`] is true, including while hidden.
+    /// The interface receives the event-time hovered item and preview visibility, and uses
+    /// the last dimensions delivered to it. Hosts decide whether to filter user input while
+    /// the preview is hidden.
     pub fn preview(&mut self, event: PreviewEvent) {
         let session = &mut *self.session;
-        if session.preview_enabled {
+        if I::PREVIEW {
             let cx = context(
                 session.engine,
                 session.list.event_rank(session.engine),
-                true,
+                session.visible_components.preview,
             );
             session.pending_redraw |=
                 session
@@ -240,130 +375,190 @@ impl<T: Send + Sync + 'static, R, I: Interface<T>> EventBatch<'_, '_, T, R, I> {
         }
     }
 
-    // TODO: Document event-time selection; hosts must stop dispatch and matching after choosing to exit.
-    pub fn selection_exit(&self) -> Option<Exit> {
+    /// Returns the identifier of the hovered item, or `None` if there are no matches.
+    ///
+    /// This method is often used for terminating a session by checking if an identifier is present
+    /// (or if the item queue is non-empty), and then dropping the batch and passing the identifier
+    /// to [`Session::finish`] within an [`Exit::Selected`].
+    pub fn hovered_id(&self) -> Option<ItemId> {
         let session = &*self.session;
-        let hovered = session
+        session
             .list
             .event_rank(session.engine)
-            .map(|rank| session.engine.item_id(session.engine.idx_from_match(rank)));
-        (hovered.is_some()
-            || session
-                .interface
-                .queue_status(&session.state)
-                .is_some_and(|queue| queue.count != 0))
-        .then_some(Exit::Selected(hovered))
+            .map(|rank| session.engine.item_id(session.engine.idx_from_match(rank)))
     }
 
-    pub fn prompt_is_empty(&mut self) -> bool {
-        self.session.prompt.flush(grapheme_width);
-        self.session.prompt.contents().is_empty()
+    /// Returns the interface's queue status, including changes from earlier events in this batch.
+    ///
+    /// `None` means queueing is unsupported, rather than that the queue is empty.
+    /// Reading does not update matching or run frame hooks.
+    pub fn queue_status(&self) -> Option<QueueStatus> {
+        self.session.interface.queue_status(&self.session.state)
     }
 
+    /// Apply buffered prompt and match-list edits and return the complete query string.
+    ///
+    /// This includes all preceding prompt events in the batch without advancing matching or
+    /// running frame hooks. Further events can be sent after reading the query.
+    pub fn query(&mut self) -> &str {
+        self.flush();
+        self.session.prompt.contents()
+    }
+
+    fn flush(&mut self) {
+        self.session.commit();
+    }
+
+    /// Restart the picker, discarding the existing items and returning a new injector valid for the new
+    /// item pool.
+    ///
+    /// Note that this does not clear the query string.
     pub fn restart(&mut self) -> Injector<T, R> {
         let session = &mut *self.session;
         let cx = context(
             session.engine,
             session.list.event_rank(session.engine),
-            session.preview_enabled,
+            session.visible_components.preview,
         );
         session.interface.on_restart(&mut session.state, &cx);
-        session.pending_redraw |= Redraw::QUEUE | Redraw::PREVIEW;
+        session.pending_redraw |= Components::QUEUE | Components::PREVIEW;
         session.engine.restart();
         session.matches_changed = true;
-        session
-            .list
-            .restart(&context(session.engine, None, session.preview_enabled));
+        session.list.restart(&context(
+            session.engine,
+            None,
+            session.visible_components.preview,
+        ));
         session.engine.injector()
     }
 
-    pub fn preview_enabled(&self) -> bool {
-        self.session.preview_enabled
+    /// Returns the current list of visible components.
+    ///
+    /// See [`Session::visible_components`] for more details.
+    pub fn visible_components(&self) -> Components {
+        self.session.visible_components
     }
 
-    pub fn set_preview_enabled(&mut self, enabled: bool) {
-        let enabled = enabled && I::PREVIEW;
-        if self.session.preview_enabled != enabled {
-            self.session.preview_enabled = enabled;
-            self.session.pending_resize = true;
-        }
-    }
-
-    pub fn toggle_preview_enabled(&mut self) {
-        self.set_preview_enabled(!self.preview_enabled());
+    /// Set the list of visible components.
+    pub fn set_visible_components(&mut self, mut components: Components) {
+        components.preview &= I::PREVIEW;
+        let visible = self.session.visible_components;
+        self.session.pending_redraw |= Components {
+            prompt: visible.prompt != components.prompt,
+            list: visible.list != components.list,
+            status: visible.status != components.status,
+            preview: visible.preview != components.preview,
+        };
+        self.session.visible_components = components;
     }
 }
 
 impl<T: Send + Sync + 'static, R, I: Interface<T>> Drop for EventBatch<'_, '_, T, R, I> {
     fn drop(&mut self) {
-        self.session.commit();
+        self.flush();
     }
 }
 
-// TODO: Document explicit successful completion, status-before-completion ordering, and full repaint after abandonment.
-pub(crate) struct PreparedFrame<'frame, 'items, T, R, I: Interface<T>> {
+/// A representation of a single frame in the session.
+///
+/// One can think of this type as a snapshot of the prepared frame. It has sub-types for the
+/// different components:
+///
+/// - [`prompt`](Self::prompt), returning [`PreparedPrompt`].
+/// - [`match_list`](Self::match_list), returning [`PreparedMatchList`].
+/// - [`status`](Self::status), returning [`PreparedStatus`].
+/// - [`preview`](Self::preview), returning [`PreparedPreview`].
+///
+/// Each component contains methods for introspection, resizing, and drawing. If in addition the
+/// `ratatui` feature is enabled the component also implements
+/// [`Widget`](ratatui_core::widgets::Widget).
+///
+/// When the frame is complete, call [`complete`](Self::complete) to propagate context
+/// to the [`Interface`] struct and reset internal state.
+pub struct PreparedFrame<'frame, 'items, T, R, I: Interface<T>> {
     session: &'frame mut SessionState<'items, T, R, I>,
-    visible: Redraw,
     deadline: Instant,
     completed: bool,
 }
 
-impl<T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> PreparedFrame<'_, '_, T, R, I> {
-    pub fn needs_render(&self) -> bool {
-        self.changed()
-    }
-
-    pub fn redraw(&self) -> Redraw {
-        let redraw = if self.session.full_redraw {
-            Redraw::FULL
-        } else {
-            self.session.pending_redraw
-        };
-        redraw & self.visible
-    }
-
-    pub fn changed(&self) -> bool {
-        self.session.full_redraw || self.redraw() != Redraw::NONE
-    }
-
-    pub fn resize(&mut self, geometry: Geometry) {
-        let session = &mut *self.session;
-        if session.geometry != Some(geometry) || session.pending_resize {
-            session.prompt().resize(geometry.prompt);
-            session.list().resize(geometry.list);
-            session.status().resize(geometry.status);
-            session.preview_resize(session.preview_enabled.then_some(geometry.preview));
-            session.geometry = Some(geometry);
-            session.pending_resize = false;
-            session.full_redraw = true;
-        }
-    }
-
-    pub fn view(&self) -> FrameView<'_, T, R, I> {
-        FrameView {
+impl<'items, T: Send + Sync + 'static, R: Render<T>, I: Interface<T>>
+    PreparedFrame<'_, 'items, T, R, I>
+{
+    /// Returns a view of the prompt.
+    ///
+    /// This view can be used for resizing, drawing, and introspection. See the [`PreparedPrompt`]
+    /// documenation for more details.
+    pub fn prompt(&mut self) -> PreparedPrompt<'_, 'items, T, R, I> {
+        PreparedPrompt {
             session: self.session,
         }
     }
 
-    pub fn draw<W: Terminal>(&mut self, writer: &mut W, repaint: Redraw) -> io::Result<()> {
-        let geometry = self.session.geometry.unwrap_or_default();
-        let repaint = if self.session.full_redraw {
-            Redraw::FULL
-        } else {
-            repaint
-        };
-        crate::frame::draw(geometry, self.session, writer, repaint, self.visible)
+    /// Returns a view of the match list.
+    ///
+    /// This view can be used for resizing, drawing, and introspection. See the [`PreparedMatchList`]
+    /// documenation for more details.
+    pub fn match_list(&mut self) -> PreparedMatchList<'_, 'items, T, R, I> {
+        PreparedMatchList {
+            session: self.session,
+        }
     }
 
+    /// Returns a view of the status bar.
+    ///
+    /// This view can be used for resizing, drawing, and introspection. See the [`PreparedStatus`]
+    /// documenation for more details.
+    pub fn status(&mut self) -> PreparedStatus<'_, 'items, T, R, I> {
+        PreparedStatus {
+            session: self.session,
+        }
+    }
+
+    /// Returns a view of the preview pane.
+    ///
+    /// This view can be used for resizing, drawing, and introspection. See the [`PreparedStatus`]
+    /// documenation for more details.
+    pub fn preview(&mut self) -> PreparedPreview<'_, 'items, T, R, I> {
+        PreparedPreview {
+            session: self.session,
+            border: None,
+        }
+    }
+
+    /// Returns the visible components invalidated by session changes.
+    ///
+    /// The redraw list is filtered by the visible components (as returned by
+    /// [`PreparedFrame::visible_components`] and set by
+    /// [`EventBatch::set_visible_components`]). In particular, the redraw mask may be empty and
+    /// [`changed`](Self::changed) can return true if a component goes from being visible to hidden.
+    /// The host must also account for layout and presentation changes, which are not tracked here.
+    pub fn redraw(&self) -> Components {
+        self.session.pending_redraw & self.session.visible_components
+    }
+
+    /// Returns whether any of the components ahve changed.
+    ///
+    /// This includes changes reported by [`redraw`](Self::redraw) and also changes to visibility
+    /// (for instance, if a component is hidden or becomes visible).
+    /// Host-driven resizing, drawing, and presentation changes do not affect this value, so
+    /// `false` does not imply that the host can skip rendering.
+    pub fn changed(&self) -> bool {
+        !self.session.pending_redraw.is_none()
+    }
+
+    /// Acknowledge completion of the current frame.
+    ///
+    /// Calling this method resets the internal redraw markers and calls [`Interface::after_frame`].
+    /// In particular, this method should be called on every frame, including frames which did not
+    /// require rendering.
     pub fn complete(mut self) {
         let session = &mut *self.session;
         let cx = context(
             session.engine,
             session.list.rank(session.engine),
-            session.preview_enabled,
+            session.visible_components.preview,
         );
-        session.pending_redraw = Redraw::NONE;
-        session.full_redraw = false;
+        session.pending_redraw = Components::NONE;
         session.pending_redraw |=
             session
                 .interface
@@ -375,48 +570,75 @@ impl<T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> PreparedFrame<'_, 
 impl<T, R, I: Interface<T>> Drop for PreparedFrame<'_, '_, T, R, I> {
     fn drop(&mut self) {
         if !self.completed {
-            self.session.full_redraw = true;
+            self.session.pending_redraw = Components::ALL;
         }
     }
 }
 
-pub(crate) struct FrameView<'a, T, R, I: Interface<T>> {
-    session: &'a SessionState<'a, T, R, I>,
+impl<T: Send + Sync + 'static, R, I: Interface<T>> SessionRead for PreparedFrame<'_, '_, T, R, I> {
+    type Item = T;
+    type Renderer = R;
+    type Interface = I;
+
+    fn session(&self) -> &SessionState<'_, T, R, I> {
+        self.session
+    }
 }
 
-impl<T: Send + Sync + 'static, R, I: Interface<T>> FrameView<'_, T, R, I> {
+impl<T: Send + Sync + 'static, R, I: Interface<T>> PreparedFrame<'_, '_, T, R, I> {
+    /// Returns the complete contents of the query string (independently of what is visible).
     pub fn query(&self) -> &str {
-        self.session.prompt.contents()
+        SessionRead::query(self)
     }
 
-    pub fn context(&self) -> Context<'_, T> {
-        context(
-            self.session.engine,
-            self.session.list.rank(self.session.engine),
-            self.session.preview_enabled,
-        )
+    /// Returns a view of the current match snapshot in match-rank order.
+    ///
+    /// The view borrows this frame, independently of component sizing and visibility.
+    /// Reading does not advance matching or run frame hooks.
+    pub fn matches(&self) -> Matches<'_, T> {
+        SessionRead::matches(self)
     }
 
+    /// Returns the match rank of the hovered item, or `None` if there are no matches.
+    pub fn rank(&self) -> Option<u32> {
+        SessionRead::rank(self)
+    }
+
+    /// Returns the item at the committed hovered rank, or `None` if there are no matches.
+    ///
+    /// The item borrows this frame and comes from [`Self::matches`] at [`Self::rank`],
+    /// independently of component sizing and visibility. Reading does not advance matching
+    /// or run frame hooks.
+    pub fn hovered(&self) -> Option<ItemRef<'_, T>> {
+        SessionRead::hovered(self)
+    }
+
+    /// Returns the set of components which are visible.
+    ///
+    /// This set is used to decide *how to allocate layout* rather than for redraw. Note that
+    /// components allocated an empty area in the screen can still count as visible.
+    ///
+    /// Manipulate the set of visible components using [`EventBatch::set_visible_components`].
+    pub fn visible_components(&self) -> Components {
+        SessionRead::visible_components(self)
+    }
+
+    /// Returns the current status of matching progress.
+    ///
+    /// This only returns the status from the last call to [`update_matches`](Session::update_matches), and does not provide any internal matching updates.
     pub fn match_status(&self) -> MatchStatus {
-        self.session.status
+        SessionRead::match_status(self)
     }
 
+    /// Returns the current status of the item queue.
+    ///
+    /// Note that [`None`] means that the interface does not support queueing at all.
     pub fn queue_status(&self) -> Option<QueueStatus> {
-        self.session.interface.queue_status(&self.session.state)
-    }
-
-    pub fn geometry(&self) -> Option<Geometry> {
-        self.session.geometry
+        SessionRead::queue_status(self)
     }
 }
 
-impl<T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Contents
-    for SessionState<'_, T, R, I>
-{
-    fn prompt(&mut self) -> impl Component {
-        &mut self.prompt
-    }
-
+impl<T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> SessionState<'_, T, R, I> {
     fn list(&mut self) -> impl Component {
         MatchListView {
             list: &mut self.list,
@@ -425,27 +647,12 @@ impl<T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Contents
             state: &self.state,
         }
     }
+}
 
-    fn status(&mut self) -> impl Component {
-        &mut self.status_line
-    }
-
-    fn preview(&mut self) -> impl Component {
-        crate::component::PreviewPane {
-            interface: &self.interface,
-            state: &self.state,
-            boundary_chars: self.preview_config.boundary_chars,
-            ellipsis: self.chars.ellipsis,
-        }
-    }
-
-    fn preview_resize(&mut self, area: Option<Area>) {
-        if I::PREVIEW {
-            self.interface.preview_resize(
-                &mut self.state,
-                area.map(crate::preview::interior_dimensions),
-            );
-        }
+fn dimensions<S: Surface>(surface: &S) -> Dimensions {
+    Dimensions {
+        width: surface.width(),
+        height: surface.height(),
     }
 }
 

@@ -7,16 +7,18 @@
 //! The picker can be re-used for multiple sessions: the items and query are retained between
 //! sessions (but can be cleared by [restarting](Picker::restart)).
 //!
-//! Read more about interfaces in the [`interface`](crate::interface) module documentation.
+//! Read more:
+//!
+//! - About interfaces in the [`interface`](crate::interface) module documentation.
+//! - About the session API in the [`Session`] struct documentation.
 
 mod borrowed;
+mod components;
 mod context;
 mod driver;
 mod item;
 mod live;
 mod matches;
-mod redraw;
-mod run;
 #[cfg(test)]
 pub(crate) mod tests;
 
@@ -27,13 +29,16 @@ use crate::interface::CachedPreview;
 pub use crate::interface::PickerRef;
 #[cfg(doc)]
 use crate::interface::{Interface, Multi, Single, UncachedPreview};
-pub use crate::rect::Dimensions;
+pub use crate::rect::{Dimensions, Position};
+pub use components::Components;
 pub use context::Context;
 pub use driver::{Driver, DriverOptions};
 pub use item::{ItemId, ItemRef, OwnedItem};
-pub(crate) use live::{FrameOptions, Geometry, Session};
+pub use live::{
+    EventBatch, FrameOptions, PreparedFrame, PreparedMatchList, PreparedPreview, PreparedPrompt,
+    PreparedStatus, Session,
+};
 pub use matches::Matches;
-pub use redraw::Redraw;
 
 #[cfg(doc)]
 use crate::event::Event;
@@ -81,9 +86,9 @@ pub enum QueueEvent<'a, T> {
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MatchStatus {
-    /// Whether there were any changes to the [`Matches`].
+    /// Whether there were any changes.
     pub items_changed: bool,
-    /// The number of items in the [`Matches`]
+    /// The number of items.
     pub matched_item_count: u32,
     /// The total number of match candidates.
     pub item_count: u32,

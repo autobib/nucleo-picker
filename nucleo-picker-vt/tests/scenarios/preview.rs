@@ -223,9 +223,7 @@ fn pane_layout_adjustments_and_resizes() -> Result<(), Box<dyn Error>> {
         let mut sr = start_with(
             "pane_layout",
             vec!["item"],
-            PickerOptions::new()
-                .preview_dimensions(0.4)
-                .reversed(reversed),
+            PickerOptions::new().preview_split(0.4).reversed(reversed),
             SyncPreviewer(|_: &String, pane: &mut Pane| {
                 pane.buffer_mut().push_text("a\nb\nc\nd\ne\nf")
             }),
@@ -336,11 +334,7 @@ fn layout_adjustments_do_not_restart_pending_previews() -> Result<(), Box<dyn Er
 fn toggle_preview_restores_layout_and_cached_state() -> Result<(), Box<dyn Error>> {
     for reversed in [false, true] {
         let items = vec!["a rather long item name"];
-        let options = || {
-            PickerOptions::new()
-                .preview_dimensions(0.4)
-                .reversed(reversed)
-        };
+        let options = || PickerOptions::new().preview_split(0.4).reversed(reversed);
         let mut plain = ScenarioRunner::start_with_options("plain", items.clone(), options());
         plain.set_dimensions(30, 5)?;
         plain.wait_for_match_complete(1, 1)?;
@@ -519,7 +513,7 @@ fn layout_configuration_and_events_are_ignored_without_a_preview() -> Result<(),
     let mut sr = ScenarioRunner::start_with_options(
         "layout_without_preview",
         vec!["item"],
-        PickerOptions::new().preview_dimensions(1.0),
+        PickerOptions::new().preview_split(1.0),
     );
     sr.wait_for_match_complete(1, 1)?;
     let before = sr.checkpoint("initial")?;

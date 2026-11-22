@@ -3,7 +3,7 @@ use std::{iter, ops::Range};
 use crossterm::style::{ContentStyle, StyledContent};
 
 use super::unicode::Processor;
-use crate::draw::Draw;
+use crate::draw::Surface;
 
 #[cfg(test)]
 mod tests;
@@ -15,12 +15,7 @@ struct LineClip {
     remaining: u16,
 }
 
-fn clip_line<P: Processor>(
-    text: &str,
-    offset: usize,
-    capacity: u16,
-    width: impl Fn(&str) -> usize,
-) -> LineClip {
+fn clip_line<P: Processor>(text: &str, offset: usize, capacity: u16) -> LineClip {
     let mut clip = LineClip {
         visible: 0..0,
         leading: 0,
@@ -39,7 +34,7 @@ fn clip_line<P: Processor>(
     }
 
     let skip_columns = offset.saturating_add(usize::from(clip.leading));
-    let mut graphemes = P::grapheme_index_widths(text, width).peekable();
+    let mut graphemes = P::grapheme_index_widths(text).peekable();
     let mut skipped = 0;
     while skipped < skip_columns {
         let Some((_, width)) = graphemes.next() else {
@@ -89,20 +84,20 @@ fn clip_line<P: Processor>(
 /// Offset is the viewport origin in source columns. At nonzero offsets, the leading
 /// ellipsis occupies the first viewport cell, so text starts at `offset + 1` (rounded forward to a
 /// grapheme boundary).
-pub fn print_line<'a, P: Processor, D: Draw>(
-    rect: &mut D,
+pub fn print_line<'a, P: Processor, S: Surface>(
+    surface: &mut S,
     text: &'a str,
     mut spans: impl Iterator<Item = StyledContent<&'a str>>,
     offset: usize,
     capacity: u16,
     ellipsis: char,
     marker_style: ContentStyle,
-) -> Result<u16, D::Error> {
-    let clip = clip_line::<P>(text, offset, capacity, D::grapheme_width);
+) -> Result<u16, S::Error> {
+    let clip = clip_line::<P>(text, offset, capacity);
     let mut encoded = [0; 4];
     let ellipsis = ellipsis.encode_utf8(&mut encoded);
     for _ in 0..clip.leading {
-        rect.text(ellipsis, marker_style)?;
+        surface.text(ellipsis, marker_style)?;
     }
     if !clip.visible.is_empty() {
         let mut start = 0;
@@ -121,10 +116,10 @@ pub fn print_line<'a, P: Processor, D: Draw>(
             None
         });
 
-        rect.styled_text(&text[clip.visible.clone()], visible_spans)?;
+        surface.styled_text(&text[clip.visible.clone()], visible_spans)?;
     }
     for _ in 0..clip.trailing {
-        rect.text(ellipsis, marker_style)?;
+        surface.text(ellipsis, marker_style)?;
     }
     Ok(clip.remaining)
 }

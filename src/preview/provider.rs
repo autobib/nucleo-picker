@@ -23,8 +23,7 @@ use super::{PoolPreviewer, PreviewEvent};
 /// For [`preview`](Self::preview) this can be quite sensitive, and the
 /// provided timeout is a hint to the previewer which indicates how much time remains before the
 /// next frame should be rendered. If the preview method does not return in time, the picker
-/// interface will lag. In practice, the timeout will always be at least 2ms, so the duration does
-/// not need to be checked if rendering the preview would take less time.
+/// interface may lag.
 ///
 /// When the preview can be generated in time, this should be done to reduce overhead.
 /// For example, this is typically the case if the contents of the preview depend only on data
@@ -109,7 +108,7 @@ pub trait Preview<T> {
     /// Generate a preview.
     ///
     /// The item to which the preview corresponds is available with [`Request::item`]. The
-    /// [`Duration`] is a timeout suggested by the picker and depends on the current frame budget. It will always be at least 2ms. Exceeding the budget will cause the picker to lag.
+    /// [`Duration`] is a timeout suggested by the picker and depends on the current frame budget. Exceeding the budget may cause the picker to lag.
     ///
     /// See the [trait-level docs](Preview) for more detail.
     fn preview(&mut self, request: Request<'_, T>, timeout: Duration) -> Response;

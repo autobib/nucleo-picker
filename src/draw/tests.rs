@@ -6,9 +6,8 @@ use super::*;
 use crate::{
     PickerChars,
     component::Component,
-    preview::{BoundaryChars, Buffer, Content},
+    preview::{Buffer, Content},
     prompt::{Prompt, PromptState},
-    rect::Area,
     status_line::StatusLine,
     util::unicode::{Processor, UnicodeProcessor},
 };
@@ -20,20 +19,20 @@ struct Run {
     spans: Vec<(String, ContentStyle)>,
 }
 
-struct RecordingDraw {
-    width: NonZero<u16>,
-    height: NonZero<u16>,
+struct RecordingSurface {
+    width: u16,
+    height: u16,
     row: u16,
     column: u16,
     runs: Vec<Run>,
     cleared: Vec<u16>,
 }
 
-impl RecordingDraw {
+impl RecordingSurface {
     fn new(width: u16, height: u16) -> Self {
         Self {
-            width: NonZero::new(width).unwrap(),
-            height: NonZero::new(height).unwrap(),
+            width,
+            height,
             row: 0,
             column: 0,
             runs: Vec::new(),
@@ -42,19 +41,19 @@ impl RecordingDraw {
     }
 }
 
-impl Draw for RecordingDraw {
+impl Surface for RecordingSurface {
     type Error = Infallible;
 
-    fn width(&self) -> NonZero<u16> {
+    fn width(&self) -> u16 {
         self.width
     }
 
-    fn height(&self) -> NonZero<u16> {
+    fn height(&self) -> u16 {
         self.height
     }
 
     fn move_to(&mut self, column: u16, row: u16) -> Result<(), Self::Error> {
-        assert!(column < self.width.get() && row < self.height.get());
+        assert!(column < self.width && row < self.height);
         self.row = row;
         self.column = column;
         Ok(())
@@ -65,7 +64,7 @@ impl Draw for RecordingDraw {
     }
 
     fn next_line(&mut self) -> Result<(), Self::Error> {
-        assert!(self.row < self.height.get());
+        assert!(self.width != 0 && self.row < self.height);
         self.row += 1;
         self.column = 0;
         Ok(())
@@ -79,13 +78,10 @@ impl Draw for RecordingDraw {
         if text.is_empty() {
             return Ok(());
         }
-        assert!(self.row < self.height.get());
-        let width = UnicodeProcessor::width(text, Self::grapheme_width);
+        assert!(self.width != 0 && self.row < self.height);
+        let width = UnicodeProcessor::width(text);
         let end = usize::from(self.column) + width;
-        assert!(
-            end <= usize::from(self.width.get()),
-            "text overflows: {text:?}"
-        );
+        assert!(end <= usize::from(self.width), "text overflows: {text:?}");
         self.column = end as u16;
         let spans: Vec<_> = spans
             .map(|span| ((*span.content()).to_owned(), *span.style()))
@@ -116,17 +112,39 @@ impl Draw for RecordingDraw {
     }
 
     fn clear_line(&mut self) -> Result<(), Self::Error> {
-        assert!(self.row < self.height.get());
+        assert!(self.width != 0 && self.row < self.height);
         self.cleared.push(self.row);
         self.column = 0;
         Ok(())
     }
 
     fn clear(&mut self) -> Result<(), Self::Error> {
-        self.cleared.extend(0..self.height.get());
+        if self.is_empty() {
+            return Ok(());
+        }
+        self.cleared.extend(0..self.height);
         self.row = 0;
         self.column = 0;
         Ok(())
+    }
+}
+
+#[test]
+fn emptiness_depends_on_either_axis_without_collapsing_dimensions() {
+    for (width, height) in [(0, 0), (0, 3), (6, 0), (6, 3)] {
+        let mut target = RecordingSurface::new(width, height);
+        assert_eq!(target.width(), width);
+        assert_eq!(target.height(), height);
+        assert_eq!(target.is_empty(), width == 0 || height == 0);
+        target.clear().unwrap();
+        assert_eq!(
+            target.cleared.len(),
+            if target.is_empty() {
+                0
+            } else {
+                usize::from(height)
+            }
+        );
     }
 }
 
@@ -135,12 +153,7 @@ fn prompt_and_status_draw_to_an_infallible_target() {
     let chars = PickerChars::new();
     let mut state = PromptState::new(Default::default());
     let mut prompt = Prompt::new(&mut state, &chars);
-    prompt.resize(Area {
-        width: 20,
-        height: 1,
-        ..Area::default()
-    });
-    let mut target = RecordingDraw::new(20, 1);
+    let mut target = RecordingSurface::new(20, 1);
     prompt.draw(&mut target).unwrap();
     assert_eq!(target.cleared, [0]);
     assert_eq!(target.runs[0].text, ">");
@@ -152,7 +165,7 @@ fn prompt_and_status_draw_to_an_infallible_target() {
             .all(|(_, style)| *style == ContentStyle::new())
     );
 
-    let mut target = RecordingDraw::new(20, 1);
+    let mut target = RecordingSurface::new(20, 1);
     StatusLine::new(&chars).draw(&mut target).unwrap();
     assert!(target.runs.iter().any(|run| run.text == " 0/0"));
     assert!(
@@ -172,14 +185,8 @@ fn preview_passes_whole_graphemes_with_original_style_boundaries() {
     buffer.push_styled_str("🏽‍", ContentStyle::new().green());
     buffer.push_styled_str("💻", ContentStyle::new().yellow());
     let pane = buffer.into_pane();
-    let mut target = RecordingDraw::new(10, 3);
-    crate::preview::draw(
-        &mut target,
-        Content::Ready(&pane),
-        BoundaryChars::default(),
-        '…',
-    )
-    .unwrap();
+    let mut target = RecordingSurface::new(8, 1);
+    crate::preview::draw(&mut target, Content::Ready(&pane), None, '…').unwrap();
     let run = target
         .runs
         .iter()

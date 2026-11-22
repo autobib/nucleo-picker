@@ -48,10 +48,10 @@ fn identity_changes_and_refresh_regenerate_clean_panes_but_hidden_frames_wait() 
     let mut state = interface.init(&context(&driver, None));
     assert!(matches!(interface.preview_content(&state), Content::Empty));
     for (rank, redraw, count) in [
-        (0, Redraw::PREVIEW, 1),
-        (0, Redraw::NONE, 1),
-        (2, Redraw::PREVIEW, 2),
-        (0, Redraw::PREVIEW, 3),
+        (0, Components::PREVIEW, 1),
+        (0, Components::NONE, 1),
+        (2, Components::PREVIEW, 2),
+        (0, Components::PREVIEW, 3),
     ] {
         assert_eq!(
             interface.before_frame(
@@ -75,26 +75,28 @@ fn identity_changes_and_refresh_regenerate_clean_panes_but_hidden_frames_wait() 
         let _ = interface.preview_event(&mut state, PreviewEvent::Refresh, &cx);
     }
     let hidden = context(&driver, Some(1)).with_preview_enabled(false);
-    assert_eq!(
-        interface.before_frame(&mut state, &hidden, true, Instant::now()),
-        Redraw::NONE
+    assert!(
+        interface
+            .before_frame(&mut state, &hidden, true, Instant::now())
+            .is_none()
     );
     assert_eq!(pane(&interface, &state).offset(), (7, 9));
     assert_eq!(generated.borrow().len(), 3);
     assert_eq!(
         interface.before_frame(&mut state, &cx, false, Instant::now()),
-        Redraw::PREVIEW
+        Components::PREVIEW
     );
     assert_eq!(generated.borrow().len(), 4);
     let empty = context(&driver, None);
     assert_eq!(
         interface.before_frame(&mut state, &empty, true, Instant::now()),
-        Redraw::PREVIEW
+        Components::PREVIEW
     );
     assert!(matches!(interface.preview_content(&state), Content::Empty));
-    assert_eq!(
-        interface.before_frame(&mut state, &empty, false, Instant::now()),
-        Redraw::NONE
+    assert!(
+        interface
+            .before_frame(&mut state, &empty, false, Instant::now())
+            .is_none()
     );
 }
 
@@ -120,16 +122,14 @@ fn events_require_the_displayed_identity_and_use_delivered_dimensions() {
         PreviewEvent::ToggleLineNumbers,
         PreviewEvent::Refresh,
     ] {
-        assert_eq!(
-            interface.preview_event(&mut state, event, &other),
-            Redraw::NONE
-        );
+        assert!(interface.preview_event(&mut state, event, &other).is_none());
     }
     assert_eq!(pane(&interface, &state).offset(), (0, 0));
     assert!(!pane(&interface, &state).line_numbers());
-    assert_eq!(
-        interface.before_frame(&mut state, &cx, false, Instant::now()),
-        Redraw::NONE
+    assert!(
+        interface
+            .before_frame(&mut state, &cx, false, Instant::now())
+            .is_none()
     );
     for event in [
         PreviewEvent::Right(4),
@@ -138,13 +138,14 @@ fn events_require_the_displayed_identity_and_use_delivered_dimensions() {
     ] {
         assert_eq!(
             interface.preview_event(&mut state, event, &cx),
-            Redraw::PREVIEW
+            Components::PREVIEW
         );
     }
     assert_eq!(pane(&interface, &state).offset(), (4, 3));
-    assert_eq!(
-        interface.preview_event(&mut state, PreviewEvent::SetLineNumbers(true), &cx),
-        Redraw::NONE
+    assert!(
+        interface
+            .preview_event(&mut state, PreviewEvent::SetLineNumbers(true), &cx)
+            .is_none()
     );
     let _ = interface.preview_event(&mut state, PreviewEvent::AlignBottom, &cx);
     assert_eq!(pane(&interface, &state).offset(), (4, 7));
@@ -158,9 +159,10 @@ fn events_require_the_displayed_identity_and_use_delivered_dimensions() {
     ] {
         interface.preview_resize(&mut state, size);
         assert_eq!(pane(&interface, &state).offset(), (4, 7));
-        assert_eq!(
-            interface.preview_event(&mut state, PreviewEvent::Down(1), &cx),
-            Redraw::NONE
+        assert!(
+            interface
+                .preview_event(&mut state, PreviewEvent::Down(1), &cx)
+                .is_none()
         );
     }
     interface.preview_resize(
@@ -180,10 +182,50 @@ fn events_require_the_displayed_identity_and_use_delivered_dimensions() {
             height: 6,
         }),
     );
-    assert_eq!(
-        interface.preview_event(&mut state, PreviewEvent::Right(1), &cx),
-        Redraw::NONE
+    assert!(
+        interface
+            .preview_event(&mut state, PreviewEvent::Right(1), &cx)
+            .is_none()
     );
+}
+
+#[test]
+fn navigation_uses_grapheme_widths_across_preview_changes() {
+    let driver = driver();
+    let mut interface = UncachedPreview::new_single(|_: &&str, pane: &mut Pane| {
+        pane.push_text("界界界界");
+    });
+    let cx = context(&driver, Some(0));
+    let mut state = interface.init(&cx);
+    interface.preview_resize(
+        &mut state,
+        Some(Dimensions {
+            width: 2,
+            height: 1,
+        }),
+    );
+    let _ = interface.before_frame(&mut state, &cx, true, Instant::now());
+    let _ = interface.preview_event(&mut state, PreviewEvent::AlignRight, &cx);
+    assert_eq!(pane(&interface, &state).offset(), (6, 0));
+
+    for rank in [0, 1, 0] {
+        let cx = context(&driver, Some(rank));
+        let _ = interface.before_frame(&mut state, &cx, true, Instant::now());
+        let _ = interface.preview_event(&mut state, PreviewEvent::AlignRight, &cx);
+        assert_eq!(pane(&interface, &state).offset(), (6, 0));
+        let _ = interface.preview_event(&mut state, PreviewEvent::AlignLeft, &cx);
+        let _ = interface.preview_event(&mut state, PreviewEvent::Right(usize::MAX), &cx);
+        assert_eq!(pane(&interface, &state).offset(), (6, 0));
+        assert!(
+            interface
+                .preview_event(&mut state, PreviewEvent::Right(1), &cx)
+                .is_none()
+        );
+    }
+    interface.on_restart(&mut state, &cx);
+    let _ = interface.before_frame(&mut state, &cx, true, Instant::now());
+    let _ = interface.preview_event(&mut state, PreviewEvent::AlignRight, &cx);
+    assert_eq!(pane(&interface, &state).offset(), (6, 0));
 }
 
 #[test]
@@ -207,7 +249,7 @@ fn restart_invalidates_content_even_when_item_values_and_indices_are_reused() {
     assert_ne!(cx.hovered().unwrap().id(), old_id);
     assert_eq!(
         interface.before_frame(&mut state, &cx, true, Instant::now()),
-        Redraw::PREVIEW
+        Components::PREVIEW
     );
     assert_eq!(*generated.borrow(), ["alpha", "alpha"]);
 }

@@ -4,14 +4,14 @@ use super::{PromptEvent, PromptState, state::PromptStatus};
 use crate::{
     PickerChars,
     component::Component,
-    draw::Draw,
-    rect::{Area, Position},
+    draw::Surface,
+    rect::{Dimensions, Position},
 };
 
 pub(crate) struct Prompt<'a> {
     state: &'a mut PromptState,
     chars: &'a PickerChars,
-    area: Area,
+    size: Option<Dimensions>,
     buffered_event: Option<PromptEvent>,
     pending: PromptStatus,
 }
@@ -21,7 +21,7 @@ impl<'a> Prompt<'a> {
         Self {
             state,
             chars,
-            area: Area::default(),
+            size: None,
             buffered_event: None,
             pending: PromptStatus::default(),
         }
@@ -31,19 +31,29 @@ impl<'a> Prompt<'a> {
         self.state.contents()
     }
 
-    pub fn flush(&mut self, grapheme_width: impl Fn(&str) -> usize + Copy) {
+    pub fn view(&self) -> (&str, u16) {
+        if self
+            .size
+            .is_none_or(|size| size.width == 0 || size.height == 0)
+        {
+            return ("", 0);
+        }
+        self.state.view()
+    }
+
+    pub fn flush(&mut self) {
         if let Some(event) = self.buffered_event.take() {
-            self.apply(event, grapheme_width);
+            self.apply(event);
         }
     }
 
-    fn apply(&mut self, event: PromptEvent, grapheme_width: impl Fn(&str) -> usize + Copy) {
-        let status = self.state.apply(event, grapheme_width);
+    fn apply(&mut self, event: PromptEvent) {
+        let status = self.state.apply(event);
         self.pending.needs_redraw |= status.needs_redraw;
         self.pending.contents_changed |= status.contents_changed;
     }
 
-    pub fn handle(&mut self, event: PromptEvent, grapheme_width: impl Fn(&str) -> usize + Copy) {
+    pub fn handle(&mut self, event: PromptEvent) {
         let Some(ref mut buffered) = self.buffered_event else {
             self.buffered_event = Some(event);
             return;
@@ -92,45 +102,52 @@ impl<'a> Prompt<'a> {
             (b, mut e) => {
                 // move the incoming event into the buffer and handle the buffered event
                 std::mem::swap(b, &mut e);
-                self.apply(e, grapheme_width);
+                self.apply(e);
             }
         }
     }
 
-    pub fn update(&mut self, grapheme_width: impl Fn(&str) -> usize + Copy) -> PromptStatus {
-        self.flush(grapheme_width);
+    pub fn update(&mut self) -> PromptStatus {
+        self.flush();
         std::mem::take(&mut self.pending)
     }
 }
 
 impl Component for Prompt<'_> {
-    fn resize(&mut self, area: Area) {
-        self.area = area;
+    fn resize(&mut self, size: Dimensions) {
+        self.size = Some(size);
+        self.state.resize(size.width.saturating_sub(2));
     }
-    fn draw<D: Draw>(&mut self, rect: &mut D) -> Result<(), D::Error> {
-        self.state
-            .resize(rect.width().get().saturating_sub(2), D::grapheme_width);
-        rect.clear_line()?;
-        rect.text(
+    fn draw<S: Surface>(&mut self, surface: &mut S) -> Result<(), S::Error> {
+        self.resize(Dimensions {
+            width: surface.width(),
+            height: surface.height(),
+        });
+        if surface.is_empty() {
+            return Ok(());
+        }
+        surface.clear_line()?;
+        surface.text(
             self.chars.prompt.encode_utf8(&mut [0; 4]),
             ContentStyle::new(),
         )?;
 
-        if rect.width().get() >= 2 {
-            rect.spaces(1, ContentStyle::new())?;
-            let (contents, shift) = self.state.view(D::grapheme_width);
-            rect.spaces(shift, ContentStyle::new())?;
-            rect.text(contents, ContentStyle::new())?;
+        if surface.width() >= 2 {
+            surface.spaces(1, ContentStyle::new())?;
+            let (contents, shift) = self.view();
+            surface.spaces(shift, ContentStyle::new())?;
+            surface.text(contents, ContentStyle::new())?;
         }
         Ok(())
     }
     fn cursor(&self) -> Option<Position> {
-        (!self.area.is_empty()).then(|| Position {
+        let size = self.size?;
+        (size.width != 0 && size.height != 0).then(|| Position {
             column: self
                 .state
                 .cursor_column()
                 .saturating_add(2)
-                .min(self.area.width - 1),
+                .min(size.width - 1),
             row: 0,
         })
     }

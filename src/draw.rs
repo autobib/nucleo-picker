@@ -1,8 +1,8 @@
 //! # Backend-agnostic drawing
 //!
-//! This module implements backend-agnostic drawing. The main entrypoint is the [`Draw`] trait.
+//! This module implements backend-agnostic drawing. The main entrypoint is the [`Surface`] trait.
 
-use std::{fmt, num::NonZero};
+use std::fmt;
 
 use crossterm::style::{ContentStyle, StyledContent};
 
@@ -10,7 +10,7 @@ use crossterm::style::{ContentStyle, StyledContent};
 #[cfg_attr(docsrs, doc(cfg(feature = "ratatui")))]
 pub mod ratatui;
 
-/// A non-empty surface for drawing in a single pass.
+/// A surface for drawing in a single pass.
 ///
 /// In order to reduce the number of calls required to actually draw, any draws to a rectangle must
 /// uphold the following invariants:
@@ -25,32 +25,22 @@ pub mod ratatui;
 ///    text calls (but may span styles within a single [`styled_text`](Self::styled_text) call).
 ///
 /// The columns and rows refer to local coordinates, indexed from `(0,0)` in the top-left corner.
-pub trait Draw {
+/// Text widths are using `unicode-width`.
+pub trait Surface {
     /// An error which may occur while drawing.
     type Error;
 
     /// The width of the rectangle.
-    fn width(&self) -> NonZero<u16>;
+    fn width(&self) -> u16;
 
     /// The height of the rectangle.
-    fn height(&self) -> NonZero<u16>;
+    fn height(&self) -> u16;
 
-    /// The number of terminal columns occupied by one extended grapheme cluster.
+    /// Returns whether the surface is empty.
     ///
-    /// The caller guarantees that the provided grapheme cluster does not contain any control
-    /// characters or newlines.
-    ///
-    /// Implementations must return a width no greater than `grapheme.len()`.
-    ///
-    /// The default implementation uses [`unicode_width::UnicodeWidthStr`]. Override if the terminal
-    /// has different width rules. Note that zero-width graphemes and graphemes with widths greater
-    /// than 2 are permitted.
-    ///
-    /// This associated function defines the width policy for the backend, independently of a
-    /// drawing surface. [`Viewport::with_grapheme_width`](crate::preview::Viewport::with_grapheme_width) uses
-    /// the same policy for horizontal navigation.
-    fn grapheme_width(grapheme: &str) -> usize {
-        crate::util::unicode::grapheme_width(grapheme)
+    /// By default, the surface is empty if either its width or height are 0.
+    fn is_empty(&self) -> bool {
+        self.width() == 0 || self.height() == 0
     }
 
     /// Move the cursor to the rectangle-local column and row.
@@ -101,7 +91,8 @@ pub trait Draw {
 
     /// Overwrite the entire rectangle with blanks and move the cursor to the origin.
     ///
-    /// This function must be called *before any writes to this rectangle*.
+    /// This function must be called *before any writes to this rectangle*. Implementations may
+    /// decide that clearing an empty surface does nothing.
     fn clear(&mut self) -> Result<(), Self::Error>;
 }
 

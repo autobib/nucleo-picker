@@ -56,11 +56,12 @@ pub trait Terminal: Write {
     /// A callback executed at the end of each frame.
     ///
     /// This method is called on every frame (except initialization), whether or not it was rendered. The boolean indicates
-    /// if there were logical changes to the picker state since the previous frame.
+    /// whether there were session invalidations or host presentation changes since the previous
+    /// frame, including layout changes and explicit redraw requests.
     ///
     /// If `changed` is `false`, writes definitely did not occur. If `changed` is true, it is
     /// possible that writes still may not have occurred. Currently, this is only the case
-    /// if the terminal has width 0, but future versions may perform more sophisticated checks
+    /// if the terminal has width or height 0, but future versions may perform more sophisticated checks
     /// to see if there were no changes to the actual screen content, and suppress writes
     /// in that case as well.
     ///

@@ -3,9 +3,9 @@ use crossterm::style::{ContentStyle, Stylize};
 use crate::{
     PickerChars,
     component::Component,
-    draw::Draw,
-    rect::Area,
+    draw::Surface,
     session::{MatchStatus, QueueStatus},
+    util::unicode::grapheme_width,
 };
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -82,11 +82,13 @@ impl<'a> StatusLine<'a> {
 }
 
 impl Component for StatusLine<'_> {
-    fn resize(&mut self, _area: Area) {}
-    fn draw<D: Draw>(&mut self, rect: &mut D) -> Result<(), D::Error> {
+    fn draw<S: Surface>(&mut self, surface: &mut S) -> Result<(), S::Error> {
+        if surface.is_empty() {
+            return Ok(());
+        }
         let values = self.previous.unwrap_or_default();
         draw_match_counts(
-            rect,
+            surface,
             values.matched,
             values.total,
             values.multi,
@@ -100,20 +102,20 @@ fn decimal_width(value: u32) -> usize {
     value.checked_ilog10().unwrap_or(0) as usize + 1
 }
 
-fn draw_match_counts<D: Draw>(
-    rect: &mut D,
+fn draw_match_counts<S: Surface>(
+    surface: &mut S,
     matched: u32,
     total: u32,
     multi: Option<QueueStatus>,
     status_marker: Option<char>,
     chars: &PickerChars,
-) -> Result<(), D::Error> {
-    let width = rect.width().get();
+) -> Result<(), S::Error> {
+    let width = surface.width();
 
     let mut encoded = [0; 4];
     let marker = status_marker.unwrap_or(' ').encode_utf8(&mut encoded);
     let mut occupied =
-        D::grapheme_width(marker) + 1 + decimal_width(matched) + 1 + decimal_width(total);
+        grapheme_width(marker) + 1 + decimal_width(matched) + 1 + decimal_width(total);
     if let Some(QueueStatus { count, limit }) = multi {
         occupied += 2 + decimal_width(count) + 1;
         if let Some(max) = limit {
@@ -122,28 +124,28 @@ fn draw_match_counts<D: Draw>(
     }
 
     if occupied > usize::from(width) {
-        return rect.clear_line();
+        return surface.clear_line();
     }
 
     let counts = ContentStyle::new().italic().green();
     let secondary = ContentStyle::new().italic().grey();
-    rect.text(marker, counts)?;
-    rect.ascii(format_args!(" {matched}/{total}"), counts)?;
+    surface.text(marker, counts)?;
+    surface.ascii(format_args!(" {matched}/{total}"), counts)?;
     if let Some(QueueStatus { count, limit }) = multi {
-        rect.ascii(format_args!(" ({count}"), secondary)?;
+        surface.ascii(format_args!(" ({count}"), secondary)?;
         if let Some(max) = limit {
-            rect.ascii(format_args!("/{max}"), secondary)?;
+            surface.ascii(format_args!("/{max}"), secondary)?;
         }
-        rect.text(")", secondary)?;
+        surface.text(")", secondary)?;
     }
 
     let fill_width = usize::from(width).saturating_sub(occupied);
     if fill_width != 0 {
-        rect.spaces(1, secondary)?;
+        surface.spaces(1, secondary)?;
         let mut encoded = [0; 4];
         let separator = chars.separator.encode_utf8(&mut encoded);
         for _ in 1..fill_width {
-            rect.text(separator, secondary)?;
+            surface.text(separator, secondary)?;
         }
     }
     Ok(())

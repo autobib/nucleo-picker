@@ -14,9 +14,9 @@ use crate::{
         Buffer, Pane, Preview, PreviewEvent, SyncPreviewer,
         request::{Request, Response},
     },
-    rect::Area,
+    rect::{Area, ClearState, CrosstermTarget},
     render::StrRenderer,
-    session::{Dimensions, Geometry, Redraw},
+    session::Dimensions,
 };
 
 #[test]
@@ -32,21 +32,17 @@ fn buffered_navigation_targets_cached_event_items_without_generating_unseen_prev
             pane.push_text(&format!("{item}{line:02}"));
         }
     });
-    let mut session = driver.session(CachedPreview::new_single(previewer), Duration::ZERO);
-    let geometry = Geometry {
-        dimensions: Dimensions {
-            width: 30,
-            height: 10,
-        },
-        preview: Area {
-            width: 30,
-            height: 10,
-            ..Area::default()
-        },
-        ..Geometry::default()
+    let mut session = driver.session(CachedPreview::new_single(previewer));
+    let area = Area {
+        width: 30,
+        height: 10,
+        ..Area::default()
     };
     let mut initial = session.prepare_frame(frame_options());
-    initial.resize(geometry);
+    initial.preview().resize(Dimensions {
+        width: area.width,
+        height: area.height,
+    });
     initial.complete();
     session.events().match_list(MatchListEvent::Up(1));
     session.prepare_frame(frame_options()).complete();
@@ -60,7 +56,10 @@ fn buffered_navigation_targets_cached_event_items_without_generating_unseen_prev
     }
     let mut frame = session.prepare_frame(frame_options());
     let mut terminal = TestTerminal::default();
-    frame.draw(&mut terminal, Redraw::PREVIEW).unwrap();
+    frame
+        .preview()
+        .draw(&mut CrosstermTarget::new(&mut terminal).rect(area, ClearState::WithinRect))
+        .unwrap();
     assert!(
         String::from_utf8(terminal.output)
             .unwrap()
@@ -71,11 +70,14 @@ fn buffered_navigation_targets_cached_event_items_without_generating_unseen_prev
     session.events().match_list(MatchListEvent::Up(1));
     let mut frame = session.prepare_frame(frame_options());
     let mut terminal = TestTerminal::default();
-    frame.draw(&mut terminal, Redraw::PREVIEW).unwrap();
+    frame
+        .preview()
+        .draw(&mut CrosstermTarget::new(&mut terminal).rect(area, ClearState::WithinRect))
+        .unwrap();
     assert!(
         String::from_utf8(terminal.output)
             .unwrap()
-            .contains("beta08")
+            .contains("beta10")
     );
     frame.complete();
     assert_eq!(*generated.borrow(), ["alpha", "beta"]);

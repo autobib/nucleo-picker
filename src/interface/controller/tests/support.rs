@@ -10,7 +10,7 @@ use crate::{
         request::{ActiveRequest, QueuedRequest, Request, Response},
     },
     render::StrRenderer,
-    session::{Context, Driver, DriverOptions, ItemId, ItemRef, Redraw},
+    session::{Components, Context, Driver, DriverOptions, ItemId, ItemRef},
 };
 
 pub(crate) fn driver(
@@ -49,7 +49,7 @@ pub(crate) fn before<I: Interface<&'static str>>(
     interface: &mut I,
     state: &mut I::State,
     cx: &Context<'_, &'static str>,
-) -> Redraw {
+) -> Components {
     interface.before_frame(state, cx, false, Instant::now())
 }
 
@@ -58,9 +58,9 @@ pub(crate) fn frame<I: Interface<&'static str>>(
     state: &mut I::State,
     cx: &Context<'_, &'static str>,
     deadline: Instant,
-) -> Redraw {
+) -> Components {
     let redraw = interface.before_frame(state, cx, false, deadline);
-    assert_eq!(interface.after_frame(state, cx, deadline), Redraw::NONE);
+    assert!(interface.after_frame(state, cx, deadline).is_none());
     redraw
 }
 
@@ -130,8 +130,7 @@ impl Preview<&'static str> for TestPreviewer {
         self.prefetch_limit
     }
 
-    fn preview(&mut self, request: Request<'_, &'static str>, timeout: Duration) -> Response {
-        assert!(timeout >= Duration::from_millis(2));
+    fn preview(&mut self, request: Request<'_, &'static str>, _: Duration) -> Response {
         assert_eq!(self.hovered.last(), Some(&Some(*request.item())));
         self.requested.push(request.item());
         self.ids.push(request.id());

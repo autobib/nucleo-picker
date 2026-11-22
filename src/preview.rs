@@ -118,7 +118,7 @@ mod text;
 #[cfg(feature = "preview-cache")]
 use std::num::NonZero;
 
-use crate::rect::{Area, Dimensions};
+use crate::rect::Dimensions;
 
 #[cfg(feature = "preview-cache")]
 #[doc(inline)]
@@ -191,14 +191,11 @@ pub enum Content<'a> {
     Ready(&'a Pane),
 }
 
-pub(crate) fn interior_dimensions(area: Area) -> Dimensions {
-    if area.is_empty() {
-        Dimensions::default()
-    } else {
-        Dimensions {
-            width: area.width.saturating_sub(2),
-            height: area.height.saturating_sub(2),
-        }
+pub(crate) fn content_dimensions(size: Dimensions, bordered: bool) -> Dimensions {
+    let inset = if bordered { 2 } else { 0 };
+    Dimensions {
+        width: size.width.saturating_sub(inset),
+        height: size.height.saturating_sub(inset),
     }
 }
 
@@ -263,25 +260,3 @@ impl Default for BoundaryChars {
 
 #[cfg(feature = "preview-cache")]
 pub(crate) const DEFAULT_CACHE_SIZE: Option<NonZero<usize>> = NonZero::new(128);
-
-/// Internal preview configuration.
-#[derive(Debug, Clone)]
-pub(crate) struct PreviewConfig {
-    pub ratio: f64,
-    pub boundary_chars: BoundaryChars,
-}
-
-impl PreviewConfig {
-    pub const fn new() -> Self {
-        Self {
-            ratio: 0.5,
-            boundary_chars: BoundaryChars::new(),
-        }
-    }
-}
-
-impl Default for PreviewConfig {
-    fn default() -> Self {
-        Self::new()
-    }
-}

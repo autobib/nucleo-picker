@@ -1,57 +1,28 @@
-use std::time::Duration;
-
+use super::{Prompt, PromptConfig, PromptState};
 use crate::{
+    PickerChars,
+    component::{Component, tests::TestSurface},
     event::PromptEvent::{self, *},
-    rect::Area,
-    render::StrRenderer,
-    session::{
-        Dimensions, DriverOptions, Geometry, Redraw, Session,
-        tests::{Select, TestTerminal, frame_options},
-    },
+    rect::{Dimensions, Position},
 };
 
-fn render(session: &mut Session<'_, &'static str, StrRenderer, Select>, width: u16) -> String {
-    let mut options = frame_options();
-    options.visible_components = Redraw {
-        prompt: true,
-        ..Redraw::NONE
-    };
-    let mut frame = session.prepare_frame(options);
-    frame.resize(Geometry {
-        dimensions: Dimensions {
-            width: width + 2,
-            height: 1,
-        },
-        prompt: Area {
-            width: width + 2,
-            height: 1,
-            ..Area::default()
-        },
-        ..Geometry::default()
-    });
-    let mut terminal = TestTerminal::default();
-    frame.draw(&mut terminal, Redraw::FULL).unwrap();
-    frame.complete();
-    String::from_utf8(terminal.output).unwrap()
+fn render(prompt: &mut Prompt<'_>, width: u16) -> String {
+    prompt.update();
+    let mut target = TestSurface::new(width + 2, 1);
+    prompt.draw(&mut target).unwrap();
+    target.rows.pop().unwrap()
 }
 
-fn assert_prompt(
-    session: &mut Session<'_, &'static str, StrRenderer, Select>,
-    width: u16,
-    query: &str,
-    column: u16,
-    visible: &str,
-) {
-    let output = render(session, width);
-    assert!(output.contains(&format!("> {visible}\x1b")), "{output:?}");
-    let column = (column + 2).min(width + 1) + 1;
-    assert!(
-        output.ends_with(&format!("\x1b[1;{column}H\x1b[?2026l")),
-        "{output:?}"
+fn assert_prompt(prompt: &mut Prompt<'_>, width: u16, query: &str, column: u16, visible: &str) {
+    assert_eq!(render(prompt, width), format!("> {visible}"));
+    assert_eq!(
+        prompt.cursor(),
+        Some(Position {
+            column: (column + 2).min(width + 1),
+            row: 0,
+        })
     );
-    let frame = session.prepare_frame(frame_options());
-    assert_eq!(frame.view().query(), query);
-    frame.complete();
+    assert_eq!(prompt.contents(), query);
 }
 
 #[test]
@@ -82,15 +53,14 @@ fn cursor_and_visible_text_scroll_across_grapheme_boundaries() {
             ],
         ),
     ] {
-        let mut driver = DriverOptions::new()
-            .prompt_padding(padding)
-            .driver(StrRenderer);
-        let mut session = driver.session(Select, Duration::ZERO);
-        render(&mut session, width);
-        session.events().prompt(Paste(query.to_owned()));
+        let chars = PickerChars::new();
+        let mut state = PromptState::new(PromptConfig { padding });
+        let mut prompt = Prompt::new(&mut state, &chars);
+        render(&mut prompt, width);
+        prompt.handle(Paste(query.to_owned()));
         for (event, column, visible) in steps {
-            session.events().prompt(event);
-            assert_prompt(&mut session, width, query, column, visible);
+            prompt.handle(event);
+            assert_prompt(&mut prompt, width, query, column, visible);
         }
     }
 }
@@ -104,39 +74,39 @@ fn narrow_prompts_clip_wide_graphemes_without_splitting_them() {
         (4, "\u{17d8}abc", 3, 1, " abc"),
         (6, "\u{17d8}abc", 3, 3, "\u{17d8}abc"),
     ] {
-        let mut driver = DriverOptions::new().prompt_padding(0).driver(StrRenderer);
-        let mut session = driver.session(Select, Duration::ZERO);
-        render(&mut session, width);
-        {
-            let mut batch = session.events();
-            batch.prompt(Paste(query.to_owned()));
-            batch.prompt(Left(left));
-        }
-        assert_prompt(&mut session, width, query, column, visible);
+        let chars = PickerChars::new();
+        let mut state = PromptState::new(PromptConfig { padding: 0 });
+        let mut prompt = Prompt::new(&mut state, &chars);
+        render(&mut prompt, width);
+        prompt.handle(Paste(query.to_owned()));
+        prompt.handle(Left(left));
+        assert_prompt(&mut prompt, width, query, column, visible);
     }
 }
 
 #[test]
 fn resizing_restores_cursor_and_context_after_zero_width() {
-    let mut driver = DriverOptions::new().prompt_padding(2).driver(StrRenderer);
-    let mut session = driver.session(Select, Duration::ZERO);
-    render(&mut session, 6);
-    session.events().prompt(Paste("abcdefghijkl".to_owned()));
+    let chars = PickerChars::new();
+    let mut state = PromptState::new(PromptConfig { padding: 2 });
+    let mut prompt = Prompt::new(&mut state, &chars);
+    render(&mut prompt, 6);
+    prompt.handle(Paste("abcdefghijkl".to_owned()));
     for (width, column, visible) in [
         (6, 4, "ijkl"),
         (0, 0, ""),
         (10, 8, "efghijkl"),
         (6, 4, "ijkl"),
     ] {
-        assert_prompt(&mut session, width, "abcdefghijkl", column, visible);
+        assert_prompt(&mut prompt, width, "abcdefghijkl", column, visible);
     }
 }
 
 #[test]
 fn edits_preserve_graphemes_and_clear_at_byte_boundaries() {
-    let mut driver = DriverOptions::new().prompt_padding(1).driver(StrRenderer);
-    let mut session = driver.session(Select, Duration::ZERO);
-    render(&mut session, 3);
+    let chars = PickerChars::new();
+    let mut state = PromptState::new(PromptConfig { padding: 1 });
+    let mut prompt = Prompt::new(&mut state, &chars);
+    render(&mut prompt, 3);
     for (event, query, column, visible) in [
         (Paste("दे".to_owned()), "दे", 1, "दे"),
         (Left(1), "दे", 0, "दे"),
@@ -154,8 +124,8 @@ fn edits_preserve_graphemes_and_clear_at_byte_boundaries() {
         (ClearBefore, "c", 0, "c"),
         (Delete(1), "", 0, ""),
     ] {
-        session.events().prompt(event);
-        assert_prompt(&mut session, 3, query, column, visible);
+        prompt.handle(event);
+        assert_prompt(&mut prompt, 3, query, column, visible);
     }
 }
 
@@ -167,25 +137,18 @@ fn word_edits_and_zero_count_operations_preserve_insertion_boundaries() {
         ("  one two", 1, "  one Xtwo", "  one "),
         ("  one two", usize::MAX, "  Xone two", "  "),
     ] {
-        let mut driver = DriverOptions::new().driver::<&str, _>(StrRenderer);
-        let mut session = driver.session(Select, Duration::ZERO);
-        {
-            let mut batch = session.events();
-            batch.prompt(Reset(query.to_owned()));
-            batch.prompt(WordLeft(steps));
-            batch.prompt(Insert('X'));
-        }
-        let frame = session.prepare_frame(frame_options());
-        assert_eq!(frame.view().query(), moved);
-        frame.complete();
-        {
-            let mut batch = session.events();
-            batch.prompt(Reset(query.to_owned()));
-            batch.prompt(BackspaceWord(steps));
-        }
-        let frame = session.prepare_frame(frame_options());
-        assert_eq!(frame.view().query(), deleted);
-        frame.complete();
+        let chars = PickerChars::new();
+        let mut state = PromptState::new(PromptConfig::default());
+        let mut prompt = Prompt::new(&mut state, &chars);
+        prompt.handle(Reset(query.to_owned()));
+        prompt.handle(WordLeft(steps));
+        prompt.handle(Insert('X'));
+        prompt.update();
+        assert_eq!(prompt.contents(), moved);
+        prompt.handle(Reset(query.to_owned()));
+        prompt.handle(BackspaceWord(steps));
+        prompt.update();
+        assert_eq!(prompt.contents(), deleted);
     }
 
     for event in [
@@ -194,32 +157,72 @@ fn word_edits_and_zero_count_operations_preserve_insertion_boundaries() {
         Backspace,
         BackspaceWord,
     ] {
-        let mut driver = DriverOptions::new().driver(StrRenderer);
-        let mut session = driver.session(Select, Duration::ZERO);
-        session.events().prompt(Paste("Ａe\u{301}界".to_owned()));
-        session.events().prompt(Left(1));
-        let before = render(&mut session, 3);
-        session.events().prompt(event(0));
-        assert_eq!(render(&mut session, 3), before);
-        session.events().prompt(Insert('X'));
-        let frame = session.prepare_frame(frame_options());
-        assert_eq!(frame.view().query(), "Ａe\u{301}X界");
-        frame.complete();
+        let chars = PickerChars::new();
+        let mut state = PromptState::new(PromptConfig::default());
+        let mut prompt = Prompt::new(&mut state, &chars);
+        prompt.handle(Paste("Ａe\u{301}界".to_owned()));
+        prompt.handle(Left(1));
+        let before = render(&mut prompt, 3);
+        prompt.handle(event(0));
+        assert_eq!(render(&mut prompt, 3), before);
+        prompt.handle(Insert('X'));
+        prompt.update();
+        assert_eq!(prompt.contents(), "Ａe\u{301}X界");
     }
 }
 
 #[test]
 fn incremental_input_matches_paste_for_emoji_and_control_characters() {
     for text in ["abc👩🏽‍💻", "a\n\u{7}ｏ\tb"] {
-        let mut driver = DriverOptions::new().driver(StrRenderer);
-        let mut session = driver.session(Select, Duration::ZERO);
-        render(&mut session, 6);
-        session.events().prompt(Paste(text.to_owned()));
-        let pasted = render(&mut session, 6);
-        session.events().prompt(Reset(String::new()));
+        let chars = PickerChars::new();
+        let mut state = PromptState::new(PromptConfig::default());
+        let mut prompt = Prompt::new(&mut state, &chars);
+        render(&mut prompt, 6);
+        prompt.handle(Paste(text.to_owned()));
+        let pasted = render(&mut prompt, 6);
+        prompt.handle(Reset(String::new()));
         for ch in text.chars() {
-            session.events().prompt(Insert(ch));
+            prompt.handle(Insert(ch));
         }
-        assert_eq!(render(&mut session, 6), pasted);
+        assert_eq!(render(&mut prompt, 6), pasted);
     }
+}
+
+#[test]
+fn target_dimensions_control_empty_drawing_and_local_cursor() {
+    let chars = PickerChars::new();
+    let mut state = PromptState::new(PromptConfig::default());
+    let mut prompt = Prompt::new(&mut state, &chars);
+    assert_eq!(prompt.cursor(), None);
+    assert_eq!(prompt.view(), ("", 0));
+
+    for (width, height, cursor) in [
+        (8, 1, Some(2)),
+        (0, 1, None),
+        (8, 0, None),
+        (1, 1, Some(0)),
+        (2, 1, Some(1)),
+        (8, 3, Some(2)),
+    ] {
+        let mut target = TestSurface::new(width, height);
+        prompt.draw(&mut target).unwrap();
+        assert_eq!(target.touched, width != 0 && height != 0);
+        assert_eq!(
+            prompt.cursor(),
+            cursor.map(|column| Position { column, row: 0 })
+        );
+        prompt.resize(Dimensions { width, height });
+    }
+    prompt.handle(Paste("text".to_owned()));
+    prompt.update();
+    prompt.resize(Dimensions {
+        width: 8,
+        height: 0,
+    });
+    assert_eq!(prompt.view(), ("", 0));
+    prompt.resize(Dimensions {
+        width: 8,
+        height: 1,
+    });
+    assert_eq!(prompt.view(), ("text", 0));
 }

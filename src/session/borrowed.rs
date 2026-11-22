@@ -1,4 +1,4 @@
-use super::{Context, Exit, ItemId, QueueEvent, QueueStatus, Redraw};
+use super::{Components, Context, Exit, ItemId, QueueEvent, QueueStatus};
 use crate::interface::Interface;
 use crate::preview::{Content, PreviewEvent};
 use crate::rect::Dimensions;
@@ -57,7 +57,7 @@ impl<T, I: Interface<T>> Interface<T> for &mut I {
         cx: &Context<'_, T>,
         matches_changed: bool,
         deadline: Instant,
-    ) -> Redraw {
+    ) -> Components {
         (**self).before_frame(state, cx, matches_changed, deadline)
     }
 
@@ -66,7 +66,7 @@ impl<T, I: Interface<T>> Interface<T> for &mut I {
         state: &mut Self::State,
         cx: &Context<'_, T>,
         deadline: Instant,
-    ) -> Redraw {
+    ) -> Components {
         (**self).after_frame(state, cx, deadline)
     }
 
@@ -79,7 +79,7 @@ impl<T, I: Interface<T>> Interface<T> for &mut I {
         state: &mut Self::State,
         event: PreviewEvent,
         cx: &Context<'_, T>,
-    ) -> Redraw {
+    ) -> Components {
         (**self).preview_event(state, event, cx)
     }
 

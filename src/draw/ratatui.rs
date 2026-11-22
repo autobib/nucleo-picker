@@ -9,35 +9,30 @@ use ratatui_core::{
     style::{Color, Modifier, Style},
 };
 
-use super::Draw;
-use crate::util::unicode::{Processor, UnicodeProcessor};
+use super::Surface;
+use crate::util::unicode::{Processor, UnicodeProcessor, grapheme_width};
 
-/// # [`Draw`] adapter for Ratatui buffers.
+/// # [`Surface`] adapter for Ratatui buffers.
 ///
 /// This type is a thin wrapper around a [`Rect`] sub-area of a [`Buffer`] which permits the picker
 /// to draw directly into the buffer.
-///
-/// Text is measured using Ratatui's [`CellWidth`]. This is pretty similar to the usual Unicode
-/// width, but for instance includes an extra column for halfwidth katakana sound marks.
-pub struct RatatuiRect<'a> {
+pub struct RatatuiSurface<'a> {
     cells: &'a mut [Cell],
     stride: usize,
-    width: NonZero<u16>,
-    height: NonZero<u16>,
+    width: u16,
+    height: u16,
     column: u16,
     row: u16,
     check_left: bool,
 }
 
-impl<'a> RatatuiRect<'a> {
+impl<'a> RatatuiSurface<'a> {
     /// Initialize a rectangle from a Ratatui rectangle and buffer.
     ///
     /// # Panics
     ///
     /// The provided rectangle must be a subset of the buffer rectangle.
-    pub fn new(buffer: &'a mut Buffer, area: Rect) -> Option<Self> {
-        let width = NonZero::new(area.width)?;
-        let height = NonZero::new(area.height)?;
+    pub fn new(buffer: &'a mut Buffer, area: Rect) -> Self {
         let bounds = buffer.area;
         assert!(
             area.x >= bounds.x
@@ -49,30 +44,38 @@ impl<'a> RatatuiRect<'a> {
             "drawing rectangle must be contained in the buffer"
         );
         let stride = usize::from(bounds.width);
-        let start = usize::from(area.y - bounds.y) * stride + usize::from(area.x - bounds.x);
-        let len = usize::from(area.height - 1) * stride + usize::from(area.width);
-        Some(Self {
-            cells: &mut buffer.content[start..start + len],
+        let cells = if area.is_empty() {
+            &mut buffer.content[..0]
+        } else {
+            let start = usize::from(area.y - bounds.y) * stride + usize::from(area.x - bounds.x);
+            let len = usize::from(area.height - 1) * stride + usize::from(area.width);
+            &mut buffer.content[start..start + len]
+        };
+        Self {
+            cells,
             stride,
-            width,
-            height,
+            width: area.width,
+            height: area.height,
             column: 0,
             row: 0,
             check_left: false,
-        })
+        }
     }
 
     fn row_mut(&mut self) -> &mut [Cell] {
-        assert!(self.row < self.height.get(), "drawing cursor is invalid");
+        assert!(
+            self.width != 0 && self.row < self.height,
+            "drawing cursor is invalid"
+        );
         let start = usize::from(self.row) * self.stride;
-        &mut self.cells[start..start + usize::from(self.width.get())]
+        &mut self.cells[start..start + usize::from(self.width)]
     }
 
     fn write_cells(&mut self, width: u16) -> &mut [Cell] {
         let column = usize::from(self.column);
         let end = column + usize::from(width);
         assert!(
-            end <= usize::from(self.width.get()),
+            end <= usize::from(self.width),
             "text must fit in the drawing rectangle"
         );
         let check_left = std::mem::take(&mut self.check_left);
@@ -109,16 +112,20 @@ impl<'a> RatatuiRect<'a> {
     }
 
     fn write_text(&mut self, text: &str, mut style_at: impl FnMut(usize) -> Style) {
+        assert!(
+            text.is_empty() || (self.width != 0 && self.row < self.height),
+            "drawing cursor is invalid"
+        );
         let mut graphemes = UnicodeProcessor::grapheme_indices(text).peekable();
         let mut start = 0;
         while let Some((index, grapheme)) = graphemes.next() {
-            let width = Self::grapheme_width(grapheme);
+            let width = grapheme_width(grapheme);
             if width == 0 {
                 continue;
             }
             while graphemes
                 .peek()
-                .is_some_and(|&(_, grapheme)| Self::grapheme_width(grapheme) == 0)
+                .is_some_and(|&(_, grapheme)| grapheme_width(grapheme) == 0)
             {
                 graphemes.next();
             }
@@ -136,23 +143,19 @@ impl<'a> RatatuiRect<'a> {
     }
 }
 
-impl Draw for RatatuiRect<'_> {
+impl Surface for RatatuiSurface<'_> {
     type Error = Infallible;
 
-    fn grapheme_width(grapheme: &str) -> usize {
-        usize::from(grapheme.cell_width())
-    }
-
-    fn width(&self) -> NonZero<u16> {
+    fn width(&self) -> u16 {
         self.width
     }
 
-    fn height(&self) -> NonZero<u16> {
+    fn height(&self) -> u16 {
         self.height
     }
 
     fn move_to(&mut self, column: u16, row: u16) -> Result<(), Self::Error> {
-        assert!(column < self.width.get() && row < self.height.get());
+        assert!(column < self.width && row < self.height);
         self.column = column;
         self.row = row;
         self.check_left = column != 0;
@@ -164,7 +167,10 @@ impl Draw for RatatuiRect<'_> {
     }
 
     fn next_line(&mut self) -> Result<(), Self::Error> {
-        assert!(self.row < self.height.get(), "drawing cursor is invalid");
+        assert!(
+            self.width != 0 && self.row < self.height,
+            "drawing cursor is invalid"
+        );
         self.row += 1;
         self.column = 0;
         self.check_left = false;
@@ -199,7 +205,7 @@ impl Draw for RatatuiRect<'_> {
 
     fn ascii(&mut self, text: fmt::Arguments<'_>, style: ContentStyle) -> Result<(), Self::Error> {
         struct Writer<'a, 'buffer> {
-            rect: &'a mut RatatuiRect<'buffer>,
+            surface: &'a mut RatatuiSurface<'buffer>,
             style: Style,
         }
 
@@ -210,7 +216,7 @@ impl Draw for RatatuiRect<'_> {
                 }
                 debug_assert!(text.bytes().all(|byte| (b' '..=b'~').contains(&byte)));
                 let width = u16::try_from(text.len()).expect("ASCII must fit in the rectangle");
-                for (cell, byte) in self.rect.write_cells(width).iter_mut().zip(text.bytes()) {
+                for (cell, byte) in self.surface.write_cells(width).iter_mut().zip(text.bytes()) {
                     cell.set_char(char::from(byte)).set_style(self.style);
                 }
                 Ok(())
@@ -218,7 +224,7 @@ impl Draw for RatatuiRect<'_> {
         }
 
         Writer {
-            rect: self,
+            surface: self,
             style: convert_style(style),
         }
         .write_fmt(text)
@@ -244,8 +250,11 @@ impl Draw for RatatuiRect<'_> {
     }
 
     fn clear(&mut self) -> Result<(), Self::Error> {
+        if self.is_empty() {
+            return Ok(());
+        }
         for row in self.cells.chunks_mut(self.stride) {
-            row[..usize::from(self.width.get())].fill(Cell::EMPTY);
+            row[..usize::from(self.width)].fill(Cell::EMPTY);
         }
         self.move_to(0, 0)
     }

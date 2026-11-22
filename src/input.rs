@@ -10,12 +10,15 @@ use crossterm::event::{KeyEvent, poll, read};
 #[cfg(doc)]
 use crate::event::keybind_single;
 use crate::{
-    Render,
+    Injector, Render,
     error::PickError,
-    event::{Event, EventSource, KeybindDefault, RecvError},
+    event::{Event, EventSource, KeybindDefault, PickerStatus, RecvError},
     interface::Interface,
     keybind::{convert_crossterm_event, keybind_default},
+    observer::Notifier,
+    run::{self, RunnerConfig},
     session::Driver,
+    terminal::CrosstermTerminal,
 };
 
 /// Run an interface interactively with its default keybindings.
@@ -25,13 +28,23 @@ use crate::{
 pub(crate) fn pick<'items, T, R, I>(
     driver: &'items mut Driver<T, R>,
     interface: &mut I,
+    config: RunnerConfig,
+    restart_notifier: Option<&Notifier<Injector<T, R>>>,
+    status_notifier: Option<&Notifier<PickerStatus>>,
 ) -> Result<I::Output<'items>, PickError>
 where
     T: Send + Sync + 'static,
     R: Render<T>,
     I: Interface<T> + KeybindDefault,
 {
-    pick_with_keybind(driver, interface, I::keybind_default)
+    pick_with_keybind(
+        driver,
+        interface,
+        config,
+        restart_notifier,
+        status_notifier,
+        I::keybind_default,
+    )
 }
 
 /// Run an interface interactively with custom keybindings.
@@ -42,6 +55,9 @@ where
 pub(crate) fn pick_with_keybind<'items, T, R, I, F>(
     driver: &'items mut Driver<T, R>,
     interface: &mut I,
+    config: RunnerConfig,
+    restart_notifier: Option<&Notifier<Injector<T, R>>>,
+    status_notifier: Option<&Notifier<PickerStatus>>,
     keybind: F,
 ) -> Result<I::Output<'items>, PickError>
 where
@@ -52,10 +68,14 @@ where
 {
     let stderr = io::stderr().lock();
     if stderr.is_terminal() {
-        driver.pick_with_io(
+        run::pick_impl(
+            driver,
             interface,
+            config,
+            restart_notifier,
+            status_notifier,
             StdinReader::new(keybind),
-            &mut BufWriter::new(stderr),
+            &mut CrosstermTerminal::new(&mut BufWriter::new(stderr)),
         )
     } else {
         Err(PickError::NotInteractive)

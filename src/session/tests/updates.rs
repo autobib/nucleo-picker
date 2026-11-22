@@ -5,7 +5,7 @@ use crate::{
     event::{MatchListEvent, PromptEvent},
     interface::Interface,
     render::StrRenderer,
-    session::{Context, Exit, Geometry, ItemId, Redraw, Session},
+    session::{Components, Context, Exit, ItemId, Session},
 };
 
 struct Update {
@@ -17,7 +17,7 @@ struct Update {
     completed: bool,
 }
 
-struct Probe<'a, const PREVIEW: bool>(&'a mut Vec<Update>, Redraw);
+struct Probe<'a, const PREVIEW: bool>(&'a mut Vec<Update>, Components);
 
 impl<const PREVIEW: bool> Interface<String> for Probe<'_, PREVIEW> {
     type State = ();
@@ -33,7 +33,7 @@ impl<const PREVIEW: bool> Interface<String> for Probe<'_, PREVIEW> {
         cx: &Context<'_, String>,
         matches_changed: bool,
         deadline: Instant,
-    ) -> Redraw {
+    ) -> Components {
         self.0.push(Update {
             matches_changed,
             hovered: cx.hovered().map(|item| item.id()),
@@ -45,7 +45,12 @@ impl<const PREVIEW: bool> Interface<String> for Probe<'_, PREVIEW> {
         self.1
     }
 
-    fn after_frame(&mut self, _: &mut (), cx: &Context<'_, String>, deadline: Instant) -> Redraw {
+    fn after_frame(
+        &mut self,
+        _: &mut (),
+        cx: &Context<'_, String>,
+        deadline: Instant,
+    ) -> Components {
         let last = self.0.last_mut().unwrap();
         assert!(!std::mem::replace(&mut last.completed, true));
         assert_eq!(last.deadline, deadline);
@@ -66,9 +71,7 @@ impl<const PREVIEW: bool> Interface<String> for Probe<'_, PREVIEW> {
 }
 
 fn frame<I: Interface<String>>(session: &mut Session<'_, String, StrRenderer, I>) {
-    let mut frame = session.prepare_frame(frame_options());
-    frame.resize(Geometry::default());
-    frame.complete();
+    session.prepare_frame(frame_options()).complete();
 }
 
 #[test]
@@ -76,7 +79,7 @@ fn idle_and_navigation_frames_run_both_hooks_without_match_notifications() {
     let mut driver = driver(["alpha", "beta"]);
     let ids: Vec<_> = driver.matches().ids().collect();
     let mut updates = Vec::new();
-    let mut session = driver.session(Probe::<false>(&mut updates, Redraw::NONE), Duration::ZERO);
+    let mut session = driver.session(Probe::<false>(&mut updates, Components::NONE));
     frame(&mut session);
     frame(&mut session);
     session.events().match_list(MatchListEvent::Up(1));
@@ -104,7 +107,7 @@ fn query_batches_notify_only_after_publication_and_keep_changes_until_preparatio
     let mut driver = driver(["alpha", "beta"]);
     let beta = driver.matches().get(1).unwrap().id();
     let mut updates = Vec::new();
-    let mut session = driver.session(Probe::<false>(&mut updates, Redraw::NONE), Duration::ZERO);
+    let mut session = driver.session(Probe::<false>(&mut updates, Components::NONE));
     frame(&mut session);
     session
         .events()
@@ -112,7 +115,7 @@ fn query_batches_notify_only_after_publication_and_keep_changes_until_preparatio
     session.events().prompt(PromptEvent::Left(1));
     frame(&mut session);
     update(&mut session);
-    session.update(Duration::ZERO);
+    session.update_matches(Duration::ZERO);
     frame(&mut session);
     frame(&mut session);
     drop(session);
@@ -133,15 +136,18 @@ fn hidden_publications_and_repeated_restarts_are_reported_once_per_frame() {
     let mut driver = driver(["alpha", "beta"]);
     let injector = driver.injector();
     let mut updates = Vec::new();
-    let mut session = driver.session(Probe::<true>(&mut updates, Redraw::NONE), Duration::ZERO);
+    let mut session = driver.session(Probe::<true>(&mut updates, Components::NONE));
     frame(&mut session);
-    session.events().set_preview_enabled(false);
+    session.events().set_visible_components(Components {
+        preview: false,
+        ..Components::ALL
+    });
     frame(&mut session);
     injector.push("gamma".to_owned());
     drop(injector);
     update(&mut session);
     frame(&mut session);
-    session.events().set_preview_enabled(true);
+    session.events().set_visible_components(Components::ALL);
     frame(&mut session);
     {
         let mut batch = session.events();
@@ -181,21 +187,24 @@ fn hidden_publications_and_repeated_restarts_are_reported_once_per_frame() {
 fn preview_wrappers_forward_frame_hooks_and_combine_invalidations() {
     fn check<I: Interface<String>>(interface: I) {
         let mut driver = driver(["alpha", "beta"]);
-        let mut session = driver.session(interface, Duration::ZERO);
+        let mut session = driver.session(interface);
         frame(&mut session);
         session.events().match_list(MatchListEvent::Up(1));
         let navigation = session.prepare_frame(frame_options());
-        assert_eq!(navigation.redraw(), Redraw::QUEUE | Redraw::PREVIEW);
+        assert_eq!(navigation.redraw(), Components::QUEUE | Components::PREVIEW);
         navigation.complete();
-        session.events().set_preview_enabled(false);
+        session.events().set_visible_components(Components {
+            preview: false,
+            ..Components::ALL
+        });
         frame(&mut session);
         let hidden = session.prepare_frame(frame_options());
-        assert_eq!(hidden.redraw(), Redraw::QUEUE);
+        assert_eq!(hidden.redraw(), Components::QUEUE);
         hidden.complete();
         drop(session.events().restart());
         update(&mut session);
         frame(&mut session);
-        session.events().set_preview_enabled(true);
+        session.events().set_visible_components(Components::ALL);
         frame(&mut session);
     }
 
@@ -206,7 +215,7 @@ fn preview_wrappers_forward_frame_hooks_and_combine_invalidations() {
     ] {
         let mut updates = Vec::new();
         let mut generated = 0;
-        let probe = Probe::<false>(&mut updates, Redraw::QUEUE);
+        let probe = Probe::<false>(&mut updates, Components::QUEUE);
         let generate = |_: &String, _: &mut crate::preview::Pane| generated += 1;
         match cached {
             #[cfg(feature = "preview-cache")]

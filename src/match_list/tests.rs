@@ -1,58 +1,88 @@
-use std::{num::NonZero, time::Duration};
+use std::num::NonZero;
 
 use crate::{
+    component::{Component, tests::TestSurface},
     event::MatchListEvent,
     interface::{Multi, Single},
-    rect::Area,
     render::StrRenderer,
-    session::{DriverOptions, Geometry, tests::frame_options},
+    session::{Dimensions, DriverOptions, Exit, tests::frame_options},
 };
+
+use super::{MatchList, MatchListView};
 
 type Movement = fn(usize) -> MatchListEvent;
 
 #[test]
-fn navigation_survives_empty_geometry_and_clamps_in_both_orientations() {
+fn navigation_survives_empty_dimensions_and_clamps_in_both_orientations() {
     for reversed in [false, true] {
         let mut driver = DriverOptions::new()
             .sort_results(false)
-            .reversed(reversed)
+            .list_reversed(reversed)
             .driver(StrRenderer);
         driver.push_batch(["alpha", "beta", "gamma"]);
         driver.filter().unwrap();
-        let mut session = driver.session(Single, Duration::ZERO);
+        let mut session = driver.session(Single);
         let (forward, backward): (Movement, Movement) = if reversed {
             (MatchListEvent::Down, MatchListEvent::Up)
         } else {
             (MatchListEvent::Up, MatchListEvent::Down)
         };
         for (event, expected) in [
-            (forward(1), "beta"),
-            (forward(usize::MAX), "gamma"),
-            (backward(1), "beta"),
-            (backward(usize::MAX), "alpha"),
-            (forward(1), "beta"),
+            (forward(1), 1),
+            (forward(usize::MAX), 2),
+            (backward(1), 1),
+            (backward(usize::MAX), 0),
+            (forward(1), 1),
         ] {
             session.events().match_list(event);
             let mut frame = session.prepare_frame(frame_options());
-            frame.resize(Geometry::default());
-            assert_eq!(frame.view().context().hovered().unwrap().value(), &expected);
+            frame.match_list().resize(Dimensions::default());
+            assert_eq!(frame.rank(), Some(expected));
             frame.complete();
         }
         for height in [1, 3, 0, 3] {
             let mut frame = session.prepare_frame(frame_options());
-            frame.resize(Geometry {
-                list: Area {
-                    width: 20,
-                    height,
-                    ..Area::default()
-                },
-                ..Geometry::default()
-            });
-            assert_eq!(frame.view().context().hovered().unwrap().value(), &"beta");
+            frame.match_list().resize(Dimensions { width: 20, height });
+            assert_eq!(frame.rank(), Some(1));
             frame.complete();
         }
-        let exit = session.events().selection_exit().unwrap();
+        let exit = Exit::Selected(session.events().hovered_id());
         assert_eq!(session.finish(exit), Some(&"beta"));
+    }
+}
+
+#[test]
+fn drawing_resizes_the_list_and_skips_empty_targets() {
+    for reversed in [false, true] {
+        let mut driver = DriverOptions::new()
+            .sort_results(false)
+            .list_reversed(reversed)
+            .driver(StrRenderer);
+        driver.push_batch(["first\nsecond", "third"]);
+        driver.filter().unwrap();
+        let mut list = MatchList::new(&mut driver.list_state, &driver.chars);
+        let mut view = MatchListView {
+            list: &mut list,
+            engine: &driver.engine,
+            interface: &Single,
+            state: &(),
+        };
+        view.resize(Dimensions::default());
+
+        for (width, height) in [(20, 1), (20, 3), (0, 3), (20, 0), (20, 4)] {
+            let mut target = TestSurface::new(width, height);
+            view.draw(&mut target).unwrap();
+            assert_eq!(target.touched, width != 0 && height != 0);
+            assert_eq!(view.list.rank(&driver.engine), Some(0));
+            if width != 0 && height != 0 {
+                assert!(
+                    target
+                        .rows
+                        .iter()
+                        .any(|row| row.starts_with(driver.chars.hover))
+                );
+            }
+        }
     }
 }
 
@@ -61,24 +91,17 @@ fn a_full_queue_blocks_insertion_movement_but_allows_removal_movement() {
     for reversed in [false, true] {
         let mut driver = DriverOptions::new()
             .sort_results(false)
-            .reversed(reversed)
+            .list_reversed(reversed)
             .driver(StrRenderer);
         driver.push_batch(["alpha", "beta", "gamma"]);
         driver.filter().unwrap();
-        let mut session = driver.session(
-            Multi::new().max_selection_count(NonZero::new(1)),
-            Duration::ZERO,
-        );
+        let mut session = driver.session(Multi::new().max_selection_count(NonZero::new(1)));
         let toggle = if reversed {
             MatchListEvent::ToggleDown
         } else {
             MatchListEvent::ToggleUp
         };
-        for (reset, count, hovered, queued) in [
-            (false, 1, "beta", 1),
-            (false, 1, "beta", 1),
-            (true, 2, "gamma", 0),
-        ] {
+        for (reset, count, rank, queued) in [(false, 1, 1, 1), (false, 1, 1, 1), (true, 2, 2, 0)] {
             {
                 let mut batch = session.events();
                 if reset {
@@ -87,11 +110,11 @@ fn a_full_queue_blocks_insertion_movement_but_allows_removal_movement() {
                 batch.match_list(toggle(count));
             }
             let frame = session.prepare_frame(frame_options());
-            assert_eq!(frame.view().context().hovered().unwrap().value(), &hovered);
-            assert_eq!(frame.view().queue_status().unwrap().count, queued);
+            assert_eq!(frame.rank(), Some(rank));
+            assert_eq!(frame.queue_status().unwrap().count, queued);
             frame.complete();
         }
-        let exit = session.events().selection_exit().unwrap();
+        let exit = Exit::Selected(session.events().hovered_id());
         assert!(session.finish(exit).iter().copied().eq(["gamma"]));
     }
 }
@@ -102,14 +125,11 @@ fn range_queueing_traverses_existing_entries_at_capacity() {
     for reversed in [false, true] {
         let mut driver = DriverOptions::new()
             .sort_results(false)
-            .reversed(reversed)
+            .list_reversed(reversed)
             .driver(StrRenderer);
         driver.push_batch(["alpha", "beta", "gamma"]);
         driver.filter().unwrap();
-        let mut session = driver.session(
-            Multi::new().max_selection_count(NonZero::new(2)),
-            Duration::ZERO,
-        );
+        let mut session = driver.session(Multi::new().max_selection_count(NonZero::new(2)));
         let (toggle, queue): (Movement, Movement) = if reversed {
             (MatchListEvent::ToggleDown, MatchListEvent::QueueBelow)
         } else {
@@ -121,10 +141,10 @@ fn range_queueing_traverses_existing_entries_at_capacity() {
             batch.match_list(toggle(0));
             batch.match_list(MatchListEvent::Reset);
             batch.match_list(queue(usize::MAX));
-            batch.selection_exit().unwrap()
+            Exit::Selected(batch.hovered_id())
         };
         let frame = session.prepare_frame(frame_options());
-        assert_eq!(frame.view().context().hovered().unwrap().value(), &"beta");
+        assert_eq!(frame.rank(), Some(1));
         frame.complete();
         assert!(
             session

@@ -2,10 +2,10 @@ use super::{MatchListEvent, MatchListState};
 use crate::{
     PickerChars,
     component::Component,
-    draw::Draw,
+    draw::Surface,
     interface::Interface,
     match_engine::MatchEngine,
-    rect::Area,
+    rect::Dimensions,
     session::{Context, ItemId, QueueEvent},
     util::as_u32,
 };
@@ -216,17 +216,21 @@ pub(crate) struct MatchListView<'a, 'session, T, R, I: Interface<T>> {
 impl<T: Send + Sync + 'static, R: crate::Render<T>, I: Interface<T>> Component
     for MatchListView<'_, '_, T, R, I>
 {
-    fn resize(&mut self, area: Area) {
+    fn resize(&mut self, size: Dimensions) {
         self.list
             .state
             .layout
-            .resize(self.engine.snapshot(), area.height, &self.list.state.config);
+            .resize(self.engine.snapshot(), size.height, &self.list.state.config);
     }
 
-    fn draw<D: Draw>(&mut self, rect: &mut D) -> Result<(), D::Error> {
+    fn draw<S: Surface>(&mut self, surface: &mut S) -> Result<(), S::Error> {
+        self.resize(Dimensions {
+            width: surface.width(),
+            height: surface.height(),
+        });
         self.list
             .state
-            .draw_items(self.engine, rect, self.list.chars, |idx| {
+            .draw_items(self.engine, surface, self.list.chars, |idx| {
                 self.interface
                     .is_queued(self.state, self.engine.item_id(idx))
             })

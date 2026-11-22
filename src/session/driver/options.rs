@@ -1,4 +1,4 @@
-use std::{num::NonZero, time::Duration};
+use std::num::NonZero;
 
 use nucleo::{
     self as nc,
@@ -10,30 +10,21 @@ use crate::{
     CaseMatching, Normalization, PickerChars,
     match_engine::MatchEngine,
     match_list::{MatchListConfig, MatchListState},
-    preview::{BoundaryChars, PreviewConfig},
     prompt::{PromptConfig, PromptState},
 };
 
-/// Configuration shared by all picker interfaces.
-///
-/// Construct a [`Driver`] with [`Self::driver`], or convert into
-/// [`PickerOptions`](crate::PickerOptions) to configure built-in interface defaults.
-///
-// TODO: Move shared option documentation from PickerOptions here before extracting core
+/// Configuration for a [`Driver`].
 pub struct DriverOptions {
     // PickerOptions updates fields in place: const evaluation rejects consuming a nested
     // value with drop glue, even when all of its fields are moved into the result.
     pub(crate) config: nc::Config,
     query: String,
     pub(crate) threads: Option<NonZero<usize>>,
-    pub(crate) interval: Duration,
-    pub(crate) background_frame_interval: Duration,
     pub(crate) chars: PickerChars,
     pub(crate) match_list_config: MatchListConfig,
     pub(crate) case_matching: NucleoCaseMatching,
     pub(crate) normalization: NucleoNormalization,
     pub(crate) prompt_config: PromptConfig,
-    preview_config: PreviewConfig,
     pub(crate) sort_results: bool,
     pub(crate) reverse_items: bool,
 }
@@ -53,14 +44,11 @@ impl DriverOptions {
             config: nc::Config::DEFAULT,
             query: String::new(),
             threads: None,
-            interval: Duration::from_millis(15),
-            background_frame_interval: Duration::from_millis(60),
             chars: PickerChars::new(),
             match_list_config: MatchListConfig::new(),
             case_matching: NucleoCaseMatching::Smart,
             normalization: NucleoNormalization::Smart,
             prompt_config: PromptConfig::new(),
-            preview_config: PreviewConfig::new(),
             sort_results: true,
             reverse_items: false,
         }
@@ -69,22 +57,6 @@ impl DriverOptions {
     /// Construct a driver with this configuration and the provided renderer.
     #[must_use]
     pub fn driver<T: Send + Sync + 'static, R>(self, render: R) -> Driver<T, R> {
-        let background_frame_frequency = {
-            let frame_interval = self.interval;
-            let background_frame_interval = self.background_frame_interval;
-            let frame_nanos = frame_interval.as_nanos();
-            let frames = if frame_nanos == 0 {
-                1
-            } else {
-                background_frame_interval
-                    .as_nanos()
-                    .div_ceil(frame_nanos)
-                    .max(1)
-            };
-            NonZero::new(usize::try_from(frames).unwrap_or(usize::MAX)).unwrap()
-        };
-
-        let reversed = self.match_list_config.reversed;
         let list_state = MatchListState::new(self.match_list_config, self.config.clone());
         let mut engine = MatchEngine::new(
             self.config,
@@ -100,27 +72,23 @@ impl DriverOptions {
         let mut prompt = PromptState::new(self.prompt_config);
 
         // set the prompt
-        prompt.set_query(self.query, crate::util::unicode::grapheme_width);
+        prompt.set_query(self.query);
         engine.reparse(prompt.contents());
 
         Driver {
             engine,
             list_state,
             prompt,
-            preview_config: self.preview_config,
-            interval: self.interval,
-            background_frame_frequency,
             chars: self.chars,
-            reversed,
-            restart_notifier: None,
-            status_notifier: None,
         }
     }
 
-    /// See [`PickerOptions::reversed`](crate::PickerOptions::reversed).
+    /// Set a 'reversed' rendering order for the match list.
+    ///
+    /// Option `false` (default) renders the items in the match list from the bottom to the top.
     #[must_use]
     #[inline]
-    pub const fn reversed(mut self, reversed: bool) -> Self {
+    pub const fn list_reversed(mut self, reversed: bool) -> Self {
         self.match_list_config.reversed = reversed;
         self
     }
@@ -138,14 +106,6 @@ impl DriverOptions {
     #[inline]
     pub const fn sort_results(mut self, sort: bool) -> Self {
         self.sort_results = sort;
-        self
-    }
-
-    /// See [`PickerOptions::frame_interval`](crate::PickerOptions::frame_interval).
-    #[must_use]
-    #[inline]
-    pub const fn frame_interval(mut self, interval: Duration) -> Self {
-        self.interval = interval;
         self
     }
 
@@ -285,7 +245,7 @@ impl DriverOptions {
         self
     }
 
-    /// See [`PickerOptions::ascii_compatible`](crate::PickerOptions::ascii_compatible).
+    /// This is similar to [`PickerOptions::ascii_compatible`](crate::PickerOptions::ascii_compatible) but only resets driver component chars.
     pub const fn ascii_compatible(mut self, ascii: bool) -> Self {
         self.set_ascii_compatible(ascii);
         self
@@ -297,19 +257,6 @@ impl DriverOptions {
         } else {
             PickerChars::new()
         };
-        self.preview_config.boundary_chars = if ascii {
-            BoundaryChars::ascii()
-        } else {
-            BoundaryChars::new()
-        };
-    }
-
-    /// See [`PickerOptions::background_frame_interval`](crate::PickerOptions::background_frame_interval).
-    #[must_use]
-    #[inline]
-    pub const fn background_frame_interval(mut self, interval: Duration) -> Self {
-        self.background_frame_interval = interval;
-        self
     }
 
     /// See [`PickerOptions::query`](crate::PickerOptions::query).
@@ -318,31 +265,5 @@ impl DriverOptions {
     pub fn query<Q: Into<String>>(mut self, query: Q) -> Self {
         self.query = query.into();
         self
-    }
-
-    /// See [`PickerOptions::preview_dimensions`](crate::PickerOptions::preview_dimensions).
-    #[must_use]
-    #[inline]
-    pub const fn preview_dimensions(mut self, ratio: f64) -> Self {
-        self.set_preview_dimensions(ratio);
-        self
-    }
-
-    pub(crate) const fn set_preview_dimensions(&mut self, ratio: f64) {
-        let valid = ratio >= 0.0 && ratio <= 1.0;
-        debug_assert!(valid, "preview ratio must be in 0..=1");
-        self.preview_config.ratio = if valid { ratio } else { 0.5 };
-    }
-
-    /// See [`PickerOptions::preview_boundary_chars`](crate::PickerOptions::preview_boundary_chars).
-    #[must_use]
-    #[inline]
-    pub const fn preview_boundary_chars(mut self, chars: BoundaryChars) -> Self {
-        self.set_preview_boundary_chars(chars);
-        self
-    }
-
-    pub(crate) const fn set_preview_boundary_chars(&mut self, chars: BoundaryChars) {
-        self.preview_config.boundary_chars = chars;
     }
 }

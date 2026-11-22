@@ -7,7 +7,7 @@ use std::{
 use crate::{
     interface::{CachedPreview, Interface},
     preview::{Content, DEFAULT_CACHE_SIZE, Pane, PreviewEvent, SyncPreviewer},
-    session::{Dimensions, Exit, Redraw},
+    session::{Components, Dimensions, Exit},
 };
 
 mod prefetch;
@@ -33,8 +33,8 @@ fn synchronous_refresh_clears_the_pane_and_preserves_generated_presentation() {
     }));
     let mut state = interface.init(&cx);
     for count in 1..=2 {
-        assert_eq!(before(&mut interface, &mut state, &cx), Redraw::PREVIEW);
-        assert_eq!(before(&mut interface, &mut state, &cx), Redraw::NONE);
+        assert_eq!(before(&mut interface, &mut state, &cx), Components::PREVIEW);
+        assert!(before(&mut interface, &mut state, &cx).is_none());
         let pane = ready(interface.preview_content(&state));
         assert_eq!(pane.buffer().line(0).unwrap().as_str(), "alpha");
         assert_eq!(pane.offset(), (5, 17));
@@ -156,13 +156,14 @@ fn refresh_targets_the_event_item_and_waits_until_it_is_displayed() {
     let _ = before(&mut interface, &mut state, &beta);
     let _ = interface.preview_event(&mut state, PreviewEvent::Down(7), &beta);
     for rank in [None, Some(2)] {
-        assert_eq!(
-            interface.preview_event(&mut state, PreviewEvent::Refresh, &context(&driver, rank)),
-            Redraw::NONE
+        assert!(
+            interface
+                .preview_event(&mut state, PreviewEvent::Refresh, &context(&driver, rank))
+                .is_none()
         );
     }
     let _ = interface.preview_event(&mut state, PreviewEvent::Refresh, &alpha);
-    assert_eq!(before(&mut interface, &mut state, &beta), Redraw::NONE);
+    assert!(before(&mut interface, &mut state, &beta).is_none());
     assert_eq!(ready(interface.preview_content(&state)).offset(), (0, 7));
     assert_eq!(previewer.borrow().requested, ["alpha", "beta"]);
 
@@ -206,8 +207,11 @@ fn revisits_promote_queued_requests_but_preserve_active_work() {
     }
     assert!(!active.is_cancelled());
     publish(active);
-    assert_eq!(before(&mut interface, &mut state, &alpha), Redraw::PREVIEW);
-    assert_eq!(before(&mut interface, &mut state, &alpha), Redraw::NONE);
+    assert_eq!(
+        before(&mut interface, &mut state, &alpha),
+        Components::PREVIEW
+    );
+    assert!(before(&mut interface, &mut state, &alpha).is_none());
     assert_eq!(text(interface.preview_content(&state)), "alpha");
     assert_eq!(
         previewer.borrow().requested,
@@ -253,8 +257,8 @@ fn dropped_requests_retry_once_per_frame_and_can_eventually_complete() {
             .start()
             .unwrap(),
     );
-    assert_eq!(before(&mut interface, &mut state, &cx), Redraw::PREVIEW);
-    assert_eq!(before(&mut interface, &mut state, &cx), Redraw::NONE);
+    assert_eq!(before(&mut interface, &mut state, &cx), Components::PREVIEW);
+    assert!(before(&mut interface, &mut state, &cx).is_none());
     assert_eq!(text(interface.preview_content(&state)), "alpha");
 }
 
@@ -312,9 +316,10 @@ fn pending_events_are_ignored_until_a_frame_collects_the_publication() {
         }),
     );
     let _ = before(&mut interface, &mut state, &cx);
-    assert_eq!(
-        interface.preview_event(&mut state, PreviewEvent::Down(1), &cx),
-        Redraw::NONE
+    assert!(
+        interface
+            .preview_event(&mut state, PreviewEvent::Down(1), &cx)
+            .is_none()
     );
     let active = previewer
         .borrow_mut()
@@ -329,10 +334,7 @@ fn pending_events_are_ignored_until_a_frame_collects_the_publication() {
         PreviewEvent::Right(1),
         PreviewEvent::ToggleLineNumbers,
     ] {
-        assert_eq!(
-            interface.preview_event(&mut state, event, &cx),
-            Redraw::NONE
-        );
+        assert!(interface.preview_event(&mut state, event, &cx).is_none());
     }
     assert!(matches!(
         interface.preview_content(&state),
@@ -365,7 +367,7 @@ fn events_use_delivered_dimensions_and_only_redraw_on_presentation_changes() {
     for event in [PreviewEvent::Right(4), PreviewEvent::PageDown(1)] {
         assert_eq!(
             interface.preview_event(&mut state, event, &cx),
-            Redraw::PREVIEW
+            Components::PREVIEW
         );
     }
     assert_eq!(ready(interface.preview_content(&state)).offset(), (4, 3));
@@ -386,17 +388,19 @@ fn events_use_delivered_dimensions_and_only_redraw_on_presentation_changes() {
             height: 6,
         }),
     );
-    assert_eq!(
-        interface.preview_event(&mut state, PreviewEvent::Down(1), &cx),
-        Redraw::NONE
+    assert!(
+        interface
+            .preview_event(&mut state, PreviewEvent::Down(1), &cx)
+            .is_none()
     );
     assert_eq!(
         interface.preview_event(&mut state, PreviewEvent::SetLineNumbers(true), &cx),
-        Redraw::PREVIEW
+        Components::PREVIEW
     );
-    assert_eq!(
-        interface.preview_event(&mut state, PreviewEvent::SetLineNumbers(true), &cx),
-        Redraw::NONE
+    assert!(
+        interface
+            .preview_event(&mut state, PreviewEvent::SetLineNumbers(true), &cx)
+            .is_none()
     );
     assert_eq!(ready(interface.preview_content(&state)).offset(), (4, 9));
 
@@ -407,16 +411,56 @@ fn events_use_delivered_dimensions_and_only_redraw_on_presentation_changes() {
             height: 0,
         }),
     );
-    assert_eq!(
-        interface.preview_event(&mut state, PreviewEvent::PageDown(1), &cx),
-        Redraw::NONE
+    assert!(
+        interface
+            .preview_event(&mut state, PreviewEvent::PageDown(1), &cx)
+            .is_none()
     );
     assert_eq!(
         interface.preview_event(&mut state, PreviewEvent::Down(1), &cx),
-        Redraw::PREVIEW
+        Components::PREVIEW
     );
     assert_eq!(ready(interface.preview_content(&state)).offset(), (4, 10));
     assert_eq!(previewer.borrow().requested, ["abcdefghijklmnop"]);
+}
+
+#[test]
+fn navigation_uses_grapheme_widths_across_preview_changes() {
+    let driver = driver(["alpha", "beta"]);
+    let mut interface = CachedPreview::new_single(SyncPreviewer(|_: &&str, pane: &mut Pane| {
+        pane.push_text("界界界界");
+    }));
+    let cx = context(&driver, Some(0));
+    let mut state = interface.init(&cx);
+    interface.preview_resize(
+        &mut state,
+        Some(Dimensions {
+            width: 2,
+            height: 1,
+        }),
+    );
+    let _ = before(&mut interface, &mut state, &cx);
+    let _ = interface.preview_event(&mut state, PreviewEvent::AlignRight, &cx);
+    assert_eq!(ready(interface.preview_content(&state)).offset(), (6, 0));
+
+    for rank in [0, 1, 0] {
+        let cx = context(&driver, Some(rank));
+        let _ = before(&mut interface, &mut state, &cx);
+        let _ = interface.preview_event(&mut state, PreviewEvent::AlignRight, &cx);
+        assert_eq!(ready(interface.preview_content(&state)).offset(), (6, 0));
+        let _ = interface.preview_event(&mut state, PreviewEvent::AlignLeft, &cx);
+        let _ = interface.preview_event(&mut state, PreviewEvent::Right(usize::MAX), &cx);
+        assert_eq!(ready(interface.preview_content(&state)).offset(), (6, 0));
+        assert!(
+            interface
+                .preview_event(&mut state, PreviewEvent::Right(1), &cx)
+                .is_none()
+        );
+    }
+    interface.on_restart(&mut state, &cx);
+    let _ = before(&mut interface, &mut state, &cx);
+    let _ = interface.preview_event(&mut state, PreviewEvent::AlignRight, &cx);
+    assert_eq!(ready(interface.preview_content(&state)).offset(), (6, 0));
 }
 
 #[test]
@@ -455,7 +499,7 @@ fn resizing_clamps_cached_previews_before_they_are_revisited() {
 
 #[test]
 fn restart_and_finish_cancel_foreground_and_prefetch_before_clearing_hover() {
-    use crate::session::{FrameOptions, tests::frame_options};
+    use crate::session::FrameOptions;
 
     for restart in [false, true] {
         let mut driver = driver(["alpha", "beta", "gamma"]);
@@ -466,11 +510,8 @@ fn restart_and_finish_cancel_foreground_and_prefetch_before_clearing_hover() {
             prefetch_defer: true,
             ..TestPreviewer::default()
         });
-        let mut session = driver.session(CachedPreview::new_single(&previewer), Duration::ZERO);
-        let options = || FrameOptions {
-            deadline: deadline(),
-            ..frame_options()
-        };
+        let mut session = driver.session(CachedPreview::new_single(&previewer));
+        let options = || FrameOptions::new(deadline());
         session.prepare_frame(options()).complete();
         let foreground = previewer
             .borrow_mut()
@@ -544,15 +585,15 @@ fn reopening_coalesces_hidden_navigation_and_notifies_the_queued_hover_before_pr
         ..TestPreviewer::default()
     });
     let active = RefCell::new(None);
-    let mut session = driver.session(
-        CachedPreview::new_single(StartOnReveal {
-            previewer: &previewer,
-            active: &active,
-        }),
-        Duration::ZERO,
-    );
+    let mut session = driver.session(CachedPreview::new_single(StartOnReveal {
+        previewer: &previewer,
+        active: &active,
+    }));
     session.prepare_frame(frame_options()).complete();
-    session.events().set_preview_enabled(false);
+    session.events().set_visible_components(Components {
+        preview: false,
+        ..Components::ALL
+    });
     session.prepare_frame(frame_options()).complete();
     for event in [MatchListEvent::Up(1), MatchListEvent::Down(1)] {
         session.events().match_list(event);
@@ -562,7 +603,7 @@ fn reopening_coalesces_hidden_navigation_and_notifies_the_queued_hover_before_pr
     assert_eq!(previewer.borrow().requested, ["alpha"]);
     assert_eq!(previewer.borrow().hovered, [Some("alpha"), None]);
 
-    session.events().set_preview_enabled(true);
+    session.events().set_visible_components(Components::ALL);
     session.prepare_frame(frame_options()).complete();
     let active = active.borrow_mut().take().unwrap();
     assert!(!active.is_cancelled());
@@ -574,7 +615,10 @@ fn reopening_coalesces_hidden_navigation_and_notifies_the_queued_hover_before_pr
         [Some("alpha"), None, Some("alpha")]
     );
 
-    session.events().set_preview_enabled(false);
+    session.events().set_visible_components(Components {
+        preview: false,
+        ..Components::ALL
+    });
     session.prepare_frame(frame_options()).complete();
     session.events().restart();
     drop(session);

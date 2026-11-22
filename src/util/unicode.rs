@@ -3,10 +3,9 @@
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::module_name_repetitions)]
 
-/// Grapheme segmentation.
+/// Grapheme segmentation and display width
 ///
-/// Width calculations are provided directly by the drawing target independently of grapheme
-/// segmentation.
+/// Width calculations are done by summing `unicode-width` over extended grapheme clusters.
 ///
 /// This abstraction is sealed and only has two implementations [`UnicodeProcessor`] and
 /// [`AsciiProcessor`].
@@ -20,19 +19,19 @@ pub trait Processor: private::Sealed {
     ///
     /// The input must not contain control characters or newlines. The width is computed by summing
     /// over the widths of extended graphemes.
-    fn width(input: &str, width: impl Fn(&str) -> usize) -> usize {
-        Self::grapheme_index_widths(input, width)
+    fn width(input: &str) -> usize {
+        Self::grapheme_index_widths(input)
             .map(|(_, width)| width)
             .sum()
     }
 
     /// Returns min(width, limit), stopping once the limit is reached.
-    fn width_up_to(input: &str, limit: usize, width: impl Fn(&str) -> usize) -> usize {
+    fn width_up_to(input: &str, limit: usize) -> usize {
         if limit == 0 {
             return 0;
         }
         let mut total = 0;
-        for (_, width) in Self::grapheme_index_widths(input, width) {
+        for (_, width) in Self::grapheme_index_widths(input) {
             if width >= limit - total {
                 return limit;
             }
@@ -45,11 +44,8 @@ pub trait Processor: private::Sealed {
     fn grapheme_indices(input: &str) -> impl DoubleEndedIterator<Item = (usize, &str)>;
 
     /// Return an iterator over pairs `(offset, grapheme_width)` for the graphemes in `input`.
-    fn grapheme_index_widths(
-        input: &str,
-        width: impl Fn(&str) -> usize,
-    ) -> impl Iterator<Item = (usize, usize)> {
-        Self::grapheme_indices(input).map(move |(offset, grapheme)| (offset, width(grapheme)))
+    fn grapheme_index_widths(input: &str) -> impl Iterator<Item = (usize, usize)> {
+        Self::grapheme_indices(input).map(|(offset, grapheme)| (offset, grapheme_width(grapheme)))
     }
 }
 
@@ -89,13 +85,13 @@ impl Processor for AsciiProcessor {
     /// Since we assume there are no carriage returns and no newlines, the width of a string is
     /// just the number of bytes.
     #[inline]
-    fn width(input: &str, _width: impl Fn(&str) -> usize) -> usize {
+    fn width(input: &str) -> usize {
         debug_assert!(is_ascii_safe(input));
         input.len()
     }
 
     #[inline]
-    fn width_up_to(input: &str, limit: usize, _width: impl Fn(&str) -> usize) -> usize {
+    fn width_up_to(input: &str, limit: usize) -> usize {
         input.len().min(limit)
     }
 
@@ -106,10 +102,7 @@ impl Processor for AsciiProcessor {
     }
 
     #[inline]
-    fn grapheme_index_widths(
-        input: &str,
-        _width: impl Fn(&str) -> usize,
-    ) -> impl Iterator<Item = (usize, usize)> {
+    fn grapheme_index_widths(input: &str) -> impl Iterator<Item = (usize, usize)> {
         debug_assert!(is_ascii_safe(input));
         std::iter::repeat_n(1, input.len()).enumerate()
     }

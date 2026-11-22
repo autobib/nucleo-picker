@@ -1,5 +1,5 @@
 //! Abstractions over rectangular regions in the TUI screen.
-use std::{fmt, io, num::NonZero};
+use std::{fmt, io};
 
 use crossterm::{
     QueueableCommand,
@@ -11,7 +11,7 @@ use crossterm::{
     terminal::{Clear, ClearType},
 };
 
-use crate::draw::Draw;
+use crate::draw::Surface;
 
 /// The dimensions of a rectangle in the terminal, measured in terminal cells.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -22,9 +22,12 @@ pub struct Dimensions {
     pub height: u16,
 }
 
+/// A zero-based cursor position relative to a rectangle.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct Position {
+pub struct Position {
+    /// The zero-based terminal column (0 being at the top).
     pub column: u16,
+    /// The zero-based terminal row (0 being at the left).
     pub row: u16,
 }
 
@@ -38,6 +41,7 @@ pub(crate) struct Area {
 }
 
 impl Area {
+    /// Returns if the area is empty, i.e. either the width or the height are 0.
     pub fn is_empty(self) -> bool {
         self.width == 0 || self.height == 0
     }
@@ -70,24 +74,26 @@ impl<'a, W: io::Write + ?Sized> CrosstermTarget<'a, W> {
 
     /// Initialize the rectangle.
     ///
-    /// This returns `None` if the area is empty. Initialization does not emit any IO: the caller
+    /// Initialization does not perform any IO: the caller
     /// must position the cursor explicitly before performing any writes.
-    pub fn rect(&mut self, area: Area, clear: ClearState) -> Option<CrosstermRect<'_, 'a, W>> {
-        let width = NonZero::new(area.width)?;
-        let height = NonZero::new(area.height)?;
-        assert!(area.column.checked_add(area.width - 1).is_some());
-        assert!(area.row.checked_add(area.height - 1).is_some());
-        Some(CrosstermRect {
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the row and column limits (column plus width and row plus height) do not fit in a `u16`.
+    pub fn rect(&mut self, area: Area, clear: ClearState) -> CrosstermSurface<'_, 'a, W> {
+        assert!(area.column.checked_add(area.width).is_some());
+        assert!(area.row.checked_add(area.height).is_some());
+        CrosstermSurface {
             target: self,
             origin: Position {
                 column: area.column,
                 row: area.row,
             },
-            width,
-            height,
+            width: area.width,
+            height: area.height,
             clear,
             row: 0,
-        })
+        }
     }
 
     /// Reset all colours.
@@ -129,30 +135,30 @@ impl<'a, W: io::Write + ?Sized> CrosstermTarget<'a, W> {
     }
 }
 
-/// An implementation of [`Draw`] using the crossterm backend to write bytes to an internal IO
+/// An implementation of [`Surface`] using the crossterm backend to write bytes to an internal IO
 /// stream.
-pub(crate) struct CrosstermRect<'a, 'writer, W: ?Sized> {
+pub(crate) struct CrosstermSurface<'a, 'writer, W: ?Sized> {
     target: &'a mut CrosstermTarget<'writer, W>,
     origin: Position,
-    width: NonZero<u16>,
-    height: NonZero<u16>,
+    width: u16,
+    height: u16,
     clear: ClearState,
     row: u16,
 }
 
-impl<W: io::Write + ?Sized> Draw for CrosstermRect<'_, '_, W> {
+impl<W: io::Write + ?Sized> Surface for CrosstermSurface<'_, '_, W> {
     type Error = io::Error;
 
-    fn width(&self) -> NonZero<u16> {
+    fn width(&self) -> u16 {
         self.width
     }
 
-    fn height(&self) -> NonZero<u16> {
+    fn height(&self) -> u16 {
         self.height
     }
 
     fn move_to(&mut self, column: u16, row: u16) -> io::Result<()> {
-        debug_assert!(column < self.width().get() && row < self.height().get());
+        debug_assert!(column < self.width() && row < self.height());
         self.target
             .writer
             .queue(MoveTo(self.origin.column + column, self.origin.row + row))?;
@@ -161,7 +167,7 @@ impl<W: io::Write + ?Sized> Draw for CrosstermRect<'_, '_, W> {
     }
 
     fn move_to_column(&mut self, column: u16) -> io::Result<()> {
-        debug_assert!(column < self.width().get() && self.row < self.height().get());
+        debug_assert!(column < self.width() && self.row < self.height());
         self.target
             .writer
             .queue(MoveToColumn(self.origin.column + column))?;
@@ -169,9 +175,9 @@ impl<W: io::Write + ?Sized> Draw for CrosstermRect<'_, '_, W> {
     }
 
     fn next_line(&mut self) -> io::Result<()> {
-        debug_assert!(self.row < self.height().get());
+        debug_assert!(self.width != 0 && self.row < self.height());
         let row = self.row + 1;
-        if row < self.height().get() {
+        if row < self.height() {
             self.move_to(0, row)?;
         } else {
             self.row = row;
@@ -183,7 +189,7 @@ impl<W: io::Write + ?Sized> Draw for CrosstermRect<'_, '_, W> {
         if text.is_empty() {
             return Ok(());
         }
-        debug_assert!(self.row < self.height.get());
+        debug_assert!(self.width != 0 && self.row < self.height);
         self.target.set_style(style)?;
         self.target.writer.write_all(text.as_bytes())
     }
@@ -205,14 +211,14 @@ impl<W: io::Write + ?Sized> Draw for CrosstermRect<'_, '_, W> {
         if let Some(text) = text.as_str() {
             return self.text(text, style);
         }
-        debug_assert!(self.row < self.height.get());
+        debug_assert!(self.width != 0 && self.row < self.height);
         self.target.set_style(style)?;
         self.target.writer.write_fmt(text)
     }
 
     fn spaces(&mut self, width: u16, style: ContentStyle) -> io::Result<()> {
         if width != 0 {
-            debug_assert!(self.row < self.height.get());
+            debug_assert!(self.width != 0 && self.row < self.height);
             self.target.set_style(style)?;
             crate::util::write_spaces(self.target.writer, usize::from(width))?;
         }
@@ -229,7 +235,7 @@ impl<W: io::Write + ?Sized> Draw for CrosstermRect<'_, '_, W> {
             }
             ClearState::WithinRect => {
                 self.target.reset_style()?;
-                crate::util::write_spaces(self.target.writer, usize::from(self.width.get()))?;
+                crate::util::write_spaces(self.target.writer, usize::from(self.width))?;
                 self.move_to_column(0)?;
             }
         }
@@ -237,8 +243,11 @@ impl<W: io::Write + ?Sized> Draw for CrosstermRect<'_, '_, W> {
     }
 
     fn clear(&mut self) -> io::Result<()> {
+        if self.is_empty() {
+            return Ok(());
+        }
         if self.clear != ClearState::Precleared {
-            for row in 0..self.height().get() {
+            for row in 0..self.height() {
                 self.move_to(0, row)?;
                 self.clear_line()?;
             }

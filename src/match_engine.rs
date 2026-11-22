@@ -39,7 +39,7 @@ pub(crate) struct MatchEngine<T, R> {
     nucleo: nc::Nucleo<T>,
     /// Whether the matcher engine should be ticked.
     needs_tick: Arc<AtomicBool>,
-    /// A cache for the internal running state.
+    /// A cache for the internal running state, including query and restart work.
     nucleo_is_running: bool,
     /// The method which actually renders the items.
     render: Arc<R>,
@@ -133,6 +133,7 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
     pub fn restart(&mut self) {
         self.generation = next_generation(&LAST_GENERATION);
         self.nucleo.restart(true);
+        self.nucleo_is_running = true;
         self.needs_tick.store(true, Ordering::Relaxed);
     }
 
@@ -151,6 +152,7 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
         self.nucleo
             .pattern
             .reparse(0, new, self.case_matching, self.normalization, appending);
+        self.nucleo_is_running = true;
         self.needs_tick.store(true, Ordering::Relaxed);
         new.clone_into(&mut self.prompt);
     }
@@ -193,14 +195,33 @@ impl<T: Send + Sync + 'static, R> MatchEngine<T, R> {
         }
     }
 
-    /// Check if the internal match workers have returned any new updates for matched items.
-    pub fn update(&mut self, millis: u64) -> MatchStatus {
+    fn injecting(&self) -> bool {
         // Check input closure before consuming notifications. The fence acquires the injectors'
         // Arc drops so that the final push is visible before we can report completion.
         let injecting = self.nucleo.active_injectors() != 0;
         if !injecting {
             fence(Ordering::Acquire);
         }
+        injecting
+    }
+
+    pub fn status(&self) -> MatchStatus {
+        let injecting = self.injecting();
+        // Worker notifications can arrive after their results have already been published.
+        let matching = self.nucleo_is_running
+            || self.nucleo.injector().injected_items() > self.snapshot().item_count();
+        MatchStatus {
+            items_changed: false,
+            matched_item_count: self.snapshot().matched_item_count(),
+            item_count: self.snapshot().item_count(),
+            matching,
+            injecting,
+        }
+    }
+
+    /// Check if the internal match workers have returned any new updates for matched items.
+    pub fn update(&mut self, millis: u64) -> MatchStatus {
+        let injecting = self.injecting();
         let items_changed = if self.needs_tick.swap(false, Ordering::Relaxed) {
             let status = self.nucleo.tick(millis);
             self.nucleo_is_running = status.running;

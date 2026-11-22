@@ -201,7 +201,10 @@ pub enum Event<A = !> {
     UserInterrupt,
     /// Abort the picker (error) for another reason.
     Abort(A),
-    /// Redraw the screen.
+    /// Request an immediate screen repaint from the host, including checking terminal size.
+    ///
+    /// The standard runner clears and repaints its layout. Externally driven session hosts
+    /// handle this request through their own rendering backend.
     Redraw,
     /// Quit the picker by selecting items.
     Select,

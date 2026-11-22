@@ -13,7 +13,7 @@ use nucleo_picker::{
     interface::{Interface, Multi, Single, UncachedPreview},
     preview::{Content, Pane, PreviewEvent},
     render::StrRenderer,
-    session::{Context, Dimensions, DriverOptions, Exit, ItemId, QueueStatus, Redraw},
+    session::{Components, Context, Dimensions, DriverOptions, Exit, ItemId, QueueStatus},
 };
 
 #[derive(Default)]
@@ -110,26 +110,17 @@ fn driver_output_outlives_a_temporary_interface() {
     let selected = {
         let ended = Cell::new(false);
         let mut interface = Last(&ended);
-        let mut terminal = TestTerminal::default();
-        driver
-            .pick_with_terminal_io(
-                &mut interface,
-                Script([Ok(Event::Select)].into_iter()),
-                &mut terminal,
-            )
-            .unwrap()
+        let mut session = driver.session(&mut interface);
+        let exit = Exit::Selected(session.events().hovered_id());
+        session.finish(exit)
     };
     assert_eq!(selected.unwrap(), "beta");
 
     driver.update_query("^alpha$");
     driver.filter().unwrap();
-    let selected = driver
-        .pick_with_terminal_io(
-            &mut Single,
-            Script([Ok(Event::Select)].into_iter()),
-            &mut TestTerminal::default(),
-        )
-        .unwrap();
+    let mut session = driver.session(Single);
+    let exit = Exit::Selected(session.events().hovered_id());
+    let selected = session.finish(exit);
     assert_eq!(selected.unwrap(), "alpha");
 }
 
@@ -188,11 +179,10 @@ fn preview_defaults_survive_rewrapping_and_borrowed_conversions() {
             generated.borrow_mut().push(*item);
             pane.push_text(item);
         });
-        let options = DriverOptions::new()
+        let picker = PickerOptions::new()
             .threads(NonZero::new(1))
             .sort_results(false)
-            .frame_interval(Duration::from_secs(5));
-        let picker = PickerOptions::from(options)
+            .frame_interval(Duration::from_secs(5))
             .max_selection_count(NonZero::new(1))
             .preview_cache_size(capacity)
             .picker(StrRenderer)
@@ -277,18 +267,18 @@ impl Interface<String> for Custom {
         cx: &Context<'_, String>,
         _: bool,
         _: Instant,
-    ) -> Redraw {
+    ) -> Components {
         match state.frame {
             0 => {
                 state.pane.push_text("initial preview");
-                Redraw::PREVIEW
+                Components::PREVIEW
             }
             1 => {
                 state.queued = cx.matches().get(1).unwrap().id();
                 state.limit = NonZero::new(2).unwrap();
-                Redraw::QUEUE
+                Components::QUEUE
             }
-            _ => Redraw::NONE,
+            _ => Components::NONE,
         }
     }
 
@@ -297,14 +287,14 @@ impl Interface<String> for Custom {
         state: &mut Self::State,
         _: &Context<'_, String>,
         _: Instant,
-    ) -> Redraw {
+    ) -> Components {
         state.frame += 1;
         if state.frame == 2 {
             state.pane.clear();
             state.pane.push_text("after preview");
-            Redraw::PREVIEW
+            Components::PREVIEW
         } else {
-            Redraw::NONE
+            Components::NONE
         }
     }
 
@@ -313,12 +303,12 @@ impl Interface<String> for Custom {
         state: &mut Self::State,
         _: PreviewEvent,
         cx: &Context<'_, String>,
-    ) -> Redraw {
+    ) -> Components {
         state.queued = cx.matches().get(0).unwrap().id();
         state.limit = NonZero::new(1).unwrap();
         state.pane.clear();
         state.pane.push_text("event preview");
-        Redraw::QUEUE | Redraw::PREVIEW
+        Components::QUEUE | Components::PREVIEW
     }
 
     fn preview_content<'s>(&'s self, state: &'s Self::State) -> Content<'s> {

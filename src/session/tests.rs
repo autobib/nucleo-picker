@@ -9,7 +9,7 @@ use crate::{
     Render, Terminal,
     interface::Interface,
     render::StrRenderer,
-    session::{Context, Dimensions, Driver, DriverOptions, Exit, FrameOptions, Redraw, Session},
+    session::{Context, Dimensions, Driver, DriverOptions, Exit, FrameOptions, Session},
 };
 
 mod context;
@@ -24,20 +24,17 @@ mod session;
 mod updates;
 
 pub(crate) fn frame_options() -> FrameOptions {
-    FrameOptions {
-        deadline: Instant::now(),
-        background: false,
-        visible_components: Redraw::FULL,
-        layout_changed: false,
-        force_redraw: false,
-    }
+    FrameOptions::new(Instant::now())
 }
 
 pub(crate) fn update<T: Send + Sync + 'static, R: Render<T>, I: Interface<T>>(
     session: &mut Session<'_, T, R, I>,
 ) {
     let deadline = Instant::now() + Duration::from_secs(5);
-    while !session.update(Duration::from_millis(5)).is_complete() {
+    while !session
+        .update_matches(Duration::from_millis(5))
+        .is_complete()
+    {
         assert!(Instant::now() < deadline, "matching did not complete");
         thread::yield_now();
     }
@@ -79,6 +76,7 @@ pub(crate) struct TestTerminal {
     initial_render_delay: Duration,
     initial_render_end: Option<Instant>,
     first_frame: Option<Instant>,
+    frame_changes: Vec<bool>,
 }
 
 impl io::Write for TestTerminal {
@@ -116,8 +114,9 @@ impl Terminal for TestTerminal {
         Ok(())
     }
 
-    fn end_frame(&mut self, _changed: bool) -> io::Result<()> {
+    fn end_frame(&mut self, changed: bool) -> io::Result<()> {
         self.first_frame.get_or_insert_with(Instant::now);
+        self.frame_changes.push(changed);
         Ok(())
     }
 }

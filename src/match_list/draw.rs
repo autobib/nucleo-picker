@@ -9,7 +9,7 @@ use super::{
     unicode::Span,
 };
 use crate::util::unicode::{AsciiProcessor, UnicodeProcessor};
-use crate::{PickerChars, Render, draw::Draw, match_engine::MatchEngine, util::as_u16};
+use crate::{PickerChars, Render, draw::Surface, match_engine::MatchEngine, util::as_u16};
 
 /// Reusable scratch space for match list rendering.
 pub(super) struct RenderScratch {
@@ -41,10 +41,10 @@ fn draw_single_match<
     T: Send + Sync + 'static,
     R: Render<T>,
     L: KeepLines,
-    D: Draw,
+    S: Surface,
     const HOVERED: bool,
 >(
-    rect: &mut D,
+    surface: &mut S,
     buffer: &mut RenderScratch,
     config: &MatchListConfig,
     item: nc::Item<'_, T>,
@@ -53,7 +53,7 @@ fn draw_single_match<
     height: u16,
     render: &R,
     chars: &PickerChars,
-) -> Result<(), D::Error> {
+) -> Result<(), S::Error> {
     // generate the indices
     if config.highlight {
         buffer.indices.clear();
@@ -75,7 +75,7 @@ fn draw_single_match<
             L::from_offset(height),
         )
         .queue_print(
-            rect,
+            surface,
             HOVERED,
             queued,
             config.highlight_padding,
@@ -90,7 +90,7 @@ fn draw_single_match<
             L::from_offset(height),
         )
         .queue_print(
-            rect,
+            surface,
             HOVERED,
             queued,
             config.highlight_padding,
@@ -101,8 +101,8 @@ fn draw_single_match<
 }
 
 #[allow(clippy::too_many_arguments)]
-fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, D: Draw>(
-    rect: &mut D,
+fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, S: Surface>(
+    surface: &mut S,
     buffer: &mut RenderScratch,
     config: &MatchListConfig,
     snapshot: &nc::Snapshot<T>,
@@ -111,11 +111,11 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, D: Draw>(
     below: &[usize],
     mut item_iter: impl Iterator<Item = (nc::Item<'a, T>, bool)>,
     chars: &PickerChars,
-) -> Result<(), D::Error> {
+) -> Result<(), S::Error> {
     // render above the hovered item
     for (item_height, (item, queued)) in above.iter().rev().zip(item_iter.by_ref()) {
         draw_single_match::<_, _, Tail, _, false>(
-            rect,
+            surface,
             buffer,
             config,
             item,
@@ -132,7 +132,7 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, D: Draw>(
     // The loop above consumes only above.len() items.
     let (item, queued) = unsafe { item_iter.next().unwrap_unchecked() };
     draw_single_match::<_, _, Head, _, true>(
-        rect,
+        surface,
         buffer,
         config,
         item,
@@ -146,7 +146,7 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, D: Draw>(
     // render below the hovered item
     for (item_height, (item, queued)) in below[1..].iter().zip(item_iter.by_ref()) {
         draw_single_match::<_, _, Head, _, false>(
-            rect,
+            surface,
             buffer,
             config,
             item,
@@ -161,28 +161,31 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, D: Draw>(
     Ok(())
 }
 
-fn draw_whitespace<D: Draw>(rect: &mut D, height: u16) -> Result<(), D::Error> {
+fn draw_whitespace<S: Surface>(surface: &mut S, height: u16) -> Result<(), S::Error> {
     for _ in 0..height {
-        rect.clear_line()?;
-        rect.next_line()?;
+        surface.clear_line()?;
+        surface.next_line()?;
     }
     Ok(())
 }
 
 impl MatchListState {
-    pub fn draw_items<T: Send + Sync + 'static, R: Render<T>, D: Draw, F: FnMut(u32) -> bool>(
+    pub fn draw_items<T: Send + Sync + 'static, R: Render<T>, S: Surface, F: FnMut(u32) -> bool>(
         &mut self,
         engine: &MatchEngine<T, R>,
-        rect: &mut D,
+        surface: &mut S,
         chars: &PickerChars,
         mut is_queued: F,
-    ) -> Result<(), D::Error> {
+    ) -> Result<(), S::Error> {
+        if surface.is_empty() {
+            return Ok(());
+        }
         let snapshot = engine.snapshot();
         let matched_item_count = snapshot.matched_item_count();
         let total_whitespace = self.layout.whitespace();
 
         if matched_item_count == 0 {
-            return rect.clear();
+            return surface.clear();
         }
 
         let items = snapshot.matches()[self.layout.visible_range(&self.config)]
@@ -190,7 +193,7 @@ impl MatchListState {
             .map(|&m| unsafe { (snapshot.get_item_unchecked(m.idx), is_queued(m.idx)) });
         if self.config.reversed {
             draw_matches(
-                rect,
+                surface,
                 &mut self.scratch,
                 &self.config,
                 snapshot,
@@ -200,11 +203,11 @@ impl MatchListState {
                 items,
                 chars,
             )?;
-            draw_whitespace(rect, total_whitespace)?;
+            draw_whitespace(surface, total_whitespace)?;
         } else {
-            draw_whitespace(rect, total_whitespace)?;
+            draw_whitespace(surface, total_whitespace)?;
             draw_matches(
-                rect,
+                surface,
                 &mut self.scratch,
                 &self.config,
                 snapshot,

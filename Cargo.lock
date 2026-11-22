@@ -349,6 +349,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "darling"
+version = "0.24.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed17f5901b6630b993ca003def43f2f8ef4014fc13b047b57aad617ff32bc2ec"
+dependencies = [
+ "darling_core",
+ "darling_macro",
+]
+
+[[package]]
+name = "darling_core"
+version = "0.24.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6837e2cf7485aaae18f86181d2f0e9a7ed297a025e220aeabf63fdebd3a2ddff"
+dependencies = [
+ "ident_case",
+ "proc-macro2",
+ "quote",
+ "strsim",
+ "syn 3.0.10",
+]
+
+[[package]]
+name = "darling_macro"
+version = "0.24.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ac7135c3ef02b2f7833bbeb1be5ba7f966dcde8a87c6b87f65a778d71a02785"
+dependencies = [
+ "darling_core",
+ "quote",
+ "syn 3.0.10",
+]
+
+[[package]]
 name = "deranged"
 version = "0.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -626,6 +660,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ident_case"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
+
+[[package]]
 name = "idna"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -673,6 +713,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "indoc"
+version = "2.0.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a37b2691796cffeb8a8cd305ac66e65841559f147f4e63231d0eafa4db5384d1"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "insta"
 version = "1.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -683,6 +732,19 @@ dependencies = [
  "serde",
  "similar",
  "tempfile",
+]
+
+[[package]]
+name = "instability"
+version = "0.3.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c3b5acc1e2fd9375041a388da33d1eb8aed5f7a8c0dd3543e3ea2805adfbe20"
+dependencies = [
+ "darling",
+ "indoc",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -750,6 +812,15 @@ name = "libghostty-vt-sys"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df233d9b287cded4bbebba3463c6df7a8bdb516c0341ed984e870ef5594c2e6f"
+
+[[package]]
+name = "line-clipping"
+version = "0.3.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e752191d037c44ad111a8caa762921926658402f01cc1253f7bef2020ece4f5e"
+dependencies = [
+ "bitflags",
+]
 
 [[package]]
 name = "linux-raw-sys"
@@ -866,6 +937,8 @@ dependencies = [
  "parking_lot",
  "rand",
  "ratatui-core",
+ "ratatui-crossterm",
+ "ratatui-widgets",
  "serde",
  "serde_json",
  "unicode-segmentation",
@@ -1026,6 +1099,36 @@ dependencies = [
  "thiserror 2.0.21",
  "unicode-segmentation",
  "unicode-truncate",
+ "unicode-width",
+]
+
+[[package]]
+name = "ratatui-crossterm"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "567584a3b0e6a8203c23de40b4861497266725eb5363dbfd18a1edd603cca9f0"
+dependencies = [
+ "cfg-if",
+ "crossterm",
+ "instability",
+ "ratatui-core",
+]
+
+[[package]]
+name = "ratatui-widgets"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66e3d19bcc9130ca376277d93b60767ff121ace3be06f5f95f81dd68956407d1"
+dependencies = [
+ "bitflags",
+ "hashbrown",
+ "indoc",
+ "instability",
+ "itertools",
+ "line-clipping",
+ "ratatui-core",
+ "strum",
+ "unicode-segmentation",
  "unicode-width",
 ]
 

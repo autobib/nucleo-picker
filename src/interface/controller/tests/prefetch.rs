@@ -22,14 +22,11 @@ fn idle_frames_prefetch_one_neighbour_in_distance_order_within_the_deadline() {
     let mut state = interface.init(&cx);
     assert_eq!(
         frame(&mut interface, &mut state, &cx, Instant::now()),
-        Redraw::PREVIEW
+        Components::PREVIEW
     );
     assert!(previewer.borrow().prefetched.is_empty());
     for count in 1..=5 {
-        assert_eq!(
-            frame(&mut interface, &mut state, &cx, deadline()),
-            Redraw::NONE
-        );
+        assert!(frame(&mut interface, &mut state, &cx, deadline()).is_none());
         assert_eq!(previewer.borrow().prefetched.len(), count.min(3));
     }
     assert_eq!(previewer.borrow().prefetched, ["d", "b", "e"]);
@@ -64,7 +61,10 @@ fn queued_work_gates_prefetch_and_started_work_is_reused_on_hover() {
     assert!(!neighbour.is_cancelled());
     assert!(previewer.borrow().queued[0].is_cancelled());
     publish(neighbour);
-    assert_eq!(before(&mut interface, &mut state, &next), Redraw::PREVIEW);
+    assert_eq!(
+        before(&mut interface, &mut state, &next),
+        Components::PREVIEW
+    );
     assert_eq!(text(interface.preview_content(&state)), "d");
     publish(foreground);
     let _ = before(&mut interface, &mut state, &cx);
@@ -103,7 +103,7 @@ fn refresh_invalidates_a_prefetched_result_before_it_is_displayed() {
     let _ = frame(&mut interface, &mut state, &current, deadline());
     assert_eq!(previewer.borrow().prefetched, ["b"]);
     let _ = interface.preview_event(&mut state, PreviewEvent::Refresh, &next);
-    assert_eq!(before(&mut interface, &mut state, &current), Redraw::NONE);
+    assert!(before(&mut interface, &mut state, &current).is_none());
     assert_eq!(previewer.borrow().requested, ["a"]);
     previewer.borrow_mut().lines = 2;
     let _ = before(&mut interface, &mut state, &next);
@@ -131,9 +131,10 @@ fn filtering_replaces_stale_neighbours_without_regenerating_the_current_preview(
     driver.update_query("al");
     driver.filter().unwrap();
     let cx = context(&driver, Some(0));
-    assert_eq!(
-        interface.before_frame(&mut state, &cx, true, deadline()),
-        Redraw::NONE
+    assert!(
+        interface
+            .before_frame(&mut state, &cx, true, deadline())
+            .is_none()
     );
     assert!(outdated.is_cancelled());
     let _ = interface.after_frame(&mut state, &cx, deadline());

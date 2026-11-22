@@ -7,7 +7,7 @@ use crate::{
     event::{Event, KeybindDefault},
     keybind::keybind_passthrough_preview,
     preview::{Content, Pane, PreviewEvent},
-    session::{Context, Dimensions, Exit, ItemId, QueueEvent, QueueStatus, Redraw},
+    session::{Components, Context, Dimensions, Exit, ItemId, QueueEvent, QueueStatus},
 };
 
 /// A minimal preview adapter holding a closure which generates previews directly.
@@ -144,7 +144,7 @@ where
         cx: &Context<'_, T>,
         matches_changed: bool,
         deadline: Instant,
-    ) -> Redraw {
+    ) -> Components {
         let mut redraw =
             self.interface
                 .before_frame(&mut state.interface, cx, matches_changed, deadline);
@@ -153,7 +153,7 @@ where
         }
         let Some(item) = cx.hovered() else {
             if state.displayed.take().is_some() {
-                redraw |= Redraw::PREVIEW;
+                redraw |= Components::PREVIEW;
             }
             return redraw;
         };
@@ -162,7 +162,7 @@ where
             (self.previewer)(item.value(), &mut state.pane);
             state.displayed = Some(item.id());
             state.refresh = false;
-            redraw |= Redraw::PREVIEW;
+            redraw |= Components::PREVIEW;
         }
         redraw
     }
@@ -172,7 +172,7 @@ where
         state: &mut Self::State,
         cx: &Context<'_, T>,
         deadline: Instant,
-    ) -> Redraw {
+    ) -> Components {
         self.interface
             .after_frame(&mut state.interface, cx, deadline)
     }
@@ -190,16 +190,16 @@ where
         state: &mut Self::State,
         event: PreviewEvent,
         cx: &Context<'_, T>,
-    ) -> Redraw {
+    ) -> Components {
         let Some(item) = cx.hovered() else {
-            return Redraw::NONE;
+            return Components::NONE;
         };
         if state.displayed != Some(item.id()) {
-            return Redraw::NONE;
+            return Components::NONE;
         }
         if matches!(event, PreviewEvent::Refresh) {
             state.refresh = true;
-            return Redraw::NONE;
+            return Components::NONE;
         }
 
         let pane = &mut state.pane;
@@ -207,7 +207,7 @@ where
         match event {
             PreviewEvent::ToggleLineNumbers => pane.toggle_line_numbers(),
             PreviewEvent::SetLineNumbers(enabled) => pane.set_line_numbers(enabled),
-            _ if state.size.width == 0 || state.size.height == 0 => return Redraw::NONE,
+            _ if state.size.width == 0 || state.size.height == 0 => return Components::NONE,
             event => {
                 let mut viewport = pane.viewport(state.size);
                 match event {
@@ -228,9 +228,9 @@ where
             }
         }
         if (pane.offset(), pane.line_numbers()) != previous {
-            Redraw::PREVIEW
+            Components::PREVIEW
         } else {
-            Redraw::NONE
+            Components::NONE
         }
     }
 

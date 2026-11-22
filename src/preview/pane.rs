@@ -6,9 +6,8 @@ use crossterm::style::ContentStyle;
 use super::AnsiWriter;
 use super::{Buffer, TextWriter};
 use crate::{
-    draw::Draw,
     session::Dimensions,
-    util::unicode::{Processor, UnicodeProcessor, grapheme_width},
+    util::unicode::{Processor, UnicodeProcessor},
 };
 
 /// A fixed view into a preview buffer.
@@ -29,13 +28,12 @@ pub struct Pane {
     is_err: bool,
 }
 
-/// A mutable view adapter which binds a pane to a drawable surface.
+/// A mutable view adapter for pane navigation.
 ///
 /// Operations on this adapter mutate the underlying preview pane immediately.
 pub struct Viewport<'a> {
     pane: &'a mut Pane,
     size: Dimensions,
-    grapheme_width: fn(&str) -> usize,
 }
 
 impl From<Buffer> for Pane {
@@ -174,11 +172,7 @@ impl Pane {
     /// of the longest visible line. These computations depend on knowledge of the dimensions.
     #[must_use]
     pub fn viewport(&mut self, size: Dimensions) -> Viewport<'_> {
-        Viewport {
-            pane: self,
-            size,
-            grapheme_width,
-        }
+        Viewport { pane: self, size }
     }
 
     /// Enable or disable preview pane line-numbers.
@@ -229,25 +223,6 @@ impl Pane {
 }
 
 impl Viewport<'_> {
-    /// Use a drawing backend's width calculation for horizontal navigation.
-    ///
-    /// The default is to use `unicode-width` summed over extended grapheme clusters. Use the same
-    /// backend as is used to draw the pane so that the scroll limits agree with the screen
-    /// truncation.
-    ///
-    /// ```
-    /// use nucleo_picker::{draw::Draw, preview::{Pane, Viewport}, session::Dimensions};
-    ///
-    /// fn viewport<D: Draw>(pane: &mut Pane, size: Dimensions) -> Viewport<'_> {
-    ///     pane.viewport(size).with_grapheme_width::<D>()
-    /// }
-    /// ```
-    #[must_use]
-    pub fn with_grapheme_width<D: Draw>(mut self) -> Self {
-        self.grapheme_width = D::grapheme_width;
-        self
-    }
-
     /// Scroll the visible row upwards, saturating at row zero and preserving the column position.
     pub fn up(&mut self, lines: usize) -> &mut Self {
         self.clamp_vertical();
@@ -370,7 +345,7 @@ impl Viewport<'_> {
         let mut maximum = 0;
         for index in self.pane.visible_rows(self.size.height) {
             let line = self.pane.buffer().line(index).unwrap();
-            let measured = P::width_up_to(line.as_str(), measure_up_to, self.grapheme_width);
+            let measured = P::width_up_to(line.as_str(), measure_up_to);
             maximum = maximum.max(measured.saturating_sub(width));
             if maximum >= target {
                 break;

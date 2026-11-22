@@ -14,7 +14,7 @@ use crate::{
     event::{Event, RecvError},
     interface::{Interface, Single},
     render::StrRenderer,
-    session::{Context, Dimensions, Exit, Redraw},
+    session::{Components, Context, Dimensions, Exit},
 };
 
 type Log = RefCell<Vec<&'static str>>;
@@ -81,14 +81,14 @@ impl<'a, T: Send + Sync + 'static> Interface<T> for Probe<'a> {
         _: &Context<'_, T>,
         _: bool,
         _: Instant,
-    ) -> Redraw {
+    ) -> Components {
         self.call("before");
-        Redraw::NONE
+        Components::NONE
     }
 
-    fn after_frame(&mut self, _: &mut Self::State, _: &Context<'_, T>, _: Instant) -> Redraw {
+    fn after_frame(&mut self, _: &mut Self::State, _: &Context<'_, T>, _: Instant) -> Components {
         self.call("after");
-        Redraw::NONE
+        Components::NONE
     }
 }
 

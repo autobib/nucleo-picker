@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use super::{Select, frame_options};
 use crate::{
     event::{MatchListEvent, PromptEvent},
@@ -69,25 +67,25 @@ fn event_contexts_and_borrowed_output_use_navigation_without_publishing_matches(
     let selected = {
         let mut observations = Vec::new();
         let mut interface = Probe(&mut observations);
-        let mut session = driver.session(&mut interface, Duration::ZERO);
+        let mut session = driver.session(&mut interface);
         {
             let mut batch = session.events();
             batch.match_list(MatchListEvent::UnqueueAll);
             batch.prompt(PromptEvent::Reset("absent".to_owned()));
-            assert!(!batch.prompt_is_empty());
+            assert!(!batch.query().is_empty());
         }
-        let exit = {
+        let hovered = {
             let mut batch = session.events();
             batch.match_list(MatchListEvent::Up(1));
             batch.prompt(PromptEvent::Left(1));
             batch.match_list(MatchListEvent::UnqueueAll);
-            batch.selection_exit().unwrap()
+            batch.hovered_id()
         };
-        assert_eq!(exit, Exit::Selected(Some(expected_ids[1])));
+        assert_eq!(hovered, Some(expected_ids[1]));
         let frame = session.prepare_frame(frame_options());
-        assert_eq!(frame.view().query(), "absent");
+        assert_eq!(frame.query(), "absent");
         frame.complete();
-        let selected = session.finish(exit).unwrap();
+        let selected = session.finish(Exit::Selected(hovered)).unwrap();
 
         assert_eq!(observations.len(), 4);
         for (observation, rank) in observations.iter().zip([0, 0, 1, 1]) {

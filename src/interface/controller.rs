@@ -4,10 +4,7 @@ use crate::{
     session::{Context, Dimensions, ItemId, ItemRef, Matches},
 };
 use lru::LruCache;
-use std::{
-    num::NonZero,
-    time::{Duration, Instant},
-};
+use std::{num::NonZero, time::Instant};
 
 const PREFETCH_CHECKS_PER_FRAME: usize = 4;
 
@@ -377,13 +374,9 @@ fn submit<T: Send + Sync + 'static, P: Preview<T>>(
         matches,
         id,
     };
-    previewer.preview(request, timeout(deadline)).into()
-}
-
-fn timeout(deadline: Instant) -> Duration {
-    deadline
-        .saturating_duration_since(Instant::now())
-        .max(Duration::from_millis(2))
+    previewer
+        .preview(request, deadline.saturating_duration_since(Instant::now()))
+        .into()
 }
 
 struct Prefetch {

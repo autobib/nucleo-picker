@@ -7,7 +7,7 @@ use crossterm::style::{ContentStyle, StyledContent, Stylize};
 
 use super::unicode::{Span, spans_from_indices};
 use crate::util::{line::print_line, unicode::Processor};
-use crate::{PickerChars, draw::Draw};
+use crate::{PickerChars, draw::Surface};
 
 /// An iterator over lines, as span slices.
 pub struct SpannedLines<'a> {
@@ -89,18 +89,18 @@ impl<'a, P: Processor> Spanned<'a, P> {
 
     /// Check whether all the lines fit.
     #[inline]
-    fn lines_fit<D: Draw>(&self, capacity: u16) -> bool {
+    fn lines_fit(&self, capacity: u16) -> bool {
         let limit = usize::from(capacity) + 1;
         self.lines().all(|line| {
             let text = self.line_text(line);
-            text.len() < limit || P::width_up_to(text, limit, D::grapheme_width) < limit
+            text.len() < limit || P::width_up_to(text, limit) < limit
         })
     }
 
     /// Return the viewport origin in source columns, accounting for highlight padding
     /// and keeping the first highlight beyond the leading ellipsis when scrolled.
     #[inline]
-    fn required_offset<D: Draw>(&self, max_width: u16, highlight_padding: u16) -> usize {
+    fn required_offset(&self, max_width: u16, highlight_padding: u16) -> usize {
         if max_width == 0 {
             return 0;
         }
@@ -111,10 +111,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
                 continue;
             };
             let last = line.iter().rfind(|span| span.is_match).unwrap();
-            let before = P::width(
-                &self.rendered[line[0].range.start..first.range.start],
-                D::grapheme_width,
-            );
+            let before = P::width(&self.rendered[line[0].range.start..first.range.start]);
             first_column = first_column.min(before);
             if first_column <= 1 {
                 return 0;
@@ -127,7 +124,6 @@ impl<'a, P: Processor> Spanned<'a, P> {
             let matched = P::width_up_to(
                 &self.rendered[first.range.start..last.range.end],
                 limit.saturating_sub(before),
-                D::grapheme_width,
             );
             required_width = required_width.max(before + matched);
         }
@@ -140,14 +136,14 @@ impl<'a, P: Processor> Spanned<'a, P> {
     /// Print the header for each line, which is either two spaces or styled indicator. This also
     /// sets the highlighting features for the given line.
     #[inline]
-    fn start_line<D: Draw>(
-        rect: &mut D,
+    fn start_line<S: Surface>(
+        surface: &mut S,
         hovered: bool,
         queued: bool,
         prefix_width: u16,
         highlight_line: bool,
         chars: &PickerChars,
-    ) -> Result<(), D::Error> {
+    ) -> Result<(), S::Error> {
         if prefix_width == 0 {
             return Ok(());
         }
@@ -159,17 +155,17 @@ impl<'a, P: Processor> Spanned<'a, P> {
             if !highlight_line {
                 style = style.on_dark_grey();
             }
-            rect.text(chars.hover.encode_utf8(&mut [0; 4]), style.magenta())?;
+            surface.text(chars.hover.encode_utf8(&mut [0; 4]), style.magenta())?;
         } else {
             // print a blank instead
-            rect.spaces(1, style)?;
+            surface.spaces(1, style)?;
         }
 
         if prefix_width >= 2 {
             if queued {
-                rect.text(chars.queued.encode_utf8(&mut [0; 4]), style.magenta())?;
+                surface.text(chars.queued.encode_utf8(&mut [0; 4]), style.magenta())?;
             } else {
-                rect.spaces(1, style)?;
+                surface.spaces(1, style)?;
             }
         }
 
@@ -200,30 +196,33 @@ impl<'a, P: Processor> Spanned<'a, P> {
     /// Clean up after printing the line by printing any remaining whitespace (for instance for fill
     /// highlight) and moving to the next line.
     #[inline]
-    fn finish_line<D: Draw>(
-        rect: &mut D,
+    fn finish_line<S: Surface>(
+        surface: &mut S,
         remaining: u16,
         style: ContentStyle,
         fill_highlight: bool,
-    ) -> Result<(), D::Error> {
+    ) -> Result<(), S::Error> {
         if fill_highlight {
-            rect.spaces(remaining, style)?;
+            surface.spaces(remaining, style)?;
         }
-        rect.next_line()
+        surface.next_line()
     }
 
     /// Print into the rectangle with styling to match if the item is hovered or not.
     #[inline]
-    pub fn queue_print<D: Draw>(
+    pub fn queue_print<S: Surface>(
         &self,
-        rect: &mut D,
+        surface: &mut S,
         hovered: bool,
         queued: bool,
         highlight_padding: u16,
         highlight_line: bool,
         chars: &PickerChars,
-    ) -> Result<(), D::Error> {
-        let width = rect.width().get();
+    ) -> Result<(), S::Error> {
+        if surface.is_empty() {
+            return Ok(());
+        }
+        let width = surface.width();
         let prefix_width = width.min(2);
         let max_width = width.saturating_sub(prefix_width);
         let fill_highlight = hovered && highlight_line;
@@ -233,16 +232,23 @@ impl<'a, P: Processor> Spanned<'a, P> {
             ContentStyle::new()
         };
 
-        if self.lines_fit::<D>(max_width.saturating_sub(highlight_padding)) {
+        if self.lines_fit(max_width.saturating_sub(highlight_padding)) {
             // Fast path: all of the lines are short, so we can just render them without any width
             // computations. This should also be the typical case so it is worthwhile to use this
             // optimization
             for line in self.lines() {
                 if !fill_highlight {
-                    rect.clear_line()?;
+                    surface.clear_line()?;
                 }
-                Self::start_line(rect, hovered, queued, prefix_width, highlight_line, chars)?;
-                rect.styled_text(self.line_text(line), self.styled_line(line, style))?;
+                Self::start_line(
+                    surface,
+                    hovered,
+                    queued,
+                    prefix_width,
+                    highlight_line,
+                    chars,
+                )?;
+                surface.styled_text(self.line_text(line), self.styled_line(line, style))?;
 
                 let remaining_capacity = if fill_highlight {
                     let printed_width = if line.is_empty() {
@@ -250,26 +256,32 @@ impl<'a, P: Processor> Spanned<'a, P> {
                     } else {
                         P::width(
                             &self.rendered[line[0].range.start..line.last().unwrap().range.end],
-                            D::grapheme_width,
                         )
                     };
                     max_width.saturating_sub(printed_width as u16)
                 } else {
                     0
                 };
-                Self::finish_line(rect, remaining_capacity, style, fill_highlight)?;
+                Self::finish_line(surface, remaining_capacity, style, fill_highlight)?;
             }
         } else {
-            let offset = self.required_offset::<D>(max_width, highlight_padding);
+            let offset = self.required_offset(max_width, highlight_padding);
 
             for line in self.lines() {
                 if !fill_highlight {
-                    rect.clear_line()?;
+                    surface.clear_line()?;
                 }
-                Self::start_line(rect, hovered, queued, prefix_width, highlight_line, chars)?;
+                Self::start_line(
+                    surface,
+                    hovered,
+                    queued,
+                    prefix_width,
+                    highlight_line,
+                    chars,
+                )?;
                 let remaining_capacity =
-                    self.queue_print_line(rect, line, offset, max_width, chars, style)?;
-                Self::finish_line(rect, remaining_capacity, style, fill_highlight)?;
+                    self.queue_print_line(surface, line, offset, max_width, chars, style)?;
+                Self::finish_line(surface, remaining_capacity, style, fill_highlight)?;
             }
         }
         Ok(())
@@ -278,17 +290,17 @@ impl<'a, P: Processor> Spanned<'a, P> {
     /// Print a single line (represented as a slice of [`Span`]) to the terminal screen, with the
     /// given `offset` and the width of the screen in columns, as `capacity`.
     #[inline]
-    fn queue_print_line<D: Draw>(
+    fn queue_print_line<S: Surface>(
         &self,
-        rect: &mut D,
+        surface: &mut S,
         line: &[Span],
         offset: usize,
         capacity: u16,
         chars: &PickerChars,
         style: ContentStyle,
-    ) -> Result<u16, D::Error> {
+    ) -> Result<u16, S::Error> {
         print_line::<P, _>(
-            rect,
+            surface,
             self.line_text(line),
             self.styled_line(line, style),
             offset,

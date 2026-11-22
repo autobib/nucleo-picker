@@ -14,12 +14,149 @@ fn area() -> Area {
 fn movement_uses_local_coordinates_and_stops_at_the_last_row() {
     let mut output = Vec::new();
     let mut target = CrosstermTarget::new(&mut output);
-    let mut rect = target.rect(area(), ClearState::WithinRect).unwrap();
+    let mut rect = target.rect(area(), ClearState::WithinRect);
     rect.move_to(2, 0).unwrap();
     rect.move_to_column(4).unwrap();
     rect.next_line().unwrap();
     rect.next_line().unwrap();
     assert_eq!(output, b"\x1b[4;8H\x1b[10G\x1b[5;6H");
+}
+
+#[test]
+fn empty_rectangles_preserve_dimensions_and_clear_without_output() {
+    for (width, height) in [(0, 0), (0, 3), (6, 0)] {
+        for clear in [
+            ClearState::Precleared,
+            ClearState::ToEndOfLine,
+            ClearState::WithinRect,
+        ] {
+            let mut output = Vec::new();
+            let mut target = CrosstermTarget::new(&mut output);
+            let mut rect = target.rect(
+                Area {
+                    column: u16::MAX - width,
+                    row: u16::MAX - height,
+                    width,
+                    height,
+                },
+                clear,
+            );
+            assert_eq!(rect.width(), width);
+            assert_eq!(rect.height(), height);
+            assert!(rect.is_empty());
+            rect.clear().unwrap();
+            rect.clear().unwrap();
+            assert!(target.style.is_none());
+            assert!(output.is_empty());
+        }
+    }
+}
+
+#[test]
+fn coordinates_allow_the_largest_one_based_ansi_position() {
+    for area in [
+        Area {
+            column: 0,
+            row: 0,
+            width: u16::MAX,
+            height: u16::MAX,
+        },
+        Area {
+            column: u16::MAX - 1,
+            row: u16::MAX - 1,
+            width: 1,
+            height: 1,
+        },
+    ] {
+        let mut output = Vec::new();
+        let mut target = CrosstermTarget::new(&mut output);
+        let mut rect = target.rect(area, ClearState::Precleared);
+        rect.move_to(area.width - 1, area.height - 1).unwrap();
+        rect.move_to_column(area.width - 1).unwrap();
+        rect.next_line().unwrap();
+        assert_eq!(output, b"\x1b[65535;65535H\x1b[65535G");
+    }
+}
+
+#[test]
+fn construction_checks_each_axis_for_ansi_coordinate_overflow() {
+    for area in [
+        Area {
+            column: u16::MAX,
+            row: 0,
+            width: 1,
+            height: 1,
+        },
+        Area {
+            column: 0,
+            row: u16::MAX,
+            width: 1,
+            height: 1,
+        },
+        Area {
+            column: u16::MAX - 1,
+            row: 0,
+            width: 2,
+            height: 0,
+        },
+        Area {
+            column: 0,
+            row: u16::MAX - 1,
+            width: 0,
+            height: 2,
+        },
+    ] {
+        let mut output = Vec::new();
+        let mut target = CrosstermTarget::new(&mut output);
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                target.rect(area, ClearState::WithinRect);
+            }))
+            .is_err(),
+            "{area:?}"
+        );
+        assert!(output.is_empty());
+    }
+}
+
+#[test]
+#[cfg(debug_assertions)]
+fn empty_rectangles_reject_cursor_operations_and_nonempty_writes() {
+    let operations: [fn(&mut CrosstermSurface<'_, '_, Vec<u8>>); 9] = [
+        |rect| rect.move_to(0, 0).unwrap(),
+        |rect| rect.move_to_column(0).unwrap(),
+        |rect| rect.next_line().unwrap(),
+        |rect| rect.clear_line().unwrap(),
+        |rect| rect.text("x", ContentStyle::new()).unwrap(),
+        |rect| rect.text("\u{200b}", ContentStyle::new()).unwrap(),
+        |rect| {
+            rect.styled_text("x", std::iter::once(ContentStyle::new().apply("x")))
+                .unwrap();
+        },
+        |rect| rect.ascii(format_args!("x"), ContentStyle::new()).unwrap(),
+        |rect| rect.spaces(1, ContentStyle::new()).unwrap(),
+    ];
+    for (width, height) in [(0, 0), (0, 3), (6, 0)] {
+        for operation in operations {
+            let mut output = Vec::new();
+            let mut target = CrosstermTarget::new(&mut output);
+            let mut rect = target.rect(
+                Area {
+                    width,
+                    height,
+                    ..Area::default()
+                },
+                ClearState::WithinRect,
+            );
+            assert!(
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    operation(&mut rect);
+                }))
+                .is_err()
+            );
+            assert!(output.is_empty());
+        }
+    }
 }
 
 #[test]
@@ -32,7 +169,7 @@ fn clearing_respects_origin_policy_and_full_width_lines() {
         let mut output = Vec::new();
         let mut target = CrosstermTarget::new(&mut output);
         target.reset_style().unwrap();
-        target.rect(area(), clear).unwrap().clear().unwrap();
+        target.rect(area(), clear).clear().unwrap();
         let expected = if clear == ClearState::Precleared {
             "\x1b[4;6H".to_owned()
         } else {
@@ -43,7 +180,7 @@ fn clearing_respects_origin_policy_and_full_width_lines() {
             output.clear();
             let mut target = CrosstermTarget::new(&mut output);
             target.reset_style().unwrap();
-            let mut rect = target.rect(area(), clear).unwrap();
+            let mut rect = target.rect(area(), clear);
             rect.clear_line().unwrap();
             rect.text(text, ContentStyle::new()).unwrap();
             rect.next_line().unwrap();
@@ -60,7 +197,7 @@ fn spaces_preserve_the_active_style() {
     crossterm::style::force_color_output(true);
     let mut output = Vec::new();
     let mut target = CrosstermTarget::new(&mut output);
-    let mut rect = target.rect(area(), ClearState::Precleared).unwrap();
+    let mut rect = target.rect(area(), ClearState::Precleared);
     rect.spaces(2, ContentStyle::new()).unwrap();
     rect.spaces(3, ContentStyle::new().on_dark_grey()).unwrap();
     rect.spaces(0, ContentStyle::new().on_red()).unwrap();
@@ -81,13 +218,11 @@ fn styles_are_complete_and_shared_across_rectangle_borrows() {
     for text in ["a", "b"] {
         target
             .rect(area(), ClearState::Precleared)
-            .unwrap()
             .text(text, styled)
             .unwrap();
     }
     target
         .rect(area(), ClearState::Precleared)
-        .unwrap()
         .text("c", ContentStyle::new())
         .unwrap();
     assert_eq!(
@@ -101,7 +236,7 @@ fn underline_color_does_not_leak_into_unstyled_text() {
     crossterm::style::force_color_output(true);
     let mut output = Vec::new();
     let mut target = CrosstermTarget::new(&mut output);
-    let mut rect = target.rect(area(), ClearState::Precleared).unwrap();
+    let mut rect = target.rect(area(), ClearState::Precleared);
     rect.text("a", ContentStyle::new().underline(Color::Green))
         .unwrap();
     rect.text("b", ContentStyle::new()).unwrap();
@@ -118,7 +253,7 @@ fn clearing_resets_the_blank_style_but_precleared_rows_only_move() {
     ] {
         let mut output = Vec::new();
         let mut target = CrosstermTarget::new(&mut output);
-        let mut rect = target.rect(area(), clear).unwrap();
+        let mut rect = target.rect(area(), clear);
         rect.text("x", ContentStyle::new().bold().on_blue())
             .unwrap();
         rect.next_line().unwrap();
@@ -136,7 +271,7 @@ fn clearing_resets_the_blank_style_but_precleared_rows_only_move() {
 fn empty_writes_do_not_change_style_or_visit_spans() {
     let mut output = Vec::new();
     let mut target = CrosstermTarget::new(&mut output);
-    let mut rect = target.rect(area(), ClearState::Precleared).unwrap();
+    let mut rect = target.rect(area(), ClearState::Precleared);
     rect.text("", ContentStyle::new().bold()).unwrap();
     rect.spaces(0, ContentStyle::new().red()).unwrap();
     rect.ascii(format_args!(""), ContentStyle::new().green())
@@ -161,7 +296,7 @@ fn writer_errors_stop_span_iteration() {
 
     let mut writer = Fails;
     let mut target = CrosstermTarget::new(&mut writer);
-    let mut rect = target.rect(area(), ClearState::Precleared).unwrap();
+    let mut rect = target.rect(area(), ClearState::Precleared);
     let error = rect
         .styled_text(
             "ab",

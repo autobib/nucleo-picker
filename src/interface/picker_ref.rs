@@ -8,11 +8,14 @@ use super::{Interface, InterfaceDefaults, Single};
 #[cfg(feature = "unstable-backend")]
 use crate::Terminal;
 use crate::{
-    Render,
+    Injector, Render,
     error::PickError,
-    event::{Event, EventSource, KeybindDefault},
+    event::{Event, EventSource, KeybindDefault, PickerStatus},
     input,
+    observer::Notifier,
+    run::{self, RunnerConfig},
     session::Driver,
+    terminal::CrosstermTerminal,
 };
 
 /// A temporary view of a picker with a different interface.
@@ -43,6 +46,9 @@ use crate::{
 /// ```
 pub struct PickerRef<'a, T, R, I = Single> {
     pub(crate) core: &'a mut Driver<T, R>,
+    pub(crate) runner: RunnerConfig,
+    pub(crate) restart_notifier: Option<&'a Notifier<Injector<T, R>>>,
+    pub(crate) status_notifier: Option<&'a Notifier<PickerStatus>>,
     pub(crate) interface: I,
     pub(crate) defaults: InterfaceDefaults,
 }
@@ -61,7 +67,13 @@ where
     where
         I: KeybindDefault,
     {
-        input::pick(self.core, &mut self.interface)
+        input::pick(
+            self.core,
+            &mut self.interface,
+            self.runner,
+            self.restart_notifier,
+            self.status_notifier,
+        )
     }
 
     /// Run the picker interactively using custom keybindings.
@@ -73,7 +85,14 @@ where
     where
         F: FnMut(KeyEvent) -> Option<Event>,
     {
-        input::pick_with_keybind(self.core, &mut self.interface, keybind)
+        input::pick_with_keybind(
+            self.core,
+            &mut self.interface,
+            self.runner,
+            self.restart_notifier,
+            self.status_notifier,
+            keybind,
+        )
     }
 
     /// Run the picker interactively with a custom event source and writer.
@@ -90,8 +109,15 @@ where
         E: EventSource,
         W: io::Write,
     {
-        self.core
-            .pick_with_io(&mut self.interface, event_source, writer)
+        run::pick_impl(
+            self.core,
+            &mut self.interface,
+            self.runner,
+            self.restart_notifier,
+            self.status_notifier,
+            event_source,
+            &mut CrosstermTerminal::new(writer),
+        )
     }
 
     /// Run the picker interactively with a custom event source and generic terminal backend.
@@ -107,8 +133,15 @@ where
         E: EventSource,
         W: Terminal,
     {
-        self.core
-            .pick_with_terminal_io(&mut self.interface, event_source, terminal)
+        run::pick_impl(
+            self.core,
+            &mut self.interface,
+            self.runner,
+            self.restart_notifier,
+            self.status_notifier,
+            event_source,
+            terminal,
+        )
     }
 }
 
@@ -119,6 +152,9 @@ impl<'a, T, R, I> PickerRef<'a, T, R, I> {
     pub fn with_interface<J>(self, interface: J) -> PickerRef<'a, T, R, J> {
         PickerRef {
             core: self.core,
+            runner: self.runner,
+            restart_notifier: self.restart_notifier,
+            status_notifier: self.status_notifier,
             interface,
             defaults: self.defaults,
         }
@@ -139,6 +175,9 @@ impl<'a, T, R, P> PickerRef<'a, T, R, CachedPreview<Single, P>> {
                 cache_size: self.interface.cache_size,
             },
             core: self.core,
+            runner: self.runner,
+            restart_notifier: self.restart_notifier,
+            status_notifier: self.status_notifier,
             defaults: self.defaults,
         }
     }
@@ -153,6 +192,9 @@ impl<'a, T, R, P> PickerRef<'a, T, R, CachedPreview<Multi, P>> {
     pub fn single(self) -> PickerRef<'a, T, R, CachedPreview<Single, P>> {
         PickerRef {
             core: self.core,
+            runner: self.runner,
+            restart_notifier: self.restart_notifier,
+            status_notifier: self.status_notifier,
             interface: CachedPreview {
                 interface: Single,
                 previewer: self.interface.previewer,
@@ -172,6 +214,9 @@ impl<'a, T, R, I, P> PickerRef<'a, T, R, CachedPreview<I, P>> {
     pub fn without_preview(self) -> PickerRef<'a, T, R, I> {
         PickerRef {
             core: self.core,
+            runner: self.runner,
+            restart_notifier: self.restart_notifier,
+            status_notifier: self.status_notifier,
             interface: self.interface.interface,
             defaults: self.defaults,
         }
@@ -183,6 +228,9 @@ impl<'a, T, R, I, P> PickerRef<'a, T, R, CachedPreview<I, P>> {
         (
             PickerRef {
                 core: self.core,
+                runner: self.runner,
+                restart_notifier: self.restart_notifier,
+                status_notifier: self.status_notifier,
                 interface: self.interface.interface,
                 defaults: self.defaults,
             },
