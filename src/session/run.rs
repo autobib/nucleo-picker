@@ -5,12 +5,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-use super::{Exit, FrameOptions, Interface, Session};
+use super::{Driver, Exit, FrameOptions, Session};
 use crate::{
-    Driver, Render, Terminal,
+    Render, Terminal,
     error::PickError,
     event::{Event, EventSource, LayoutEvent, PickerStatus, RecvError},
     frame::Layout,
+    interface::Interface,
     rect::Dimensions,
     terminal::session,
 };

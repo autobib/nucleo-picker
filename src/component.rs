@@ -16,7 +16,7 @@
 use std::io;
 
 use crate::rect::{Area, Position, Rect};
-use crate::{preview::BoundaryChars, session::Interface};
+use crate::{interface::Interface, preview::BoundaryChars};
 
 /// A single component in the frame.
 pub(crate) trait Component {

@@ -1,11 +1,11 @@
 use std::{num::NonZero, time::Duration};
 
 use crate::{
-    DriverOptions,
     event::MatchListEvent,
+    interface::{Multi, Single},
     rect::Area,
     render::StrRenderer,
-    session::{Geometry, Multi, Single, tests::frame_options},
+    session::{DriverOptions, Geometry, tests::frame_options},
 };
 
 type Movement = fn(usize) -> MatchListEvent;

@@ -5,9 +5,9 @@ use std::{
 };
 
 use crate::{
-    interface::CachedPreview,
+    interface::{CachedPreview, Interface},
     preview::{Content, DEFAULT_CACHE_SIZE, Pane, PreviewEvent, SyncPreviewer},
-    session::{Dimensions, Exit, Interface, Redraw},
+    session::{Dimensions, Exit, Redraw},
 };
 
 mod prefetch;

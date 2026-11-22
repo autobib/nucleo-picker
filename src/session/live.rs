@@ -4,12 +4,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-use super::{Context, Exit, Interface, MatchStatus, Matches, QueueStatus, Redraw};
+use super::{Context, Exit, MatchStatus, Matches, QueueStatus, Redraw};
 use crate::{
     Injector, PickerChars, Render, Terminal,
     component::Component,
     event::{MatchListEvent, PromptEvent},
     frame::Contents,
+    interface::Interface,
     match_engine::MatchEngine,
     match_list::{MatchList, MatchListState, MatchListView},
     preview::{PreviewConfig, PreviewEvent},

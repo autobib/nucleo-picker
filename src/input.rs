@@ -10,10 +10,12 @@ use crossterm::event::{KeyEvent, poll, read};
 #[cfg(doc)]
 use crate::event::keybind_single;
 use crate::{
-    Driver, Interface, KeybindDefault, Render,
+    Render,
     error::PickError,
-    event::{Event, EventSource, RecvError},
+    event::{Event, EventSource, KeybindDefault, RecvError},
+    interface::Interface,
     keybind::{convert_crossterm_event, keybind_default},
+    session::Driver,
 };
 
 /// Run an interface interactively with its default keybindings.

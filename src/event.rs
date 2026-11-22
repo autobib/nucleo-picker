@@ -31,7 +31,7 @@ use std::{
 pub use crate::input::{StdinEventSender, StdinReader};
 #[expect(deprecated)]
 pub use crate::keybind::keybind_no_multi;
-pub use crate::keybind::{keybind_default, keybind_multi, keybind_single};
+pub use crate::keybind::{KeybindDefault, keybind_default, keybind_multi, keybind_single};
 pub use crate::keybind::{keybind_multi_preview, keybind_single_preview};
 pub use crate::preview::PreviewEvent;
 pub use crate::{

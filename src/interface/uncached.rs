@@ -2,23 +2,22 @@ use std::time::Instant;
 
 use crossterm::event::KeyEvent;
 
-use super::{Multi, Single};
+use super::{Interface, Multi, Single};
 use crate::{
-    KeybindDefault,
-    event::Event,
+    event::{Event, KeybindDefault},
     keybind::keybind_passthrough_preview,
     preview::{Content, Pane, PreviewEvent},
-    session::{Context, Dimensions, Exit, Interface, ItemId, QueueEvent, QueueStatus, Redraw},
+    session::{Context, Dimensions, Exit, ItemId, QueueEvent, QueueStatus, Redraw},
 };
 
 /// A minimal preview adapter holding a closure which generates previews directly.
 ///
-/// In general, you should prefer to use [`CachedPreview`](crate::CachedPreview). This adapter only
+/// In general, you should prefer to use [`CachedPreview`](crate::interface::CachedPreview). This adapter only
 /// holds a single pane buffer internally and calls the closure synchronously on the picker thread
 /// every time the item changes or no refresh. In particular, the closure must not block. This is
 /// sufficient only for small previews built directly from data accessible from the item `&T`.
 ///
-/// For slow previews, use [`CachedPreview`](crate::CachedPreview) with the built-in [`PoolPreviewer`](crate::preview::PoolPreviewer), or implement a custom [`Preview`](crate::preview::Preview) directly.
+/// For slow previews, use [`CachedPreview`](crate::interface::CachedPreview) with the built-in [`PoolPreviewer`](crate::preview::PoolPreviewer), or implement a custom [`Preview`](crate::preview::Preview) directly.
 pub struct UncachedPreview<I, F> {
     interface: I,
     previewer: F,

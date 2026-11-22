@@ -3,8 +3,9 @@ use std::time::{Duration, Instant};
 use super::{Select, driver, frame_options, update};
 use crate::{
     event::{MatchListEvent, PromptEvent},
+    interface::Interface,
     render::StrRenderer,
-    session::{Context, Exit, Geometry, Interface, ItemId, Redraw, Session},
+    session::{Context, Exit, Geometry, ItemId, Redraw, Session},
 };
 
 struct Update {
@@ -209,11 +210,11 @@ fn preview_wrappers_forward_frame_hooks_and_combine_invalidations() {
         let generate = |_: &String, _: &mut crate::preview::Pane| generated += 1;
         match cached {
             #[cfg(feature = "preview-cache")]
-            true => check(crate::CachedPreview::new(
+            true => check(crate::interface::CachedPreview::new(
                 probe,
                 crate::preview::SyncPreviewer(generate),
             )),
-            _ => check(crate::UncachedPreview::new(probe, generate)),
+            _ => check(crate::interface::UncachedPreview::new(probe, generate)),
         }
         assert!(
             updates

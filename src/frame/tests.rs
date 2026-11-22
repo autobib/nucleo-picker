@@ -2,11 +2,11 @@ use std::time::Duration;
 
 use super::{Layout, LayoutEvent};
 use crate::{
-    DriverOptions,
+    interface::Interface,
     rect::Area,
     render::StrRenderer,
     session::{
-        Context, Dimensions, Exit, Geometry, Interface, Redraw,
+        Context, Dimensions, DriverOptions, Exit, Geometry, Redraw,
         tests::{Select, TestTerminal, frame_options},
     },
 };

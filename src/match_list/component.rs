@@ -2,9 +2,10 @@ use super::{MatchListEvent, MatchListState};
 use crate::{
     PickerChars,
     component::Component,
+    interface::Interface,
     match_engine::MatchEngine,
     rect::{Area, Rect},
-    session::{Context, Interface, ItemId, QueueEvent},
+    session::{Context, ItemId, QueueEvent},
     util::as_u32,
 };
 use std::io;

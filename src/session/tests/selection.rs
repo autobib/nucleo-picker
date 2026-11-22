@@ -3,7 +3,8 @@ use std::{num::NonZero, time::Duration};
 use super::{driver, frame_options, update};
 use crate::{
     event::{MatchListEvent, PromptEvent},
-    session::{Context, Exit, Interface, ItemId, QueueEvent, QueueStatus},
+    interface::Interface,
+    session::{Context, Exit, ItemId, QueueEvent, QueueStatus},
 };
 
 #[derive(Default)]

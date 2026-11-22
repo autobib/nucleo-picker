@@ -6,9 +6,10 @@ use std::{
 #[cfg(feature = "unstable-backend")]
 use crate::event::{Event, EventSource, RecvError};
 use crate::{
-    Driver, DriverOptions, Render, Terminal,
+    Render, Terminal,
+    interface::Interface,
     render::StrRenderer,
-    session::{Context, Dimensions, Exit, FrameOptions, Interface, Redraw, Session},
+    session::{Context, Dimensions, Driver, DriverOptions, Exit, FrameOptions, Redraw, Session},
 };
 
 mod context;

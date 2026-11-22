@@ -8,9 +8,10 @@ pub use options::DriverOptions;
 use crate::event::Event;
 use crate::preview::PreviewConfig;
 use crate::{
-    Injector, Interface, PickerChars, Render,
+    Injector, PickerChars, Render,
     error::PickError,
     event::{EventSource, PickerStatus},
+    interface::Interface,
     match_engine::MatchEngine,
     match_list::MatchListState,
     observer::{self, Notifier, Observer},

@@ -12,8 +12,9 @@ use crate::{
     Picker, PickerOptions, Terminal,
     error::PickError,
     event::{Event, RecvError},
+    interface::{Interface, Single},
     render::StrRenderer,
-    session::{Context, Dimensions, Exit, Interface, Redraw, Single},
+    session::{Context, Dimensions, Exit, Redraw},
 };
 
 type Log = RefCell<Vec<&'static str>>;

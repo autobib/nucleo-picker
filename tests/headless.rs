@@ -5,7 +5,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-use nucleo_picker::{Driver, DriverOptions, Injector, render::StrRenderer, session::MatchStatus};
+use nucleo_picker::{
+    Injector,
+    render::StrRenderer,
+    session::{Driver, DriverOptions, MatchStatus},
+};
 
 fn options() -> DriverOptions {
     DriverOptions::new()

@@ -1,12 +1,12 @@
 use std::time::Duration;
 
 use crate::{
-    DriverOptions,
     event::{MatchListEvent, PromptEvent},
+    interface::{Multi, Single},
     rect::Area,
     render::StrRenderer,
     session::{
-        Dimensions, Geometry, Multi, Redraw, Single,
+        Dimensions, DriverOptions, Geometry, Redraw,
         tests::{TestTerminal, frame_options, update},
     },
 };

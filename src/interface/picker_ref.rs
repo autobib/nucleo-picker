@@ -4,15 +4,15 @@ use crossterm::event::KeyEvent;
 
 #[cfg(feature = "preview-cache")]
 use super::{CachedPreview, Multi};
-use super::{InterfaceDefaults, Single};
+use super::{Interface, InterfaceDefaults, Single};
 #[cfg(feature = "unstable-backend")]
 use crate::Terminal;
 use crate::{
-    Driver, KeybindDefault, Render,
+    Render,
     error::PickError,
-    event::{Event, EventSource},
+    event::{Event, EventSource, KeybindDefault},
     input,
-    session::Interface,
+    session::Driver,
 };
 
 /// A temporary view of a picker with a different interface.

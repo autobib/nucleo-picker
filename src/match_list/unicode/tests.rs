@@ -2,11 +2,10 @@ use crossterm::style::Stylize;
 use std::time::Duration;
 
 use crate::{
-    DriverOptions,
     rect::Area,
     render::StrRenderer,
     session::{
-        Dimensions, Geometry, Redraw,
+        Dimensions, DriverOptions, Geometry, Redraw,
         tests::{Select, TestTerminal, frame_options},
     },
 };

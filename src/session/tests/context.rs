@@ -2,10 +2,10 @@ use std::time::Duration;
 
 use super::{Select, frame_options};
 use crate::{
-    DriverOptions,
     event::{MatchListEvent, PromptEvent},
+    interface::Interface,
     render::StrRenderer,
-    session::{Context, Exit, Interface, ItemId, QueueEvent},
+    session::{Context, DriverOptions, Exit, ItemId, QueueEvent},
 };
 
 struct Observation {

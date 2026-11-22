@@ -4,13 +4,13 @@ use std::{
 };
 
 use crate::{
-    Driver, DriverOptions,
+    interface::Interface,
     preview::{
         Buffer, Content, Pane, Preview,
         request::{ActiveRequest, QueuedRequest, Request, Response},
     },
     render::StrRenderer,
-    session::{Context, Interface, ItemId, ItemRef, Redraw},
+    session::{Context, Driver, DriverOptions, ItemId, ItemRef, Redraw},
 };
 
 pub(crate) fn driver(

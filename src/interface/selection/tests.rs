@@ -1,5 +1,9 @@
 use super::*;
-use crate::{Driver, DriverOptions, Single, render::StrRenderer};
+use crate::{
+    interface::Single,
+    render::StrRenderer,
+    session::{Driver, DriverOptions},
+};
 use std::{
     num::NonZero,
     panic::{AssertUnwindSafe, catch_unwind},

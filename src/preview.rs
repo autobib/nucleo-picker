@@ -42,7 +42,8 @@
 //! # #[cfg(feature = "preview-cache")]
 //! # {
 //! use nucleo_picker::{
-//!     Multi, Picker,
+//!     Picker,
+//!     interface::Multi,
 //!     preview::{Pane, SyncPreviewer},
 //!     render::StrRenderer,
 //! };

@@ -1,4 +1,5 @@
-use super::{Context, Exit, Interface, ItemId, QueueEvent, QueueStatus, Redraw};
+use super::{Context, Exit, ItemId, QueueEvent, QueueStatus, Redraw};
+use crate::interface::Interface;
 use crate::preview::{Content, PreviewEvent};
 use crate::rect::Dimensions;
 use std::time::Instant;

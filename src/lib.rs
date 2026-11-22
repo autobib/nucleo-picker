@@ -50,14 +50,13 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod component;
-mod driver;
 pub mod error;
 pub mod event;
 mod frame;
 mod incremental;
 mod injector;
 mod input;
-mod interface;
+pub mod interface;
 mod keybind;
 mod match_engine;
 mod match_list;
@@ -80,23 +79,17 @@ use preview::BoundaryChars;
 
 use crate::{
     error::PickError,
-    event::{Event, EventSource, PickerStatus},
-    interface::InterfaceDefaults,
-    session::{MatchStatus, Matches},
+    event::{Event, EventSource, KeybindDefault, PickerStatus},
+    interface::{Interface, InterfaceDefaults, Multi, Single},
+    session::{Driver, DriverOptions, MatchStatus, Matches},
 };
 
-pub use crate::driver::{Driver, DriverOptions};
 pub use crate::injector::Injector;
 #[cfg(feature = "preview-cache")]
+use crate::interface::CachedPreview;
 #[doc(inline)]
-pub use crate::interface::CachedPreview;
-#[doc(inline)]
-pub use crate::interface::{Multi, PickerRef, Single, UncachedPreview};
+pub use crate::interface::PickerRef;
 pub use crate::interface::{Selection, SelectionIntoIter};
-#[doc(inline)]
-pub use crate::keybind::KeybindDefault;
-#[doc(inline)]
-pub use crate::session::Interface;
 
 #[cfg(feature = "unstable-backend")]
 pub use terminal::Terminal;

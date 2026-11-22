@@ -1,7 +1,10 @@
 use std::cell::RefCell;
 
 use super::*;
-use crate::{Driver, DriverOptions, render::StrRenderer};
+use crate::{
+    render::StrRenderer,
+    session::{Driver, DriverOptions},
+};
 
 fn driver() -> Driver<&'static str, StrRenderer> {
     let mut driver = DriverOptions::new().sort_results(false).driver(StrRenderer);

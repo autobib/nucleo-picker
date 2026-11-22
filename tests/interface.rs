@@ -8,11 +8,12 @@ use std::{
 };
 
 use nucleo_picker::{
-    DriverOptions, Interface, Multi, PickerOptions, Single, Terminal, UncachedPreview,
+    PickerOptions, Terminal,
     event::{Event, EventSource, LayoutEvent, MatchListEvent, RecvError},
+    interface::{Interface, Multi, Single, UncachedPreview},
     preview::{Content, Pane, PreviewEvent},
     render::StrRenderer,
-    session::{Context, Dimensions, Exit, ItemId, QueueStatus, Redraw},
+    session::{Context, Dimensions, DriverOptions, Exit, ItemId, QueueStatus, Redraw},
 };
 
 #[derive(Default)]

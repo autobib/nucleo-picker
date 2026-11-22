@@ -75,7 +75,7 @@ pub fn keybind_no_multi<A>(key_event: KeyEvent) -> Option<Event<A>> {
 
 /// Keybindings which only emit single-selection non-preview events.
 ///
-/// These are the keybindings for the [`Single`](crate::session::Single) interface.
+/// These are the keybindings for the [`Single`](crate::interface::Single) interface.
 /// See the [caveats on specialized bindings](keybind_default#specialized-bindings) for more details.
 #[inline]
 pub fn keybind_single<A>(key_event: KeyEvent) -> Option<Event<A>> {
@@ -84,7 +84,7 @@ pub fn keybind_single<A>(key_event: KeyEvent) -> Option<Event<A>> {
 
 /// Keybindings which emit multiple-selection but non-preview events.
 ///
-/// These are the keybindings for the [`Multi`](crate::session::Multi) interface.
+/// These are the keybindings for the [`Multi`](crate::interface::Multi) interface.
 /// See the [caveats on specialized bindings](keybind_default#specialized-bindings) for more details.
 #[inline]
 pub fn keybind_multi<A>(key_event: KeyEvent) -> Option<Event<A>> {
@@ -95,7 +95,7 @@ pub fn keybind_multi<A>(key_event: KeyEvent) -> Option<Event<A>> {
 
 /// Keybindings which only emit single-selection events and preview events.
 ///
-/// These are the keybindings for the [`CachedPreview<Single, P>`](crate::session::CachedPreview) interface.
+/// These are the keybindings for the [`CachedPreview<Single, P>`](crate::interface::CachedPreview) interface.
 /// See the [caveats on specialized bindings](keybind_default#specialized-bindings) for more details.
 #[inline]
 pub fn keybind_single_preview<A>(key_event: KeyEvent) -> Option<Event<A>> {
@@ -106,7 +106,7 @@ pub fn keybind_single_preview<A>(key_event: KeyEvent) -> Option<Event<A>> {
 
 /// Keybindings which only emit multi-selection and preview events.
 ///
-/// These are the keybindings for the [`CachedPreview<Multi, P>`](crate::session::CachedPreview) interface.
+/// These are the keybindings for the [`CachedPreview<Multi, P>`](crate::interface::CachedPreview) interface.
 /// See the [caveats on specialized bindings](keybind_default#specialized-bindings) for
 /// more details.
 #[inline]

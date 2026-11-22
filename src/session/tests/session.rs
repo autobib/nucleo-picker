@@ -8,9 +8,10 @@ use super::{Select, TestTerminal, driver, frame_options, update};
 use crate::{
     Terminal,
     event::{MatchListEvent, PromptEvent},
+    interface::Interface,
     preview::PreviewEvent,
     rect::Area,
-    session::{Context, Dimensions, Exit, Geometry, Interface, Redraw},
+    session::{Context, Dimensions, Exit, Geometry, Redraw},
 };
 
 #[derive(Debug, PartialEq, Eq)]

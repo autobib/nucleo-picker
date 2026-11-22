@@ -6,11 +6,10 @@ use std::{
     iter::FusedIterator,
 };
 
-use super::Multi;
+use super::{Interface, Multi};
 use crate::{
-    KeybindDefault,
-    event::{Event, keybind_multi},
-    session::{Context, Exit, Interface, ItemId, Matches, QueueEvent, QueueStatus},
+    event::{Event, KeybindDefault, keybind_multi},
+    session::{Context, Exit, ItemId, Matches, QueueEvent, QueueStatus},
 };
 use crossterm::event::KeyEvent;
 
