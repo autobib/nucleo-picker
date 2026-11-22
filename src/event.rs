@@ -22,21 +22,24 @@
 //! the [restart
 //! example](https://github.com/autobib/nucleo-picker/blob/master/examples/restart.rs).
 
+mod keybind;
+
 use std::{
     io,
     sync::mpsc::{Receiver, RecvTimeoutError, TryRecvError},
     time::Duration,
 };
 
-pub use crate::input::{StdinEventSender, StdinReader};
-#[expect(deprecated)]
-pub use crate::keybind::keybind_no_multi;
-pub use crate::keybind::{KeybindDefault, keybind_default, keybind_multi, keybind_single};
-pub use crate::keybind::{keybind_multi_preview, keybind_single_preview};
-pub use crate::preview::PreviewEvent;
-pub use crate::{
-    frame::LayoutEvent, match_list::MatchListEvent, observer::Observer, prompt::PromptEvent,
+use crossterm::event::KeyEvent;
+
+pub use keybind::{
+    KeybindDefault, keybind_default, keybind_multi, keybind_multi_preview, keybind_single,
+    keybind_single_preview,
 };
+pub use nucleo_picker_core::event::{MatchListEvent, PreviewEvent, PromptEvent};
+
+pub use crate::input::{StdinEventSender, StdinReader};
+pub use crate::observer::Observer;
 
 use crate::session::Dimensions;
 
@@ -212,6 +215,37 @@ pub enum Event<A = !> {
     },
     /// Restart the picker, invalidating all existing injectors.
     Restart,
+}
+
+/// Events which modify the layout of the picker screen.
+#[derive(Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum LayoutEvent {
+    /// Toggle visibility of the status line.
+    ///
+    /// This event has no default keybinding.
+    ToggleStatus,
+    /// Toggle visibility of the preview pane.
+    ///
+    /// When the preview is hidden, the preview cache is preserved but events which target
+    /// the preview have no effect.
+    TogglePreview,
+    /// Move the divider between the match list and the previewer to the left.
+    MoveDividerLeft(u16),
+    /// Move the divider between the match list and the previewer to the right.
+    MoveDividerRight(u16),
+}
+
+/// Keybindings which do not emit [multi-selection events](MatchListEvent#multi-selection-events).
+///
+/// This function has been deprecated in favour of [`keybind_single`] and [`keybind_single_preview`].
+#[deprecated(
+    since = "0.13.0",
+    note = "Use `keybind_single` or `keybind_single_preview` instead"
+)]
+#[inline]
+pub fn keybind_no_multi<A>(key_event: KeyEvent) -> Option<Event<A>> {
+    keybind_single_preview(key_event)
 }
 
 /// The response corresponding to a [status request](Event::Status).

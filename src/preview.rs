@@ -31,6 +31,17 @@
 //! state which should be preserved between calls or which should be accessed after selection is
 //! complete.
 //!
+//! ### Fatal errors
+//!
+//! For fatal errors, it is recommended to pass a handle to the
+//! [`EventSource`](crate::event::EventSource) and propagate errors directly to the picker using
+//! [`Event::Abort`](crate::event::Event::Abort). For instance, if using a channel with
+//! [`StdinEventSender`](crate::event::StdinEventSender), one can pass senders to the
+//! previewer or preview workers directly.
+//!
+//! See the [online preview example](https://github.com/autobib/nucleo-picker/blob/master/examples/online_preview.rs)
+//! for a complete example highlighting propagation of fatal preview errors.
+//!
 //! ## Examples
 //!
 //! ### Basic example
@@ -73,6 +84,91 @@
 //! # }
 //! ```
 //!
+//! ### Synchronous preview example
+//!
+//! ```no_run
+//! # #[cfg(feature = "preview-cache")]
+//! # mod example {
+//! use std::borrow::Cow;
+//! use nucleo_picker::{Picker, preview::{Pane, SyncPreviewer}};
+//!
+//! struct Item {
+//!     name: &'static str,
+//!     description: &'static str,
+//! }
+//!
+//! fn render(item: &Item) -> Cow<'_, str> {
+//!     Cow::Borrowed(item.name)
+//! }
+//!
+//! # fn main() -> std::io::Result<()> {
+//! let picker = Picker::new(render);
+//! picker.push_batch([
+//!     Item { name: "red", description: "RGB: 255, 0, 0" },
+//!     Item { name: "blue", description: "RGB: 0, 0, 255" },
+//! ]);
+//! let previewer = SyncPreviewer(|item: &Item, pane: &mut Pane| {
+//!     pane.buffer_mut().push_text(item.description);
+//! });
+//! let mut picker = picker.with_preview(previewer);
+//! if let Some(item) = picker.pick()? {
+//!     println!("{}", item.name);
+//! }
+//! # Ok(())
+//! # }
+//! # }
+//! # fn main() {}
+//! ```
+//!
+//! ### Thread-pool preview example
+//!
+//! Here is a basic example implementing a file previewer.
+//!
+//! ```no_run
+//! # #[cfg(feature = "preview-cache")]
+//! # mod example {
+//! use std::{fs, num::NonZeroUsize, path::PathBuf};
+//! use nucleo_picker::{
+//!     Picker,
+//!     preview::{Pane, PoolPreviewer, Worker},
+//!     render::PathRenderer,
+//! };
+//!
+//! #[derive(Clone)]
+//! struct FilePreview;
+//!
+//! impl Worker<PathBuf> for FilePreview {
+//!     fn preview(
+//!         &mut self,
+//!         path: &PathBuf,
+//!         pane: &mut Pane,
+//!         _is_cancelled: impl Fn() -> bool,
+//!     ) -> bool {
+//!         match fs::read_to_string(path) {
+//!             Ok(text) => pane.push_text(&text),
+//!             Err(error) => {
+//!                 pane.set_err(true);
+//!                 pane.push_text(&error.to_string());
+//!             }
+//!         }
+//!         true
+//!     }
+//! }
+//!
+//! # fn main() -> std::io::Result<()> {
+//! let picker = Picker::new(PathRenderer);
+//! picker.push_batch([PathBuf::from("Cargo.toml"), PathBuf::from("README.md")]);
+//! let previewer = PoolPreviewer::from_worker(FilePreview, NonZeroUsize::new(2).unwrap())?;
+//! let mut picker = picker.with_preview(previewer);
+//! if let Some(path) = picker.pick()? {
+//!     println!("{}", path.display());
+//! }
+//! # Ok(())
+//! # }
+//! # }
+//! # fn main() {}
+//! ```
+//!
 //! ### Extended example
 //!
 //! This example uses a stateful previewer. Run this example with
@@ -100,157 +196,21 @@
 //! ```
 
 #[cfg(feature = "preview-ansi")]
-mod ansi;
-mod buffer;
-mod draw;
+pub use nucleo_picker_core::preview::{AnsiState, AnsiWriter};
+pub use nucleo_picker_core::preview::{
+    BoundaryChars, Buffer, Content, Line, Pane, TextWriter, Viewport,
+};
 #[cfg(feature = "preview-cache")]
-pub(crate) mod lock;
-mod pane;
+#[doc(inline)]
+pub use nucleo_picker_interface::CachedPreview;
+#[doc(inline)]
+pub use nucleo_picker_interface::UncachedPreview;
+/// There are implementation examples in the [module-level docs](crate::preview#examples).
 #[cfg(feature = "preview-cache")]
-mod pool;
-#[cfg(feature = "preview-cache")]
-mod provider;
+#[doc(inline)]
+pub use nucleo_picker_interface::preview::Preview;
 #[cfg(feature = "preview-cache")]
 #[cfg_attr(docsrs, doc(cfg(feature = "preview-cache")))]
-pub mod request;
-mod text;
-
-use crate::rect::Dimensions;
-
+pub use nucleo_picker_interface::preview::request;
 #[cfg(feature = "preview-cache")]
-#[doc(inline)]
-pub use crate::interface::CachedPreview;
-#[doc(inline)]
-pub use crate::interface::UncachedPreview;
-#[doc(inline)]
-pub use crate::session::{ItemId, ItemRef};
-#[cfg(feature = "preview-ansi")]
-pub use ansi::{AnsiState, AnsiWriter};
-pub use buffer::{Buffer, Line};
-pub(crate) use draw::draw;
-pub use pane::{Pane, Viewport};
-#[cfg(feature = "preview-cache")]
-pub use pool::{PoolPreviewer, Worker};
-#[cfg(feature = "preview-cache")]
-pub use provider::{Preview, SyncPreviewer};
-pub use text::TextWriter;
-
-/// Events which target the preview pane.
-#[derive(Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum PreviewEvent {
-    /// Refresh the preview for the hovered item.
-    Refresh,
-    /// Scroll to the left by `n` columns.
-    Left(usize),
-    /// Scroll to the right by `n` columns.
-    Right(usize),
-    /// Align the preview window with the first column.
-    AlignLeft,
-    /// Align the right edge of the preview window with the longest currently visible row, or to
-    /// the first column if all of the rows fit.
-    ///
-    /// Note that this may result in a left movement if the preview pane is currently scrolled past
-    /// the final visible row. If you want to align to the right *without any possible left movement*,
-    /// use `PreviewEvent::Right(usize::MAX)`.
-    AlignRight,
-    /// Scroll towards the beginning of the buffer by `n` lines.
-    Up(usize),
-    /// Scroll towards the end of the buffer by `n` lines.
-    Down(usize),
-    /// Scroll towards the beginning of the buffer by `n` pages.
-    PageUp(usize),
-    /// Scroll towards the end of the buffer by `n` pages.
-    PageDown(usize),
-    /// Align the preview window to the first row, preserving the horizontal offset.
-    ///
-    /// This event has no default keybinding.
-    AlignTop,
-    /// Align the preview window to the final row, preserving the horizontal offset.
-    ///
-    /// This event has no default keybinding.
-    AlignBottom,
-    /// Toggle the presence of line numbers in an active preview pane.
-    ToggleLineNumbers,
-    /// Set visibility of line numbers in the active preview pane.
-    ///
-    /// This event has no default keybinding.
-    SetLineNumbers(bool),
-}
-
-/// The outcome of rendering a preview pane.
-pub enum Content<'a> {
-    /// A preview pane with no contents.
-    Empty,
-    /// A preview pane containing a loading indicator.
-    Loading,
-    /// A rendered preview pane (including preview panes rendering errors).
-    Ready(&'a Pane),
-}
-
-pub(crate) fn content_dimensions(size: Dimensions, bordered: bool) -> Dimensions {
-    let inset = if bordered { 2 } else { 0 };
-    Dimensions {
-        width: size.width.saturating_sub(inset),
-        height: size.height.saturating_sub(inset),
-    }
-}
-
-/// Preview boundary characters.
-///
-/// This is the value used to set
-/// [`PickerOptions::preview_boundary_chars`](crate::PickerOptions::preview_boundary_chars). Note
-/// that all characters must have Unicode width 1 or the terminal may be corrupted.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct BoundaryChars {
-    /// Top left, default `╭`.
-    pub top_left: char,
-    /// Top right, default `╮`
-    pub top_right: char,
-    /// Bottom left, default `╰`
-    pub bottom_left: char,
-    /// Bottom right, default `╯`
-    pub bottom_right: char,
-    /// Left and right edges, default `│`
-    pub vertical: char,
-    /// Top and bottom edges, default `─`
-    pub horizontal: char,
-}
-
-impl BoundaryChars {
-    /// Initialize with default Unicode boundary characters.
-    ///
-    /// This is the same as the [`Default`] implementation but as a `const fn`.
-    #[must_use]
-    pub const fn new() -> Self {
-        Self {
-            top_left: '╭',
-            top_right: '╮',
-            bottom_left: '╰',
-            bottom_right: '╯',
-            vertical: '│',
-            horizontal: '─',
-        }
-    }
-
-    /// Initialize with ASCII boundary characters.
-    ///
-    /// This sets `+` for corners, `|` for vertical edges, and `-` for horizontal edges.
-    #[must_use]
-    pub const fn ascii() -> Self {
-        Self {
-            top_left: '+',
-            top_right: '+',
-            bottom_left: '+',
-            bottom_right: '+',
-            vertical: '|',
-            horizontal: '-',
-        }
-    }
-}
-
-impl Default for BoundaryChars {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+pub use nucleo_picker_interface::preview::{PoolPreviewer, SyncPreviewer, Worker};

@@ -14,8 +14,7 @@ use crate::{
     interface::Interface,
     observer::Notifier,
     preview::BoundaryChars,
-    rect::Dimensions,
-    session::{Components, Exit, FrameOptions, Model},
+    session::{Components, Dimensions, Exit, FrameOptions, Model},
     terminal::session,
 };
 

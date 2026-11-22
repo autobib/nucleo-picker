@@ -4,9 +4,11 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use nucleo_picker::{
     PickerOptions,
     draw::{Color, Style},
-    event::{Event, LayoutEvent, MatchListEvent, PromptEvent, keybind_single_preview},
+    event::{
+        Event, LayoutEvent, MatchListEvent, PreviewEvent, PromptEvent, keybind_single_preview,
+    },
     preview::{
-        BoundaryChars, Pane, Preview, PreviewEvent, SyncPreviewer,
+        BoundaryChars, Pane, Preview, SyncPreviewer,
         request::{QueuedRequest, Request, Response},
     },
 };
@@ -223,7 +225,7 @@ fn pane_layout_adjustments_and_resizes() -> Result<(), Box<dyn Error>> {
             vec!["item"],
             PickerOptions::new().preview_split(0.4).reversed(reversed),
             SyncPreviewer(|_: &String, pane: &mut Pane| {
-                pane.buffer_mut().push_text("a\nb\nc\nd\ne\nf")
+                pane.buffer_mut().push_text("a\nb\nc\nd\ne\nf");
             }),
         );
         let check =
@@ -345,7 +347,7 @@ fn toggle_preview_restores_layout_and_cached_state() -> Result<(), Box<dyn Error
             items,
             options(),
             SyncPreviewer(|_: &String, pane: &mut Pane| {
-                pane.buffer_mut().push_text("a\nb\nc\nd\ne\nf")
+                pane.buffer_mut().push_text("a\nb\nc\nd\ne\nf");
             }),
         );
         let toggle = || {
@@ -476,7 +478,7 @@ fn status_toggle_preserves_the_preview_pane() -> Result<(), Box<dyn Error>> {
             lines(),
             PickerOptions::new().reversed(reversed),
             SyncPreviewer(|_: &String, pane: &mut Pane| {
-                pane.buffer_mut().push_text("a\nb\nc\nd\ne\nf")
+                pane.buffer_mut().push_text("a\nb\nc\nd\ne\nf");
             }),
         );
         sr.set_dimensions(40, 5)?;

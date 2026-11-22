@@ -5,8 +5,8 @@ use crate::{
     Render, Terminal,
     interface::Interface,
     preview::BoundaryChars,
-    rect::{Area, ClearState, CrosstermTarget, Dimensions},
-    session::{Components, PreparedFrame},
+    rect::{Area, ClearState, CrosstermTarget},
+    session::{Components, Dimensions, PreparedFrame},
 };
 use crossterm::{
     QueueableCommand,
@@ -35,25 +35,6 @@ impl LayoutConfig {
         debug_assert!(valid, "preview ratio must be in 0..=1");
         self.preview_ratio = if valid { ratio } else { 0.5 };
     }
-}
-
-/// Events which modify the layout of the picker screen.
-#[derive(Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum LayoutEvent {
-    /// Toggle visibility of the status line.
-    ///
-    /// This event has no default keybinding.
-    ToggleStatus,
-    /// Toggle visibility of the preview pane.
-    ///
-    /// When the preview is hidden, the preview cache is preserved but events which target
-    /// the preview have no effect.
-    TogglePreview,
-    /// Move the divider between the match list and the previewer to the left.
-    MoveDividerLeft(u16),
-    /// Move the divider between the match list and the previewer to the right.
-    MoveDividerRight(u16),
 }
 
 /// The entire terminal frame.

@@ -11,7 +11,7 @@ use crossterm::{
     },
 };
 
-use crate::rect::Dimensions;
+use crate::session::Dimensions;
 
 /// A generic terminal backend accepting raw bytes with ANSI escape sequences, with special
 /// initialization and cleanup.

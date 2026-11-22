@@ -927,13 +927,11 @@ dependencies = [
 name = "nucleo-picker"
 version = "0.12.2"
 dependencies = [
- "anstyle-parse",
  "crossbeam",
  "crossterm",
  "ignore",
- "lru 0.19.0",
- "memchr",
- "ncp-engine",
+ "nucleo-picker-core",
+ "nucleo-picker-interface",
  "parking_lot",
  "rand",
  "ratatui-core",
@@ -944,6 +942,33 @@ dependencies = [
  "unicode-segmentation",
  "unicode-width",
  "ureq",
+]
+
+[[package]]
+name = "nucleo-picker-core"
+version = "0.12.2"
+dependencies = [
+ "anstyle-parse",
+ "crossterm",
+ "ignore",
+ "memchr",
+ "ncp-engine",
+ "ratatui-core",
+ "ratatui-widgets",
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
+ "unicode-width",
+]
+
+[[package]]
+name = "nucleo-picker-interface"
+version = "0.12.2"
+dependencies = [
+ "crossbeam",
+ "lru 0.19.0",
+ "nucleo-picker-core",
+ "parking_lot",
 ]
 
 [[package]]

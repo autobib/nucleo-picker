@@ -3,15 +3,12 @@ use std::{cell::RefCell, io};
 use super::Layout;
 use crate::{
     Terminal,
-    component::tests::TestSurface,
     interface::Interface,
     preview::{BoundaryChars, Content, Pane},
     rect::Area,
     render::StrRenderer,
-    session::{
-        Components, Context, Dimensions, Exit, ModelOptions,
-        tests::{Select, TestTerminal, frame_options},
-    },
+    session::{Components, Context, Dimensions, Exit, ModelOptions},
+    session_tests::{Select, TestTerminal, frame_options},
 };
 
 #[derive(Default)]
@@ -441,45 +438,6 @@ fn preview_border_reads_content_after_resize() {
     let output = String::from_utf8(terminal.output).unwrap();
     assert!(output.contains(" Error "));
     assert!(output.contains("preview"));
-}
-
-#[test]
-fn empty_and_tiny_targets_keep_preview_borders_in_bounds() {
-    let chars = BoundaryChars {
-        top_left: 'a',
-        top_right: 'b',
-        bottom_left: 'c',
-        bottom_right: 'd',
-        horizontal: '-',
-        vertical: '|',
-    };
-    let mut pane = Pane::new();
-    pane.push_text("Ａabc\nsecond");
-    pane.set_err(true);
-    for width in 0..=4 {
-        for height in 0..=4 {
-            let mut target = TestSurface::new(width, height);
-            crate::preview::draw(&mut target, Content::Ready(&pane), Some(chars), '…').unwrap();
-            assert_eq!(target.touched, width != 0 && height != 0);
-            if width == 0 || height == 0 {
-                continue;
-            }
-            let top = if width == 1 {
-                "a".to_owned()
-            } else {
-                format!("a{}b", "-".repeat(usize::from(width - 2)))
-            };
-            assert_eq!(target.rows[0], top);
-            if height > 1 {
-                let bottom = if width == 1 {
-                    "c".to_owned()
-                } else {
-                    format!("c{}d", "-".repeat(usize::from(width - 2)))
-                };
-                assert_eq!(target.rows[usize::from(height - 1)], bottom);
-            }
-        }
-    }
 }
 
 #[test]

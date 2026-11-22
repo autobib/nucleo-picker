@@ -9,10 +9,11 @@ use std::{
 use nucleo_picker::{
     Picker,
     preview::{
-        ItemRef, Pane, Preview, Worker,
+        Pane, Preview, Worker,
         request::{QueuedRequest, Request, Response},
     },
     render::PathRenderer,
+    session::ItemRef,
 };
 use parking_lot::{Condvar, Mutex};
 

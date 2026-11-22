@@ -1,0 +1,90 @@
+//! # Built-in renderers
+//!
+//! This module contains basic built-in renderers.
+
+use std::{borrow::Cow, path::Path};
+
+use super::Render;
+
+/// A renderer for any type which has cheap references as a `str`, such as a [`String`].
+///
+/// To be precise, this works for any type `T` which implements [`AsRef<str>`].
+///
+/// ## Example
+/// ```
+/// # use nucleo_picker_core::{render::StrRenderer, Render};
+/// let str_renderer = StrRenderer;
+///
+/// let st = "Hello!".to_owned();
+///
+/// assert_eq!(str_renderer.render(&st), "Hello!");
+/// ```
+pub struct StrRenderer;
+
+impl<T: AsRef<str>> Render<T> for StrRenderer {
+    type Str<'a>
+        = &'a str
+    where
+        T: 'a;
+
+    #[inline]
+    fn render<'a>(&self, item: &'a T) -> Self::Str<'a> {
+        item.as_ref()
+    }
+}
+
+/// A renderer for any type which has cheap references as a [`Path`], such as a [`String`].
+///
+/// To be precise, this works for any type `T` which implements [`AsRef<Path>`].
+///
+/// ## Example
+/// ```
+/// # use nucleo_picker_core::{render::PathRenderer, Render};
+/// use std::path::PathBuf;
+/// let path_renderer = PathRenderer;
+///
+/// let mut path = PathBuf::new();
+///
+/// path.push("/");
+/// path.push("dev");
+/// path.push("null");
+///
+/// // Note: platform-dependent output
+/// assert_eq!(path_renderer.render(&path), "/dev/null");
+/// ```
+pub struct PathRenderer;
+
+impl<T: AsRef<Path>> Render<T> for PathRenderer {
+    type Str<'a>
+        = Cow<'a, str>
+    where
+        T: 'a;
+
+    #[inline]
+    fn render<'a>(&self, item: &'a T) -> Self::Str<'a> {
+        item.as_ref().to_string_lossy()
+    }
+}
+
+/// A renderer which uses a type's [`Display`](std::fmt::Display) implementation.
+///
+/// ## Example
+/// ```
+/// # use nucleo_picker_core::{render::DisplayRenderer, Render};
+/// let display_renderer = DisplayRenderer;
+///
+/// assert_eq!(display_renderer.render(&1.624f32), "1.624");
+/// ```
+pub struct DisplayRenderer;
+
+impl<T: ToString> Render<T> for DisplayRenderer {
+    type Str<'a>
+        = String
+    where
+        T: 'a;
+
+    #[inline]
+    fn render<'a>(&self, item: &'a T) -> Self::Str<'a> {
+        item.to_string()
+    }
+}

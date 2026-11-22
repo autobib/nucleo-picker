@@ -5,21 +5,33 @@ use std::{
     time::Duration,
 };
 
-use crossterm::event::{KeyEvent, poll, read};
+use crossterm::event::{Event as CrosstermEvent, KeyEvent, poll, read};
 
-#[cfg(doc)]
-use crate::event::keybind_single;
 use crate::{
     Injector, Render,
     error::PickError,
-    event::{Event, EventSource, KeybindDefault, PickerStatus, RecvError},
+    event::{
+        Event, EventSource, KeybindDefault, PickerStatus, PromptEvent, RecvError, keybind_default,
+    },
     interface::Interface,
-    keybind::{convert_crossterm_event, keybind_default},
     observer::Notifier,
     run::{self, RunnerConfig},
     session::Model,
     terminal::CrosstermTerminal,
 };
+
+/// Convert a crossterm event into an [`Event`], mapping key events with the given keybindings.
+fn convert_crossterm_event<A, F: FnMut(KeyEvent) -> Option<Event<A>>>(
+    ct_event: CrosstermEvent,
+    mut keybind: F,
+) -> Option<Event<A>> {
+    match ct_event {
+        CrosstermEvent::Key(key_event) => keybind(key_event),
+        CrosstermEvent::Resize(_, _) => Some(Event::Redraw),
+        CrosstermEvent::Paste(contents) => Some(Event::Prompt(PromptEvent::Paste(contents))),
+        _ => None,
+    }
+}
 
 /// Run an interface interactively with its default keybindings.
 ///
@@ -97,7 +109,7 @@ where
 ///
 /// ## Example
 ///
-/// Use [`keybind_single`] to simplify your implementation of keybindings:
+/// Use [`keybind_single`](crate::event::keybind_single) to simplify your implementation of keybindings:
 ///
 /// ```
 /// use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};

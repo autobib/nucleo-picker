@@ -1,7 +1,7 @@
 #![cfg(feature = "unstable-backend")]
 
 use std::{
-    cell::{Cell, RefCell},
+    cell::RefCell,
     io,
     num::NonZero,
     time::{Duration, Instant},
@@ -9,11 +9,11 @@ use std::{
 
 use nucleo_picker::{
     PickerOptions, Terminal,
-    event::{Event, EventSource, LayoutEvent, MatchListEvent, RecvError},
+    event::{Event, EventSource, MatchListEvent, PreviewEvent, RecvError},
     interface::{Interface, Multi, Single, UncachedPreview},
-    preview::{Content, Pane, PreviewEvent},
+    preview::{Content, Pane},
     render::StrRenderer,
-    session::{Components, Context, Dimensions, Exit, ItemId, ModelOptions, QueueStatus},
+    session::{Components, Context, Dimensions, Exit, ItemId, QueueStatus},
 };
 
 #[derive(Default)]
@@ -81,47 +81,6 @@ fn options() -> PickerOptions {
         .threads(NonZero::new(1))
         .sort_results(false)
         .frame_interval(Duration::from_secs(5))
-}
-
-#[test]
-fn model_output_outlives_a_temporary_interface() {
-    struct Last<'a>(&'a Cell<bool>);
-
-    impl Interface<String> for Last<'_> {
-        type State = ();
-        type Output<'a> = Option<&'a String>;
-
-        fn init(&mut self, _: &Context<'_, String>) {}
-
-        fn on_end(&mut self, _: &mut ()) {
-            self.0.set(true);
-        }
-
-        fn finish<'a>(&mut self, (): (), exit: Exit, cx: Context<'a, String>) -> Self::Output<'a> {
-            assert!(self.0.get());
-            assert!(matches!(exit, Exit::Selected(Some(_))));
-            cx.matches().iter().next_back().map(|item| item.value())
-        }
-    }
-
-    let mut model = ModelOptions::new().sort_results(false).model(StrRenderer);
-    model.push_batch(["alpha", "beta"].map(str::to_owned));
-    model.filter().unwrap();
-    let selected = {
-        let ended = Cell::new(false);
-        let mut interface = Last(&ended);
-        let mut session = model.session(&mut interface);
-        let exit = Exit::Selected(session.events().hovered_id());
-        session.finish(exit)
-    };
-    assert_eq!(selected.unwrap(), "beta");
-
-    model.update_query("^alpha$");
-    model.filter().unwrap();
-    let mut session = model.session(Single);
-    let exit = Exit::Selected(session.events().hovered_id());
-    let selected = session.finish(exit);
-    assert_eq!(selected.unwrap(), "alpha");
 }
 
 #[test]
@@ -369,59 +328,6 @@ fn interface_hooks_redraw_only_the_components_they_change() {
     for rendered in [queue, preview, both] {
         assert!(!rendered.contains('>'));
     }
-}
-
-#[test]
-fn uncached_previews_follow_frames_and_revisits_instead_of_event_targets() {
-    let generated = RefCell::new(Vec::new());
-    let mut picker = options()
-        .picker(StrRenderer)
-        .with_interface(UncachedPreview::new(
-            Single,
-            |item: &&'static str, pane: &mut Pane| {
-                generated.borrow_mut().push(*item);
-                for _ in 0..10 {
-                    pane.push_text(item);
-                    pane.push_text("\n");
-                }
-            },
-        ));
-    picker.push_batch(["alpha", "beta"]);
-    picker.filter().unwrap();
-    let mut terminal = TestTerminal::default();
-    let output = picker
-        .pick_with_terminal_io(
-            Script(
-                [
-                    Err(RecvError::Timeout),
-                    Ok(Event::MatchList(MatchListEvent::Up(1))),
-                    Ok(Event::Preview(PreviewEvent::PageDown(1))),
-                    Ok(Event::Preview(PreviewEvent::Refresh)),
-                    Ok(Event::MatchList(MatchListEvent::Down(1))),
-                    Err(RecvError::Timeout),
-                    Ok(Event::Preview(PreviewEvent::Refresh)),
-                    Ok(Event::Layout(LayoutEvent::TogglePreview)),
-                    Err(RecvError::Timeout),
-                    Ok(Event::MatchList(MatchListEvent::Up(1))),
-                    Ok(Event::Preview(PreviewEvent::Refresh)),
-                    Err(RecvError::Timeout),
-                    Ok(Event::MatchList(MatchListEvent::Down(1))),
-                    Ok(Event::Layout(LayoutEvent::TogglePreview)),
-                    Err(RecvError::Timeout),
-                    Ok(Event::MatchList(MatchListEvent::Up(1))),
-                    Err(RecvError::Timeout),
-                    Ok(Event::MatchList(MatchListEvent::Down(1))),
-                    Err(RecvError::Timeout),
-                    Ok(Event::Preview(PreviewEvent::Refresh)),
-                    Ok(Event::Select),
-                ]
-                .into_iter(),
-            ),
-            &mut terminal,
-        )
-        .unwrap();
-    assert_eq!(output, Some(&"alpha"));
-    assert_eq!(&*generated.borrow(), &["alpha", "alpha", "beta", "alpha"]);
 }
 
 #[test]
