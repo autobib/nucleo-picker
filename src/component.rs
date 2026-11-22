@@ -46,7 +46,7 @@ impl<C: Component> Component for &mut C {
 pub(crate) mod tests {
     use std::fmt;
 
-    use crossterm::style::{ContentStyle, StyledContent};
+    use crate::draw::{Style, StyledStr};
 
     use super::*;
     use crate::util::unicode::{Processor, UnicodeProcessor};
@@ -105,7 +105,7 @@ pub(crate) mod tests {
         fn styled_text<'a>(
             &mut self,
             text: &'a str,
-            _spans: impl Iterator<Item = StyledContent<&'a str>>,
+            _spans: impl Iterator<Item = StyledStr<'a>>,
         ) -> Result<(), Self::Error> {
             assert!(!self.is_empty() && self.row < self.size.height);
             let width = UnicodeProcessor::width(text);
@@ -120,15 +120,11 @@ pub(crate) mod tests {
             Ok(())
         }
 
-        fn ascii(
-            &mut self,
-            text: fmt::Arguments<'_>,
-            style: ContentStyle,
-        ) -> Result<(), Self::Error> {
+        fn ascii(&mut self, text: fmt::Arguments<'_>, style: Style) -> Result<(), Self::Error> {
             self.text(&text.to_string(), style)
         }
 
-        fn spaces(&mut self, width: u16, style: ContentStyle) -> Result<(), Self::Error> {
+        fn spaces(&mut self, width: u16, style: Style) -> Result<(), Self::Error> {
             assert!(!self.is_empty());
             self.text(&" ".repeat(usize::from(width)), style)
         }

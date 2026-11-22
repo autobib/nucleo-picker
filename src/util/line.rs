@@ -1,9 +1,7 @@
 use std::{iter, ops::Range};
 
-use crossterm::style::{ContentStyle, StyledContent};
-
 use super::unicode::Processor;
-use crate::draw::Surface;
+use crate::draw::{Style, StyledStr, Surface};
 
 #[cfg(test)]
 mod tests;
@@ -87,11 +85,11 @@ fn clip_line<P: Processor>(text: &str, offset: usize, capacity: u16) -> LineClip
 pub fn print_line<'a, P: Processor, S: Surface>(
     surface: &mut S,
     text: &'a str,
-    mut spans: impl Iterator<Item = StyledContent<&'a str>>,
+    mut spans: impl Iterator<Item = StyledStr<'a>>,
     offset: usize,
     capacity: u16,
     ellipsis: char,
-    marker_style: ContentStyle,
+    marker_style: Style,
 ) -> Result<u16, S::Error> {
     let clip = clip_line::<P>(text, offset, capacity);
     let mut encoded = [0; 4];
@@ -104,13 +102,13 @@ pub fn print_line<'a, P: Processor, S: Surface>(
         let visible_spans = iter::from_fn(|| {
             while start < clip.visible.end {
                 let span = spans.next()?;
-                let content = span.content();
+                let content = span.text;
                 let end = start + content.len();
                 let from = clip.visible.start.saturating_sub(start);
                 let to = content.len().min(clip.visible.end - start);
                 start = end;
                 if from < to {
-                    return Some(span.style().apply(&content[from..to]));
+                    return Some(span.style.apply(&content[from..to]));
                 }
             }
             None

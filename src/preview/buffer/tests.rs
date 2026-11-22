@@ -1,6 +1,6 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use crossterm::style::{ContentStyle, Stylize};
+use crate::draw::{Color, Style};
 
 use super::Buffer;
 
@@ -23,7 +23,7 @@ fn text_and_segment_input_preserve_lines_and_styles() {
         ("\n  indented\n\nlast", &["", "  indented", "", "last"]),
         ("界\r\ne\u{301}\n👩‍💻", &["界", "e\u{301}", "👩‍💻"]),
     ];
-    for style in [None, Some(ContentStyle::new().green())] {
+    for style in [None, Some(Style::new().fg(Color::Green))] {
         for &(text, expected) in cases {
             let mut complete = Buffer::new();
             match style {
@@ -58,9 +58,9 @@ fn text_and_segment_input_preserve_lines_and_styles() {
 
 #[test]
 fn appended_styles_preserve_unicode_and_default_gaps() {
-    let plain = ContentStyle::default();
-    let red = ContentStyle::new().red();
-    let blue = ContentStyle::new().blue();
+    let plain = Style::default();
+    let red = Style::new().fg(Color::Red);
+    let blue = Style::new().fg(Color::Blue);
     let mut buffer = Buffer::new();
     buffer.push_str("prefix ");
     buffer.push_styled_str("é", red);
@@ -124,7 +124,7 @@ fn sanitization_preserves_line_boundaries_and_styles() {
             &["界␉e\u{301}👩‍💻", "␍", "␛[31m", "last␍"],
         ),
     ];
-    for style in [ContentStyle::default(), ContentStyle::new().red()] {
+    for style in [Style::default(), Style::new().fg(Color::Red)] {
         for &(text, expected) in cases {
             let mut buffer = Buffer::new();
             buffer.push_styled_text(text, style);
@@ -141,7 +141,7 @@ fn sanitization_preserves_line_boundaries_and_styles() {
 
 #[test]
 fn line_helpers_finish_the_current_line_and_clear_removes_styles() {
-    let red = ContentStyle::new().red();
+    let red = Style::new().fg(Color::Red);
     let mut buffer = Buffer::new();
     buffer.push_line("");
     buffer.push_styled_str("prefix ", red);
@@ -155,7 +155,7 @@ fn line_helpers_finish_the_current_line_and_clear_removes_styles() {
             .line(1)
             .unwrap()
             .spans()
-            .eq([red.apply("prefix "), ContentStyle::default().apply("plain"),])
+            .eq([red.apply("prefix "), Style::default().apply("plain"),])
     );
     assert!(
         buffer
@@ -171,21 +171,18 @@ fn line_helpers_finish_the_current_line_and_clear_removes_styles() {
     buffer.push_text("new\ntext");
     assert_lines(&buffer, &["new", "text"]);
     for line in buffer.lines() {
-        assert!(
-            line.spans()
-                .eq([ContentStyle::default().apply(line.as_str())])
-        );
+        assert!(line.spans().eq([Style::default().apply(line.as_str())]));
     }
 }
 
 #[test]
 fn segment_and_line_writes_reject_newlines_without_mutation() {
-    let red = ContentStyle::new().red();
+    let red = Style::new().fg(Color::Red);
     let writes: [fn(&mut Buffer, &str); 4] = [
         Buffer::push_str,
         Buffer::push_line,
-        |buffer, text| buffer.push_styled_str(text, ContentStyle::new().red()),
-        |buffer, text| buffer.push_styled_line(text, ContentStyle::new().red()),
+        |buffer, text| buffer.push_styled_str(text, Style::new().fg(Color::Red)),
+        |buffer, text| buffer.push_styled_line(text, Style::new().fg(Color::Red)),
     ];
     for write in writes {
         let mut buffer = Buffer::new();
@@ -196,10 +193,13 @@ fn segment_and_line_writes_reject_newlines_without_mutation() {
             assert!(catch_unwind(AssertUnwindSafe(|| write(&mut buffer, text))).is_err());
             assert_lines(&buffer, &["previous", "prefix current"]);
             assert!(buffer.line(0).unwrap().spans().eq([red.apply("previous")]));
-            assert!(buffer.line(1).unwrap().spans().eq([
-                ContentStyle::default().apply("prefix "),
-                red.apply("current"),
-            ]));
+            assert!(
+                buffer
+                    .line(1)
+                    .unwrap()
+                    .spans()
+                    .eq([Style::default().apply("prefix "), red.apply("current"),])
+            );
         }
         buffer.push_styled_str("next", red);
         assert_eq!(buffer.line(1).unwrap().as_str(), "prefix currentnext");

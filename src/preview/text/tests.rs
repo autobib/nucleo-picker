@@ -1,6 +1,6 @@
 use std::fmt::Write;
 
-use crossterm::style::{ContentStyle, Stylize};
+use crate::draw::{Color, Style};
 
 use crate::preview::{Buffer, TextWriter};
 
@@ -38,7 +38,7 @@ fn chunk_boundaries_preserve_unicode_controls_and_crlf() {
             for (line, &text) in buffer.lines().zip(expected) {
                 assert!(
                     line.spans()
-                        .eq((!text.is_empty()).then(|| ContentStyle::default().apply(text)))
+                        .eq((!text.is_empty()).then(|| Style::default().apply(text)))
                 );
             }
         }
@@ -47,8 +47,8 @@ fn chunk_boundaries_preserve_unicode_controls_and_crlf() {
 
 #[test]
 fn formatted_and_character_writes_append_plain_text_and_flush_pending_cr_on_drop() {
-    let plain = ContentStyle::default();
-    let red = ContentStyle::new().red();
+    let plain = Style::default();
+    let red = Style::new().fg(Color::Red);
     let mut buffer = Buffer::new();
     buffer.push_styled_str("prefix ", red);
     {

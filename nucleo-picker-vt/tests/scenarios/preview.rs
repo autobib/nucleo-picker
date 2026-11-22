@@ -1,11 +1,9 @@
 use std::{error::Error, time::Duration};
 
-use crossterm::{
-    event::{KeyCode, KeyEvent, KeyModifiers},
-    style::{ContentStyle, Stylize},
-};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use nucleo_picker::{
     PickerOptions,
+    draw::{Color, Style},
     event::{Event, LayoutEvent, MatchListEvent, PromptEvent, keybind_single_preview},
     preview::{
         BoundaryChars, Pane, Preview, PreviewEvent, SyncPreviewer,
@@ -537,13 +535,13 @@ fn unicode_clipping_and_styles() -> Result<(), Box<dyn Error>> {
         SyncPreviewer(|_: &String, pane: &mut Pane| {
             let buffer = pane.buffer_mut();
             buffer.push_line("12345");
-            buffer.push_styled_line("abcdef", ContentStyle::new().green().bold());
+            buffer.push_styled_line("abcdef", Style::new().fg(Color::Green).bold());
             buffer.push_line("界界界");
             buffer.push_str("e");
-            buffer.push_styled_str("\u{301}", ContentStyle::new().blue());
+            buffer.push_styled_str("\u{301}", Style::new().fg(Color::Blue));
             buffer.push_line("xy");
             buffer.push_str("👩");
-            buffer.push_styled_str("🏽‍💻", ContentStyle::new().red());
+            buffer.push_styled_str("🏽‍💻", Style::new().fg(Color::Red));
             buffer.push_line("XYZ");
             buffer.push_str("ab界Z");
         }),
@@ -626,13 +624,10 @@ fn style_resets_and_custom_elision() -> Result<(), Box<dyn Error>> {
         PickerOptions::new().truncation_ellipsis('~'),
         SyncPreviewer(|_: &String, pane: &mut Pane| {
             let buffer = pane.buffer_mut();
-            buffer.push_styled_str("AB", ContentStyle::new().green().on_blue().bold());
+            buffer.push_styled_str("AB", Style::new().fg(Color::Green).bg(Color::Blue).bold());
             buffer.push_str("C");
-            buffer.push_styled_str(
-                "D",
-                ContentStyle::new().underline(crossterm::style::Color::Red),
-            );
-            buffer.push_styled_str("E", ContentStyle::new().underlined());
+            buffer.push_styled_str("D", Style::new().underline_color(Color::Red));
+            buffer.push_styled_str("E", Style::new().underlined());
             buffer.push_line("F");
             buffer.push_str("abcdef");
         }),
@@ -776,7 +771,7 @@ fn toggle_line_numbers() -> Result<(), Box<dyn Error>> {
             pane.set_line_numbers(true);
             pane.buffer_mut().push_styled_text(
                 "alpha\nbeta\ngamma\ndelta\nepsilon",
-                ContentStyle::new().green(),
+                Style::new().fg(Color::Green),
             );
         }),
     );
@@ -944,12 +939,12 @@ fn horizontal_scroll_clips_styled_graphemes() -> Result<(), Box<dyn Error>> {
         SyncPreviewer(|_: &String, pane: &mut Pane| {
             pane.set_line_numbers(true);
             let buffer = pane.buffer_mut();
-            buffer.push_styled_line("ab界cdefgh", ContentStyle::new().green().bold());
+            buffer.push_styled_line("ab界cdefgh", Style::new().fg(Color::Green).bold());
             buffer.push_str("a👩");
-            buffer.push_styled_str("🏽‍💻", ContentStyle::new().blue());
-            buffer.push_styled_line("bcdefgh", ContentStyle::new().red().underlined());
+            buffer.push_styled_str("🏽‍💻", Style::new().fg(Color::Blue));
+            buffer.push_styled_line("bcdefgh", Style::new().fg(Color::Red).underlined());
             buffer.push_str("e");
-            buffer.push_styled_str("\u{301}", ContentStyle::new().blue());
+            buffer.push_styled_str("\u{301}", Style::new().fg(Color::Blue));
             buffer.push_line("abcdefgh");
             buffer.push_str("ab");
         }),
@@ -1084,7 +1079,7 @@ impl Preview<String> for DeferredPreview {
     fn preview(&mut self, request: Request<'_, String>, _timeout: Duration) -> Response {
         if request.item() == "ready" {
             let mut pane = request.ready().with_line_numbers(true);
-            pane.push_styled_text("first\nsecond\nthird", ContentStyle::new().on_blue());
+            pane.push_styled_text("first\nsecond\nthird", Style::new().bg(Color::Blue));
             Response::Ready(pane)
         } else {
             let (pending, queued) = request.defer();
@@ -1165,7 +1160,7 @@ fn pending_previews_clear_stale_content_and_render_on_publication() -> Result<()
     let active = receiver.recv_timeout(WAIT)?.start().unwrap();
     let mut pane = Pane::new().with_line_numbers(true);
     let buffer = pane.buffer_mut();
-    buffer.push_styled_str("failed", ContentStyle::new().red());
+    buffer.push_styled_str("failed", Style::new().fg(Color::Red));
     pane.set_err(true);
     assert!(active.publish(&mut pane).is_ok());
     assert_pane_with_border(
@@ -1273,7 +1268,7 @@ fn error_previews_preserve_contents_and_scrolling() -> Result<(), Box<dyn Error>
             pane.set_line_numbers(true);
             pane.set_err(item == "error");
             let buffer = pane.buffer_mut();
-            buffer.push_styled_str("AB", ContentStyle::new().green().on_blue().bold());
+            buffer.push_styled_str("AB", Style::new().fg(Color::Green).bg(Color::Blue).bold());
             buffer.push_line("C");
             buffer.push_text("second\nthird\nfourth\nfifth");
         }),

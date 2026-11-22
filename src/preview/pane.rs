@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crossterm::style::ContentStyle;
+use crate::draw::Style;
 
 #[cfg(feature = "preview-ansi")]
 use super::AnsiWriter;
@@ -100,7 +100,7 @@ impl Pane {
     ///
     /// This forwards directly to [`Buffer::push_styled_text`]. Read those docs for more.
     #[inline]
-    pub fn push_styled_text(&mut self, text: &str, style: ContentStyle) {
+    pub fn push_styled_text(&mut self, text: &str, style: Style) {
         self.buffer.push_styled_text(text, style);
     }
 

@@ -7,9 +7,9 @@
 //! All data is from Wikipedia.
 use std::{borrow::Cow, io};
 
-use crossterm::style::{ContentStyle, Stylize};
 use nucleo_picker::{
     Picker,
+    draw::{Color, Style},
     preview::{Pane, SyncPreviewer},
 };
 
@@ -27,14 +27,14 @@ fn render_artist(artist: &Artist) -> Cow<'_, str> {
 fn main() -> io::Result<()> {
     let previewer = SyncPreviewer(|artist: &Artist, pane: &mut Pane| {
         let buffer = pane.buffer_mut();
-        buffer.push_styled_line(artist.name, ContentStyle::new().bold());
+        buffer.push_styled_line(artist.name, Style::new().bold());
         for (label, value) in [
             ("Born:       ", artist.born),
             ("Birthplace: ", artist.birthplace),
             ("Movement:   ", artist.movement),
         ] {
             buffer.newline();
-            buffer.push_styled_str(label, ContentStyle::new().cyan().bold());
+            buffer.push_styled_str(label, Style::new().fg(Color::Cyan).bold());
             buffer.push_str(value);
         }
     });

@@ -1,6 +1,6 @@
 use std::iter::once;
 
-use crossterm::style::{ContentStyle, Stylize};
+use crate::draw::{Color, Style};
 
 use super::*;
 use crate::{
@@ -111,7 +111,7 @@ fn styled_output_only_visits_visible_spans_and_never_moves_the_cursor() {
             },
             ClearState::Precleared,
         );
-        let spans = once(ContentStyle::new().apply("abc"))
+        let spans = once(Style::new().apply("abc"))
             .take(usize::from(capacity != 0))
             .chain(std::iter::from_fn(|| panic!("visited a hidden style span")));
         let remaining = print_line::<UnicodeProcessor, _>(
@@ -121,7 +121,7 @@ fn styled_output_only_visits_visible_spans_and_never_moves_the_cursor() {
             0,
             capacity,
             '~',
-            ContentStyle::new(),
+            Style::new(),
         )
         .unwrap();
         assert_eq!(remaining, 0);
@@ -147,10 +147,10 @@ fn scrolling_and_styles_can_cross_different_grapheme_boundaries() {
         ClearState::Precleared,
     );
     let spans = [
-        "a👩".red(),
-        "🏽‍".blue(),
-        "💻b".green(),
-        ContentStyle::new().apply("c"),
+        Style::new().fg(Color::Red).apply("a👩"),
+        Style::new().fg(Color::Blue).apply("🏽‍"),
+        Style::new().fg(Color::Green).apply("💻b"),
+        Style::new().apply("c"),
     ];
     let remaining = print_line::<UnicodeProcessor, _>(
         &mut rect,
@@ -159,12 +159,15 @@ fn scrolling_and_styles_can_cross_different_grapheme_boundaries() {
         1,
         5,
         '…',
-        ContentStyle::new(),
+        Style::new(),
     )
     .unwrap();
     assert_eq!(remaining, 1);
     assert_eq!(
         String::from_utf8(output).unwrap(),
-        format!("\x1b[0m……{}c", "b".green())
+        format!(
+            "\x1b[0m……{}c",
+            crossterm::style::StyledContent::from(Style::new().fg(Color::Green).apply("b"))
+        )
     );
 }

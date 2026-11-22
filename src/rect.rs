@@ -4,14 +4,11 @@ use std::{fmt, io};
 use crossterm::{
     QueueableCommand,
     cursor::{MoveTo, MoveToColumn},
-    style::{
-        Color, ContentStyle, ResetColor, SetAttributes, SetBackgroundColor, SetForegroundColor,
-        SetUnderlineColor, StyledContent,
-    },
+    style::{ResetColor, SetAttributes, SetBackgroundColor, SetForegroundColor, SetUnderlineColor},
     terminal::{Clear, ClearType},
 };
 
-use crate::draw::Surface;
+use crate::draw::{Color, Style, StyledStr, Surface};
 
 /// The dimensions of a rectangle in the terminal, measured in terminal cells.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -61,7 +58,7 @@ pub(crate) enum ClearState {
 
 pub(crate) struct CrosstermTarget<'a, W: ?Sized> {
     writer: &'a mut W,
-    style: Option<ContentStyle>,
+    style: Option<Style>,
 }
 
 impl<'a, W: io::Write + ?Sized> CrosstermTarget<'a, W> {
@@ -98,37 +95,37 @@ impl<'a, W: io::Write + ?Sized> CrosstermTarget<'a, W> {
 
     /// Reset all colours.
     pub fn reset_style(&mut self) -> io::Result<()> {
-        self.set_style(ContentStyle::default())
+        self.set_style(Style::default())
     }
 
     /// Set a style attribute.
-    fn set_style(&mut self, style: ContentStyle) -> io::Result<()> {
+    fn set_style(&mut self, style: Style) -> io::Result<()> {
         if self.style == Some(style) {
             return Ok(());
         }
         let mut previous = self.style.unwrap_or_default();
-        if self.style.is_none() || previous.attributes & style.attributes != previous.attributes {
+        if self.style.is_none() || !style.attributes.contains(previous.attributes) {
             self.writer.queue(ResetColor)?;
-            previous = ContentStyle::default();
+            previous = Style::default();
         }
         if previous.background_color != style.background_color {
             self.writer.queue(SetBackgroundColor(
-                style.background_color.unwrap_or(Color::Reset),
+                style.background_color.unwrap_or(Color::Reset).into(),
             ))?;
         }
         if previous.foreground_color != style.foreground_color {
             self.writer.queue(SetForegroundColor(
-                style.foreground_color.unwrap_or(Color::Reset),
+                style.foreground_color.unwrap_or(Color::Reset).into(),
             ))?;
         }
         if previous.underline_color != style.underline_color {
             self.writer.queue(SetUnderlineColor(
-                style.underline_color.unwrap_or(Color::Reset),
+                style.underline_color.unwrap_or(Color::Reset).into(),
             ))?;
         }
         if previous.attributes != style.attributes {
-            self.writer
-                .queue(SetAttributes(style.attributes ^ previous.attributes))?;
+            // competing attribute modes mean we have to re-apply the full set in order
+            self.writer.queue(SetAttributes(style.attributes.into()))?;
         }
         self.style = Some(style);
         Ok(())
@@ -185,7 +182,7 @@ impl<W: io::Write + ?Sized> Surface for CrosstermSurface<'_, '_, W> {
         Ok(())
     }
 
-    fn text(&mut self, text: &str, style: ContentStyle) -> io::Result<()> {
+    fn text(&mut self, text: &str, style: Style) -> io::Result<()> {
         if text.is_empty() {
             return Ok(());
         }
@@ -197,17 +194,17 @@ impl<W: io::Write + ?Sized> Surface for CrosstermSurface<'_, '_, W> {
     fn styled_text<'a>(
         &mut self,
         text: &'a str,
-        spans: impl Iterator<Item = StyledContent<&'a str>>,
+        spans: impl Iterator<Item = StyledStr<'a>>,
     ) -> io::Result<()> {
         if !text.is_empty() {
             for span in spans {
-                self.text(span.content(), *span.style())?;
+                self.text(span.text, span.style)?;
             }
         }
         Ok(())
     }
 
-    fn ascii(&mut self, text: fmt::Arguments<'_>, style: ContentStyle) -> io::Result<()> {
+    fn ascii(&mut self, text: fmt::Arguments<'_>, style: Style) -> io::Result<()> {
         if let Some(text) = text.as_str() {
             return self.text(text, style);
         }
@@ -216,7 +213,7 @@ impl<W: io::Write + ?Sized> Surface for CrosstermSurface<'_, '_, W> {
         self.target.writer.write_fmt(text)
     }
 
-    fn spaces(&mut self, width: u16, style: ContentStyle) -> io::Result<()> {
+    fn spaces(&mut self, width: u16, style: Style) -> io::Result<()> {
         if width != 0 {
             debug_assert!(self.width != 0 && self.row < self.height);
             self.target.set_style(style)?;

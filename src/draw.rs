@@ -4,7 +4,14 @@
 
 use std::fmt;
 
-use crossterm::style::{ContentStyle, StyledContent};
+mod attributes;
+mod color;
+mod crossterm;
+mod style;
+
+pub use attributes::Attributes;
+pub use color::Color;
+pub use style::{Style, StyledStr};
 
 #[cfg(feature = "ratatui")]
 #[cfg_attr(docsrs, doc(cfg(feature = "ratatui")))]
@@ -60,7 +67,7 @@ pub trait Surface {
     /// Print the given text at the cursor position.
     ///
     /// Note that the required preconditions described at the trait-level docs must be satisifed.
-    fn text(&mut self, text: &str, style: ContentStyle) -> Result<(), Self::Error> {
+    fn text(&mut self, text: &str, style: Style) -> Result<(), Self::Error> {
         if text.is_empty() {
             return Ok(());
         }
@@ -74,17 +81,17 @@ pub trait Surface {
     fn styled_text<'a>(
         &mut self,
         text: &'a str,
-        spans: impl Iterator<Item = StyledContent<&'a str>>,
+        spans: impl Iterator<Item = StyledStr<'a>>,
     ) -> Result<(), Self::Error>;
 
     /// Print ASCII directly at the cursor position.
     ///
     /// The caller is required to guarantee that the formatted output fits and moreover does not
     /// contain control characters or non-ASCII characters.
-    fn ascii(&mut self, text: fmt::Arguments<'_>, style: ContentStyle) -> Result<(), Self::Error>;
+    fn ascii(&mut self, text: fmt::Arguments<'_>, style: Style) -> Result<(), Self::Error>;
 
     /// Write some number of spaces in the given style.
-    fn spaces(&mut self, width: u16, style: ContentStyle) -> Result<(), Self::Error>;
+    fn spaces(&mut self, width: u16, style: Style) -> Result<(), Self::Error>;
 
     /// Overwrite the current row with blanks and move the cursor to column 0.
     ///

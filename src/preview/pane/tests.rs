@@ -1,4 +1,4 @@
-use crossterm::style::{ContentStyle, Stylize};
+use crate::draw::{Color, Style};
 
 use super::*;
 use crate::{
@@ -15,7 +15,7 @@ fn pane(text: &str) -> Pane {
 
 #[test]
 fn content_edits_preserve_view_state_and_pane_reset_discards_it() {
-    let style = ContentStyle::new().red();
+    let style = Style::new().fg(Color::Red);
     let mut buffer = Buffer::new();
     buffer.push_styled_text("first\nsecond", style);
     let mut pane = buffer

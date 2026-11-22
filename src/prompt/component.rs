@@ -1,4 +1,4 @@
-use crossterm::style::ContentStyle;
+use crate::draw::Style;
 
 use super::{PromptEvent, PromptState, state::PromptStatus};
 use crate::{
@@ -127,16 +127,13 @@ impl Component for Prompt<'_> {
             return Ok(());
         }
         surface.clear_line()?;
-        surface.text(
-            self.chars.prompt.encode_utf8(&mut [0; 4]),
-            ContentStyle::new(),
-        )?;
+        surface.text(self.chars.prompt.encode_utf8(&mut [0; 4]), Style::new())?;
 
         if surface.width() >= 2 {
-            surface.spaces(1, ContentStyle::new())?;
+            surface.spaces(1, Style::new())?;
             let (contents, shift) = self.view();
-            surface.spaces(shift, ContentStyle::new())?;
-            surface.text(contents, ContentStyle::new())?;
+            surface.spaces(shift, Style::new())?;
+            surface.text(contents, Style::new())?;
         }
         Ok(())
     }

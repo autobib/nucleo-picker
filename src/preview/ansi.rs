@@ -4,9 +4,9 @@ mod tests;
 use std::io;
 
 use anstyle_parse::{Params, Parser, Perform};
-use crossterm::style::{Attribute, Color, ContentStyle};
 
 use super::Buffer;
+use crate::draw::{Attributes, Color, Style};
 
 /// ANSI parser and style state.
 ///
@@ -20,7 +20,7 @@ use super::Buffer;
 #[derive(Debug, Default)]
 pub struct AnsiState {
     parser: Parser,
-    style: ContentStyle,
+    style: Style,
 }
 
 impl AnsiState {
@@ -154,7 +154,7 @@ impl io::Write for AnsiWriter<'_> {
 #[derive(Debug)]
 struct Sink<'a> {
     buffer: &'a mut Buffer,
-    style: ContentStyle,
+    style: Style,
 }
 
 impl Perform for Sink<'_> {
@@ -182,50 +182,51 @@ impl Perform for Sink<'_> {
             return;
         }
 
-        use Attribute::*;
-
         let mut params = params.iter().map(|param| param[0]);
         while let Some(code) = params.next() {
             match code {
-                0 => self.style = ContentStyle::default(),
-                1 => self.style.attributes.set(Bold),
-                2 => self.style.attributes.set(Dim),
-                3 => self.style.attributes.set(Italic),
+                0 => self.style = Style::default(),
+                1 => self.style.attributes.insert(Attributes::BOLD),
+                2 => self.style.attributes.insert(Attributes::DIM),
+                3 => self.style.attributes.insert(Attributes::ITALIC),
                 4 => {
-                    self.style.attributes.unset(DoubleUnderlined);
-                    self.style.attributes.set(Underlined);
+                    self.style.attributes.remove(Attributes::DOUBLE_UNDERLINED);
+                    self.style.attributes.insert(Attributes::UNDERLINED);
                 }
                 5 => {
-                    self.style.attributes.unset(RapidBlink);
-                    self.style.attributes.set(SlowBlink);
+                    self.style.attributes.remove(Attributes::RAPID_BLINK);
+                    self.style.attributes.insert(Attributes::SLOW_BLINK);
                 }
                 6 => {
-                    self.style.attributes.unset(SlowBlink);
-                    self.style.attributes.set(RapidBlink);
+                    self.style.attributes.remove(Attributes::SLOW_BLINK);
+                    self.style.attributes.insert(Attributes::RAPID_BLINK);
                 }
-                7 => self.style.attributes.set(Reverse),
-                8 => self.style.attributes.set(Hidden),
-                9 => self.style.attributes.set(CrossedOut),
+                7 => self.style.attributes.insert(Attributes::REVERSE),
+                8 => self.style.attributes.insert(Attributes::HIDDEN),
+                9 => self.style.attributes.insert(Attributes::CROSSED_OUT),
                 21 => {
-                    self.style.attributes.unset(Underlined);
-                    self.style.attributes.set(DoubleUnderlined);
+                    self.style.attributes.remove(Attributes::UNDERLINED);
+                    self.style.attributes.insert(Attributes::DOUBLE_UNDERLINED);
                 }
                 22 => {
-                    self.style.attributes.unset(Bold);
-                    self.style.attributes.unset(Dim);
+                    self.style
+                        .attributes
+                        .remove(Attributes::BOLD | Attributes::DIM);
                 }
-                23 => self.style.attributes.unset(Italic),
+                23 => self.style.attributes.remove(Attributes::ITALIC),
                 24 => {
-                    self.style.attributes.unset(Underlined);
-                    self.style.attributes.unset(DoubleUnderlined);
+                    self.style
+                        .attributes
+                        .remove(Attributes::UNDERLINED | Attributes::DOUBLE_UNDERLINED);
                 }
                 25 => {
-                    self.style.attributes.unset(SlowBlink);
-                    self.style.attributes.unset(RapidBlink);
+                    self.style
+                        .attributes
+                        .remove(Attributes::SLOW_BLINK | Attributes::RAPID_BLINK);
                 }
-                27 => self.style.attributes.unset(Reverse),
-                28 => self.style.attributes.unset(Hidden),
-                29 => self.style.attributes.unset(CrossedOut),
+                27 => self.style.attributes.remove(Attributes::REVERSE),
+                28 => self.style.attributes.remove(Attributes::HIDDEN),
+                29 => self.style.attributes.remove(Attributes::CROSSED_OUT),
                 30..=37 => self.style.foreground_color = Some(Color::AnsiValue((code - 30) as u8)),
                 40..=47 => self.style.background_color = Some(Color::AnsiValue((code - 40) as u8)),
                 90..=97 => {

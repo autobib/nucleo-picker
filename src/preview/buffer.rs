@@ -3,10 +3,10 @@ mod tests;
 
 use std::ops::Range;
 
-use crossterm::style::{ContentStyle, StyledContent};
 use memchr::memchr;
 
 use super::Pane;
+use crate::draw::{Style, StyledStr};
 
 /// A buffer holding the contents of a single preview pane.
 ///
@@ -37,7 +37,7 @@ use super::Pane;
 ///
 /// ```
 /// use std::collections::BTreeMap;
-/// use crossterm::style::{ContentStyle, Stylize};
+/// use nucleo_picker::draw::{Color, Style};
 /// use nucleo_picker::preview::Buffer;
 ///
 /// // In this example, `kind` and `citation_key` are strings which we know do not contain control
@@ -48,10 +48,10 @@ use super::Pane;
 ///     citation_key: &str,
 ///     fields: &BTreeMap<&str, &str>,
 /// ) {
-///     let keyword = ContentStyle::new().magenta().bold();
-///     let identifier = ContentStyle::new().cyan();
-///     let field_name = ContentStyle::new().blue();
-///     let value_style = ContentStyle::new().green();
+///     let keyword = Style::new().fg(Color::Magenta).bold();
+///     let identifier = Style::new().fg(Color::Cyan);
+///     let field_name = Style::new().fg(Color::Blue);
+///     let value_style = Style::new().fg(Color::Green);
 ///
 ///     buffer.clear();
 ///
@@ -100,7 +100,7 @@ use super::Pane;
 /// # );
 /// # assert_eq!(
 /// #     buffer.line(3).unwrap().spans().next().unwrap(),
-/// #     ContentStyle::new().green().apply("           contains an internal newline")
+/// #     Style::new().fg(Color::Green).apply("           contains an internal newline")
 /// # );
 /// ```
 #[derive(Debug)]
@@ -120,7 +120,7 @@ struct LineIndex {
 #[derive(Debug)]
 struct StyleSpan {
     bytes: Range<usize>,
-    style: ContentStyle,
+    style: Style,
 }
 
 /// A view of a single styled line of a preview buffer.
@@ -176,7 +176,7 @@ impl Buffer {
     /// Append an unstyled segment to the current line in the buffer.
     ///
     /// The text must not contain control characters. This is a convenience call to
-    /// [`push_styled_str`](Self::push_styled_str) with [`ContentStyle::default()`].
+    /// [`push_styled_str`](Self::push_styled_str) with [`Style::default()`].
     /// See that method for more details.
     ///
     /// # Panics
@@ -184,7 +184,7 @@ impl Buffer {
     /// Panics without modifying the buffer if `text` contains a newline.
     #[inline]
     pub fn push_str(&mut self, text: &str) {
-        self.push_styled_str(text, ContentStyle::default());
+        self.push_styled_str(text, Style::default());
     }
 
     /// Append a styled segment to the current line in the buffer in the given style.
@@ -200,7 +200,7 @@ impl Buffer {
     /// # Panics
     ///
     /// Panics without modifying the buffer if `text` contains a newline.
-    pub fn push_styled_str(&mut self, text: &str, style: ContentStyle) {
+    pub fn push_styled_str(&mut self, text: &str, style: Style) {
         assert!(
             memchr(b'\n', text.as_bytes()).is_none(),
             "segments must not contain LF; use newline()"
@@ -214,7 +214,7 @@ impl Buffer {
         let start = line.text.len();
         line.text.end = self.text.len();
         let end = line.text.len();
-        if style == ContentStyle::default() {
+        if style == Style::default() {
             return;
         }
 
@@ -239,7 +239,7 @@ impl Buffer {
     /// the default style. See that method for more details.
     #[inline]
     pub fn push_text(&mut self, text: &str) {
-        self.push_styled_text(text, ContentStyle::default());
+        self.push_styled_text(text, Style::default());
     }
 
     /// Append styled text and process newlines and control characters automatically.
@@ -259,16 +259,16 @@ impl Buffer {
     /// # Example
     ///
     /// ```
-    /// use crossterm::style::{ContentStyle, Stylize};
+    /// use nucleo_picker::draw::{Color, Style};
     /// use nucleo_picker::preview::Buffer;
     ///
     /// let mut buffer = Buffer::new();
-    /// let style = ContentStyle::new().green();
+    /// let style = Style::new().fg(Color::Green);
     /// buffer.push_styled_text("a\r\nb\tc\n", style);
     /// assert!(buffer.lines().map(|line| line.as_str()).eq(["a", "b␉c", ""]));
     /// assert!(buffer.line(1).unwrap().spans().eq([style.apply("b␉c")]));
     /// ```
-    pub fn push_styled_text(&mut self, text: &str, style: ContentStyle) {
+    pub fn push_styled_text(&mut self, text: &str, style: Style) {
         for chunk in text.split_inclusive('\n') {
             let (line, newline) = match chunk.strip_suffix('\n') {
                 Some(line) => (line.trim_suffix('\r'), true),
@@ -316,7 +316,7 @@ impl Buffer {
     /// Panics before modifying the buffer if `text` contains a newline.
     #[inline]
     pub fn push_line(&mut self, text: &str) {
-        self.push_styled_line(text, ContentStyle::default());
+        self.push_styled_line(text, Style::default());
     }
 
     /// Append a segment in the given style to the current line, then start a new line.
@@ -329,7 +329,7 @@ impl Buffer {
     ///
     /// Panics before modifying the buffer if `text` contains a newline.
     #[inline]
-    pub fn push_styled_line(&mut self, text: &str, style: ContentStyle) {
+    pub fn push_styled_line(&mut self, text: &str, style: Style) {
         self.push_styled_str(text, style);
         self.newline();
     }
@@ -378,7 +378,7 @@ impl<'a> Line<'a> {
     }
 
     /// Consume this line and return an iterator over styled content.
-    pub fn spans(self) -> impl Iterator<Item = StyledContent<&'a str>> {
+    pub fn spans(self) -> impl Iterator<Item = StyledStr<'a>> {
         let Self { text, mut styles } = self;
         let mut offset = 0;
         std::iter::from_fn(move || {
@@ -387,14 +387,12 @@ impl<'a> Line<'a> {
             }
 
             let (end, style) = match styles.first() {
-                Some(span) if offset < span.bytes.start => {
-                    (span.bytes.start, ContentStyle::default())
-                }
+                Some(span) if offset < span.bytes.start => (span.bytes.start, Style::default()),
                 Some(span) => {
                     styles = &styles[1..];
                     (span.bytes.end, span.style)
                 }
-                None => (text.len(), ContentStyle::default()),
+                None => (text.len(), Style::default()),
             };
             // SAFETY: Spans are ordered, non-overlapping ranges within this line, with UTF-8
             // boundaries recorded when appending &str values. `offset` is zero or a previous

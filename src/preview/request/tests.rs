@@ -3,7 +3,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use crossterm::style::{ContentStyle, Stylize};
+use crate::draw::{Color, Style};
 
 use super::*;
 use crate::{Picker, preview::lock::Poll, render::StrRenderer};
@@ -40,7 +40,7 @@ fn deferred_requests_retain_items_and_publish_content_and_presentation() {
     let active = queued.start().unwrap();
     assert_eq!(active.id(), id);
     assert_eq!(active.item_ref().id(), id);
-    let red = ContentStyle::new().red();
+    let red = Style::new().fg(Color::Red);
     let mut pane = Pane::new().with_offset(11, 23).with_line_numbers(true);
     pane.push_styled_text(active.item(), red);
     pane.set_err(true);

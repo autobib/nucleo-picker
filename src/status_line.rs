@@ -1,9 +1,7 @@
-use crossterm::style::{ContentStyle, Stylize};
-
 use crate::{
     PickerChars,
     component::Component,
-    draw::Surface,
+    draw::{Color, Style, Surface},
     session::{MatchStatus, QueueStatus},
     util::unicode::grapheme_width,
 };
@@ -127,8 +125,8 @@ fn draw_match_counts<S: Surface>(
         return surface.clear_line();
     }
 
-    let counts = ContentStyle::new().italic().green();
-    let secondary = ContentStyle::new().italic().grey();
+    let counts = Style::new().italic().fg(Color::Green);
+    let secondary = Style::new().italic().fg(Color::Grey);
     surface.text(marker, counts)?;
     surface.ascii(format_args!(" {matched}/{total}"), counts)?;
     if let Some(QueueStatus { count, limit }) = multi {

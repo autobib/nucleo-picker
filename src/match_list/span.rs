@@ -3,11 +3,12 @@ mod tests;
 
 use std::{marker::PhantomData, ops::Range, slice::Iter};
 
-use crossterm::style::{ContentStyle, StyledContent, Stylize};
-
 use super::unicode::{Span, spans_from_indices};
 use crate::util::{line::print_line, unicode::Processor};
-use crate::{PickerChars, draw::Surface};
+use crate::{
+    PickerChars,
+    draw::{Color, Style, StyledStr, Surface},
+};
 
 /// An iterator over lines, as span slices.
 pub struct SpannedLines<'a> {
@@ -148,14 +149,17 @@ impl<'a, P: Processor> Spanned<'a, P> {
             return Ok(());
         }
 
-        let mut style = ContentStyle::new();
+        let mut style = Style::new();
         if hovered {
             // print the line as bold, and with a 'hovered-item' marker
             style = style.bold();
             if !highlight_line {
-                style = style.on_dark_grey();
+                style = style.bg(Color::DarkGrey);
             }
-            surface.text(chars.hover.encode_utf8(&mut [0; 4]), style.magenta())?;
+            surface.text(
+                chars.hover.encode_utf8(&mut [0; 4]),
+                style.fg(Color::Magenta),
+            )?;
         } else {
             // print a blank instead
             surface.spaces(1, style)?;
@@ -163,7 +167,10 @@ impl<'a, P: Processor> Spanned<'a, P> {
 
         if prefix_width >= 2 {
             if queued {
-                surface.text(chars.queued.encode_utf8(&mut [0; 4]), style.magenta())?;
+                surface.text(
+                    chars.queued.encode_utf8(&mut [0; 4]),
+                    style.fg(Color::Magenta),
+                )?;
             } else {
                 surface.spaces(1, style)?;
             }
@@ -177,10 +184,14 @@ impl<'a, P: Processor> Spanned<'a, P> {
     fn styled_line<'s>(
         &'s self,
         line: &'s [Span],
-        style: ContentStyle,
-    ) -> impl Iterator<Item = StyledContent<&'a str>> + 's {
+        style: Style,
+    ) -> impl Iterator<Item = StyledStr<'a>> + 's {
         line.iter().map(move |span| {
-            let style = if span.is_match { style.cyan() } else { style };
+            let style = if span.is_match {
+                style.fg(Color::Cyan)
+            } else {
+                style
+            };
             style.apply(self.index_in(span))
         })
     }
@@ -199,7 +210,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
     fn finish_line<S: Surface>(
         surface: &mut S,
         remaining: u16,
-        style: ContentStyle,
+        style: Style,
         fill_highlight: bool,
     ) -> Result<(), S::Error> {
         if fill_highlight {
@@ -227,9 +238,9 @@ impl<'a, P: Processor> Spanned<'a, P> {
         let max_width = width.saturating_sub(prefix_width);
         let fill_highlight = hovered && highlight_line;
         let style = if hovered {
-            ContentStyle::new().bold().on_dark_grey()
+            Style::new().bold().bg(Color::DarkGrey)
         } else {
-            ContentStyle::new()
+            Style::new()
         };
 
         if self.lines_fit(max_width.saturating_sub(highlight_padding)) {
@@ -297,7 +308,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
         offset: usize,
         capacity: u16,
         chars: &PickerChars,
-        style: ContentStyle,
+        style: Style,
     ) -> Result<u16, S::Error> {
         print_line::<P, _>(
             surface,

@@ -1,10 +1,8 @@
 use std::iter::once;
 
-use crossterm::style::{Color, ContentStyle, Stylize};
-
 use super::{BoundaryChars, Content, Pane, content_dimensions};
 use crate::{
-    draw::Surface,
+    draw::{Color, Style, Surface},
     rect::Dimensions,
     util::{
         line::print_line,
@@ -33,9 +31,9 @@ pub(crate) fn draw<S: Surface>(
     let (horizontal_position, _) = preview.map_or((0, 0), Pane::offset);
     let is_err = preview.is_some_and(Pane::is_err);
     let preview = preview.map(|pane| (pane.buffer(), pane.visible_rows(content.height).start));
-    let border_style = ContentStyle {
+    let border_style = Style {
         foreground_color: is_err.then_some(Color::DarkRed),
-        ..ContentStyle::new()
+        ..Style::new()
     };
     if let Some(chars) = border {
         for (row, left, right) in [
@@ -86,9 +84,9 @@ pub(crate) fn draw<S: Surface>(
                 let digits = usize::from(number_width - 1);
                 surface.ascii(
                     format_args!("{number:>digits$}"),
-                    ContentStyle::new().on_black(),
+                    Style::new().bg(Color::Black),
                 )?;
-                surface.spaces(1, ContentStyle::new())?;
+                surface.spaces(1, Style::new())?;
             }
             let capacity = content.width - number_width;
             print_line::<UnicodeProcessor, _>(
@@ -98,12 +96,12 @@ pub(crate) fn draw<S: Surface>(
                 horizontal_position,
                 capacity,
                 ellipsis,
-                ContentStyle::new(),
+                Style::new(),
             )?
         } else if loading && row == inset {
             let message = "Loading...";
             let capacity = content.width;
-            let style = ContentStyle::new().dark_grey();
+            let style = Style::new().fg(Color::DarkGrey);
             print_line::<AsciiProcessor, _>(
                 surface,
                 message,
@@ -116,7 +114,7 @@ pub(crate) fn draw<S: Surface>(
         } else {
             content.width
         };
-        surface.spaces(remaining, ContentStyle::new())?;
+        surface.spaces(remaining, Style::new())?;
         if let Some(chars) = border {
             surface.text(chars.vertical.encode_utf8(&mut [0; 4]), border_style)?;
         }

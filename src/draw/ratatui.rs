@@ -2,14 +2,13 @@
 
 use std::{fmt, fmt::Write as _, num::NonZero};
 
-use crossterm::style::{Attribute, Color as CrosstermColor, ContentStyle, StyledContent};
 use ratatui_core::{
     buffer::{Buffer, Cell, CellDiffOption, CellWidth},
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Color, Modifier, Style as RatatuiStyle},
 };
 
-use super::Surface;
+use super::{Attributes, Color as PickerColor, Style, StyledStr, Surface};
 use crate::util::unicode::{Processor, UnicodeProcessor, grapheme_width};
 
 /// # [`Surface`] adapter for Ratatui buffers.
@@ -111,7 +110,7 @@ impl<'a> RatatuiSurface<'a> {
         &mut row[column..end]
     }
 
-    fn write_text(&mut self, text: &str, mut style_at: impl FnMut(usize) -> Style) {
+    fn write_text(&mut self, text: &str, mut style_at: impl FnMut(usize) -> RatatuiStyle) {
         assert!(
             text.is_empty() || (self.width != 0 && self.row < self.height),
             "drawing cursor is invalid"
@@ -177,7 +176,7 @@ impl Surface for RatatuiSurface<'_> {
         Ok(())
     }
 
-    fn text(&mut self, text: &str, style: ContentStyle) -> Result<(), Self::Error> {
+    fn text(&mut self, text: &str, style: Style) -> Result<(), Self::Error> {
         if !text.is_empty() {
             let style = convert_style(style);
             self.write_text(text, |_| style);
@@ -188,25 +187,25 @@ impl Surface for RatatuiSurface<'_> {
     fn styled_text<'a>(
         &mut self,
         text: &'a str,
-        mut spans: impl Iterator<Item = StyledContent<&'a str>>,
+        mut spans: impl Iterator<Item = StyledStr<'a>>,
     ) -> Result<(), Self::Error> {
         let mut end = 0;
-        let mut style = Style::new();
+        let mut style = RatatuiStyle::new();
         self.write_text(text, |index| {
             while end <= index {
                 let span = spans.next().expect("spans must partition the text");
-                end += span.content().len();
-                style = convert_style(*span.style());
+                end += span.text.len();
+                style = convert_style(span.style);
             }
             style
         });
         Ok(())
     }
 
-    fn ascii(&mut self, text: fmt::Arguments<'_>, style: ContentStyle) -> Result<(), Self::Error> {
+    fn ascii(&mut self, text: fmt::Arguments<'_>, style: Style) -> Result<(), Self::Error> {
         struct Writer<'a, 'buffer> {
             surface: &'a mut RatatuiSurface<'buffer>,
-            style: Style,
+            style: RatatuiStyle,
         }
 
         impl fmt::Write for Writer<'_, '_> {
@@ -232,7 +231,7 @@ impl Surface for RatatuiSurface<'_> {
         Ok(())
     }
 
-    fn spaces(&mut self, width: u16, style: ContentStyle) -> Result<(), Self::Error> {
+    fn spaces(&mut self, width: u16, style: Style) -> Result<(), Self::Error> {
         if width != 0 {
             let style = convert_style(style);
             for cell in self.write_cells(width) {
@@ -260,101 +259,72 @@ impl Surface for RatatuiSurface<'_> {
     }
 }
 
-fn convert_style(style: ContentStyle) -> Style {
+fn convert_style(style: Style) -> RatatuiStyle {
     let attributes = style.attributes;
     let mut add_modifier = Modifier::empty();
-    if attributes.has(Attribute::Bold) {
+    if attributes.contains(Attributes::BOLD) {
         add_modifier |= Modifier::BOLD;
     }
-    if attributes.has(Attribute::Dim) {
+    if attributes.contains(Attributes::DIM) {
         add_modifier |= Modifier::DIM;
     }
-    if attributes.has(Attribute::Italic) {
+    if attributes.contains(Attributes::ITALIC) {
         add_modifier |= Modifier::ITALIC;
     }
-    if attributes.has(Attribute::Underlined)
-        || attributes.has(Attribute::DoubleUnderlined)
-        || attributes.has(Attribute::Undercurled)
-        || attributes.has(Attribute::Underdotted)
-        || attributes.has(Attribute::Underdashed)
+    if attributes.contains(Attributes::UNDERLINED)
+        || attributes.contains(Attributes::DOUBLE_UNDERLINED)
+        || attributes.contains(Attributes::UNDERCURLED)
+        || attributes.contains(Attributes::UNDERDOTTED)
+        || attributes.contains(Attributes::UNDERDASHED)
     {
         add_modifier |= Modifier::UNDERLINED;
     }
-    if attributes.has(Attribute::SlowBlink) {
+    if attributes.contains(Attributes::SLOW_BLINK) {
         add_modifier |= Modifier::SLOW_BLINK;
     }
-    if attributes.has(Attribute::RapidBlink) {
+    if attributes.contains(Attributes::RAPID_BLINK) {
         add_modifier |= Modifier::RAPID_BLINK;
     }
-    if attributes.has(Attribute::Reverse) {
+    if attributes.contains(Attributes::REVERSE) {
         add_modifier |= Modifier::REVERSED;
     }
-    if attributes.has(Attribute::Hidden) {
+    if attributes.contains(Attributes::HIDDEN) {
         add_modifier |= Modifier::HIDDEN;
     }
-    if attributes.has(Attribute::CrossedOut) {
+    if attributes.contains(Attributes::CROSSED_OUT) {
         add_modifier |= Modifier::CROSSED_OUT;
     }
 
-    let mut sub_modifier = Modifier::empty();
-    if attributes.has(Attribute::NoBold) {
-        sub_modifier |= Modifier::BOLD;
-    }
-    if attributes.has(Attribute::NoItalic) {
-        sub_modifier |= Modifier::ITALIC;
-    }
-    if attributes.has(Attribute::NotCrossedOut) {
-        sub_modifier |= Modifier::CROSSED_OUT;
-    }
-    if attributes.has(Attribute::NoUnderline) {
-        sub_modifier |= Modifier::UNDERLINED;
-    }
-    if attributes.has(Attribute::NoHidden) {
-        sub_modifier |= Modifier::HIDDEN;
-    }
-    if attributes.has(Attribute::NoBlink) {
-        sub_modifier |= Modifier::RAPID_BLINK | Modifier::SLOW_BLINK;
-    }
-    if attributes.has(Attribute::NoReverse) {
-        sub_modifier |= Modifier::REVERSED;
-    }
-
-    let mut converted = Style {
+    RatatuiStyle {
         fg: style.foreground_color.map(convert_color),
         bg: style.background_color.map(convert_color),
         underline_color: style.underline_color.map(convert_color),
         add_modifier,
-        sub_modifier,
-    };
-    // ratatui-crossterm 0.1.2 omits NormalIntensity, which clears both bold and dim.
-    // see https://github.com/ratatui/ratatui/issues/2920
-    if style.attributes.has(Attribute::NormalIntensity) {
-        converted = converted.remove_modifier(Modifier::BOLD | Modifier::DIM);
+        sub_modifier: Modifier::empty(),
     }
-    converted
 }
 
-fn convert_color(color: CrosstermColor) -> Color {
+fn convert_color(color: PickerColor) -> Color {
     match color {
-        CrosstermColor::Reset => Color::Reset,
-        CrosstermColor::Black => Color::Black,
-        CrosstermColor::DarkRed => Color::Red,
-        CrosstermColor::DarkGreen => Color::Green,
-        CrosstermColor::DarkYellow => Color::Yellow,
-        CrosstermColor::DarkBlue => Color::Blue,
-        CrosstermColor::DarkMagenta => Color::Magenta,
-        CrosstermColor::DarkCyan => Color::Cyan,
-        CrosstermColor::Grey => Color::Gray,
-        CrosstermColor::DarkGrey => Color::DarkGray,
-        CrosstermColor::Red => Color::LightRed,
-        CrosstermColor::Green => Color::LightGreen,
-        CrosstermColor::Blue => Color::LightBlue,
-        CrosstermColor::Yellow => Color::LightYellow,
-        CrosstermColor::Magenta => Color::LightMagenta,
-        CrosstermColor::Cyan => Color::LightCyan,
-        CrosstermColor::White => Color::White,
-        CrosstermColor::Rgb { r, g, b } => Color::Rgb(r, g, b),
-        CrosstermColor::AnsiValue(value) => Color::Indexed(value),
+        PickerColor::Reset => Color::Reset,
+        PickerColor::Black => Color::Black,
+        PickerColor::DarkRed => Color::Red,
+        PickerColor::DarkGreen => Color::Green,
+        PickerColor::DarkYellow => Color::Yellow,
+        PickerColor::DarkBlue => Color::Blue,
+        PickerColor::DarkMagenta => Color::Magenta,
+        PickerColor::DarkCyan => Color::Cyan,
+        PickerColor::Grey => Color::Gray,
+        PickerColor::DarkGrey => Color::DarkGray,
+        PickerColor::Red => Color::LightRed,
+        PickerColor::Green => Color::LightGreen,
+        PickerColor::Blue => Color::LightBlue,
+        PickerColor::Yellow => Color::LightYellow,
+        PickerColor::Magenta => Color::LightMagenta,
+        PickerColor::Cyan => Color::LightCyan,
+        PickerColor::White => Color::White,
+        PickerColor::Rgb { r, g, b } => Color::Rgb(r, g, b),
+        PickerColor::AnsiValue(value) => Color::Indexed(value),
     }
 }
 

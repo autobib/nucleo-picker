@@ -1,4 +1,3 @@
-use crossterm::style::{Color as CrosstermColor, Stylize};
 use ratatui_core::style::Color;
 
 use super::*;
@@ -14,7 +13,7 @@ use crate::{
 fn dirty_cell() -> Cell {
     let mut cell = Cell::new(".");
     cell.set_style(
-        Style::new()
+        RatatuiStyle::new()
             .fg(Color::Red)
             .bg(Color::Blue)
             .underline_color(Color::Green)
@@ -44,14 +43,14 @@ fn construction_and_movement_use_rectangle_local_coordinates() {
         assert_eq!(rect.height(), 3);
         assert!(!rect.is_empty());
         rect.move_to(3, 1).unwrap();
-        rect.text("a", ContentStyle::new()).unwrap();
+        rect.text("a", Style::new()).unwrap();
         rect.move_to_column(1).unwrap();
-        rect.text("b", ContentStyle::new()).unwrap();
+        rect.text("b", Style::new()).unwrap();
         rect.next_line().unwrap();
-        rect.text("123456", ContentStyle::new()).unwrap();
+        rect.text("123456", Style::new()).unwrap();
         rect.next_line().unwrap();
         rect.move_to(0, 0).unwrap();
-        rect.text("c", ContentStyle::new()).unwrap();
+        rect.text("c", Style::new()).unwrap();
     }
     assert_eq!(buffer[(10, 9)], Cell::new("a"));
     assert_eq!(buffer[(8, 9)], Cell::new("b"));
@@ -121,9 +120,10 @@ fn clears_reset_only_the_assigned_cells_and_spaces_paint_their_style() {
         let mut rect = RatatuiSurface::new(&mut buffer, area);
         rect.move_to(4, 1).unwrap();
         rect.clear_line().unwrap();
-        rect.text("x", ContentStyle::new()).unwrap();
+        rect.text("x", Style::new()).unwrap();
         rect.next_line().unwrap();
-        rect.spaces(3, ContentStyle::new().on_dark_red()).unwrap();
+        rect.spaces(3, Style::new().bg(PickerColor::DarkRed))
+            .unwrap();
     }
     assert_eq!(buffer[(7, 9)], Cell::new("x"));
     for x in 8..13 {
@@ -139,7 +139,7 @@ fn clears_reset_only_the_assigned_cells_and_spaces_paint_their_style() {
 
     let mut rect = RatatuiSurface::new(&mut buffer, area);
     rect.clear().unwrap();
-    rect.text("y", ContentStyle::new()).unwrap();
+    rect.text("y", Style::new()).unwrap();
     for y in 8..11 {
         for x in 7..13 {
             let expected = if (x, y) == (7, 8) {
@@ -161,27 +161,34 @@ fn styled_text_segments_the_whole_source_and_uses_each_graphemes_first_style() {
     rect.styled_text(
         "e\u{301}👩🏽‍💻x",
         [
-            "".white(),
-            "e".red().bold().underline(CrosstermColor::Cyan),
-            "\u{301}👩".blue().italic(),
-            "🏽‍".green(),
-            "".red(),
-            "💻".yellow(),
-            ContentStyle::new().apply("x"),
+            Style::new().fg(PickerColor::White).apply(""),
+            Style::new()
+                .fg(PickerColor::Red)
+                .bold()
+                .underline_color(PickerColor::Cyan)
+                .apply("e"),
+            Style::new()
+                .fg(PickerColor::Blue)
+                .italic()
+                .apply("\u{301}👩"),
+            Style::new().fg(PickerColor::Green).apply("🏽‍"),
+            Style::new().fg(PickerColor::Red).apply(""),
+            Style::new().fg(PickerColor::Yellow).apply("💻"),
+            Style::new().apply("x"),
         ]
         .into_iter(),
     )
     .unwrap();
     let mut accent = Cell::new("e\u{301}");
     accent.set_style(
-        Style::new()
+        RatatuiStyle::new()
             .fg(Color::LightRed)
             .underline_color(Color::LightCyan)
             .add_modifier(Modifier::BOLD),
     );
     let mut emoji = Cell::new("👩🏽‍💻");
     emoji.set_style(
-        Style::new()
+        RatatuiStyle::new()
             .fg(Color::LightBlue)
             .add_modifier(Modifier::ITALIC),
     );
@@ -196,9 +203,10 @@ fn zero_width_graphemes_are_preserved_without_advancing_past_the_edge() {
     let area = Rect::new(0, 0, 3, 1);
     let mut buffer = Buffer::empty(area);
     let mut rect = RatatuiSurface::new(&mut buffer, area);
-    rect.text("\u{200b}界\u{200b}x\u{200b}", ContentStyle::new())
+    rect.text("\u{200b}界\u{200b}x\u{200b}", Style::new())
         .unwrap();
-    rect.text("\u{200b}", ContentStyle::new().red()).unwrap();
+    rect.text("\u{200b}", Style::new().fg(PickerColor::Red))
+        .unwrap();
     assert_eq!(buffer[(0, 0)].symbol(), "\u{200b}界\u{200b}");
     assert_eq!(buffer[(1, 0)], Cell::EMPTY);
     assert_eq!(buffer[(2, 0)].symbol(), "x\u{200b}");
@@ -209,9 +217,9 @@ fn empty_operations_leave_cells_unchanged() {
     let area = Rect::new(0, 0, 1, 1);
     let mut buffer = Buffer::filled(area, dirty_cell());
     let mut rect = RatatuiSurface::new(&mut buffer, area);
-    rect.text("", ContentStyle::new()).unwrap();
-    rect.spaces(0, ContentStyle::new()).unwrap();
-    rect.ascii(format_args!(""), ContentStyle::new()).unwrap();
+    rect.text("", Style::new()).unwrap();
+    rect.spaces(0, Style::new()).unwrap();
+    rect.ascii(format_args!(""), Style::new()).unwrap();
     rect.styled_text("", std::iter::empty()).unwrap();
     assert_eq!(buffer[(0, 0)], dirty_cell());
 }
@@ -223,7 +231,7 @@ fn buffer_diff_uses_surface_widths_including_halfwidth_kana() {
     let before = Buffer::empty(area);
     let mut buffer = before.clone();
     let mut rect = RatatuiSurface::new(&mut buffer, area);
-    rect.text("ｶﾞxلا\u{17d8}!", ContentStyle::new()).unwrap();
+    rect.text("ｶﾞxلا\u{17d8}!", Style::new()).unwrap();
     let changes: Vec<_> = before
         .diff_iter(&buffer)
         .map(|(x, _, cell)| (x, cell.symbol()))
@@ -251,16 +259,17 @@ fn overwriting_wide_glyphs_clears_their_entire_footprints() {
     let mut buffer = Buffer::filled(Rect::new(0, 0, 12, 3), dirty_cell());
     {
         let mut rect = RatatuiSurface::new(&mut buffer, area);
-        rect.text("a界b界cd", ContentStyle::new().on_blue())
+        rect.text("a界b界cd", Style::new().bg(PickerColor::Blue))
             .unwrap();
         rect.move_to_column(2).unwrap();
-        rect.text("X", ContentStyle::new()).unwrap();
+        rect.text("X", Style::new()).unwrap();
         rect.move_to_column(3).unwrap();
-        rect.ascii(format_args!("YZ"), ContentStyle::new()).unwrap();
+        rect.ascii(format_args!("YZ"), Style::new()).unwrap();
         rect.move_to_column(6).unwrap();
-        rect.text("界", ContentStyle::new()).unwrap();
+        rect.text("界", Style::new()).unwrap();
         rect.move_to_column(7).unwrap();
-        rect.spaces(1, ContentStyle::new().on_dark_green()).unwrap();
+        rect.spaces(1, Style::new().bg(PickerColor::DarkGreen))
+            .unwrap();
     }
     assert_eq!(buffer[(2, 1)].symbol(), "a");
     assert_eq!(buffer[(2, 1)].bg, Color::LightBlue);
@@ -280,13 +289,13 @@ fn formatting_streams_padding_and_numbers_with_complete_styles() {
     let mut rect = RatatuiSurface::new(&mut buffer, area);
     rect.ascii(
         format_args!("{:>5}/{}", 123, 9),
-        ContentStyle::new().italic().green(),
+        Style::new().italic().fg(PickerColor::Green),
     )
     .unwrap();
     for (x, ch) in (2..9).zip("  123/9".chars()) {
         let mut expected = Cell::from(ch);
         expected.set_style(
-            Style::new()
+            RatatuiStyle::new()
                 .fg(Color::LightGreen)
                 .add_modifier(Modifier::ITALIC),
         );
@@ -297,41 +306,35 @@ fn formatting_streams_padding_and_numbers_with_complete_styles() {
 #[test]
 fn colors_preserve_palette_intensity_rgb_and_indexed_values() {
     for (source, expected) in [
-        (CrosstermColor::Reset, Color::Reset),
-        (CrosstermColor::Black, Color::Black),
-        (CrosstermColor::DarkGrey, Color::DarkGray),
-        (CrosstermColor::Red, Color::LightRed),
-        (CrosstermColor::DarkRed, Color::Red),
-        (CrosstermColor::Green, Color::LightGreen),
-        (CrosstermColor::DarkGreen, Color::Green),
-        (CrosstermColor::Yellow, Color::LightYellow),
-        (CrosstermColor::DarkYellow, Color::Yellow),
-        (CrosstermColor::Blue, Color::LightBlue),
-        (CrosstermColor::DarkBlue, Color::Blue),
-        (CrosstermColor::Magenta, Color::LightMagenta),
-        (CrosstermColor::DarkMagenta, Color::Magenta),
-        (CrosstermColor::Cyan, Color::LightCyan),
-        (CrosstermColor::DarkCyan, Color::Cyan),
-        (CrosstermColor::White, Color::White),
-        (CrosstermColor::Grey, Color::Gray),
-        (
-            CrosstermColor::Rgb { r: 3, g: 4, b: 5 },
-            Color::Rgb(3, 4, 5),
-        ),
-        (CrosstermColor::AnsiValue(123), Color::Indexed(123)),
+        (PickerColor::Reset, Color::Reset),
+        (PickerColor::Black, Color::Black),
+        (PickerColor::DarkGrey, Color::DarkGray),
+        (PickerColor::Red, Color::LightRed),
+        (PickerColor::DarkRed, Color::Red),
+        (PickerColor::Green, Color::LightGreen),
+        (PickerColor::DarkGreen, Color::Green),
+        (PickerColor::Yellow, Color::LightYellow),
+        (PickerColor::DarkYellow, Color::Yellow),
+        (PickerColor::Blue, Color::LightBlue),
+        (PickerColor::DarkBlue, Color::Blue),
+        (PickerColor::Magenta, Color::LightMagenta),
+        (PickerColor::DarkMagenta, Color::Magenta),
+        (PickerColor::Cyan, Color::LightCyan),
+        (PickerColor::DarkCyan, Color::Cyan),
+        (PickerColor::White, Color::White),
+        (PickerColor::Grey, Color::Gray),
+        (PickerColor::Rgb { r: 3, g: 4, b: 5 }, Color::Rgb(3, 4, 5)),
+        (PickerColor::AnsiValue(123), Color::Indexed(123)),
     ] {
         let area = Rect::new(0, 0, 2, 1);
         let mut buffer = Buffer::filled(area, dirty_cell());
         let mut rect = RatatuiSurface::new(&mut buffer, area);
         rect.text(
             "x",
-            ContentStyle::new()
-                .with(source)
-                .on(source)
-                .underline(source),
+            Style::new().fg(source).bg(source).underline_color(source),
         )
         .unwrap();
-        rect.text("y", ContentStyle::new()).unwrap();
+        rect.text("y", Style::new()).unwrap();
         assert_eq!(buffer[(0, 0)].fg, expected);
         assert_eq!(buffer[(0, 0)].bg, expected);
         assert_eq!(buffer[(0, 0)].underline_color, expected);
@@ -343,33 +346,35 @@ fn colors_preserve_palette_intensity_rgb_and_indexed_values() {
 fn attribute_removals_and_underline_variants_are_projected_to_modifiers() {
     let area = Rect::new(0, 0, 2, 1);
     let mut buffer = Buffer::filled(area, dirty_cell());
-    let mut style = ContentStyle::new();
+    let mut style = Style::new();
     for attribute in [
-        Attribute::Bold,
-        Attribute::Dim,
-        Attribute::Italic,
-        Attribute::Undercurled,
-        Attribute::SlowBlink,
-        Attribute::RapidBlink,
-        Attribute::Reverse,
-        Attribute::Hidden,
-        Attribute::CrossedOut,
-        Attribute::Framed,
+        Attributes::BOLD,
+        Attributes::DIM,
+        Attributes::ITALIC,
+        Attributes::UNDERCURLED,
+        Attributes::SLOW_BLINK,
+        Attributes::RAPID_BLINK,
+        Attributes::REVERSE,
+        Attributes::HIDDEN,
+        Attributes::CROSSED_OUT,
+        Attributes::FRAMED,
     ] {
-        style.attributes.set(attribute);
+        style.attributes.insert(attribute);
     }
     let mut rect = RatatuiSurface::new(&mut buffer, area);
     rect.text("x", style).unwrap();
     for attribute in [
-        Attribute::NormalIntensity,
-        Attribute::NoItalic,
-        Attribute::NoUnderline,
-        Attribute::NoBlink,
-        Attribute::NoReverse,
-        Attribute::NoHidden,
-        Attribute::NotCrossedOut,
+        Attributes::BOLD,
+        Attributes::DIM,
+        Attributes::ITALIC,
+        Attributes::UNDERCURLED,
+        Attributes::SLOW_BLINK,
+        Attributes::RAPID_BLINK,
+        Attributes::REVERSE,
+        Attributes::HIDDEN,
+        Attributes::CROSSED_OUT,
     ] {
-        style.attributes.set(attribute);
+        style.attributes.remove(attribute);
     }
     rect.text("y", style).unwrap();
     assert_eq!(buffer[(0, 0)].modifier, Modifier::all());
@@ -381,9 +386,9 @@ fn preview_paints_split_graphemes_and_clears_its_buffer_region() {
     let mut buffer = Buffer::filled(Rect::new(5, 7, 14, 7), dirty_cell());
     let area = Rect::new(6, 10, 12, 3);
     let mut preview = crate::preview::Buffer::new();
-    preview.push_styled_str("e", ContentStyle::new().red());
-    preview.push_styled_str("\u{301}👩", ContentStyle::new().blue());
-    preview.push_styled_str("🏽‍💻", ContentStyle::new().green());
+    preview.push_styled_str("e", Style::new().fg(PickerColor::Red));
+    preview.push_styled_str("\u{301}👩", Style::new().fg(PickerColor::Blue));
+    preview.push_styled_str("🏽‍💻", Style::new().fg(PickerColor::Green));
     let pane = preview.into_pane();
     crate::preview::draw(
         &mut RatatuiSurface::new(&mut buffer, area),

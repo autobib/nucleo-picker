@@ -1,5 +1,3 @@
-use crossterm::style::Stylize;
-
 use super::*;
 use crate::{
     preview::{Buffer, Content},
@@ -8,7 +6,7 @@ use crate::{
 
 struct Run {
     text: String,
-    spans: Vec<(String, ContentStyle)>,
+    spans: Vec<(String, Style)>,
 }
 
 struct RecordingSurface {
@@ -63,7 +61,7 @@ impl Surface for RecordingSurface {
     fn styled_text<'a>(
         &mut self,
         text: &'a str,
-        spans: impl Iterator<Item = StyledContent<&'a str>>,
+        spans: impl Iterator<Item = StyledStr<'a>>,
     ) -> Result<(), Self::Error> {
         if text.is_empty() {
             return Ok(());
@@ -74,7 +72,7 @@ impl Surface for RecordingSurface {
         assert!(end <= usize::from(self.width), "text overflows: {text:?}");
         self.column = end as u16;
         let spans: Vec<_> = spans
-            .map(|span| ((*span.content()).to_owned(), *span.style()))
+            .map(|span| (span.text.to_owned(), span.style))
             .collect();
         assert_eq!(
             spans
@@ -90,13 +88,13 @@ impl Surface for RecordingSurface {
         Ok(())
     }
 
-    fn ascii(&mut self, text: fmt::Arguments<'_>, style: ContentStyle) -> Result<(), Self::Error> {
+    fn ascii(&mut self, text: fmt::Arguments<'_>, style: Style) -> Result<(), Self::Error> {
         let text = text.to_string();
         assert!(text.bytes().all(|byte| (b' '..=b'~').contains(&byte)));
         self.text(&text, style)
     }
 
-    fn spaces(&mut self, width: u16, style: ContentStyle) -> Result<(), Self::Error> {
+    fn spaces(&mut self, width: u16, style: Style) -> Result<(), Self::Error> {
         self.text(&" ".repeat(usize::from(width)), style)
     }
 
@@ -119,10 +117,10 @@ impl Surface for RecordingSurface {
 #[test]
 fn preview_passes_whole_graphemes_and_preserves_text_styles() {
     let spans = [
-        ("e", ContentStyle::new().red()),
-        ("\u{301}👩", ContentStyle::new().blue()),
-        ("🏽‍", ContentStyle::new().green()),
-        ("💻", ContentStyle::new().yellow()),
+        ("e", Style::new().fg(Color::Red)),
+        ("\u{301}👩", Style::new().fg(Color::Blue)),
+        ("🏽‍", Style::new().fg(Color::Green)),
+        ("💻", Style::new().fg(Color::Yellow)),
     ];
     let mut buffer = Buffer::new();
     for &(text, style) in &spans {
@@ -145,7 +143,7 @@ fn preview_passes_whole_graphemes_and_preserves_text_styles() {
         .collect();
     let expected: Vec<_> = spans
         .into_iter()
-        .chain(std::iter::once(("     ", ContentStyle::new())))
+        .chain(std::iter::once(("     ", Style::new())))
         .flat_map(|(text, style)| text.chars().map(move |ch| (ch, style)))
         .collect();
     assert_eq!(actual, expected);

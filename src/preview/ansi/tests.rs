@@ -1,12 +1,12 @@
 use std::io::Write;
 
-use crossterm::style::{Attribute, ContentStyle, StyledContent, Stylize};
+use crate::draw::{Attributes, Style, StyledStr};
 
 use crate::preview::{AnsiState, Buffer};
 
 use super::Color;
 
-fn assert_spans(input: std::fmt::Arguments<'_>, expected: &[StyledContent<&str>]) {
+fn assert_spans(input: std::fmt::Arguments<'_>, expected: &[StyledStr<'_>]) {
     let mut buffer = Buffer::new();
     buffer.ansi_writer().write_fmt(input).unwrap();
     assert_eq!(buffer.lines().len(), 1);
@@ -39,20 +39,20 @@ fn owned_and_caller_owned_streams_preserve_every_byte_boundary() {
             assert_eq!(buffer.lines().len(), 2);
             assert!(
                 buffer.line(0).unwrap().spans().eq([
-                    ContentStyle::default().apply("prefix "),
-                    ContentStyle::new()
-                        .with(Color::AnsiValue(1))
+                    Style::default().apply("prefix "),
+                    Style::new()
+                        .fg(Color::AnsiValue(1))
                         .bold()
                         .apply("é界e\u{301}👩‍💻"),
-                    ContentStyle::default().apply("!"),
+                    Style::default().apply("!"),
                 ]),
                 "chunk size {chunk_size}"
             );
             assert!(
                 buffer.line(1).unwrap().spans().eq([
-                    ContentStyle::default().apply("␉"),
-                    ContentStyle::new()
-                        .with(Color::Rgb { r: 1, g: 2, b: 3 })
+                    Style::default().apply("␉"),
+                    Style::new()
+                        .fg(Color::Rgb { r: 1, g: 2, b: 3 })
                         .apply("end"),
                 ]),
                 "chunk size {chunk_size}"
@@ -63,35 +63,30 @@ fn owned_and_caller_owned_streams_preserve_every_byte_boundary() {
 
 #[test]
 fn attributes_replace_modes_and_reset_selectively_or_fully() {
-    use Attribute::*;
-
-    let cases: &[(&str, u8, &[Attribute])] = &[
-        ("1", 22, &[Bold]),
-        ("2", 22, &[Dim]),
-        ("1;2", 22, &[Bold, Dim]),
-        ("3", 23, &[Italic]),
-        ("4", 24, &[Underlined]),
-        ("21", 24, &[DoubleUnderlined]),
-        ("5", 25, &[SlowBlink]),
-        ("6", 25, &[RapidBlink]),
-        ("7", 27, &[Reverse]),
-        ("8", 28, &[Hidden]),
-        ("9", 29, &[CrossedOut]),
+    let cases = [
+        ("1", 22, Attributes::BOLD),
+        ("2", 22, Attributes::DIM),
+        ("1;2", 22, Attributes::BOLD | Attributes::DIM),
+        ("3", 23, Attributes::ITALIC),
+        ("4", 24, Attributes::UNDERLINED),
+        ("21", 24, Attributes::DOUBLE_UNDERLINED),
+        ("5", 25, Attributes::SLOW_BLINK),
+        ("6", 25, Attributes::RAPID_BLINK),
+        ("7", 27, Attributes::REVERSE),
+        ("8", 28, Attributes::HIDDEN),
+        ("9", 29, Attributes::CROSSED_OUT),
     ];
-    let base = ContentStyle::new().on(Color::AnsiValue(4));
-    for &(set, reset, attributes) in cases {
-        let styled = ContentStyle {
-            attributes: attributes.into(),
-            ..base
-        };
+    let base = Style::new().bg(Color::AnsiValue(4));
+    for (set, reset, attributes) in cases {
+        let styled = Style { attributes, ..base };
         assert_spans(
             format_args!("\x1b[44;{set}mstyled\x1b[{reset}mplain"),
             &[styled.apply("styled"), base.apply("plain")],
         );
     }
-    let single = ContentStyle::new().underlined().slow_blink();
-    let double = ContentStyle::new()
-        .attribute(Attribute::DoubleUnderlined)
+    let single = Style::new().underlined().slow_blink();
+    let double = Style::new()
+        .add_attributes(Attributes::DOUBLE_UNDERLINED)
         .rapid_blink();
     assert_spans(
         format_args!("\x1b[4;5ma\x1b[21;6mb\x1b[4;5mc\x1b[24;25md"),
@@ -99,7 +94,7 @@ fn attributes_replace_modes_and_reset_selectively_or_fully() {
             single.apply("a"),
             double.apply("b"),
             single.apply("c"),
-            ContentStyle::default().apply("d"),
+            Style::default().apply("d"),
         ],
     );
     for reset in ["0", "", ";"] {
@@ -110,11 +105,8 @@ fn attributes_replace_modes_and_reset_selectively_or_fully() {
         )
         .unwrap();
         let mut spans = buffer.line(0).unwrap().spans();
-        assert_ne!(*spans.next().unwrap().style(), ContentStyle::default());
-        assert_eq!(
-            spans.next().unwrap(),
-            ContentStyle::default().apply("plain")
-        );
+        assert_ne!(spans.next().unwrap().style, Style::default());
+        assert_eq!(spans.next().unwrap(), Style::default().apply("plain"));
         assert!(spans.next().is_none());
     }
 }
@@ -124,27 +116,27 @@ fn palette_and_extended_colors_reset_independently() {
     assert_spans(
         format_args!("\x1b[30;47ma\x1b[97;100mb\x1b[39mc\x1b[49md\x1b[90;107me\x1b[37;40mf"),
         &[
-            ContentStyle::new()
-                .with(Color::AnsiValue(0))
-                .on(Color::AnsiValue(7))
+            Style::new()
+                .fg(Color::AnsiValue(0))
+                .bg(Color::AnsiValue(7))
                 .apply("a"),
-            ContentStyle::new()
-                .with(Color::AnsiValue(15))
-                .on(Color::AnsiValue(8))
+            Style::new()
+                .fg(Color::AnsiValue(15))
+                .bg(Color::AnsiValue(8))
                 .apply("b"),
-            ContentStyle::new().on(Color::AnsiValue(8)).apply("c"),
-            ContentStyle::default().apply("d"),
-            ContentStyle::new()
-                .with(Color::AnsiValue(8))
-                .on(Color::AnsiValue(15))
+            Style::new().bg(Color::AnsiValue(8)).apply("c"),
+            Style::default().apply("d"),
+            Style::new()
+                .fg(Color::AnsiValue(8))
+                .bg(Color::AnsiValue(15))
                 .apply("e"),
-            ContentStyle::new()
-                .with(Color::AnsiValue(7))
-                .on(Color::AnsiValue(0))
+            Style::new()
+                .fg(Color::AnsiValue(7))
+                .bg(Color::AnsiValue(0))
                 .apply("f"),
         ],
     );
-    let base = ContentStyle::new().bold();
+    let base = Style::new().bold();
     for (code, reset) in [(38, 39), (48, 49), (58, 59)] {
         for (params, color) in [
             ("5;0", Color::AnsiValue(0)),
@@ -202,8 +194,8 @@ fn unsupported_and_malformed_sequences_do_not_leak_into_text_or_styles() {
             writer.write_all(b"after").unwrap();
         }
         assert!(
-            buffer.line(0).unwrap().spans().eq([ContentStyle::new()
-                .with(Color::AnsiValue(1))
+            buffer.line(0).unwrap().spans().eq([Style::new()
+                .fg(Color::AnsiValue(1))
                 .bold()
                 .apply("beforeafter"),]),
             "{sequence:?}"
@@ -221,7 +213,7 @@ fn controls_and_invalid_utf8_preserve_styles_across_lines() {
         (b"a\xffb\xc0c", &["abc"]),
         (b"a\xe2\xffb\xf0\xffc", &["abc"]),
     ];
-    let style = ContentStyle::new().with(Color::AnsiValue(2)).bold();
+    let style = Style::new().fg(Color::AnsiValue(2)).bold();
     for &(input, expected) in cases {
         let mut buffer = Buffer::new();
         {
@@ -249,7 +241,7 @@ fn controls_and_invalid_utf8_preserve_styles_across_lines() {
 
 #[test]
 fn restarting_streams_resets_parser_and_style_but_clearing_only_resets_content() {
-    let bold = ContentStyle::new().bold();
+    let bold = Style::new().bold();
     for incomplete in [b"\x1b[".as_slice(), b"\xe7\x95", b"\x1b]0;title", b""] {
         let mut owned = Buffer::new();
         let mut caller_owned = Buffer::new();
@@ -271,7 +263,7 @@ fn restarting_streams_resets_parser_and_style_but_clearing_only_resets_content()
                     .line(0)
                     .unwrap()
                     .spans()
-                    .eq([bold.apply("bold"), ContentStyle::default().apply("plain"),])
+                    .eq([bold.apply("bold"), Style::default().apply("plain"),])
             );
         }
     }
@@ -295,14 +287,8 @@ fn interleaved_streams_keep_independent_parser_and_style_state() {
         }
     }
     for ((buffer, _), (style, expected)) in streams.iter().zip([
-        (
-            ContentStyle::new().with(Color::AnsiValue(1)),
-            &["界", "red"][..],
-        ),
-        (
-            ContentStyle::new().with(Color::AnsiValue(4)).bold(),
-            &["éblue"][..],
-        ),
+        (Style::new().fg(Color::AnsiValue(1)), &["界", "red"][..]),
+        (Style::new().fg(Color::AnsiValue(4)).bold(), &["éblue"][..]),
     ]) {
         assert!(
             buffer
