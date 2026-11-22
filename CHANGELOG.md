@@ -7,12 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-In short, this release:
+This is a huge release.
+In short:
 
 1. Adds support for item previews.
-2. Makes some minor breaking API changes and adds generics for abstracting over picker types.
-3. Improves the multi-threaded performance of the matching engine.
-4. Makes slight improvements to the scoring algorithm.
+2. Adds a headless session API (including support for embedding in a Ratatui) application.
+3. Makes some minor breaking API changes and adds generics for abstracting over picker types.
+4. Improves the multi-threaded performance of the matching engine.
+5. Makes slight improvements to the scoring algorithm.
 
 ### Changed
 
@@ -41,6 +43,10 @@ In short, this release:
 - This release includes a new previewer!
   - The preview pane is gated behind a `preview-cache` feature flag.
   - Visit the documentation for the `preview` module for more details.
+- This release adds a headless session API!
+  - Use this to integrate the picker into a larger application, for instance one rendered by Ratatui.
+  - You can start by reading the new [Ratatui example](https://github.com/autobib/nucleo-picker/blob/master/examples/ratatui.rs)
+  - Also see the [session documentation](https://docs.rs/nucleo-picker/latest/nucleo_picker/session/index.html) for another starting point.
 - Added methods for non-interactive picker usage: `Picker::filter`, `Picker::matches`, and `Picker::update_matches`.
 - Added new `Layout` event, for events which influence the layout of the screen.
   This includes a new toggle for the status line, which is not bound by default.
