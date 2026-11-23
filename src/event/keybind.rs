@@ -26,6 +26,13 @@ pub trait KeybindDefault {
     }
 }
 
+impl<I: KeybindDefault + ?Sized> KeybindDefault for &mut I {
+    #[inline]
+    fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>> {
+        I::keybind_default(key)
+    }
+}
+
 impl KeybindDefault for Single {
     #[inline]
     fn keybind_default<A>(key: KeyEvent) -> Option<Event<A>> {

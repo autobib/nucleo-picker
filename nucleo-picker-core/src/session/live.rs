@@ -101,8 +101,10 @@ pub struct Session<'items, T: Send + Sync + 'static, R, I: Interface<T>> {
 
 struct SessionState<'items, T, R, I: Interface<T>> {
     engine: &'items mut MatchEngine<T, R>,
-    interface: I,
+    // Drop state first so pending previews are cancelled before the interface joins workers,
+    // including during panic unwinding when on_end is skipped.
     state: I::State,
+    interface: I,
     prompt: Prompt<'items>,
     list: MatchList<'items>,
     status_line: StatusLine<'items>,
@@ -179,8 +181,8 @@ impl<'items, T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Session<'i
             inner: DropGuard::new(
                 SessionState {
                     engine,
-                    interface,
                     state,
+                    interface,
                     prompt,
                     list,
                     status_line: StatusLine::new(chars),

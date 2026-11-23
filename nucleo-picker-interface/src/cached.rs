@@ -62,6 +62,15 @@ pub struct CachedPreviewState<S> {
     preview: PreviewState,
 }
 
+impl<S> CachedPreviewState<S> {
+    /// Returns a reference to the inner interface's per-session state.
+    #[must_use]
+    #[inline]
+    pub const fn inner(&self) -> &S {
+        &self.interface
+    }
+}
+
 impl<I, P> CachedPreview<I, P> {
     /// The default main preview cache capacity.
     pub const DEFAULT_CACHE_SIZE: Option<NonZero<usize>> = NonZero::new(128);

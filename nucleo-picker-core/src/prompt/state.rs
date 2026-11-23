@@ -321,6 +321,9 @@ impl PromptState {
     }
 
     fn right_word_offset(&self, steps: usize) -> usize {
+        if steps == 0 {
+            return self.cursor_byte;
+        }
         self.contents[self.cursor_byte..]
             .unicode_word_indices()
             .nth(steps)

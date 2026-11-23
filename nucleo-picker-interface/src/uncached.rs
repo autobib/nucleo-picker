@@ -34,6 +34,15 @@ pub struct UncachedPreviewState<S> {
     size: Dimensions,
 }
 
+impl<S> UncachedPreviewState<S> {
+    /// Returns the inner interface's session state.
+    #[must_use]
+    #[inline]
+    pub const fn inner(&self) -> &S {
+        &self.interface
+    }
+}
+
 impl<I, F> UncachedPreview<I, F> {
     /// Initialize by wrapping an internal interface.
     ///
