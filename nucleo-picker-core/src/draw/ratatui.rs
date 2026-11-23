@@ -87,11 +87,7 @@ impl<'a> RatatuiSurface<'a> {
         if check_left {
             let mut start = 0;
             while start < column {
-                let end = start + usize::from(row[start].cell_width().max(1));
-                assert!(
-                    end <= row.len(),
-                    "wide glyph crosses the rectangle boundary"
-                );
+                let end = (start + usize::from(row[start].cell_width().max(1))).min(row.len());
                 if end > column {
                     row[start..end].fill(Cell::EMPTY);
                 }
@@ -100,11 +96,7 @@ impl<'a> RatatuiSurface<'a> {
         }
         let mut start = column;
         while start < end {
-            let next = start + usize::from(row[start].cell_width().max(1));
-            assert!(
-                next <= row.len(),
-                "wide glyph crosses the rectangle boundary"
-            );
+            let next = (start + usize::from(row[start].cell_width().max(1))).min(row.len());
             row[start..next].fill(Cell::EMPTY);
             start = next;
         }
