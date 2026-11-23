@@ -130,6 +130,78 @@ fn edits_preserve_graphemes_and_clear_at_byte_boundaries() {
 }
 
 #[test]
+fn insertion_before_variation_selector_keeps_rendering_within_width() {
+    for (event, prefix, column) in [
+        (Insert('❤'), "", 2),
+        (Paste("❤".to_owned()), "", 2),
+        (Paste("ab❤".to_owned()), "ab", 4),
+    ] {
+        let chars = PickerChars::new();
+        let mut state = PromptState::new(PromptConfig::default());
+        let mut prompt = Prompt::new(&mut state, &chars);
+        render(&mut prompt, 78);
+        prompt.handle(Reset(format!("\u{fe0f}{}", "a".repeat(80))));
+        prompt.handle(ToStart);
+        prompt.handle(event);
+        assert_prompt(
+            &mut prompt,
+            78,
+            &format!("{prefix}❤️{}", "a".repeat(80)),
+            column,
+            &format!("{prefix}❤️{}", "a".repeat(78 - usize::from(column))),
+        );
+    }
+}
+
+#[test]
+fn inserting_zwj_keeps_combined_emoji_whole_during_deletion() {
+    for delete_from_start in [false, true] {
+        for event in [Insert('\u{200d}'), Paste("\u{200d}".to_owned())] {
+            let chars = PickerChars::new();
+            let mut state = PromptState::new(PromptConfig::default());
+            let mut prompt = Prompt::new(&mut state, &chars);
+            prompt.handle(Reset("👩💻x".to_owned()));
+            prompt.handle(ToStart);
+            prompt.handle(Right(1));
+            prompt.handle(event);
+            assert_prompt(&mut prompt, 8, "👩‍💻x", 2, "👩‍💻x");
+            if delete_from_start {
+                prompt.handle(Left(1));
+                prompt.handle(Delete(1));
+            } else {
+                prompt.handle(Backspace(1));
+            }
+            assert_prompt(&mut prompt, 8, "x", 0, "x");
+        }
+    }
+}
+
+#[test]
+fn insertion_positions_following_edits_at_complete_grapheme_boundaries() {
+    for (initial, right, ch, query, column, edited) in [
+        ("\u{301}x", 0, 'e', "e\u{301}x", 1, "e\u{301}!x"),
+        ("ex", 1, '\u{301}', "e\u{301}x", 1, "e\u{301}!x"),
+        ("ab", 1, 'X', "aXb", 2, "aX!b"),
+        ("ab", 0, 'X', "Xab", 1, "X!ab"),
+        ("", 0, 'x', "x", 1, "x!"),
+        ("🇦🇧🇨🇩x", 1, '🇪', "🇦🇧🇪🇨🇩x", 4, "🇦🇧🇪🇨!🇩x"),
+    ] {
+        for event in [Insert(ch), Paste(ch.to_string())] {
+            let chars = PickerChars::new();
+            let mut state = PromptState::new(PromptConfig::default());
+            let mut prompt = Prompt::new(&mut state, &chars);
+            prompt.handle(Reset(initial.to_owned()));
+            prompt.handle(ToStart);
+            prompt.handle(Right(right));
+            prompt.handle(event);
+            assert_prompt(&mut prompt, 12, query, column, query);
+            prompt.handle(Insert('!'));
+            assert_prompt(&mut prompt, 12, edited, column + 1, edited);
+        }
+    }
+}
+
+#[test]
 fn word_edits_and_zero_count_operations_preserve_insertion_boundaries() {
     for (query, steps, moved, deleted) in [
         ("   ", 1, "X   ", ""),

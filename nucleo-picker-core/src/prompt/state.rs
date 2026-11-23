@@ -254,11 +254,21 @@ impl PromptState {
         let old_width =
             UnicodeProcessor::width(&self.contents[previous_grapheme..self.cursor_byte]);
 
+        let inserted_end = self.cursor_byte + string.len();
         self.contents.insert_str(self.cursor_byte, string);
-        self.cursor_byte += string.len();
 
-        let new_width =
-            UnicodeProcessor::width(&self.contents[previous_grapheme..self.cursor_byte]);
+        let mut cursor = previous_grapheme;
+        let mut new_width = 0;
+        // when inserting a new text, it may cause the cursor to become placed in the middle
+        // of a grapheme; the adjustment here moves the cursor to end of the resulting grapheme
+        for grapheme in self.contents[previous_grapheme..].graphemes(true) {
+            cursor += grapheme.len();
+            new_width += grapheme_width(grapheme);
+            if cursor >= inserted_end {
+                break;
+            }
+        }
+        self.cursor_byte = cursor;
         if new_width > old_width {
             self.right_by(new_width - old_width);
         } else if old_width > new_width {
