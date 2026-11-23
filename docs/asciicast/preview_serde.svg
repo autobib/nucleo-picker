@@ -1,0 +1,108 @@
+<?xml version="1.0"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="859.17999966" height="541.333198" font-family="'Cascadia Code','Source Code Pro',Menlo,Consolas,'DejaVu Sans Mono',monospace,'Symbols Nerd Font'" font-size="14px" style="">
+  <style>
+    .br { font-weight: bold }
+    .fa { fill-opacity: 0.5 }
+    .it { font-style: italic }
+    .un { text-decoration: underline }
+    .term-text tspan tspan { white-space: pre }
+
+    @font-face {
+      font-family: "Symbols Nerd Font";
+      src: url("https://asciinema.org/fonts/SymbolsNerdFont-Regular-337b40fc23735cb78fbe3379fae18138.woff2?vsn=d") format("woff2");
+    }
+
+  </style>
+
+  <defs>
+    <clipPath id="terminal-background-100-28-4-4">
+      <rect width="859.17999966" height="541.333198" rx="4" ry="4"></rect>
+    </clipPath>
+  </defs>
+  <image x="0" y="0" width="859.17999966" height="541.333198" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAzAAAAK4CAIAAAAk/o9NAAAOt0lEQVR4Xu3Wsc1oxRVGUV4HiAAJiYhGaOCV4VaQI8sJGZTxGqAdAuQSnBH94kbX299hrWh0kpkz0f703fc/fAUAQOeTIAMAaAkyAICYIAMAiAkyAICYIAMAiAkyAICYIAMAiAkyAICYIAMAiAkyAICYIAMAiAkyAICYIAMAiAkyAICYIAMAiAkyAICYIAMAiAkyAICYIAMAiAkyAICYIAMAiAkyAICYIAMAiAkyAICYIAMAiAkyAICYIAMAiAkyAICYIAMAiAkyAICYIAMAiAkyAICYIAMAiAkyAICYIAMAiAky4Kyvv/n2w93+88fvH84BKoIMOEuQASsEGXCWIANWCDLgLEEGrBBkwFmCDFghyICzBBmwQpABZwkyYIUgA84SZMAKQQacJciAFYIMOEuQASsEGXCWIANWCDLgLEEGrBBkwFmCDFghyICzBBmwQpABZwkyYIUgA84SZMAKQQacJciAFYIMOEuQASsEGXCWIANWCDLgLEEGrBBkwFmCDFghyICzBBmwQpABZwkyYIUgA84SZMAKQQacJciAFYIMOEuQASsEGXCWIANWCDLgLEEGrBBkwFmCDFghyICzBBmwQpABZwkyYIUgA84SZMAKQQacJciAFYIMOEuQASsEGXCWIANWCDLgLEEGrBBkwFmCDFghyICzBBmwQpABZwkyYIUgA84SZMAKQQacJciAFYIMOEuQASsEGXCWIANWCDLgLEEGrBBkwFmCDFghyICzBBmwQpABZwkyYIUgA84SZMAKQQacJciAFYIMOEuQASsEGXCWIANWCDLgLEEGrBBkwFmCDFghyICzBBmwQpABZwkyYIUgA84SZMAKQQacJciAFYIMOEuQASsEGXCWIANWCDLgLEEGrBBkwFmCDFghyICzBBmwQpABZwkyYIUgA84SZMAKQQacJciAFYIMOEuQASsEGXCWIANWCDLgLEEGrBBkwFmCDFghyICzBBmwQpABZwkyYIUgA84SZMAKQQacJciAFYIMOEuQASsEGXCWIANWCDLgLEEGrBBkwFmCDFghyICzBBmwQpABZwkyYIUgA84SZMAKQQacJciAFYIMOEuQASsEGXCWIANWCDLgLEEGrBBkwFmCDFghyICzBBmwQpABZwkyYIUgA84SZMAKQQacJciAFYIMOEuQASsEGXCWIANWCDLgLEEGrBBkwFmCDFghyICzBBmwQpABZwkyYIUgA84SZMAKQQacJciAFYIMOEuQASsEGXCWIANWCDLgLEEGrBBkwFmCDFghyICzBBmwQpABZwkyYIUgA84SZMAKQQacJciAFYIMOEuQASsEGXCWIANWCDLgLEEGrBBkwFmCDFghyICzBBmwQpABZwkyYIUgA84SZMAKQQacJciAFYIMOEuQASsEGXCWIANWCDLgLEEGrBBkwFmCDFghyICzBBmwQpABZwkyYIUgA84SZMAKQQacJciAFYIMOEuQASsEGXCWIANWCDLgLEEGrBBkwFmCDFghyICzBBmwQpABZwkyYIUgA84SZMAKQQacJciAFYIMOEuQASsEGXCWIANWCDLgLEEGrBBkwFmCDFghyICzBBmwQpABZwkyYIUgA84SZMAKQQacJciAFYIMOEuQASsEGXCWIANWCDLgLEEGrBBkwFmCDFghyICzBBmwQpABZwkyYIUgA84SZMAKQQacJciAFYIMOEuQASsEGXCWIANWCDLgLEEGrBBkwFmCDFghyICzBBmwQpABZwkyYIUgA84SZMAKQQacJciAFYIMOEuQASsEGXCWIANWCDLgLEEGrBBkwFmCDFghyICzBBmwQpABZwkyYIUgA84SZMAKQQacJciAFYIMOEuQASsEGXCWIANWCDLgLEEGrBBkwFmCDFghyICzBBmwQpABZwkyYIUgA84SZMAKQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAACxTz/965cPn/Djt//4c/7b77/+ef67+fnf//y7rQwA/I8JsgeCDAB4myB7IMgAgLcJsgeCDAB4myB7IMgAgLcJsgeCDAB4myB7IMgAgLcJsgeCDAB4myB7IMgAgLcJsgeCDAB4myB7IMgAgLcJsgeCDAB4myB7IMgAgLcJsgeCDAB4myB7IMgAgLcJsgeCDAB4myB7IMgAgLcJsgeCDAB4myB7IMgAgLcJsgeCDAB4myB7IMgAgLcJsgeCDAB4myB7IMgAgLcJsgeCDAB426fvvv/h7TsAAPgLggwAICbIAABiggwAICbIAABiggwAICbIAABiggwAICbIAABiggwAICbIAABiggwAICbIAABiggwAICbIAABiggwAICbIAABiggwAICbIAABiggwAICbIAABiggwAICbIAABiggwAIDYfZF++fPnwCz9//vzhHADg/40gAwCICTIAgJggAwCICTIAgJggAwCICTIAgJggAwCICTIAgJggAwCICTIAgJggAwCICTIAgJggAwCICTIAgJggAwCICTIAgJggAwCICTIAgJggAwCICTIAgJggAwCICTIAgJggAwCIzQcZAMA6QQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEBNkAAAxQQYAEPsvbO2/btI/ME4AAAAASUVORK5CYII=" preserveAspectRatio="none" clip-path="url(#terminal-background-100-28-4-4)" style="image-rendering: pixelated; image-rendering: crisp-edges;"></image>
+
+  <g style="">
+
+    
+    <svg x="8.42333333" y="9.333331000000001" class="default-text-fill">
+
+      <text xml:space="preserve" class="term-text" style="fill: #cdd0d6">
+        <tspan y="0.0">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">╭</tspan><tspan x="429.58999983">─</tspan><tspan x="438.01333316">─</tspan><tspan x="446.43666649">─</tspan><tspan x="454.85999982">─</tspan><tspan x="463.28333315000003">─</tspan><tspan x="471.70666648">─</tspan><tspan x="480.12999981">─</tspan><tspan x="488.55333314">─</tspan><tspan x="496.97666647">─</tspan><tspan x="505.3999998">─</tspan><tspan x="513.82333313">─</tspan><tspan x="522.24666646">─</tspan><tspan x="530.66999979">─</tspan><tspan x="539.09333312">─</tspan><tspan x="547.51666645">─</tspan><tspan x="555.93999978">─</tspan><tspan x="564.36333311">─</tspan><tspan x="572.78666644">─</tspan><tspan x="581.20999977">─</tspan><tspan x="589.6333331">─</tspan><tspan x="598.0566664300001">─</tspan><tspan x="606.47999976">─</tspan><tspan x="614.90333309">─</tspan><tspan x="623.32666642">─</tspan><tspan x="631.74999975">─</tspan><tspan x="640.17333308">─</tspan><tspan x="648.59666641">─</tspan><tspan x="657.01999974">─</tspan><tspan x="665.44333307">─</tspan><tspan x="673.8666664">─</tspan><tspan x="682.28999973">─</tspan><tspan x="690.71333306">─</tspan><tspan x="699.13666639">─</tspan><tspan x="707.5599997200001">─</tspan><tspan x="715.98333305">─</tspan><tspan x="724.40666638">─</tspan><tspan x="732.82999971">─</tspan><tspan x="741.25333304">─</tspan><tspan x="749.67666637">─</tspan><tspan x="758.0999997">─</tspan><tspan x="766.52333303">─</tspan><tspan x="774.94666636">─</tspan><tspan x="783.36999969">─</tspan><tspan x="791.79333302">─</tspan><tspan x="800.21666635">─</tspan><tspan x="808.6399996800001">─</tspan><tspan x="817.0633330100001">─</tspan><tspan x="825.48666634">─</tspan><tspan x="833.90999967">╮</tspan>
+        </tspan><tspan y="18.666662000000002">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">1</tspan><tspan x="438.01333316"> He clasps the crag with crooked hands;        </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="37.333324000000005">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">2</tspan><tspan x="438.01333316"> Close to the sun in lonely lands,             </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="55.99998600000001">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">3</tspan><tspan x="438.01333316"> Ring&#39;d with the azure world, he stands.       </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="74.66664800000001">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">4</tspan><tspan x="438.01333316">                                               </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="93.33331000000001">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">5</tspan><tspan x="438.01333316"> The wrinkled sea beneath him crawls;          </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="111.99997200000001">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">6</tspan><tspan x="438.01333316"> He watches from his mountain walls,           </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="130.66663400000002">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">7</tspan><tspan x="438.01333316"> And like a thunderbolt he falls.              </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="149.33329600000002">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">                                                </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="167.99995800000002">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">                                                </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="186.66662000000002">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">                                                </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="205.33328200000003">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">                                                </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="223.99994400000003">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">                                                </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="242.66660600000003">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">                                                </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="261.33326800000003">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">                                                </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="279.99993">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">                                                </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="298.66659200000004">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">                                                </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="317.333254">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">                                                </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="335.99991600000004">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">                                                </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="354.666578">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">                                                </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="373.33324000000005">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">                                                </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="391.999902">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">                                                </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="410.66656400000005">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">                                                </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="429.333226">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">                                                </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="447.99988800000006">
+          <tspan dy="1em" x="0.0">                                                  </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">                                                </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="466.66655000000003">
+          <tspan dy="1em" x="8.42333333" class="br"> The </tspan><tspan x="50.539999980000005" class="br" style="fill: #55d6c7">Eagle</tspan><tspan x="92.65666663">                                       </tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">                                                </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="485.33321200000006">
+          <tspan dy="1em" x="0.0" class="it" style="fill: #78d47c">  1/8</tspan><tspan x="42.11666665" class="it" style="fill: #c4c8ce"> (2/3) </tspan><tspan x="101.07999996000001" class="it" style="fill: #c4c8ce">─</tspan><tspan x="109.50333329" class="it" style="fill: #c4c8ce">─</tspan><tspan x="117.92666662" class="it" style="fill: #c4c8ce">─</tspan><tspan x="126.34999995" class="it" style="fill: #c4c8ce">─</tspan><tspan x="134.77333328" class="it" style="fill: #c4c8ce">─</tspan><tspan x="143.19666661" class="it" style="fill: #c4c8ce">─</tspan><tspan x="151.61999994" class="it" style="fill: #c4c8ce">─</tspan><tspan x="160.04333327" class="it" style="fill: #c4c8ce">─</tspan><tspan x="168.4666666" class="it" style="fill: #c4c8ce">─</tspan><tspan x="176.88999993000002" class="it" style="fill: #c4c8ce">─</tspan><tspan x="185.31333326" class="it" style="fill: #c4c8ce">─</tspan><tspan x="193.73666659" class="it" style="fill: #c4c8ce">─</tspan><tspan x="202.15999992000002" class="it" style="fill: #c4c8ce">─</tspan><tspan x="210.58333325" class="it" style="fill: #c4c8ce">─</tspan><tspan x="219.00666658" class="it" style="fill: #c4c8ce">─</tspan><tspan x="227.42999991" class="it" style="fill: #c4c8ce">─</tspan><tspan x="235.85333324" class="it" style="fill: #c4c8ce">─</tspan><tspan x="244.27666657" class="it" style="fill: #c4c8ce">─</tspan><tspan x="252.6999999" class="it" style="fill: #c4c8ce">─</tspan><tspan x="261.12333323" class="it" style="fill: #c4c8ce">─</tspan><tspan x="269.54666656" class="it" style="fill: #c4c8ce">─</tspan><tspan x="277.96999989" class="it" style="fill: #c4c8ce">─</tspan><tspan x="286.39333322" class="it" style="fill: #c4c8ce">─</tspan><tspan x="294.81666655" class="it" style="fill: #c4c8ce">─</tspan><tspan x="303.23999988" class="it" style="fill: #c4c8ce">─</tspan><tspan x="311.66333321" class="it" style="fill: #c4c8ce">─</tspan><tspan x="320.08666654" class="it" style="fill: #c4c8ce">─</tspan><tspan x="328.50999987" class="it" style="fill: #c4c8ce">─</tspan><tspan x="336.9333332" class="it" style="fill: #c4c8ce">─</tspan><tspan x="345.35666653" class="it" style="fill: #c4c8ce">─</tspan><tspan x="353.77999986000003" class="it" style="fill: #c4c8ce">─</tspan><tspan x="362.20333319" class="it" style="fill: #c4c8ce">─</tspan><tspan x="370.62666652" class="it" style="fill: #c4c8ce">─</tspan><tspan x="379.04999985" class="it" style="fill: #c4c8ce">─</tspan><tspan x="387.47333318" class="it" style="fill: #c4c8ce">─</tspan><tspan x="395.89666651" class="it" style="fill: #c4c8ce">─</tspan><tspan x="404.31999984000004" class="it" style="fill: #c4c8ce">─</tspan><tspan x="412.74333317" class="it" style="fill: #c4c8ce">─</tspan><tspan x="421.1666665">│</tspan><tspan x="429.58999983">                                                </tspan><tspan x="833.90999967">│</tspan>
+        </tspan><tspan y="503.99987400000003">
+          <tspan dy="1em" x="0.0">&gt; eagle</tspan><tspan x="58.96333331" style="fill: #191c22"> </tspan><tspan x="67.38666664">                                          </tspan><tspan x="421.1666665">╰</tspan><tspan x="429.58999983">─</tspan><tspan x="438.01333316">─</tspan><tspan x="446.43666649">─</tspan><tspan x="454.85999982">─</tspan><tspan x="463.28333315000003">─</tspan><tspan x="471.70666648">─</tspan><tspan x="480.12999981">─</tspan><tspan x="488.55333314">─</tspan><tspan x="496.97666647">─</tspan><tspan x="505.3999998">─</tspan><tspan x="513.82333313">─</tspan><tspan x="522.24666646">─</tspan><tspan x="530.66999979">─</tspan><tspan x="539.09333312">─</tspan><tspan x="547.51666645">─</tspan><tspan x="555.93999978">─</tspan><tspan x="564.36333311">─</tspan><tspan x="572.78666644">─</tspan><tspan x="581.20999977">─</tspan><tspan x="589.6333331">─</tspan><tspan x="598.0566664300001">─</tspan><tspan x="606.47999976">─</tspan><tspan x="614.90333309">─</tspan><tspan x="623.32666642">─</tspan><tspan x="631.74999975">─</tspan><tspan x="640.17333308">─</tspan><tspan x="648.59666641">─</tspan><tspan x="657.01999974">─</tspan><tspan x="665.44333307">─</tspan><tspan x="673.8666664">─</tspan><tspan x="682.28999973">─</tspan><tspan x="690.71333306">─</tspan><tspan x="699.13666639">─</tspan><tspan x="707.5599997200001">─</tspan><tspan x="715.98333305">─</tspan><tspan x="724.40666638">─</tspan><tspan x="732.82999971">─</tspan><tspan x="741.25333304">─</tspan><tspan x="749.67666637">─</tspan><tspan x="758.0999997">─</tspan><tspan x="766.52333303">─</tspan><tspan x="774.94666636">─</tspan><tspan x="783.36999969">─</tspan><tspan x="791.79333302">─</tspan><tspan x="800.21666635">─</tspan><tspan x="808.6399996800001">─</tspan><tspan x="817.0633330100001">─</tspan><tspan x="825.48666634">─</tspan><tspan x="833.90999967">╯</tspan>
+        </tspan>
+      </text>
+    </svg>
+  </g>
+
+  
+    <svg x="375.456" y="216.533" width="108.267" height="108.267">
+  <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000.0 1000.0" style="filter: drop-shadow(0px 0px 5px rgba(0, 0, 0, 0.4))">
+  <defs>
+    <mask id="small-triangle-mask">
+      <rect width="100%" height="100%" fill="white"></rect>
+      <polygon points="700.0 500.0, 400.00000000000006 326.7949192431122, 399.9999999999999 673.2050807568877" fill="black">
+      </polygon>
+    </mask>
+  </defs>
+  <polygon points="1000.0 500.0, 250.0000000000001 66.98729810778059, 249.99999999999977 933.0127018922192" mask="url(#small-triangle-mask)" fill="white">
+  </polygon>
+  <polyline points="673.2050807568878 400.0, 326.7949192431123 600.0" stroke="white" stroke-width="90">
+  </polyline>
+</svg>
+</svg>
+  
+</svg>

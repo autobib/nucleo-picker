@@ -11,6 +11,8 @@ This library can be used to equip your program with a TUI interface similar to t
 - For documentation of interactive usage of the picker, see the [`USAGE.md`](USAGE.md) file.
 - For a list of recent changes, see the [`CHANGELOG.md`](CHANGELOG.md) file.
 
+[![asciicast](docs/asciicast/preview_serde.svg)](https://asciinema.org/a/vfNpOglVTppCEAsb)
+
 ## Overview
 
 This library sits between a general-purpose fuzzy-finder (such as `fzf`) and a lower level library (such as `nucleo`).
@@ -119,6 +121,20 @@ If there are particular `fzf`-specific features that you would like to see suppo
 - [ ] `--cycle`
 - [ ] `--track`
 - [ ] `--ghost`
+
+## Gallery
+
+### `preview_serde`
+
+This shows a preview pane and multiple selections.
+
+[![asciicast](docs/asciicast/preview_serde.svg)](https://asciinema.org/a/vfNpOglVTppCEAsb)
+
+### `ratatui`
+
+This shows integration into a larger application using [Ratatui](https://ratatui.rs).
+
+[![asciicast](docs/asciicast/ratatui.svg)](https://asciinema.org/a/0lCAdGEEWShk7NTe)
 
 ## Related crates
 
