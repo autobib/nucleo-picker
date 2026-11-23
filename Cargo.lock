@@ -934,7 +934,7 @@ dependencies = [
 
 [[package]]
 name = "nucleo-picker"
-version = "0.12.2"
+version = "0.13.0"
 dependencies = [
  "crossbeam",
  "crossterm",
