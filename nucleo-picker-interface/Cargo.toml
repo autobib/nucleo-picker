@@ -23,7 +23,7 @@ nucleo-picker-core.workspace = true
 parking_lot = { workspace = true, optional = true }
 
 [dev-dependencies]
-crossbeam = "0.8.4"
+crossbeam.workspace = true
 
 [lints]
 workspace = true
