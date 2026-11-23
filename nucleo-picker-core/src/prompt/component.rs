@@ -140,11 +140,7 @@ impl Component for Prompt<'_> {
     fn cursor(&self) -> Option<Position> {
         let size = self.size?;
         (size.width != 0 && size.height != 0).then(|| Position {
-            column: self
-                .state
-                .cursor_column()
-                .saturating_add(2)
-                .min(size.width - 1),
+            column: self.state.cursor_column() + 2.min(size.width - 1),
             row: 0,
         })
     }

@@ -155,6 +155,10 @@ impl PromptState {
         self.config.padding.min(self.width.saturating_sub(1) / 2)
     }
 
+    fn max_cursor_column(&self) -> u16 {
+        (self.width - self.padding()).min(self.width.saturating_sub(1))
+    }
+
     /// Return the prompt contents as well as an 'offset' which is required in the presence of an
     /// initial grapheme that is too large to fit at the beginning of the screen.
     pub fn view(&self) -> (&str, u16) {
@@ -201,14 +205,14 @@ impl PromptState {
         self.width = width;
 
         let padding = self.padding();
-        let capacity = width - padding;
+        let max_column = self.max_cursor_column();
         let before = as_u16(UnicodeProcessor::width(&self.contents[..self.cursor_byte]));
         let after = as_u16(UnicodeProcessor::width(&self.contents[self.cursor_byte..]));
 
-        let upper = before.min(capacity);
+        let upper = before.min(max_column);
         let lower = padding
             .min(before)
-            .max(capacity.saturating_sub(after))
+            .max(max_column.saturating_sub(after))
             .min(upper);
 
         self.cursor_column = self.cursor_column.clamp(lower, upper);
@@ -227,7 +231,7 @@ impl PromptState {
         self.contents = contents;
         self.cursor_byte = self.contents.len();
         self.cursor_column =
-            as_u16(UnicodeProcessor::width(&self.contents)).min(self.width - self.padding());
+            as_u16(UnicodeProcessor::width(&self.contents)).min(self.max_cursor_column());
         contents_changed
     }
 
@@ -236,7 +240,7 @@ impl PromptState {
         self.cursor_column = self
             .cursor_column
             .saturating_add(as_u16(width))
-            .min(self.width - self.padding());
+            .min(self.max_cursor_column());
     }
 
     /// Insert a character at the cursor position.
@@ -364,7 +368,7 @@ impl PromptState {
         if self.cursor_byte == self.contents.len() {
             return false;
         }
-        let max_offset = self.width - self.padding();
+        let max_offset = self.max_cursor_column();
         for gp in self.contents[self.cursor_byte..].graphemes(true) {
             self.cursor_column = self
                 .cursor_column

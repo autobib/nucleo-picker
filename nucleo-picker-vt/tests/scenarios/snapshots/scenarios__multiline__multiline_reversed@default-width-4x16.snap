@@ -1,6 +1,6 @@
 ---
 source: nucleo-picker-vt/tests/scenarios/multiline.rs
-expression: sr.checkpoint(resolved_name.to_owned())?
+expression: "& snapshot"
 info:
   resolved_name: default-width-4x16
   name_expression: "format!(\"default-width-{cols}x16\")"
@@ -28,20 +28,20 @@ colors:
 text:
   - ">   "
   - "    "
-  - ▌ ……
-  - "  ……"
-  - "  ……"
-  - "  ……"
-  - "  ……"
-  - "  ……"
-  - "  ……"
-  - "  ……"
-  - "  ……"
-  - "  ……"
-  - "  ……"
-  - "  ……"
-  - "  ……"
-  - "  ……"
+  - ▌ i…
+  - "  i…"
+  - "   …"
+  - "  i…"
+  - "   …"
+  - "   …"
+  - "   …"
+  - "  i…"
+  - "  i…"
+  - "   …"
+  - "  i…"
+  - "   …"
+  - "   …"
+  - "   …"
 styles:
   - row: 2
     start: 0

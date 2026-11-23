@@ -102,11 +102,12 @@ fn prompt_scroll_at_column_zero() -> Result<(), Box<dyn Error>> {
     sr.set_dimensions(3, 3)?;
     sr.wait_for_match_complete(1, 1)?;
     let before = sr.checkpoint("before-left")?;
-    assert_eq!(before.text.last().unwrap(), "> c");
+    assert_eq!(before.text.last().unwrap(), ">  ");
 
     sr.send(Event::Prompt(PromptEvent::Left(1)))?;
     let after = checkpoint!(sr, "after-left");
-    assert_eq!(after.text, before.text);
+    assert_eq!(after.text.last().unwrap(), "> c");
+    assert_eq!(&after.text[..2], &before.text[..2]);
     assert!(after.row_flags.is_empty());
     assert_eq!(after.cursor.position, before.cursor.position);
 

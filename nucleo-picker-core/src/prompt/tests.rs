@@ -71,8 +71,8 @@ fn narrow_prompts_clip_wide_graphemes_without_splitting_them() {
         (1, "abc", 1, 0, "c"),
         (1, "aＡ", 1, 0, ""),
         (3, "\u{17d8}abc", 3, 0, "abc"),
-        (4, "\u{17d8}abc", 3, 1, " abc"),
-        (6, "\u{17d8}abc", 3, 3, "\u{17d8}abc"),
+        (4, "\u{17d8}abc", 3, 0, "abc"),
+        (6, "\u{17d8}abc", 3, 2, "  abc"),
     ] {
         let chars = PickerChars::new();
         let mut state = PromptState::new(PromptConfig { padding: 0 });
@@ -98,6 +98,62 @@ fn resizing_restores_cursor_and_context_after_zero_width() {
         (6, 4, "ijkl"),
     ] {
         assert_prompt(&mut prompt, width, "abcdefghijkl", column, visible);
+    }
+}
+
+#[test]
+fn zero_padding_keeps_the_cursor_at_the_visible_insertion_position() {
+    for event in [Reset("abc".to_owned()), Paste("abc".to_owned())] {
+        let chars = PickerChars::new();
+        let mut state = PromptState::new(PromptConfig { padding: 0 });
+        let mut prompt = Prompt::new(&mut state, &chars);
+        render(&mut prompt, 3);
+        prompt.handle(event);
+        assert_prompt(&mut prompt, 3, "abc", 2, "bc");
+        for (event, query, column, visible) in [
+            (Left(1), "abc", 1, "bc"),
+            (Insert('X'), "abXc", 2, "bXc"),
+            (Right(1), "abXc", 2, "Xc"),
+            (ToStart, "abXc", 0, "abX"),
+            (ToEnd, "abXc", 2, "Xc"),
+        ] {
+            prompt.handle(event);
+            assert_prompt(&mut prompt, 3, query, column, visible);
+        }
+    }
+}
+
+#[test]
+fn narrow_prompts_keep_a_cursor_cell_with_default_or_zero_padding() {
+    for padding in [0, PromptConfig::default().padding] {
+        for (width, column, visible) in [(1, 0, ""), (2, 1, "c")] {
+            let chars = PickerChars::new();
+            let mut state = PromptState::new(PromptConfig { padding });
+            let mut prompt = Prompt::new(&mut state, &chars);
+            render(&mut prompt, width);
+            prompt.handle(Paste("abc".to_owned()));
+            assert_prompt(&mut prompt, width, "abc", column, visible);
+            prompt.handle(Left(1));
+            assert_prompt(&mut prompt, width, "abc", 0, "c");
+        }
+    }
+}
+
+#[test]
+fn resizing_without_padding_keeps_the_cursor_cell_visible() {
+    let chars = PickerChars::new();
+    let mut state = PromptState::new(PromptConfig { padding: 0 });
+    let mut prompt = Prompt::new(&mut state, &chars);
+    prompt.handle(Reset("ab界".to_owned()));
+    for (width, column, visible) in [
+        (6, 4, "ab界"),
+        (3, 2, "界"),
+        (2, 1, " "),
+        (1, 0, ""),
+        (0, 0, ""),
+        (6, 4, "ab界"),
+    ] {
+        assert_prompt(&mut prompt, width, "ab界", column, visible);
     }
 }
 

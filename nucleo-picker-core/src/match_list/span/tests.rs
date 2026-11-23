@@ -1,6 +1,7 @@
 use super::*;
 use crate::component::tests::TestSurface;
 use crate::util::unicode::tests::{CountingProcessor, MEASURED_BYTES};
+use crate::util::unicode::{AsciiProcessor, UnicodeProcessor, is_ascii_safe};
 
 struct All;
 
@@ -69,6 +70,53 @@ fn alignment_stops_measuring_once_the_first_highlight_limits_scrolling() {
             MEASURED_BYTES.set(0);
             assert_eq!(spanned.required_offset(20, padding), expected);
             assert!(MEASURED_BYTES.get() <= 64, "{}", MEASURED_BYTES.get());
+        }
+    }
+}
+
+#[test]
+fn highlight_visibility_accounts_for_padding_and_trailing_content() {
+    fn assert_rendered<P: Processor>(
+        text: &str,
+        indices: &[u32],
+        width: u16,
+        padding: u16,
+        expected: &[&str],
+    ) {
+        let mut spans = Vec::new();
+        let mut lines = Vec::new();
+        let spanned = Spanned::<P>::new(indices, text, &mut spans, &mut lines, All);
+        let mut surface = TestSurface::new(width, expected.len() as u16);
+        spanned
+            .queue_print(
+                &mut surface,
+                &mut 0,
+                true,
+                false,
+                padding,
+                false,
+                &PickerChars::new(),
+            )
+            .unwrap();
+        assert_eq!(surface.rows, expected, "{text:?}, {width}, {padding}");
+    }
+
+    for (text, indices, width, padding, expected) in [
+        ("abcdeXyz", &[5][..], 5, 0, &["▌ …X…"][..]),
+        ("abcdeX", &[5], 5, 0, &["▌ …eX"]),
+        ("abcdeX\u{200b}", &[5], 5, 0, &["▌ …eX\u{200b}"]),
+        ("abcde界yz", &[5], 6, 0, &["▌ …界…"]),
+        ("界界Xyz", &[2], 5, 0, &["▌ …X…"]),
+        ("abcdee\u{301}yz", &[5], 5, 0, &["▌ …e\u{301}…"]),
+        ("abcdeXyz", &[5], 7, 2, &["▌ …eXyz"]),
+        ("abcdeXyz", &[5], 7, u16::MAX, &["▌ …Xyz"]),
+        ("abc", &[], 4, 3, &["▌ a…"]),
+        ("abcdXyz\nabcdeYuv", &[4, 13], 6, 0, &["▌ …Xyz", "▌ …eY…"]),
+        ("abcdeYuv\nabcdXyz", &[5, 13], 5, 0, &["▌ …e…", "▌ …X…"]),
+    ] {
+        assert_rendered::<UnicodeProcessor>(text, indices, width, padding, expected);
+        if is_ascii_safe(text) {
+            assert_rendered::<AsciiProcessor>(text, indices, width, padding, expected);
         }
     }
 }

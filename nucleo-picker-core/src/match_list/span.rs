@@ -105,33 +105,32 @@ impl<'a, P: Processor> Spanned<'a, P> {
         if max_width == 0 {
             return 0;
         }
-        let mut required_width = 0;
-        let mut first_column = usize::MAX;
+        let width = usize::from(max_width);
+        let mut offset = 0;
+        let mut max_offset = usize::MAX;
         for line in self.lines() {
             let Some(first) = line.iter().find(|span| span.is_match) else {
                 continue;
             };
             let last = line.iter().rfind(|span| span.is_match).unwrap();
             let before = P::width(&self.rendered[line[0].range.start..first.range.start]);
-            first_column = first_column.min(before);
-            if first_column <= 1 {
+            max_offset = max_offset.min(before.saturating_sub(1));
+            if max_offset == 0 {
                 return 0;
             }
 
-            let limit = first_column
-                .saturating_sub(1)
-                .saturating_add(usize::from(max_width))
-                .saturating_sub(usize::from(highlight_padding));
-            let matched = P::width_up_to(
-                &self.rendered[first.range.start..last.range.end],
-                limit.saturating_sub(before),
+            let matched = P::width_up_to(&self.rendered[first.range.start..last.range.end], width);
+            // A suffix needs a column for either its text or a trailing ellipsis.
+            let trailing = P::width_up_to(
+                &self.rendered[last.range.end..line.last().unwrap().range.end],
+                1,
             );
-            required_width = required_width.max(before + matched);
+            let required = (before + matched)
+                .saturating_add(usize::from(highlight_padding).max(trailing))
+                .saturating_sub(width);
+            offset = offset.max(required).min(max_offset);
         }
-        let desired = required_width
-            .saturating_add(usize::from(highlight_padding))
-            .saturating_sub(usize::from(max_width));
-        desired.min(first_column.saturating_sub(1))
+        offset
     }
 
     /// Print the header for each line, which is either two spaces or styled indicator. This also
