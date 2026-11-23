@@ -73,14 +73,28 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<Opti
 
     // initialize the preview interface
     let interface = UncachedPreview::new_single(|item: &&'static str, pane: &mut Pane| {
-        pane.push_text("Selected item:\n\n");
-        pane.push_text(item);
+        pane.push_text("Bon appétit!\n\n");
+        for style in [
+            Style::new().cyan().bold(),
+            Style::new().green().italic(),
+            Style::new().yellow().underlined(),
+        ] {
+            pane.buffer_mut().push_styled_line(item, style);
+        }
     });
 
     // we just manually push a few items for convenience in this example.
     // more generally, you should use the injector API to send items to the picker from a separate
     // thread
-    model.push_batch(["red", "green", "blue", "yellow", "purple"]);
+    model.push_batch([
+        "Pounti",
+        "Farçous",
+        "Kig ha farz",
+        "Teurgoule",
+        "Tourtons",
+        "Tielle sétoise",
+        "Truffade",
+    ]);
 
     // initialize a new session.
     let mut session = model.session(interface);

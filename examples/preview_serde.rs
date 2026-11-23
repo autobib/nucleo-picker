@@ -5,7 +5,7 @@
 //! ```bash
 //! cargo run --release --example preview_serde --features serde,preview-cache
 //! ```
-use std::{io, thread::spawn};
+use std::{io, num::NonZero, thread::spawn};
 
 use nucleo_picker::{
     PickerOptions, Render,
@@ -47,8 +47,9 @@ fn main() -> io::Result<()> {
     });
 
     let mut picker = PickerOptions::new()
-        .highlight_line(true)
+        .max_selection_count(NonZero::new(3))
         .picker(PoemRenderer)
+        .multi()
         .with_preview(previewer);
 
     let injector = picker.injector();
@@ -59,9 +60,8 @@ fn main() -> io::Result<()> {
             .unwrap();
     });
 
-    match picker.pick()? {
-        Some(poem) => println!("{}", poem.author),
-        None => println!("Nothing selected!"),
+    for poem in picker.pick()? {
+        println!("{}", poem.author);
     }
 
     Ok(())
