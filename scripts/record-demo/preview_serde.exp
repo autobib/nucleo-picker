@@ -1,0 +1,75 @@
+#!/usr/bin/env expect
+
+if {$argc != 1} {
+    puts stderr "usage: $argv0 output.cast"
+    exit 2
+}
+
+log_user 0
+set timeout 10
+set send_slow {1 0.18}
+set example [file rootname [file tail $argv0]]
+
+spawn -noecho asciinema record --quiet --overwrite --return \
+    --window-size 100x28 \
+    --command ./target/release/examples/$example [lindex $argv 0]
+
+# Keep draining output during pauses so the recorder's PTY cannot fill up.
+proc pause {seconds} {
+    expect -timeout $seconds {
+        timeout {}
+        eof {error "unexpected EOF"}
+    }
+}
+
+expect {
+    -exact "Snow Fence" {}
+    timeout {error "picker startup timed out"}
+    eof {error "picker exited during startup"}
+}
+pause 1
+
+send -- "\033\[A"
+pause 1
+send -- "\t"
+pause 1
+send -- "\t"
+pause 1
+
+send -s -- "stmetro"
+pause 1
+send -- "\t"
+pause 1
+send -- "\t"
+pause 1
+send -- "\025"
+pause 1
+send -s -- "eagle"
+pause 1
+send -- "\t"
+pause 1
+
+for {set i 0} {$i < 3} {incr i} {
+    send -- [string repeat "\033," 4]
+    pause 1
+}
+for {set i 0} {$i < 3} {incr i} {
+    send -- [string repeat "\033." 4]
+    pause 1
+}
+
+send -- "\033p"
+pause 1
+send -- "\033p"
+pause 1
+
+send -- "\r"
+expect {
+    eof {}
+    timeout {error "picker exit timed out"}
+}
+set result [wait]
+if {[lindex $result 2] != 0 || [llength $result] > 4} {
+    error $result
+}
+exit [lindex $result 3]

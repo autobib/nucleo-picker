@@ -1,0 +1,68 @@
+#!/usr/bin/env expect
+
+if {$argc != 1} {
+    puts stderr "usage: $argv0 output.cast"
+    exit 2
+}
+
+log_user 0
+set timeout 10
+set send_slow {1 0.18}
+set example [file rootname [file tail $argv0]]
+
+spawn -noecho asciinema record --quiet --overwrite --return \
+    --window-size 100x28 \
+    --command ./target/release/examples/$example [lindex $argv 0]
+
+# Keep draining output during pauses so the recorder's PTY cannot fill up.
+proc pause {seconds} {
+    expect -timeout $seconds {
+        timeout {}
+        eof {error "unexpected EOF"}
+    }
+}
+
+expect {
+    -exact "Pounti" {}
+    timeout {error "picker startup timed out"}
+    eof {error "picker exited during startup"}
+}
+pause 2
+
+send -- "\033\[B"
+pause 1
+send -s -- "farc"
+pause 2
+
+send -- "\025"
+pause 1
+send -s -- "set"
+pause 2
+
+send -- "\025"
+pause 1
+send -s -- "e"
+pause 2
+send -- "\025é"
+pause 2
+
+send -- "\t"
+pause 2
+send -- "\t"
+pause 1
+
+send -- "\033p"
+pause 1
+send -- "\033p"
+pause 2
+
+send -- "\r"
+expect {
+    eof {}
+    timeout {error "picker exit timed out"}
+}
+set result [wait]
+if {[lindex $result 2] != 0 || [llength $result] > 4} {
+    error $result
+}
+exit [lindex $result 3]
