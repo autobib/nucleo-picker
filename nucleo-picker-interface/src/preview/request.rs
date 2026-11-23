@@ -102,7 +102,7 @@
 //!
 //! The item for which the preview was originally requested is always available using an associated
 //! `item` method; see [`Request::item`], [`QueuedRequest::item`], and
-//! [`ActiveRequest::item`]. Internally, the the deferred request types use atomic reference counting to
+//! [`ActiveRequest::item`]. Internally, the deferred request types use atomic reference counting to
 //! hold on to the underlying item pool (shared with the picker) as long as any request is
 //! not dropped. This means that the items will remain in memory even if the picker shuts down,
 //! if there are any remaining requests which have not been dropped.

@@ -32,7 +32,7 @@ pub trait Terminal: Write {
 
     /// Report the size of the terminal.
     ///
-    /// This method is only called immediately writes are required, and may not be called on each
+    /// This method is only called immediately before writes are required, and may not be called on each
     /// frame.
     fn dimensions(&mut self) -> io::Result<Dimensions>;
 

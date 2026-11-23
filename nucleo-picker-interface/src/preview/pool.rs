@@ -181,7 +181,7 @@ impl<T, F> PoolPreviewer<T, F> {
     /// previews, setting this to a non-zero value can greatly improve perceived responsiveness
     /// of the interactive previewer.
     ///
-    /// The default value is `4`, unless there is a single worker, in which case prefetch is disable. Setting this to `0` disables prefetch entirely independently of the worker count.
+    /// The default value is `4`, unless there is a single worker, in which case prefetch is disabled. Setting this to `0` disables prefetch entirely independently of the worker count.
     #[must_use]
     pub fn with_prefetch_limit(mut self, limit: usize) -> Self {
         self.prefetch_limit = limit;

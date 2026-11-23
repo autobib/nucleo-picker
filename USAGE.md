@@ -17,7 +17,7 @@ There is also a special syntax for various types of exact matches.
 - `foo$` matches an exact suffix, with negation `!foo$`
 - `^foo$` matches the entire string exactly, with negation `!^foo$`
 
-Here, 'exact' means non-fuzzy matching, but still follow the same case-matching and normalization rules.
+Here, 'exact' means non-fuzzy matching, but still follows the same case-matching and normalization rules.
 The negation does not impact scoring: instead, any match for a negative atom is simply discarded, regardless of score.
 
 Whitespace (that is, anything with the [Unicode whitespace property](https://www.unicode.org/Public/UCD/latest/ucd/PropList.txt)) and control symbols `'^$!` at the beginning/end respectively can also be interpreted literally by escaping with a backslash `\`.

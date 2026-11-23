@@ -85,7 +85,7 @@ pub trait Surface {
 
     /// Print the given text at the cursor position.
     ///
-    /// Note that the required preconditions described at the trait-level docs must be satisifed.
+    /// Note that the required preconditions described at the trait-level docs must be satisfied.
     fn text(&mut self, text: &str, style: Style) -> Result<(), Self::Error> {
         if text.is_empty() {
             return Ok(());

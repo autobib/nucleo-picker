@@ -1,6 +1,6 @@
 //! # A generic fuzzy item picker
 //!
-//! This is a low-level crate for implementing a custom picker interfaces of a type similar to
+//! This is a low-level crate for implementing custom picker interfaces of a type similar to
 //! [fzf](https://github.com/junegunn/fzf) directly in your own application.
 //!
 //! - For a high-level easy-to-use picker library, see [nucleo-picker](https://docs.rs/nucleo-picker) crate directly.
@@ -13,8 +13,8 @@
 //!
 //! In short, a picker consists of three components:
 //!
-//! - The [`Model`](session::Model) contains the core resuable state and configuration for
-//!   the picker engine. One might think af this as the minimal picker.
+//! - The [`Model`](session::Model) contains the core reusable state and configuration for
+//!   the picker engine. One might think of this as the minimal picker.
 //! - The [`Interface`](interface::Interface) trait describes how the session interacts with the model, and
 //!   handles things like preview generation and multiple selection.
 //! - The interface and model are combined in a [`Session`](session::Session). A session is *a single
@@ -33,7 +33,7 @@
 //! | --- | --- | --- | --- |
 //! | `serde` | No | [`serde`] | Adds a `DeserializeSeed` implementation for `&Injector`. |
 //! | <code style="white-space: nowrap;">preview-ansi</code> | No | [`anstyle-parse`](anstyle_parse) | Adds ANSI-parsing support for the preview buffer. |
-//! | <code style="white-space: nowrap;">ratatui</code> | No | [`ratatui-core`](ratatui_core) | Adds support for Ratatui styles and a convience widget API |
+//! | <code style="white-space: nowrap;">ratatui</code> | No | [`ratatui-core`](ratatui_core) | Adds support for Ratatui styles and a convenience widget API |
 //! | `crossterm` | No | [`crossterm`] | Adds style conversions between Crossterm types and picker styles. |
 
 #![deny(missing_docs)]

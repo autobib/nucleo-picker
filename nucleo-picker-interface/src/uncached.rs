@@ -14,7 +14,7 @@ use crate::{Interface, Multi, Single};
 ///
 /// In general, you should prefer to use [`CachedPreview`](crate::CachedPreview). This adapter only
 /// holds a single pane buffer internally and calls the closure synchronously on the picker thread
-/// every time the item changes or no refresh. In particular, the closure must not block. This is
+/// every time the item changes or on refresh. In particular, the closure must not block. This is
 /// sufficient only for small previews built directly from data accessible from the item `&T`.
 ///
 /// For slow previews, use [`CachedPreview`](crate::CachedPreview) with the built-in [`PoolPreviewer`](crate::preview::PoolPreviewer), or implement a custom [`Preview`](crate::preview::Preview) directly.
@@ -25,7 +25,7 @@ pub struct UncachedPreview<I, F> {
 
 /// Opaque per-session state for [`UncachedPreview`].
 ///
-/// This contains the interface state for the base interface along with resuable pane scratch space.
+/// This contains the interface state for the base interface along with reusable pane scratch space.
 pub struct UncachedPreviewState<S> {
     interface: S,
     pane: Pane,

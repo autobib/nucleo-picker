@@ -32,7 +32,7 @@
 //!       Matches will not appear without calling this method.
 //!    2. *Prepare the frame for rendering.*
 //!       Do this by calling [`Session::prepare_frame`].
-//!       Preparing the frame gives the [interface](crate::interface::Interface) the chance to do any work which shold occur immediately before the frame is rendering.
+//!       Preparing the frame gives the [interface](crate::interface::Interface) the chance to do any work which should occur immediately before the frame is rendered.
 //!    3. *Render the frame.*
 //!       What this will look like depends on your application.
 //!       For a Ratatui application, the various components (accessible on the [`PreparedFrame`])
@@ -96,7 +96,7 @@ pub use model::{Model, ModelOptions};
 pub enum Exit {
     /// The session quit without making a selection.
     Quit,
-    /// The session quit and requested a selection. The given item, if any, is the hovered at the time of
+    /// The session quit and requested a selection. The given item, if any, is the hovered item at the time of
     /// processing the exit.
     Selected(Option<ItemId>),
 }

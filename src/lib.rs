@@ -17,7 +17,7 @@
 //!   for end-user-relevant TUI usage documentation.
 //!
 //! For lower-level control over layout (especially when integrating into a large application, for
-//! instance using Rataui) see the [`nucleo-picker-interface`](nucleo_picker_interface) and
+//! instance using Ratatui) see the [`nucleo-picker-interface`](nucleo_picker_interface) and
 //! [`nucleo-picker-core`](nucleo_picker_core) crates. This crate already includes many of the
 //! relevant imports; see for instance the [Ratatui
 //! example](https://github.com/autobib/nucleo-picker/blob/master/examples/ratatui.rs)
@@ -52,7 +52,7 @@
 //! | `preview-cache` | No | [`lru`](https://docs.rs/lru) | `nucleo-picker-interface/preview-cache` | Enables the [`Preview`](preview::Preview) trait and [`CachedPreview`]. |
 //! | `serde` | No | [`serde`](https://docs.rs/serde) | `nucleo-picker-core/serde` | Adds a `DeserializeSeed` implementation for `&Injector`. |
 //! | <code style="white-space: nowrap;">preview-ansi</code> | No | [`anstyle-parse`](https://docs.rs/anstyle-parse) | `nucleo-picker-core/preview-ansi` | Adds ANSI-parsing support for the preview buffer. |
-//! | <code style="white-space: nowrap;">ratatui</code> | No | [`ratatui-core`](https://docs.rs/ratatui-core) | `nucleo-picker-core/ratatui` | Adds support for Ratatui styles and a convience widget API |
+//! | <code style="white-space: nowrap;">ratatui</code> | No | [`ratatui-core`](https://docs.rs/ratatui-core) | `nucleo-picker-core/ratatui` | Adds support for Ratatui styles and a convenience widget API |
 
 #![deny(missing_docs)]
 #![warn(rustdoc::unescaped_backticks)]
@@ -200,7 +200,7 @@ impl PickerOptions {
 
     /// Set a 'reversed' rendering order in the interface.
     ///
-    /// Option `false` (default) will put the prompt at the bottom and render items in from the
+    /// Option `false` (default) will put the prompt at the bottom and render items from the
     /// bottom to the top. Option `true` will put the prompt at the top and render items from the
     /// top to the bottom.
     ///
@@ -250,7 +250,7 @@ impl PickerOptions {
     ///
     /// # Interface default
     ///
-    /// This is the value propagated to into [`Multi`] by [`multi`](Picker::multi) and
+    /// This is the value propagated into [`Multi`] by [`multi`](Picker::multi) and
     /// [`as_multi`](Picker::as_multi). Note that separately constructing the interface will ignore
     /// this option.
     #[must_use]
@@ -591,7 +591,7 @@ impl PickerOptions {
 ///    selection mode ([`Multi`]).
 /// 2. Whether the picker has item previews (the wrapper state [`CachedPreview`]).
 ///
-/// For more details on picker variants read the [`Interface`] trait documentation and the read the
+/// For more details on picker variants read the [`Interface`] trait documentation and read the
 /// [interface module documentation](interface). In particular, jump to the sections on:
 ///
 /// - [multiple selections](interface#multiple-selections)
@@ -709,10 +709,10 @@ impl PickerOptions {
 ///
 /// After an exit or error while processing events, the picker internally records any changes,
 /// attempts to clean up the terminal, and then calls [`on_end`](Interface::on_end). If the exit
-/// and cleanup succeeds, [`finish`](Interface::finish) is called.
+/// and cleanup succeed, [`finish`](Interface::finish) is called.
 ///
 /// Abnormal exit during panics will still result in attempted terminal cleanup but
-/// will not result in usual interface cleanup methods from being called.
+/// will not result in usual interface cleanup methods being called.
 pub struct Picker<T, R, I = Single> {
     core: Model<T, R>,
     runner: RunnerConfig,

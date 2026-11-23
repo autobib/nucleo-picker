@@ -11,7 +11,7 @@ This is a huge release.
 In short:
 
 1. Adds support for item previews.
-2. Adds a headless session API (including support for embedding in a Ratatui) application.
+2. Adds a headless session API (including support for embedding in a Ratatui application).
 3. Makes some minor breaking API changes and adds generics for abstracting over picker types.
 4. Improves the multi-threaded performance of the matching engine.
 5. Makes slight improvements to the scoring algorithm.

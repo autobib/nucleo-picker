@@ -142,7 +142,7 @@ use crate::{Generation, session::Dimensions};
 /// watch for new injectors using the [`Observer`] returned by
 /// [`Picker::injector_observer`](crate::Picker::injector_observer).
 ///
-/// A restart changes the [`Generation`], which can be used to identify injectors and picers which
+/// A restart changes the [`Generation`], which can be used to identify injectors and pickers which
 /// share the same underlying item pool.
 ///
 /// When the [`Event::Restart`] is processed by the picker, it will clear the item list and

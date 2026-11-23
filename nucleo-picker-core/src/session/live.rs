@@ -536,7 +536,7 @@ impl<'items, T: Send + Sync + 'static, R: Render<T>, I: Interface<T>>
     /// Returns a view of the prompt.
     ///
     /// This view can be used for resizing, drawing, and introspection. See the [`PreparedPrompt`]
-    /// documenation for more details.
+    /// documentation for more details.
     pub fn prompt(&mut self) -> PreparedPrompt<'_, 'items, T, R, I> {
         PreparedPrompt {
             session: self.session,
@@ -546,7 +546,7 @@ impl<'items, T: Send + Sync + 'static, R: Render<T>, I: Interface<T>>
     /// Returns a view of the match list.
     ///
     /// This view can be used for resizing, drawing, and introspection. See the [`PreparedMatchList`]
-    /// documenation for more details.
+    /// documentation for more details.
     pub fn match_list(&mut self) -> PreparedMatchList<'_, 'items, T, R, I> {
         PreparedMatchList {
             session: self.session,
@@ -556,7 +556,7 @@ impl<'items, T: Send + Sync + 'static, R: Render<T>, I: Interface<T>>
     /// Returns a view of the status bar.
     ///
     /// This view can be used for resizing, drawing, and introspection. See the [`PreparedStatus`]
-    /// documenation for more details.
+    /// documentation for more details.
     pub fn status(&mut self) -> PreparedStatus<'_, 'items, T, R, I> {
         PreparedStatus {
             session: self.session,
@@ -565,8 +565,8 @@ impl<'items, T: Send + Sync + 'static, R: Render<T>, I: Interface<T>>
 
     /// Returns a view of the preview pane.
     ///
-    /// This view can be used for resizing, drawing, and introspection. See the [`PreparedStatus`]
-    /// documenation for more details.
+    /// This view can be used for resizing, drawing, and introspection. See the [`PreparedPreview`]
+    /// documentation for more details.
     pub fn preview(&mut self) -> PreparedPreview<'_, 'items, T, R, I> {
         PreparedPreview {
             session: self.session,
@@ -585,7 +585,7 @@ impl<'items, T: Send + Sync + 'static, R: Render<T>, I: Interface<T>>
         self.session.pending_redraw & self.session.active_components
     }
 
-    /// Returns whether any of the components ahve changed.
+    /// Returns whether any of the components have changed.
     ///
     /// This includes changes reported by [`redraw`](Self::redraw) and also changes to visibility
     /// (for instance, if a component is hidden or becomes visible).

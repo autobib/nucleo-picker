@@ -14,7 +14,7 @@
 //!
 //! - There are full implementation examples in the [examples folder](https://github.com/autobib/nucleo-picker/tree/master/examples)
 //!   on GitHub.
-//! - Default keybindings for preview events can be found in the [picker usage documetation](https://github.com/autobib/nucleo-picker/blob/master/USAGE.md)
+//! - Default keybindings for preview events can be found in the [picker usage documentation](https://github.com/autobib/nucleo-picker/blob/master/USAGE.md)
 //! - For documentation concerning the internal preview cache, see the [preview interface
 //!   docs](crate::CachedPreview#preview-cache).
 

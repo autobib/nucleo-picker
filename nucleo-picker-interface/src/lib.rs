@@ -1,7 +1,7 @@
 //! # Interactive interface
 //!
 //! This is a crate implementing picker interfaces for use in the high-level
-//! [nucleo-picker](https://docs.rs/nucleo-picker) crate or in the low-level [nucleo-picer-core](https://docs.rs/nucleo-picker-core) crate.
+//! [nucleo-picker](https://docs.rs/nucleo-picker) crate or in the low-level [nucleo-picker-core](https://docs.rs/nucleo-picker-core) crate.
 //! You probably want to start there, instead of reading the documentation here first.
 //!
 //! In short, the *picker interface* describes the behaviour of the picker during interactive operation.

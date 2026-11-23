@@ -165,7 +165,7 @@ pub trait Interface<T>: Sized {
     /// Update the dimensions of the preview pane.
     ///
     /// These are the dimensions of the drawable area of the preview pane (including width and
-    /// height 0 if the preview pane if the preview pane is very small), or `None` if the preview
+    /// height 0 if the preview pane is very small), or `None` if the preview
     /// pane is hidden.
     ///
     /// This callback updates preview presentation. The host repaints after resizing; the

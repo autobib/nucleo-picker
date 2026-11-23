@@ -8,7 +8,7 @@ use super::{Generation, Render};
 ///
 /// This struct is cheaply clonable and can be sent across threads whenever the renderer can be sent
 /// across threads. By default, add new items to
-/// the using the [`push`](Injector::push) method. For convenience, an
+/// the picker using the [`push`](Injector::push) method. For convenience, an
 /// injector also implements [`Extend`] if you want to add items from an iterator.
 ///
 /// ## Injector lifecycle
