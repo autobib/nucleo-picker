@@ -100,7 +100,7 @@ impl Pane {
     ///
     /// This forwards directly to [`Buffer::push_styled_text`]. Read those docs for more.
     #[inline]
-    pub fn push_styled_text(&mut self, text: &str, style: Style) {
+    pub fn push_styled_text(&mut self, text: &str, style: impl Into<Style>) {
         self.buffer.push_styled_text(text, style);
     }
 

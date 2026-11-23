@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Preview pane / buffer methods `Buffer::{push_styled_str, push_styled_text, push_styled_line}` and `Pane::push_styled_text` now accept `impl Into<Style>` instead of just `Style`.
+  This may cause generic calling code to break.
+
 ## [0.13.0] - 2026-11-23
 
 This is a huge release.

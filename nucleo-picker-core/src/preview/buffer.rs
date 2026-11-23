@@ -200,7 +200,8 @@ impl Buffer {
     /// # Panics
     ///
     /// Panics without modifying the buffer if `text` contains a newline.
-    pub fn push_styled_str(&mut self, text: &str, style: Style) {
+    pub fn push_styled_str(&mut self, text: &str, style: impl Into<Style>) {
+        let style = style.into();
         assert!(
             memchr(b'\n', text.as_bytes()).is_none(),
             "segments must not contain LF; use newline()"
@@ -268,7 +269,8 @@ impl Buffer {
     /// assert!(buffer.lines().map(|line| line.as_str()).eq(["a", "b␉c", ""]));
     /// assert!(buffer.line(1).unwrap().spans().eq([style.apply("b␉c")]));
     /// ```
-    pub fn push_styled_text(&mut self, text: &str, style: Style) {
+    pub fn push_styled_text(&mut self, text: &str, style: impl Into<Style>) {
+        let style = style.into();
         for chunk in text.split_inclusive('\n') {
             let (line, newline) = match chunk.strip_suffix('\n') {
                 Some(line) => (line.trim_suffix('\r'), true),
@@ -329,7 +331,7 @@ impl Buffer {
     ///
     /// Panics before modifying the buffer if `text` contains a newline.
     #[inline]
-    pub fn push_styled_line(&mut self, text: &str, style: Style) {
+    pub fn push_styled_line(&mut self, text: &str, style: impl Into<Style>) {
         self.push_styled_str(text, style);
         self.newline();
     }
