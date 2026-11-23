@@ -209,6 +209,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
     #[inline]
     fn finish_line<S: Surface>(
         surface: &mut S,
+        row: &mut u16,
         remaining: u16,
         style: Style,
         fill_highlight: bool,
@@ -216,14 +217,17 @@ impl<'a, P: Processor> Spanned<'a, P> {
         if fill_highlight {
             surface.spaces(remaining, style)?;
         }
-        surface.next_line()
+        *row += 1;
+        Ok(())
     }
 
     /// Print into the rectangle with styling to match if the item is hovered or not.
     #[inline]
+    #[allow(clippy::too_many_arguments)]
     pub fn queue_print<S: Surface>(
         &self,
         surface: &mut S,
+        row: &mut u16,
         hovered: bool,
         queued: bool,
         highlight_padding: u16,
@@ -248,9 +252,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
             // computations. This should also be the typical case so it is worthwhile to use this
             // optimization
             for line in self.lines() {
-                if !fill_highlight {
-                    surface.clear_line()?;
-                }
+                surface.begin_row(*row, !fill_highlight)?;
                 Self::start_line(
                     surface,
                     hovered,
@@ -273,15 +275,13 @@ impl<'a, P: Processor> Spanned<'a, P> {
                 } else {
                     0
                 };
-                Self::finish_line(surface, remaining_capacity, style, fill_highlight)?;
+                Self::finish_line(surface, row, remaining_capacity, style, fill_highlight)?;
             }
         } else {
             let offset = self.required_offset(max_width, highlight_padding);
 
             for line in self.lines() {
-                if !fill_highlight {
-                    surface.clear_line()?;
-                }
+                surface.begin_row(*row, !fill_highlight)?;
                 Self::start_line(
                     surface,
                     hovered,
@@ -292,7 +292,7 @@ impl<'a, P: Processor> Spanned<'a, P> {
                 )?;
                 let remaining_capacity =
                     self.queue_print_line(surface, line, offset, max_width, chars, style)?;
-                Self::finish_line(surface, remaining_capacity, style, fill_highlight)?;
+                Self::finish_line(surface, row, remaining_capacity, style, fill_highlight)?;
             }
         }
         Ok(())

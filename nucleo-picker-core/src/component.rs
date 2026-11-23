@@ -67,7 +67,7 @@ pub(crate) mod tests {
             Self {
                 size: Dimensions { width, height },
                 column: 0,
-                row: 0,
+                row: height,
                 rows: vec![String::new(); usize::from(height)],
                 spans: Vec::new(),
                 moves: Vec::new(),
@@ -88,24 +88,14 @@ pub(crate) mod tests {
             self.size.height
         }
 
-        fn move_to(&mut self, column: u16, row: u16) -> Result<(), Self::Error> {
-            assert!(column < self.size.width && row < self.size.height);
-            self.touched = true;
-            self.column = column;
-            self.row = row;
-            self.moves.push((column, row));
-            Ok(())
-        }
-
-        fn move_to_column(&mut self, column: u16) -> Result<(), Self::Error> {
-            self.move_to(column, self.row)
-        }
-
-        fn next_line(&mut self) -> Result<(), Self::Error> {
-            assert!(!self.is_empty() && self.row < self.size.height);
+        fn begin_row(&mut self, row: u16, clear: bool) -> Result<(), Self::Error> {
+            assert!(self.size.width != 0 && row < self.size.height);
+            assert!(self.row == self.size.height || row > self.row);
             self.touched = true;
             self.column = 0;
-            self.row += 1;
+            self.row = row;
+            self.moves.push((0, row));
+            self.clear_calls += usize::from(clear);
             Ok(())
         }
 
@@ -136,23 +126,6 @@ pub(crate) mod tests {
         fn spaces(&mut self, width: u16, style: Style) -> Result<(), Self::Error> {
             assert!(!self.is_empty());
             self.text(&" ".repeat(usize::from(width)), style)
-        }
-
-        fn clear_line(&mut self) -> Result<(), Self::Error> {
-            self.clear_calls += 1;
-            self.move_to_column(0)?;
-            self.rows[usize::from(self.row)].clear();
-            Ok(())
-        }
-
-        fn clear(&mut self) -> Result<(), Self::Error> {
-            self.clear_calls += 1;
-            if self.is_empty() {
-                return Ok(());
-            }
-            self.move_to(0, 0)?;
-            self.rows.iter_mut().for_each(String::clear);
-            Ok(())
         }
     }
 }

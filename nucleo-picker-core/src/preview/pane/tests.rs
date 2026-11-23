@@ -172,7 +172,7 @@ fn bordered_preview_streams_rows_without_preclearing_or_interior_cursor_moves() 
     )
     .unwrap();
     assert_eq!(target.rows, ["+----+", "|hi  |", "|x   |", "+----+"]);
-    assert_eq!(target.moves, [(0, 0), (0, 3), (0, 1), (0, 2)]);
+    assert_eq!(target.moves, [(0, 0), (0, 1), (0, 2), (0, 3)]);
     assert_eq!(target.clear_calls, 0);
 }
 

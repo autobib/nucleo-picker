@@ -56,8 +56,7 @@ impl<'a, W: io::Write + ?Sized> CrosstermTarget<'a, W> {
 
     /// Initialize the rectangle.
     ///
-    /// Initialization does not perform any IO: the caller
-    /// must position the cursor explicitly before performing any writes.
+    /// Initialization does not perform any IO: the caller must position position the cursor before performing any writes.
     ///
     /// # Panics
     ///
@@ -74,7 +73,7 @@ impl<'a, W: io::Write + ?Sized> CrosstermTarget<'a, W> {
             width: area.width,
             height: area.height,
             clear,
-            row: 0,
+            row: area.height,
         }
     }
 
@@ -139,30 +138,26 @@ impl<W: io::Write + ?Sized> Surface for CrosstermSurface<'_, '_, W> {
         self.height
     }
 
-    fn move_to(&mut self, column: u16, row: u16) -> io::Result<()> {
-        debug_assert!(column < self.width() && row < self.height());
+    fn begin_row(&mut self, row: u16, clear: bool) -> io::Result<()> {
+        debug_assert!(self.width != 0 && row < self.height);
+        debug_assert!(self.row == self.height || row > self.row);
         self.target
             .writer
-            .queue(MoveTo(self.origin.column + column, self.origin.row + row))?;
+            .queue(MoveTo(self.origin.column, self.origin.row + row))?;
         self.row = row;
-        Ok(())
-    }
-
-    fn move_to_column(&mut self, column: u16) -> io::Result<()> {
-        debug_assert!(column < self.width() && self.row < self.height());
-        self.target
-            .writer
-            .queue(MoveToColumn(self.origin.column + column))?;
-        Ok(())
-    }
-
-    fn next_line(&mut self) -> io::Result<()> {
-        debug_assert!(self.width != 0 && self.row < self.height());
-        let row = self.row + 1;
-        if row < self.height() {
-            self.move_to(0, row)?;
-        } else {
-            self.row = row;
+        if clear {
+            match self.clear {
+                ClearState::Precleared => {}
+                ClearState::ToEndOfLine => {
+                    self.target.reset_style()?;
+                    self.target.writer.queue(Clear(ClearType::UntilNewLine))?;
+                }
+                ClearState::WithinRect => {
+                    self.target.reset_style()?;
+                    crate::util::write_spaces(self.target.writer, usize::from(self.width))?;
+                    self.target.writer.queue(MoveToColumn(self.origin.column))?;
+                }
+            }
         }
         Ok(())
     }
@@ -205,36 +200,6 @@ impl<W: io::Write + ?Sized> Surface for CrosstermSurface<'_, '_, W> {
             crate::util::write_spaces(self.target.writer, usize::from(width))?;
         }
         Ok(())
-    }
-
-    fn clear_line(&mut self) -> io::Result<()> {
-        self.move_to_column(0)?;
-        match self.clear {
-            ClearState::Precleared => {}
-            ClearState::ToEndOfLine => {
-                self.target.reset_style()?;
-                self.target.writer.queue(Clear(ClearType::UntilNewLine))?;
-            }
-            ClearState::WithinRect => {
-                self.target.reset_style()?;
-                crate::util::write_spaces(self.target.writer, usize::from(self.width))?;
-                self.move_to_column(0)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn clear(&mut self) -> io::Result<()> {
-        if self.is_empty() {
-            return Ok(());
-        }
-        if self.clear != ClearState::Precleared {
-            for row in 0..self.height() {
-                self.move_to(0, row)?;
-                self.clear_line()?;
-            }
-        }
-        self.move_to(0, 0)
     }
 }
 

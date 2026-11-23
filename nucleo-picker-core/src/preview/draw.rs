@@ -35,15 +35,17 @@ pub(crate) fn draw<S: Surface>(
         foreground_color: is_err.then_some(Color::DarkRed),
         ..Style::new()
     };
-    if let Some(chars) = border {
-        for (row, left, right) in [
-            (0, chars.top_left, chars.top_right),
-            (height - 1, chars.bottom_left, chars.bottom_right),
-        ]
-        .into_iter()
-        .take(usize::from(height.min(2)))
+    let inset = u16::from(border.is_some());
+    for row in 0..height {
+        surface.begin_row(row, false)?;
+        if let Some(chars) = border
+            && (row == 0 || row == height - 1)
         {
-            surface.move_to(0, row)?;
+            let (left, right) = if row == 0 {
+                (chars.top_left, chars.top_right)
+            } else {
+                (chars.bottom_left, chars.bottom_right)
+            };
             surface.text(left.encode_utf8(&mut [0; 4]), border_style)?;
             let mut remaining = content.width;
             if is_err && row == 0 && width >= 7 {
@@ -63,12 +65,8 @@ pub(crate) fn draw<S: Surface>(
             if width > 1 {
                 surface.text(right.encode_utf8(&mut [0; 4]), border_style)?;
             }
+            continue;
         }
-    }
-
-    let inset = u16::from(border.is_some());
-    for row in inset..height - inset {
-        surface.move_to(0, row)?;
         if let Some(chars) = border {
             surface.text(chars.vertical.encode_utf8(&mut [0; 4]), border_style)?;
             if width == 1 {

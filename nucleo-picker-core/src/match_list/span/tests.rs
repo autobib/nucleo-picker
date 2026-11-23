@@ -24,7 +24,15 @@ fn short_unicode_lines_draw_without_measuring_widths() {
 
     MEASURED_BYTES.set(0);
     spanned
-        .queue_print(&mut rect, false, false, 0, false, &PickerChars::new())
+        .queue_print(
+            &mut rect,
+            &mut 0,
+            false,
+            false,
+            0,
+            false,
+            &PickerChars::new(),
+        )
         .unwrap();
     assert_eq!(MEASURED_BYTES.get(), 0);
     let output = rect.rows.join("\n");

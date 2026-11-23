@@ -45,6 +45,7 @@ fn draw_single_match<
     const HOVERED: bool,
 >(
     surface: &mut S,
+    row: &mut u16,
     buffer: &mut RenderScratch,
     config: &MatchListConfig,
     item: nc::Item<'_, T>,
@@ -76,6 +77,7 @@ fn draw_single_match<
         )
         .queue_print(
             surface,
+            row,
             HOVERED,
             queued,
             config.highlight_padding,
@@ -91,6 +93,7 @@ fn draw_single_match<
         )
         .queue_print(
             surface,
+            row,
             HOVERED,
             queued,
             config.highlight_padding,
@@ -103,6 +106,7 @@ fn draw_single_match<
 #[allow(clippy::too_many_arguments)]
 fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, S: Surface>(
     surface: &mut S,
+    mut row: u16,
     buffer: &mut RenderScratch,
     config: &MatchListConfig,
     snapshot: &nc::Snapshot<T>,
@@ -116,6 +120,7 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, S: Surface>(
     for (item_height, (item, queued)) in above.iter().rev().zip(item_iter.by_ref()) {
         draw_single_match::<_, _, Tail, _, false>(
             surface,
+            &mut row,
             buffer,
             config,
             item,
@@ -133,6 +138,7 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, S: Surface>(
     let (item, queued) = unsafe { item_iter.next().unwrap_unchecked() };
     draw_single_match::<_, _, Head, _, true>(
         surface,
+        &mut row,
         buffer,
         config,
         item,
@@ -147,6 +153,7 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, S: Surface>(
     for (item_height, (item, queued)) in below[1..].iter().zip(item_iter.by_ref()) {
         draw_single_match::<_, _, Head, _, false>(
             surface,
+            &mut row,
             buffer,
             config,
             item,
@@ -161,10 +168,9 @@ fn draw_matches<'a, T: Send + Sync + 'static, R: Render<T>, S: Surface>(
     Ok(())
 }
 
-fn draw_whitespace<S: Surface>(surface: &mut S, height: u16) -> Result<(), S::Error> {
-    for _ in 0..height {
-        surface.clear_line()?;
-        surface.next_line()?;
+fn draw_whitespace<S: Surface>(surface: &mut S, rows: Range<u16>) -> Result<(), S::Error> {
+    for row in rows {
+        surface.begin_row(row, true)?;
     }
     Ok(())
 }
@@ -185,7 +191,7 @@ impl MatchListState {
         let total_whitespace = self.layout.whitespace();
 
         if matched_item_count == 0 {
-            return surface.clear();
+            return draw_whitespace(surface, 0..surface.height());
         }
 
         let items = snapshot.matches()[self.layout.visible_range(&self.config)]
@@ -194,6 +200,7 @@ impl MatchListState {
         if self.config.reversed {
             draw_matches(
                 surface,
+                0,
                 &mut self.scratch,
                 &self.config,
                 snapshot,
@@ -203,11 +210,15 @@ impl MatchListState {
                 items,
                 chars,
             )?;
-            draw_whitespace(surface, total_whitespace)?;
+            draw_whitespace(
+                surface,
+                surface.height() - total_whitespace..surface.height(),
+            )?;
         } else {
-            draw_whitespace(surface, total_whitespace)?;
+            draw_whitespace(surface, 0..total_whitespace)?;
             draw_matches(
                 surface,
+                total_whitespace,
                 &mut self.scratch,
                 &self.config,
                 snapshot,

@@ -10,7 +10,7 @@ use ratatui_core::{
 };
 
 use super::{Attributes, Color as PickerColor, Style, StyledStr, Surface};
-use crate::util::unicode::{Processor, UnicodeProcessor, grapheme_width};
+use crate::util::unicode::{Processor, UnicodeProcessor};
 
 /// A [`Surface`] adapter for Ratatui buffers.
 ///
@@ -23,7 +23,6 @@ pub struct RatatuiSurface<'a> {
     height: u16,
     column: u16,
     row: u16,
-    check_left: bool,
 }
 
 impl<'a> RatatuiSurface<'a> {
@@ -57,8 +56,7 @@ impl<'a> RatatuiSurface<'a> {
             width: area.width,
             height: area.height,
             column: 0,
-            row: 0,
-            check_left: false,
+            row: area.height,
         }
     }
 
@@ -78,29 +76,8 @@ impl<'a> RatatuiSurface<'a> {
             end <= usize::from(self.width),
             "text must fit in the drawing rectangle"
         );
-        let check_left = std::mem::take(&mut self.check_left);
         self.column = end as u16;
-        let row = self.row_mut();
-
-        // Sequential writes have already cleared intersecting glyphs. Only explicit movement
-        // can put the pen inside the trailing cells of an existing wide glyph.
-        if check_left {
-            let mut start = 0;
-            while start < column {
-                let end = (start + usize::from(row[start].cell_width().max(1))).min(row.len());
-                if end > column {
-                    row[start..end].fill(Cell::EMPTY);
-                }
-                start = end;
-            }
-        }
-        let mut start = column;
-        while start < end {
-            let next = (start + usize::from(row[start].cell_width().max(1))).min(row.len());
-            row[start..next].fill(Cell::EMPTY);
-            start = next;
-        }
-        &mut row[column..end]
+        &mut self.row_mut()[column..end]
     }
 
     fn write_text(&mut self, text: &str, mut style_at: impl FnMut(usize) -> RatatuiStyle) {
@@ -108,19 +85,11 @@ impl<'a> RatatuiSurface<'a> {
             text.is_empty() || (self.width != 0 && self.row < self.height),
             "drawing cursor is invalid"
         );
-        let mut graphemes = UnicodeProcessor::grapheme_indices(text).peekable();
+        let mut graphemes = UnicodeProcessor::grapheme_index_widths(text)
+            .filter(|&(_, width)| width != 0)
+            .peekable();
         let mut start = 0;
-        while let Some((index, grapheme)) = graphemes.next() {
-            let width = grapheme_width(grapheme);
-            if width == 0 {
-                continue;
-            }
-            while graphemes
-                .peek()
-                .is_some_and(|&(_, grapheme)| grapheme_width(grapheme) == 0)
-            {
-                graphemes.next();
-            }
+        while let Some((index, width)) = graphemes.next() {
             let end = graphemes.peek().map_or(text.len(), |&(index, _)| index);
             let symbol = &text[start..end];
             let width = u16::try_from(width).expect("grapheme must fit in the drawing rectangle");
@@ -146,26 +115,12 @@ impl Surface for RatatuiSurface<'_> {
         self.height
     }
 
-    fn move_to(&mut self, column: u16, row: u16) -> Result<(), Self::Error> {
-        assert!(column < self.width && row < self.height);
-        self.column = column;
+    fn begin_row(&mut self, row: u16, _clear: bool) -> Result<(), Self::Error> {
+        assert!(self.width != 0 && row < self.height);
+        assert!(self.row == self.height || row > self.row);
         self.row = row;
-        self.check_left = column != 0;
-        Ok(())
-    }
-
-    fn move_to_column(&mut self, column: u16) -> Result<(), Self::Error> {
-        self.move_to(column, self.row)
-    }
-
-    fn next_line(&mut self) -> Result<(), Self::Error> {
-        assert!(
-            self.width != 0 && self.row < self.height,
-            "drawing cursor is invalid"
-        );
-        self.row += 1;
         self.column = 0;
-        self.check_left = false;
+        self.row_mut().fill(Cell::EMPTY);
         Ok(())
     }
 
@@ -232,23 +187,6 @@ impl Surface for RatatuiSurface<'_> {
             }
         }
         Ok(())
-    }
-
-    fn clear_line(&mut self) -> Result<(), Self::Error> {
-        self.row_mut().fill(Cell::EMPTY);
-        self.column = 0;
-        self.check_left = false;
-        Ok(())
-    }
-
-    fn clear(&mut self) -> Result<(), Self::Error> {
-        if self.is_empty() {
-            return Ok(());
-        }
-        for row in self.cells.chunks_mut(self.stride) {
-            row[..usize::from(self.width)].fill(Cell::EMPTY);
-        }
-        self.move_to(0, 0)
     }
 }
 

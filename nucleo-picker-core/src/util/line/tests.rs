@@ -101,6 +101,7 @@ fn clipping_does_not_measure_the_hidden_suffix() {
 fn styled_output_only_visits_visible_spans_and_never_moves_the_cursor() {
     for (capacity, expected) in [(0, ""), (3, "ab~")] {
         let mut rect = TestSurface::new(3, 1);
+        rect.begin_row(0, true).unwrap();
         let spans = once(Style::new().apply("abc"))
             .take(usize::from(capacity != 0))
             .chain(std::iter::from_fn(|| panic!("visited a hidden style span")));
@@ -116,13 +117,14 @@ fn styled_output_only_visits_visible_spans_and_never_moves_the_cursor() {
         .unwrap();
         assert_eq!(remaining, 0);
         assert_eq!(rect.rows[0], expected);
-        assert!(rect.moves.is_empty());
+        assert_eq!(rect.moves, [(0, 0)]);
     }
 }
 
 #[test]
 fn scrolling_and_styles_can_cross_different_grapheme_boundaries() {
     let mut rect = TestSurface::new(5, 1);
+    rect.begin_row(0, true).unwrap();
     let spans = [
         Style::new().fg(Color::Red).apply("a👩"),
         Style::new().fg(Color::Blue).apply("🏽‍"),

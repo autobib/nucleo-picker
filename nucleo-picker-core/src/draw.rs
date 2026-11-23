@@ -41,13 +41,15 @@ pub use ratatui::RatatuiSurface;
 /// In order to reduce the number of calls required to actually draw, any draws to a rectangle must
 /// uphold the following invariants:
 ///
-/// 1. The content is assumed to be dirty. Any row clears *must precede* drawing that row, and
-///    whole-rectangle clears *must precede* any writes.
-/// 2. Ordinary writes may overwrite earlier writes.
-/// 3. Text never wraps and is not clipped. The caller must ensure to not write text beyond the
+/// 1. Content must be written one row at a time by calling [`begin_row`](Surface::begin_row)
+///    before writing. Rows must be written in strictly increasing order and contiguously from
+///    column zero without overwriting. If `clear = true` the row is assumed to be blank, and
+///    otherwise the contents of the row are unspecified and the caller must overwrite the entire
+///    row.
+/// 2. Text never wraps and is not clipped. The caller must ensure to not write text beyond the
 ///    boundary of the rectangle.
-/// 4. Coordinates and writes must fit inside the rectangle.
-/// 5. Text must not contain control characters or newlines. Graphemes must not span separate
+/// 3. Coordinates and writes must fit inside the rectangle.
+/// 4. Text must not contain control characters or newlines. Graphemes must not span separate
 ///    text calls (but may span styles within a single [`styled_text`](Self::styled_text) call).
 ///
 /// The columns and rows refer to local coordinates, indexed from `(0,0)` in the top-left corner.
@@ -71,17 +73,12 @@ pub trait Surface {
         self.width() == 0 || self.height() == 0
     }
 
-    /// Move the cursor to the rectangle-local column and row.
-    fn move_to(&mut self, column: u16, row: u16) -> Result<(), Self::Error>;
-
-    /// Move the cursor to the rectangle-local column.
-    fn move_to_column(&mut self, column: u16) -> Result<(), Self::Error>;
-
-    /// Advance to the next row and put the cursor at column 0.
+    /// Begin writing a row at column zero.
     ///
-    /// Attempting to advance past the last row invalidates the cursor. The cursor must be reset
-    /// with [`move_to`](Self::move_to) before continuing.
-    fn next_line(&mut self) -> Result<(), Self::Error>;
+    /// Rows must be written in strictly increasing order. The `clear` bool requests if the row
+    /// should be cleared before writing starts; if `clear = false` the contents of the row are
+    /// unspecified.
+    fn begin_row(&mut self, row: u16, clear: bool) -> Result<(), Self::Error>;
 
     /// Print the given text at the cursor position.
     ///
@@ -111,17 +108,6 @@ pub trait Surface {
 
     /// Write some number of spaces in the given style.
     fn spaces(&mut self, width: u16, style: Style) -> Result<(), Self::Error>;
-
-    /// Overwrite the current row with blanks and move the cursor to column 0.
-    ///
-    /// This function must be called *before any writes to the current line*.
-    fn clear_line(&mut self) -> Result<(), Self::Error>;
-
-    /// Overwrite the entire rectangle with blanks and move the cursor to the origin.
-    ///
-    /// This function must be called *before any writes to this rectangle*. Implementations may
-    /// decide that clearing an empty surface does nothing.
-    fn clear(&mut self) -> Result<(), Self::Error>;
 }
 
 #[cfg(test)]

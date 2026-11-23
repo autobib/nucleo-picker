@@ -126,7 +126,7 @@ impl Component for Prompt<'_> {
         if surface.is_empty() {
             return Ok(());
         }
-        surface.clear_line()?;
+        surface.begin_row(0, true)?;
         surface.text(self.chars.prompt.encode_utf8(&mut [0; 4]), Style::new())?;
 
         if surface.width() >= 2 {

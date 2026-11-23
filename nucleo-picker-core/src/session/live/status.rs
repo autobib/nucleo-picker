@@ -68,7 +68,6 @@ impl<T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Draw
         if surface.is_empty() || !self.session.active_components.status {
             return Ok(());
         }
-        surface.move_to(0, 0)?;
         self.session.status_line.draw(surface)
     }
 }

@@ -121,8 +121,10 @@ fn draw_match_counts<S: Surface>(
         }
     }
 
-    if occupied > usize::from(width) {
-        return surface.clear_line();
+    let clear = occupied > usize::from(width);
+    surface.begin_row(0, clear)?;
+    if clear {
+        return Ok(());
     }
 
     let counts = Style::new().italic().fg(Color::Green);

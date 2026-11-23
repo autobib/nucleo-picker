@@ -22,7 +22,7 @@ impl RecordingSurface {
         Self {
             width,
             height,
-            row: 0,
+            row: height,
             column: 0,
             runs: Vec::new(),
         }
@@ -40,20 +40,10 @@ impl Surface for RecordingSurface {
         self.height
     }
 
-    fn move_to(&mut self, column: u16, row: u16) -> Result<(), Self::Error> {
-        assert!(column < self.width && row < self.height);
+    fn begin_row(&mut self, row: u16, _clear: bool) -> Result<(), Self::Error> {
+        assert!(self.width != 0 && row < self.height);
+        assert!(self.row == self.height || row > self.row);
         self.row = row;
-        self.column = column;
-        Ok(())
-    }
-
-    fn move_to_column(&mut self, column: u16) -> Result<(), Self::Error> {
-        self.move_to(column, self.row)
-    }
-
-    fn next_line(&mut self) -> Result<(), Self::Error> {
-        assert!(self.width != 0 && self.row < self.height);
-        self.row += 1;
         self.column = 0;
         Ok(())
     }
@@ -96,21 +86,6 @@ impl Surface for RecordingSurface {
 
     fn spaces(&mut self, width: u16, style: Style) -> Result<(), Self::Error> {
         self.text(&" ".repeat(usize::from(width)), style)
-    }
-
-    fn clear_line(&mut self) -> Result<(), Self::Error> {
-        assert!(self.width != 0 && self.row < self.height);
-        self.column = 0;
-        Ok(())
-    }
-
-    fn clear(&mut self) -> Result<(), Self::Error> {
-        if self.is_empty() {
-            return Ok(());
-        }
-        self.row = 0;
-        self.column = 0;
-        Ok(())
     }
 }
 

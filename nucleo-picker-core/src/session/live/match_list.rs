@@ -76,7 +76,6 @@ impl<T: Send + Sync + 'static, R: Render<T>, I: Interface<T>> Draw
         if surface.is_empty() || !self.session.active_components.match_list {
             return Ok(());
         }
-        surface.move_to(0, 0)?;
         self.session.list().draw(surface)
     }
 }

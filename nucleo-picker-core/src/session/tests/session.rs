@@ -125,11 +125,22 @@ fn host_presentation_changes_do_not_invalidate_session_content() {
         frame.status().resize(size);
         frame.preview().border(BoundaryChars::ascii()).resize(size);
         assert!(!frame.changed());
-        let mut surface = TestSurface::new(width, height);
-        frame.prompt().draw(&mut surface).unwrap();
-        frame.match_list().draw(&mut surface).unwrap();
-        frame.status().draw(&mut surface).unwrap();
-        frame.preview().draw(&mut surface).unwrap();
+        frame
+            .prompt()
+            .draw(&mut TestSurface::new(width, height))
+            .unwrap();
+        frame
+            .match_list()
+            .draw(&mut TestSurface::new(width, height))
+            .unwrap();
+        frame
+            .status()
+            .draw(&mut TestSurface::new(width, height))
+            .unwrap();
+        frame
+            .preview()
+            .draw(&mut TestSurface::new(width, height))
+            .unwrap();
         assert!(!frame.changed());
         assert!(frame.redraw().is_none());
         frame.complete();
@@ -559,12 +570,15 @@ fn hidden_components_do_not_paint_nonempty_targets_or_expose_a_cursor() {
     for active in [Components::NONE, Components::ALL] {
         session.events().set_active_components(active);
         let mut frame = session.prepare_frame(frame_options());
-        let mut surface = TestSurface::new(20, 5);
-        frame.prompt().draw(&mut surface).unwrap();
-        frame.match_list().draw(&mut surface).unwrap();
-        frame.status().draw(&mut surface).unwrap();
-        frame.preview().draw(&mut surface).unwrap();
-        assert_eq!(!surface.touched, active.is_none());
+        let mut surfaces: [TestSurface; 4] = std::array::from_fn(|_| TestSurface::new(20, 5));
+        let [prompt, list, status, preview] = &mut surfaces;
+        frame.prompt().draw(prompt).unwrap();
+        frame.match_list().draw(list).unwrap();
+        frame.status().draw(status).unwrap();
+        frame.preview().draw(preview).unwrap();
+        for surface in surfaces {
+            assert_eq!(!surface.touched, active.is_none());
+        }
         assert_eq!(frame.prompt().cursor().is_some(), active.prompt);
         frame.complete();
     }
@@ -615,21 +629,11 @@ fn a_failed_paint_can_be_retried_without_repeating_frame_hooks_or_preview_resize
             self.surface.height()
         }
 
-        fn move_to(&mut self, column: u16, row: u16) -> io::Result<()> {
+        fn begin_row(&mut self, row: u16, clear: bool) -> io::Result<()> {
             if std::mem::take(&mut self.fail) {
                 return Err(io::Error::other("paint failed"));
             }
-            self.surface.move_to(column, row).unwrap();
-            Ok(())
-        }
-
-        fn move_to_column(&mut self, column: u16) -> io::Result<()> {
-            self.surface.move_to_column(column).unwrap();
-            Ok(())
-        }
-
-        fn next_line(&mut self) -> io::Result<()> {
-            self.surface.next_line().unwrap();
+            self.surface.begin_row(row, clear).unwrap();
             Ok(())
         }
 
@@ -649,16 +653,6 @@ fn a_failed_paint_can_be_retried_without_repeating_frame_hooks_or_preview_resize
 
         fn spaces(&mut self, width: u16, style: Style) -> io::Result<()> {
             self.surface.spaces(width, style).unwrap();
-            Ok(())
-        }
-
-        fn clear_line(&mut self) -> io::Result<()> {
-            self.surface.clear_line().unwrap();
-            Ok(())
-        }
-
-        fn clear(&mut self) -> io::Result<()> {
-            self.surface.clear().unwrap();
             Ok(())
         }
     }

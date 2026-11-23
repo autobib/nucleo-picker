@@ -35,35 +35,6 @@ fn assert_outside_unchanged(buffer: &Buffer, area: Rect, expected: &Cell) {
 }
 
 #[test]
-fn construction_and_movement_use_rectangle_local_coordinates() {
-    let mut buffer = Buffer::filled(Rect::new(5, 7, 10, 5), dirty_cell());
-    let area = Rect::new(7, 8, 6, 3);
-    {
-        let mut rect = RatatuiSurface::new(&mut buffer, area);
-        assert_eq!(rect.width(), 6);
-        assert_eq!(rect.height(), 3);
-        assert!(!rect.is_empty());
-        rect.move_to(3, 1).unwrap();
-        rect.text("a", Style::new()).unwrap();
-        rect.move_to_column(1).unwrap();
-        rect.text("b", Style::new()).unwrap();
-        rect.next_line().unwrap();
-        rect.text("123456", Style::new()).unwrap();
-        rect.next_line().unwrap();
-        rect.move_to(0, 0).unwrap();
-        rect.text("c", Style::new()).unwrap();
-    }
-    assert_eq!(buffer[(10, 9)], Cell::new("a"));
-    assert_eq!(buffer[(8, 9)], Cell::new("b"));
-    assert_eq!(buffer[(7, 8)], Cell::new("c"));
-    for (x, ch) in (7..13).zip("123456".chars()) {
-        assert_eq!(buffer[(x, 10)], Cell::from(ch));
-    }
-    assert_eq!(buffer[(12, 8)], dirty_cell());
-    assert_outside_unchanged(&buffer, area, &dirty_cell());
-}
-
-#[test]
 fn empty_rectangles_preserve_dimensions_and_leave_buffers_unchanged() {
     for bounds in [
         Rect::new(5, 7, 10, 5),
@@ -80,12 +51,10 @@ fn empty_rectangles_preserve_dimensions_and_leave_buffers_unchanged() {
             Rect::new(bounds.x, bounds.bottom(), bounds.width, 0),
             Rect::new(bounds.right(), bounds.bottom(), 0, 0),
         ] {
-            let mut rect = RatatuiSurface::new(&mut buffer, area);
+            let rect = RatatuiSurface::new(&mut buffer, area);
             assert_eq!(rect.width(), area.width);
             assert_eq!(rect.height(), area.height);
             assert!(rect.is_empty());
-            rect.clear().unwrap();
-            rect.clear().unwrap();
             assert_eq!(buffer, before);
         }
     }
@@ -114,15 +83,14 @@ fn construction_requires_containment_even_for_empty_rectangles() {
 }
 
 #[test]
-fn clears_reset_only_the_assigned_cells_and_spaces_paint_their_style() {
+fn row_starts_reset_only_the_assigned_cells_and_spaces_paint_their_style() {
     let mut buffer = Buffer::filled(Rect::new(5, 7, 10, 5), dirty_cell());
     let area = Rect::new(7, 8, 6, 3);
     {
         let mut rect = RatatuiSurface::new(&mut buffer, area);
-        rect.move_to(4, 1).unwrap();
-        rect.clear_line().unwrap();
+        rect.begin_row(1, true).unwrap();
         rect.text("x", Style::new()).unwrap();
-        rect.next_line().unwrap();
+        rect.begin_row(2, true).unwrap();
         rect.spaces(3, Style::new().bg(PickerColor::DarkRed))
             .unwrap();
     }
@@ -135,12 +103,17 @@ fn clears_reset_only_the_assigned_cells_and_spaces_paint_their_style() {
         expected.set_bg(Color::Red);
         assert_eq!(buffer[(x, 10)], expected);
     }
-    assert_eq!(buffer[(10, 10)], dirty_cell());
+    assert_eq!(buffer[(10, 10)], Cell::EMPTY);
+    for x in 7..13 {
+        assert_eq!(buffer[(x, 8)], dirty_cell());
+    }
     assert_outside_unchanged(&buffer, area, &dirty_cell());
 
     let mut rect = RatatuiSurface::new(&mut buffer, area);
-    rect.clear().unwrap();
+    rect.begin_row(0, true).unwrap();
     rect.text("y", Style::new()).unwrap();
+    rect.begin_row(1, true).unwrap();
+    rect.begin_row(2, true).unwrap();
     for y in 8..11 {
         for x in 7..13 {
             let expected = if (x, y) == (7, 8) {
@@ -159,6 +132,7 @@ fn styled_text_segments_the_whole_source_and_uses_each_graphemes_first_style() {
     let area = Rect::new(3, 4, 4, 1);
     let mut buffer = Buffer::filled(area, dirty_cell());
     let mut rect = RatatuiSurface::new(&mut buffer, area);
+    rect.begin_row(0, false).unwrap();
     rect.styled_text(
         "e\u{301}👩🏽‍💻x",
         [
@@ -204,6 +178,7 @@ fn zero_width_graphemes_are_preserved_without_advancing_past_the_edge() {
     let area = Rect::new(0, 0, 3, 1);
     let mut buffer = Buffer::empty(area);
     let mut rect = RatatuiSurface::new(&mut buffer, area);
+    rect.begin_row(0, false).unwrap();
     rect.text("\u{200b}界\u{200b}x\u{200b}", Style::new())
         .unwrap();
     rect.text("\u{200b}", Style::new().fg(PickerColor::Red))
@@ -232,6 +207,7 @@ fn buffer_diff_uses_surface_widths_including_halfwidth_kana() {
     let before = Buffer::empty(area);
     let mut buffer = before.clone();
     let mut rect = RatatuiSurface::new(&mut buffer, area);
+    rect.begin_row(0, false).unwrap();
     rect.text("ｶﾞxلا\u{17d8}!", Style::new()).unwrap();
     let changes: Vec<_> = before
         .diff_iter(&buffer)
@@ -255,39 +231,11 @@ fn buffer_diff_uses_surface_widths_including_halfwidth_kana() {
 }
 
 #[test]
-fn overwriting_wide_glyphs_clears_their_entire_footprints() {
-    let area = Rect::new(2, 1, 8, 1);
-    let mut buffer = Buffer::filled(Rect::new(0, 0, 12, 3), dirty_cell());
-    {
-        let mut rect = RatatuiSurface::new(&mut buffer, area);
-        rect.text("a界b界cd", Style::new().bg(PickerColor::Blue))
-            .unwrap();
-        rect.move_to_column(2).unwrap();
-        rect.text("X", Style::new()).unwrap();
-        rect.move_to_column(3).unwrap();
-        rect.ascii(format_args!("YZ"), Style::new()).unwrap();
-        rect.move_to_column(6).unwrap();
-        rect.text("界", Style::new()).unwrap();
-        rect.move_to_column(7).unwrap();
-        rect.spaces(1, Style::new().bg(PickerColor::DarkGreen))
-            .unwrap();
-    }
-    assert_eq!(buffer[(2, 1)].symbol(), "a");
-    assert_eq!(buffer[(2, 1)].bg, Color::LightBlue);
-    for (column, symbol) in [(1, " "), (2, "X"), (3, "Y"), (4, "Z"), (5, " "), (6, " ")] {
-        assert_eq!(buffer[(2 + column, 1)], Cell::new(symbol));
-    }
-    let mut expected = Cell::EMPTY;
-    expected.set_bg(Color::Green);
-    assert_eq!(buffer[(9, 1)], expected);
-    assert_outside_unchanged(&buffer, area, &dirty_cell());
-}
-
-#[test]
 fn formatting_streams_padding_and_numbers_with_complete_styles() {
     let area = Rect::new(2, 3, 7, 1);
     let mut buffer = Buffer::filled(area, dirty_cell());
     let mut rect = RatatuiSurface::new(&mut buffer, area);
+    rect.begin_row(0, false).unwrap();
     rect.ascii(
         format_args!("{:>5}/{}", 123, 9),
         Style::new().italic().fg(PickerColor::Green),
@@ -332,6 +280,7 @@ fn colors_preserve_palette_intensity_rgb_and_indexed_values() {
         let area = Rect::new(0, 0, 2, 1);
         let mut buffer = Buffer::filled(area, dirty_cell());
         let mut rect = RatatuiSurface::new(&mut buffer, area);
+        rect.begin_row(0, false).unwrap();
         rect.text(
             "x",
             Style::new().fg(source).bg(source).underline_color(source),
@@ -365,6 +314,7 @@ fn attribute_removals_and_underline_variants_are_projected_to_modifiers() {
         style.attributes.insert(attribute);
     }
     let mut rect = RatatuiSurface::new(&mut buffer, area);
+    rect.begin_row(0, false).unwrap();
     rect.text("x", style).unwrap();
     for attribute in [
         Attributes::BOLD,
