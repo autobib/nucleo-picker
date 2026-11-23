@@ -13,9 +13,9 @@ edition = "2024"
 rust-version = "1.100"
 
 [workspace.dependencies]
-nucleo-picker = { path = ".", version = "0.13.0" }
-nucleo-picker-core = { path = "nucleo-picker-core", version = "0.1.0" }
-nucleo-picker-interface = { path = "nucleo-picker-interface", version = "0.1.0" }
+nucleo-picker = { path = ".", version = "0.14.0" }
+nucleo-picker-core = { path = "nucleo-picker-core", version = "0.2.0" }
+nucleo-picker-interface = { path = "nucleo-picker-interface", version = "0.2.0" }
 crossbeam = "0.8.4"
 crossterm = "0.29.0"
 ignore = "0.4"
@@ -45,7 +45,7 @@ name = "nucleo-picker"
 readme.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-version = "0.13.0"
+version = "0.14.0"
 
 [package.metadata.docs.rs]
 all-features = true
