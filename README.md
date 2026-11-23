@@ -27,6 +27,9 @@ This library sits between a general-purpose fuzzy-finder (such as `fzf`) and a l
    `nucleo-picker` exposes a fully-featured [event system](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/) which can be used to drive the picker.
    This lets you [*customize keybindings*](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/struct.StdinReader.html), support [*interactive restarts*](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/enum.Event.html#restart), and much more by implementing the [`EventSource`](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/trait.EventSource.html) trait.
    Versions of such features are available in [fzf](https://github.com/junegunn/fzf) but require manual configuration via an embedded DSL.
+6. **Integrate into a larger application.**
+   This library provides an externally-driven API which makes it easy to integrate the picker into a larger application.
+   In particular, there is optional support for [Ratatui](https://ratatui.rs/) to render components directly as widgets as part of a larger interface.
 
 ## Features
 
@@ -48,6 +51,10 @@ This library sits between a general-purpose fuzzy-finder (such as `fzf`) and a l
   - Easily customizable keybindings.
   - Run the picker concurrently with your application using a fully-featured [event system](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/), with optional support for complex features such as [*interactive restarting*](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/enum.Event.html#restart).
   - Optional and flexible [error propagation generics](https://docs.rs/nucleo-picker/latest/nucleo_picker/event/enum.Event.html#application-defined-abort) so your application errors can interface cleanly with the picker.
+- Externally-driven API for integration into a larger application
+  - This allows picker components to co-exist in a larger terminal application.
+  - Optional support for [Ratatui](https://ratatui.rs/) (with the `ratatui` feature enabled)
+  - Allows full customization of the frame and event loop from convenient building-blocks.
 
 ## Example
 Implement a heavily simplified `fzf` clone in 25 lines of code.
