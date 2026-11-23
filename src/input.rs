@@ -2,7 +2,7 @@ use std::{
     io::{self, BufWriter, IsTerminal},
     marker::PhantomData,
     sync::mpsc::Sender,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crossterm::event::{Event as CrosstermEvent, KeyEvent, poll, read};
@@ -155,10 +155,16 @@ impl<A, F: FnMut(KeyEvent) -> Option<Event<A>>> EventSource for StdinReader<A, F
     type AbortErr = A;
 
     fn recv_timeout(&mut self, duration: Duration) -> Result<Event<A>, RecvError> {
-        if poll(duration)?
-            && let Some(event) = convert_crossterm_event(read()?, &mut self.keybind)
-        {
-            return Ok(event);
+        let start = Instant::now();
+        let mut remaining = duration;
+        while poll(remaining)? {
+            if let Some(event) = convert_crossterm_event(read()?, &mut self.keybind) {
+                return Ok(event);
+            }
+            remaining = duration.saturating_sub(start.elapsed());
+            if remaining.is_zero() {
+                break;
+            }
         }
         Err(RecvError::Timeout)
     }
