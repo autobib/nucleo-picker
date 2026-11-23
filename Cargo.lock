@@ -219,9 +219,9 @@ dependencies = [
 
 [[package]]
 name = "cookie"
-version = "0.18.2"
+version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a373e3602691c3cdea496d2f0ee5935151e6168fe87739483c463db1b2f2f87"
+checksum = "d55f2d6c30eeec7d5c6f98bd4395d4abb1895629eab97ee6522d340623615f8a"
 dependencies = [
  "percent-encoding",
  "time",
@@ -532,9 +532,9 @@ dependencies = [
 
 [[package]]
 name = "globset"
-version = "0.4.21"
+version = "0.4.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f98b0d85522dc0a824cfebbc9594ff4a9b289c568bea0370319dfbdf20ccdd2d"
+checksum = "71217a07f20b48b4938c14203b77b610f8a7fa6762c3f75394a10c5f31e5aee0"
 dependencies = [
  "aho-corasick",
  "bstr",
@@ -688,9 +688,9 @@ dependencies = [
 
 [[package]]
 name = "ignore"
-version = "0.4.34"
+version = "0.4.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "484be5657551d7868d67587df967fb4fcbe9d266a761cc855aaa148fda0b3cc7"
+checksum = "df0a7d5f105e76bda602bed0a44af048542d3c9af12ec35aaf16f106c6f34270"
 dependencies = [
  "crossbeam-deque",
  "globset",
@@ -912,9 +912,9 @@ dependencies = [
 
 [[package]]
 name = "ncp-engine"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb8235fa3e23f1e3a3b576472914034adc3f3d2abcb3206d4002b9049554c7fb"
+checksum = "06ff4b6d86eeb7d83a45a13ed1cc99523a1b7f3aa84f077a3d82018b58a60ae7"
 dependencies = [
  "ncp-matcher",
  "parking_lot 0.13.0",
@@ -923,9 +923,9 @@ dependencies = [
 
 [[package]]
 name = "ncp-matcher"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a59b32077d1a9977a6f9b46f5407345af5935d0143eab01eb4f1861f63496655"
+checksum = "272933f305f39cd4f39b94f2ffe31f9e0ab04b8d90e39404f036ca752c9bf769"
 dependencies = [
  "memchr",
  "unicode-normalization",
